@@ -1,0 +1,15 @@
+{
+  "name": "descartes-electron",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shell Electron fino para Descartes 2.0 (UI en servidor + perifericos locales)",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron . --dev",
+    "dev": "electron . --dev",
+    "dev:tools": "electron . --dev --devtools"
+  },
+  "devDependencies": {
+    "electron": "^35.0.0"
+  }
+}

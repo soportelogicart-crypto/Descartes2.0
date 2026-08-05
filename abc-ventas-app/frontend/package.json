@@ -1,0 +1,26 @@
+{
+  "name": "abc-ventas-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "abc-ventas-app": "file:..",
+    "jspdf": "^3.0.1",
+    "jspdf-autotable": "^5.0.2",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11",
+    "vite-plugin-pwa": "^1.3.0",
+    "vue-tsc": "^2.2.0"
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "name": "abc-ventas-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Listado ABC Ventas — Electron + Node + SQL Server",
+  "author": "Descartes",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "electron . --dev",
+    "dev:tools": "electron . --dev --devtools",
+    "dev:ui": "npm --prefix frontend run dev",
+    "build:ui": "npm --prefix frontend run build",
+    "start": "electron .",
+    "dist": "npm run build:ui && electron-builder --win nsis",
+    "dist:dir": "npm run build:ui && electron-builder --win dir"
+  },
+  "dependencies": {
+    "mssql": "^11.0.1"
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.descartes.abcventas",
+    "productName": "ABC Ventas",
+    "copyright": "Copyright © Descartes",
+    "directories": {
+      "output": "dist-install",
+      "buildResources": "icono"
+    },
+    "files": [
+      "electron/**/*",
+      "frontend/dist/**/*",
+      "icono/icono.ico",
+      "config.example.json",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "config.example.json",
+        "to": "config.example.json"
+      }
+    ],
+    "win": {
+      "icon": "icono/icono.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "icono/icono.ico",
+      "uninstallerIcon": "icono/icono.ico",
+      "installerHeaderIcon": "icono/icono.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ABC Ventas",
+      "artifactName": "ABC-Ventas-Setup-${version}.${ext}"
+    },
+    "asar": true
+  }
+}

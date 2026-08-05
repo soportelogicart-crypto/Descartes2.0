@@ -1,0 +1,637 @@
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue'
+import { api } from '@/api/client'
+import { extractApiError, useMantenimiento } from '@/composables/useMantenimiento'
+import { usePermisos } from '@/composables/usePermisos'
+import {
+  aplicarFiltrosColumnas,
+  filtrosIniciales,
+  type ColumnFilter,
+} from '@/composables/useGridColumnFilters'
+import {
+  articuloFilaVacia,
+  clonarArticuloFila,
+  type ArticuloFila,
+} from '@/config/articulos-columns'
+import { articuloTabs, articuloVacio, validarArticuloObligatorios } from '@/config/articulos-tabs'
+import ArticulosGrid from '@/components/articulos/ArticulosGrid.vue'
+import ArticuloToolbar from '@/components/articulos/ArticuloToolbar.vue'
+import ArticuloTabForm from '@/components/articulos/ArticuloTabForm.vue'
+import ArticuloSidePanels from '@/components/articulos/ArticuloSidePanels.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
+
+const MODULO = 'articulos'
+const ENTIDAD = 'articulos'
+const FILTER_KEYS = ['codigo', 'descripcion', 'familia', 'impuestoCodigo', 'proveedorHabitual', 'precioVen1']
+/** Campos de texto cuyo valor se envía al API como `q` (no solo filtra lo cargado en pantalla). */
+const SERVER_SEARCH_KEYS = ['descripcion', 'codigo', 'familia', 'proveedorHabitual', 'impuestoCodigo']
+
+const { puede } = usePermisos()
+const { items, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(() => ENTIDAD)
+
+const puedeCrear = computed(() => puede(MODULO, 'crear'))
+const puedeEditar = computed(() => puede(MODULO, 'editar'))
+const puedeEliminar = computed(() => puede(MODULO, 'eliminar'))
+const puedeVer = computed(() => puede(MODULO, 'ver'))
+
+const vista = ref<'grid' | 'ficha'>('grid')
+const filasTodas = ref<ArticuloFila[]>([])
+const filaNuevaDraft = ref<ArticuloFila>(articuloFilaVacia())
+const filtros = ref<Record<string, ColumnFilter>>(filtrosIniciales(FILTER_KEYS))
+const indiceSeleccionado = ref(0)
+const mensaje = ref<string | null>(null)
+
+const familiaOpciones = ref<{ value: string; label: string }[]>([])
+const impuestoOpciones = ref<{ value: string; label: string }[]>([])
+const proveedorOpciones = ref<{ value: string; label: string }[]>([])
+
+function etiquetaOpcion(
+  opciones: { value: string; label: string }[],
+  codigo: unknown
+): string {
+  const c = String(codigo ?? '').trim()
+  if (!c) return ''
+  const hit = opciones.find((o) => o.value === c)
+  if (!hit) return ''
+  // label "01 - BEBIDAS" -> usar parte descripcion + label completo
+  const sep = hit.label.indexOf(' - ')
+  return sep >= 0 ? hit.label.slice(sep + 3) : hit.label
+}
+
+const filas = computed<ArticuloFila[]>(() => {
+  const filtradas = aplicarFiltrosColumnas(filasTodas.value, filtros.value, {
+    extraTexto: {
+      familia: (f) => etiquetaOpcion(familiaOpciones.value, f.familia),
+      impuestoCodigo: (f) => etiquetaOpcion(impuestoOpciones.value, f.impuestoCodigo),
+      proveedorHabitual: (f) => etiquetaOpcion(proveedorOpciones.value, f.proveedorHabitual),
+    },
+  }) as ArticuloFila[]
+  if (!puedeCrear.value) return filtradas
+  return [...filtradas, filaNuevaDraft.value]
+})
+
+watch(filas, (lista) => {
+  if (indiceSeleccionado.value >= lista.length) {
+    indiceSeleccionado.value = Math.max(0, lista.length - 1)
+  }
+})
+
+const filaSeleccionada = computed(() => filas.value[indiceSeleccionado.value] ?? null)
+const puedeMostrarEliminar = computed(
+  () => puedeEliminar.value && filaSeleccionada.value && !filaSeleccionada.value._nuevo
+)
+
+const tabActiva = ref(articuloTabs[0].id)
+const modoEdicion = ref(false)
+const esNuevo = ref(false)
+const ficha = ref<Record<string, unknown>>({})
+const indiceFicha = ref(-1)
+
+const tabSeleccionada = computed(() => articuloTabs.find((t) => t.id === tabActiva.value) ?? articuloTabs[0])
+const soloLecturaFicha = computed(() => !modoEdicion.value && !esNuevo.value)
+
+function quitarFilaNueva() {
+  filaNuevaDraft.value = articuloFilaVacia()
+  indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
+}
+
+onMounted(async () => {
+  if (!puedeVer.value) return
+  await cargarOpciones()
+  await cargar()
+})
+
+async function cargarOpciones() {
+  const [familiasRes, impuestosRes, proveedoresRes] = await Promise.all([
+    api.get('/api/mantenimiento/familias', { params: { pageSize: 500 } }),
+    api.get('/api/mantenimiento/impuestos', { params: { activo: true, pageSize: 100 } }),
+    api.get('/api/mantenimiento/proveedores', { params: { activo: true, pageSize: 500 } }),
+  ])
+  familiaOpciones.value = (familiasRes.data.items ?? []).map((f: { codigo: string; descripcion: string }) => ({
+    value: String(f.codigo).trim(),
+    label: `${String(f.codigo).trim()} - ${f.descripcion}`,
+  }))
+  impuestoOpciones.value = (impuestosRes.data.items ?? []).map((i: { codigo: string; descripcion: string }) => ({
+    value: String(i.codigo).trim(),
+    label: `${String(i.codigo).trim()} - ${i.descripcion}`,
+  }))
+  proveedorOpciones.value = (proveedoresRes.data.items ?? []).map((p: { codigo: string; nombre: string }) => ({
+    value: String(p.codigo).trim(),
+    label: `${String(p.codigo).trim()} - ${p.nombre}`,
+  }))
+}
+
+function mapFilasDesdeApi() {
+  filasTodas.value = items.value.map((item) => clonarArticuloFila(item))
+}
+
+/** Texto activo del embudo para buscar en servidor (Codigo / Descripcion / Alternativo). */
+function textoBusquedaServidor(): string {
+  const opsConBusqueda = new Set(['contiene', 'comienza', 'finaliza', 'igual'])
+  for (const key of SERVER_SEARCH_KEYS) {
+    const f = filtros.value[key]
+    if (!f || !opsConBusqueda.has(f.operador)) continue
+    const v = String(f.valor ?? '').trim()
+    if (v) return v
+  }
+  return ''
+}
+
+let ultimaQServidor = ''
+let cargaSeq = 0
+
+async function cargar(opts?: { silent?: boolean }) {
+  mensaje.value = null
+  const q = textoBusquedaServidor()
+  ultimaQServidor = q
+  const seq = ++cargaSeq
+  await listar({ page: 1, pageSize: 500, ...(q ? { q } : {}) }, { silent: opts?.silent === true })
+  if (seq !== cargaSeq) return
+  mapFilasDesdeApi()
+  filaNuevaDraft.value = articuloFilaVacia()
+  indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
+}
+
+function buscarServidorAhora() {
+  if (debounceFiltros) clearTimeout(debounceFiltros)
+  void cargar({ silent: true })
+}
+
+let debounceFiltros: ReturnType<typeof setTimeout> | null = null
+watch(
+  () =>
+    SERVER_SEARCH_KEYS.map((k) => {
+      const f = filtros.value[k]
+      return `${f?.operador ?? ''}|${f?.valor ?? ''}`
+    }).join('||'),
+  () => {
+    if (debounceFiltros) clearTimeout(debounceFiltros)
+    debounceFiltros = setTimeout(() => {
+      const q = textoBusquedaServidor()
+      if (q === ultimaQServidor) return
+      void cargar({ silent: true })
+    }, 500)
+  }
+)
+
+const {
+  confirmOpen,
+  confirmMessage,
+  solicitarEliminar,
+  confirmarEliminar,
+  cancelarEliminar,
+} = useEliminarFilaGrid({
+  puedeEliminar,
+  filaSeleccionada,
+  eliminarApi: eliminar,
+  recargar: cargar,
+  quitarFilaNueva,
+  setMensaje: (msg) => {
+    mensaje.value = msg
+  },
+  etiquetaEntidad: 'el articulo',
+  mensajeExito: 'Articulo eliminado',
+})
+
+function seleccionar(index: number) {
+  indiceSeleccionado.value = index
+}
+
+function onListado() {
+  window.print()
+}
+
+async function abrirFichaPorCodigo(codigo: string) {
+  try {
+    ficha.value = await obtener(codigo)
+    if (ficha.value.precioVen1 == null && ficha.value.precioVenta != null) {
+      ficha.value.precioVen1 = ficha.value.precioVenta
+    }
+    indiceFicha.value = filas.value.findIndex((f) => String(f.codigo) === codigo)
+    modoEdicion.value = false
+    esNuevo.value = false
+    tabActiva.value = 'general'
+    vista.value = 'ficha'
+    mensaje.value = null
+  } catch (e: unknown) {
+    mensaje.value = extractApiError(e, 'No se pudo cargar la ficha')
+  }
+}
+
+async function abrirFicha(index?: number) {
+  const idx = index ?? indiceSeleccionado.value
+  const fila = filas.value[idx]
+  if (!fila || fila._nuevo || !fila.codigo) {
+    mensaje.value = 'Seleccione un articulo existente para abrir la ficha'
+    return
+  }
+  await abrirFichaPorCodigo(String(fila.codigo))
+}
+
+function onNuevoFicha() {
+  if (!puedeCrear.value) return
+  ficha.value = articuloVacio()
+  esNuevo.value = true
+  modoEdicion.value = true
+  indiceFicha.value = -1
+  tabActiva.value = 'general'
+  vista.value = 'ficha'
+}
+
+function onModificarFicha() {
+  if (!puedeEditar.value || !ficha.value.codigo) return
+  modoEdicion.value = true
+}
+
+async function onGuardarFicha() {
+  const errorValidacion = validarArticuloObligatorios(ficha.value)
+  if (errorValidacion) {
+    mensaje.value = errorValidacion
+    return
+  }
+  try {
+    if (ficha.value.precioVen1 != null) ficha.value.precioVenta = ficha.value.precioVen1
+    if (esNuevo.value) {
+      const creado = await crear(ficha.value)
+      mensaje.value = 'Articulo creado correctamente'
+      await cargar()
+      const idx = filas.value.findIndex((a) => String(a.codigo) === String(creado.codigo))
+      if (idx >= 0) await abrirFicha(idx)
+      else volverAlGrid()
+    } else {
+      await actualizar(String(ficha.value.codigo), ficha.value)
+      mensaje.value = 'Articulo actualizado'
+      await cargar()
+      await abrirFichaPorCodigo(String(ficha.value.codigo))
+    }
+    modoEdicion.value = false
+    esNuevo.value = false
+  } catch (e: unknown) {
+    mensaje.value = extractApiError(e, 'No se pudo guardar el articulo')
+  }
+}
+
+function onCancelarFicha() {
+  if (esNuevo.value) {
+    volverAlGrid()
+    return
+  }
+  modoEdicion.value = false
+  if (ficha.value.codigo) abrirFichaPorCodigo(String(ficha.value.codigo))
+}
+
+async function onBorrarFicha() {
+  if (!puedeEliminar.value || esNuevo.value || !ficha.value.codigo) return
+  if (!confirm('Dar de baja este articulo?')) return
+  try {
+    await eliminar(String(ficha.value.codigo))
+    mensaje.value = 'Articulo dado de baja'
+    await cargar()
+    volverAlGrid()
+  } catch (e: unknown) {
+    mensaje.value = extractApiError(e, 'No se pudo dar de baja')
+  }
+}
+
+function volverAlGrid() {
+  vista.value = 'grid'
+  modoEdicion.value = false
+  esNuevo.value = false
+  ficha.value = {}
+}
+
+function onAccionPendiente(nombre: string) {
+  mensaje.value = `${nombre}: disponible en una siguiente iteracion`
+}
+
+async function onPrimero() {
+  const primera = filas.value.find((f) => !f._nuevo)
+  if (primera?.codigo) await abrirFichaPorCodigo(String(primera.codigo))
+}
+async function onAnterior() {
+  if (indiceFicha.value <= 0) return
+  const fila = filas.value[indiceFicha.value - 1]
+  if (fila?.codigo && !fila._nuevo) await abrirFichaPorCodigo(String(fila.codigo))
+}
+async function onSiguiente() {
+  const max = totalFicha.value - 1
+  if (indiceFicha.value < 0 || indiceFicha.value >= max) return
+  const fila = filas.value[indiceFicha.value + 1]
+  if (fila?.codigo && !fila._nuevo) await abrirFichaPorCodigo(String(fila.codigo))
+}
+async function onUltimo() {
+  const visibles = filas.value.filter((f) => !f._nuevo)
+  const ultima = visibles[visibles.length - 1]
+  if (ultima?.codigo) await abrirFichaPorCodigo(String(ultima.codigo))
+}
+
+const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
+</script>
+
+<template>
+  <section class="articulos-view">
+    <h2>Articulos</h2>
+
+    <p v-if="!puedeVer" class="error">No tiene permiso para ver articulos.</p>
+
+    <template v-else>
+      <p v-if="mensaje" class="msg">{{ mensaje }}</p>
+      <p v-if="error" class="error">{{ error }}</p>
+
+      <!-- GRID (mismo patron Familias) -->
+      <template v-if="vista === 'grid'">
+        <div class="toolbar">
+          <button type="button" class="tool-btn" @click="onListado">Listado</button>
+          <button
+            v-if="puedeCrear"
+            type="button"
+            class="tool-btn"
+            :disabled="loading"
+            @click="onNuevoFicha"
+          >
+            Nuevo
+          </button>
+          <button
+            type="button"
+            class="tool-btn"
+            :disabled="!filaSeleccionada || filaSeleccionada._nuevo"
+            @click="abrirFicha()"
+          >
+            Ficha
+          </button>
+
+          <div class="toolbar-spacer"></div>
+
+          <button
+            v-if="puedeMostrarEliminar"
+            type="button"
+            class="tool-btn danger"
+            :disabled="loading"
+            @click="solicitarEliminar"
+          >
+            Eliminar
+          </button>
+        </div>
+
+        <ArticulosGrid
+          :filas="filas"
+          :indice-seleccionado="indiceSeleccionado"
+          :familia-opciones="familiaOpciones"
+          :impuesto-opciones="impuestoOpciones"
+          :proveedor-opciones="proveedorOpciones"
+          :filterable-keys="FILTER_KEYS"
+          v-model:filters="filtros"
+          :readonly="true"
+          :loading="loading"
+          @seleccionar="seleccionar"
+          @abrir="abrirFicha"
+          @nuevo="onNuevoFicha"
+          @search="buscarServidorAhora"
+        />
+
+        <p class="hint">
+          Filtra columnas con el embudo. La fila <strong>*</strong> no se edita aqui: use <strong>Nuevo</strong> o doble
+          clic en ella para crear en ficha.
+        </p>
+      </template>
+
+      <!-- FICHA detallada (legacy) -->
+      <template v-else>
+        <div class="sticky-chrome">
+          <button type="button" class="btn-volver" @click="volverAlGrid">← Volver a la rejilla</button>
+
+          <ArticuloToolbar
+            :puede-crear="puedeCrear"
+            :puede-editar="puedeEditar"
+            :puede-eliminar="puedeEliminar"
+            :puede-guardar="puedeCrear || puedeEditar"
+            :modo-edicion="modoEdicion || esNuevo"
+            :indice="indiceFicha < 0 ? undefined : indiceFicha"
+            :total="totalFicha"
+            :loading="loading"
+            @nuevo="onNuevoFicha"
+            @modificar="onModificarFicha"
+            @borrar="onBorrarFicha"
+            @buscar="volverAlGrid"
+            @guardar="onGuardarFicha"
+            @cancelar="onCancelarFicha"
+            @primero="onPrimero"
+            @anterior="onAnterior"
+            @siguiente="onSiguiente"
+            @ultimo="onUltimo"
+            @escandallo="onAccionPendiente('Escandallo')"
+            @eans="onAccionPendiente('Eans')"
+            @etiquetas="onAccionPendiente('Etiquetas')"
+            @ficha="onAccionPendiente('Ficha')"
+            @consulta="onAccionPendiente('Consulta')"
+            @bloqueo="onAccionPendiente('Bloqueo')"
+            @excepciones="onAccionPendiente('Excepciones')"
+          />
+
+          <div class="ficha-header">
+            <label>
+              Codigo *
+              <input v-model="ficha.codigo" :readonly="!esNuevo" maxlength="18" class="codigo-input" required />
+            </label>
+            <label class="nombre-input">
+              Descripcion *
+              <input v-model="ficha.descripcion" :readonly="soloLecturaFicha" maxlength="50" required />
+            </label>
+          </div>
+
+          <div class="tabs">
+            <button
+              v-for="tab in articuloTabs"
+              :key="tab.id"
+              type="button"
+              class="tab"
+              :class="{ active: tabActiva === tab.id }"
+              @click="tabActiva = tab.id"
+            >
+              {{ tab.label }}
+            </button>
+          </div>
+        </div>
+
+        <div class="ficha-body">
+          <ArticuloTabForm
+            :sections="tabSeleccionada.sections"
+            :model-value="ficha"
+            :readonly="soloLecturaFicha"
+            :codigo-read-only="!esNuevo"
+            @update:model-value="ficha = $event"
+          />
+          <ArticuloSidePanels :ficha="ficha" />
+        </div>
+      </template>
+
+      <ConfirmDialog
+        :open="confirmOpen"
+        title="Eliminar articulo"
+        :message="confirmMessage"
+        @confirm="confirmarEliminar"
+        @cancel="cancelarEliminar"
+      />
+    </template>
+  </section>
+</template>
+
+<style scoped>
+.articulos-view h2 {
+  margin: 0 0 0.75rem;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  padding: 0.5rem;
+  background: linear-gradient(180deg, #f8fafc 0%, #e5e7eb 100%);
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+}
+
+.toolbar-spacer {
+  flex: 1;
+}
+
+.tool-btn {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid #94a3b8;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.tool-btn.active {
+  background: #e0f2fe;
+  border-color: #38bdf8;
+}
+
+.tool-btn.primary {
+  background: #2563eb;
+  border-color: #1d4ed8;
+  color: #fff;
+}
+
+.tool-btn.danger {
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
+.tool-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-volver {
+  margin-bottom: 0.5rem;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid #94a3b8;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.ficha-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: end;
+  padding: 0.45rem 0.65rem;
+  background: #fff;
+  border: 1px solid #c5cdd8;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  max-width: 1100px;
+}
+
+.ficha-header label {
+  display: grid;
+  gap: 0.15rem;
+  font-size: 0.78rem;
+}
+
+.codigo-input {
+  width: 9rem;
+}
+
+.nombre-input {
+  flex: 1;
+  min-width: 220px;
+}
+
+.ficha-header input {
+  padding: 0.2rem 0.35rem;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  font-size: 0.8rem;
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem;
+  padding: 0.25rem 0.35rem 0;
+  background: #fff;
+  border-left: 1px solid #c5cdd8;
+  border-right: 1px solid #c5cdd8;
+  max-width: 1100px;
+}
+
+.tab {
+  border: 1px solid #94a3b8;
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  background: #e8edf2;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.tab.active {
+  background: #f8fafc;
+  font-weight: 600;
+}
+
+.ficha-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+  align-items: stretch;
+  max-width: 1100px;
+}
+
+.msg {
+  color: #047857;
+}
+
+.error {
+  color: #b91c1c;
+}
+
+.hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+@media (max-width: 1100px) {
+  .ficha-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media print {
+  .toolbar,
+  .hint,
+  .btn-volver,
+  h2 {
+    display: none;
+  }
+}
+</style>

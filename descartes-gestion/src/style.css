@@ -1,0 +1,57 @@
+:root {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  color: #1a1a1a;
+  background: #f5f6f8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+}
+
+a {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+button {
+  cursor: pointer;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+/* Botoneras / cabeceras de ficha fijas dentro del scroll del contenido */
+.content .sticky-chrome {
+  position: sticky;
+  top: 0;
+  z-index: 22;
+  background: #f5f6f8;
+  padding-bottom: 0.35rem;
+}
+
+.content .toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 22;
+}
+
+.content .sticky-chrome .toolbar {
+  position: relative;
+  top: auto;
+  z-index: auto;
+}

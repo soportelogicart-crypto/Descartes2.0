@@ -1,0 +1,190 @@
+export type FacturaManualPendiente = {
+  empresa: string
+  tipo: string
+  albaran: number
+  fecha: string
+  puesto: string
+  cliente: string
+  clienteFacturacion: string
+  razonSocial: string
+  nif: string
+  importe: number
+  pagoACuenta: number
+  sujetoPasivo: boolean
+  prefactura: boolean
+}
+
+export type FacturasManualPendientesResponse = {
+  items: FacturaManualPendiente[]
+  totales: { albaranes: number; importe: number }
+}
+
+export type FacturaManualGenerada = {
+  empresa: string
+  facturaTipo: string
+  factura: number
+  cliente: string
+  importe: number
+  estado: string
+  albaranes: Array<{ empresa: string; tipo: string; albaran: number }>
+}
+
+export type FacturasManualGenerarResponse = {
+  facturas: FacturaManualGenerada[]
+  totales: { facturas: number; albaranes: number; importe: number }
+}
+
+export type FacturasManualGenerarBody = {
+  empresa: string
+  fechaFacturacion: string
+  agrupacion?: 'separar' | 'agrupar'
+  formaPago?: string
+  numFactura?: number
+  tipoFacturacion?: 'facturas' | 'prefacturas'
+  albaranes: Array<{ empresa: string; tipo: string; albaran: number }>
+}
+
+export type FacturasGeneracionPreviewResponse = {
+  totales: { albaranes: number; importe: number; gruposEstimados: number }
+  omitidosImporteMinimo: number
+}
+
+export type FacturasGeneracionBody = {
+  empresa: string
+  fechaFacturacion: string
+  agrupacion?: 'separar' | 'agrupar'
+  tipoFacturacion?: 'facturas' | 'prefacturas'
+  tipoCliente?: 'normales' | 'manuales' | 'todos'
+  seleccion?: 'todos' | 'con_prefactura' | 'sin_prefactura'
+  importeMinimo?: number
+  empresaDesde?: string
+  empresaHasta?: string
+  fechaDesde?: string
+  fechaHasta?: string
+  clienteDesde?: string
+  clienteHasta?: string
+  albaranDesde?: number
+  albaranHasta?: number
+  puestoDesde?: string
+  puestoHasta?: string
+  vendedorDesde?: string
+  vendedorHasta?: string
+  fpagoDesde?: string
+  fpagoHasta?: string
+}
+
+export type FacturasGeneracionResponse = FacturasManualGenerarResponse & {
+  omitidosImporteMinimo: number
+}
+
+export type FacturaImpresionItem = {
+  empresa: string
+  facturaTipo: string
+  factura: number
+  fecha: string
+  cliente: string
+  razonSocial: string
+  nif: string
+  importe: number
+  fpago: string
+  impresa: boolean
+  estado: string
+}
+
+export type FacturasImpresionListResponse = {
+  items: FacturaImpresionItem[]
+  totales: { facturas: number; importe: number }
+}
+
+export type FacturasImpresionPdfBody = {
+  facturas?: Array<{ empresa: string; facturaTipo: string; factura: number }>
+  empresa?: string
+  fechaDesde?: string
+  fechaHasta?: string
+  facturaDesde?: number
+  facturaHasta?: number
+  facturaTipo?: string
+  soloNoImpresas?: boolean | number | string
+  estado?: string
+  cliente?: string
+  marcarImpresa?: boolean
+}
+
+export type FacturasManualTraspasoBody = {
+  empresa: string
+  albaranes: Array<{ empresa: string; tipo: string; albaran: number }>
+}
+
+export type FacturasManualTraspasoResponse = {
+  traspasos: Array<{
+    empresa: string
+    albaran: number
+    empresaOrigen: string
+    albaranOrigen: number
+  }>
+  totales: { traspasos: number; albaranes: number }
+}
+
+export type FacturasManualPeriodicosBody = {
+  empresa: string
+  fechaDesde: string
+  fechaHasta: string
+}
+
+export type FacturasManualPeriodicosResponse = {
+  generados: Array<{
+    empresa: string
+    tipo: string
+    albaran: number
+    plantilla: number
+    fechaPeriodo: string
+  }>
+  totales: { generados: number; omitidos: number }
+}
+
+export type FacturaDiarioItem = FacturaImpresionItem
+
+export type FacturasDiarioListResponse = FacturasImpresionListResponse
+
+export type FacturasDiarioPdfBody = FacturasImpresionPdfBody
+
+export type FacturasRetrocesoPreview = {
+  empresa: string
+  facturaTipo: string
+  factura: number
+  fecha: string
+  cliente: string
+  razonSocial: string
+  nif: string
+  importe: number
+  estado: string
+  trasCtb: boolean
+  bloqueada: boolean
+  puedeRetroceder: boolean
+  mensajeBloqueo: string | null
+  avisoCtb: string | null
+  albaranes: Array<{
+    empresa: string
+    tipo: string
+    albaran: number
+    fecha: string
+    cliente: string
+    importe: number
+  }>
+  totales: { albaranes: number; importeAlbaranes: number }
+}
+
+export type FacturasRetrocesoBody = {
+  empresa: string
+  facturaTipo: string
+  factura: number
+}
+
+export type FacturasRetrocesoResponse = {
+  ok: boolean
+  empresa: string
+  facturaTipo: string
+  factura: number
+  albaranesLiberados: number
+  mensaje: string
+}

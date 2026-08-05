@@ -1,0 +1,282 @@
+import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+import { usePermisos } from '@/composables/usePermisos'
+import LoginView from '@/views/LoginView.vue'
+import EmpresaClienteView from '@/views/mantenimiento/EmpresaClienteView.vue'
+import EntidadView from '@/views/mantenimiento/EntidadView.vue'
+import AppLayout from '@/components/layout/AppLayout.vue'
+import ArticuloSeccionPlaceholder from '@/views/mantenimiento/ArticuloSeccionPlaceholder.vue'
+import MacrofamiliasView from '@/views/mantenimiento/MacrofamiliasView.vue'
+import FamiliasView from '@/views/mantenimiento/FamiliasView.vue'
+import SubfamiliasView from '@/views/mantenimiento/SubfamiliasView.vue'
+import AgrupacionesView from '@/views/mantenimiento/AgrupacionesView.vue'
+import ActividadesView from '@/views/mantenimiento/ActividadesView.vue'
+import InteresesComercialesView from '@/views/mantenimiento/InteresesComercialesView.vue'
+import OfertaClientesView from '@/views/mantenimiento/OfertaClientesView.vue'
+import ParametrosPuestoView from '@/views/mantenimiento/ParametrosPuestoView.vue'
+import PuestosView from '@/views/mantenimiento/PuestosView.vue'
+import ImpuestosView from '@/views/mantenimiento/ImpuestosView.vue'
+import FormasPagoView from '@/views/mantenimiento/FormasPagoView.vue'
+import ProveedoresView from '@/views/mantenimiento/ProveedoresView.vue'
+import OfertaProveedoresView from '@/views/mantenimiento/OfertaProveedoresView.vue'
+import HomeView from '@/views/HomeView.vue'
+import ModuloPlaceholderView from '@/views/ModuloPlaceholderView.vue'
+import VentasListView from '@/views/ventas/VentasListView.vue'
+import VentaDetalleView from '@/views/ventas/VentaDetalleView.vue'
+import ArqueoView from '@/views/ventas/ArqueoView.vue'
+import ArqueoDesgloseView from '@/views/ventas/ArqueoDesgloseView.vue'
+import AnulacionesView from '@/views/ventas/AnulacionesView.vue'
+import CobrosPagosView from '@/views/ventas/CobrosPagosView.vue'
+import ValesView from '@/views/ventas/ValesView.vue'
+import PedidosClientesView from '@/views/ventas/PedidosClientesView.vue'
+import PedidoDetalleView from '@/views/ventas/PedidoDetalleView.vue'
+import AbcVentasView from '@/views/ventas/AbcVentasView.vue'
+import GeneracionFacturasManualView from '@/views/facturacion/GeneracionFacturasManualView.vue'
+import GeneracionFacturasView from '@/views/facturacion/GeneracionFacturasView.vue'
+import ImpresionFacturasView from '@/views/facturacion/ImpresionFacturasView.vue'
+import DiarioFacturacionView from '@/views/facturacion/DiarioFacturacionView.vue'
+import AlbaranesPendientesView from '@/views/facturacion/AlbaranesPendientesView.vue'
+import RetrocesoFacturaView from '@/views/facturacion/RetrocesoFacturaView.vue'
+
+const articulosSeccionesPendientes = [
+  { path: 'mantenimiento/secciones', name: 'secciones', titulo: 'Secciones' },
+  { path: 'mantenimiento/subsecciones', name: 'subsecciones', titulo: 'Subsecciones' },
+] as const
+
+const clientesSeccionesPendientes = [
+  { path: 'mantenimiento/campanas', name: 'campanas', titulo: 'Campanas' },
+] as const
+
+const modulosPlaceholder = [
+  { path: 'compras', name: 'compras', titulo: 'Compras' },
+  { path: 'inventario', name: 'inventario', titulo: 'Inventario' },
+  { path: 'listados', name: 'listados', titulo: 'Listados' },
+  { path: 'tpv', name: 'tpv', titulo: 'TPV' },
+] as const
+
+const router = createRouter({
+  history: createWebHistory(),
+  routes: [
+    { path: '/login', name: 'login', component: LoginView, meta: { public: true } },
+    {
+      path: '/',
+      component: AppLayout,
+      children: [
+        { path: '', name: 'home', component: HomeView },
+        ...modulosPlaceholder.map((m) => ({
+          path: m.path,
+          name: m.name,
+          component: ModuloPlaceholderView,
+          props: { titulo: m.titulo },
+          meta: { titulo: m.titulo },
+        })),
+        {
+          path: 'ventas',
+          name: 'ventas',
+          component: VentasListView,
+          meta: { titulo: 'Ventas', modulo: 'ventas', accion: 'ver' },
+        },
+        {
+          path: 'ventas/nuevo',
+          name: 'ventas-nuevo',
+          component: VentaDetalleView,
+          meta: { titulo: 'Nueva venta', modulo: 'ventas', accion: 'crear' },
+        },
+        {
+          path: 'ventas/arqueo',
+          name: 'ventas-arqueo',
+          component: ArqueoView,
+          meta: { titulo: 'Arqueo', modulo: 'ventas-arqueo', accion: 'ver' },
+        },
+        {
+          path: 'ventas/arqueo/desglose',
+          name: 'ventas-arqueo-desglose',
+          component: ArqueoDesgloseView,
+          meta: { titulo: 'Desglose de arqueo', modulo: 'ventas-arqueo-desglose', accion: 'ver' },
+        },
+        {
+          path: 'ventas/anulaciones',
+          name: 'ventas-anulaciones',
+          component: AnulacionesView,
+          meta: { titulo: 'Anulaciones', modulo: 'ventas-anulaciones', accion: 'ver' },
+        },
+        {
+          path: 'ventas/cobros-pagos',
+          name: 'ventas-cobros-pagos',
+          component: CobrosPagosView,
+          meta: { titulo: 'Cobros y Pagos', modulo: 'ventas-cobros-pagos', accion: 'ver' },
+        },
+        {
+          path: 'ventas/vales',
+          name: 'ventas-vales',
+          component: ValesView,
+          meta: { titulo: 'Vales', modulo: 'ventas-vales', accion: 'ver' },
+        },
+        {
+          path: 'ventas/pedidos',
+          name: 'ventas-pedidos',
+          component: PedidosClientesView,
+          meta: { titulo: 'Pedidos', modulo: 'ventas-pedidos', accion: 'ver' },
+        },
+        {
+          path: 'ventas/pedidos/nuevo',
+          name: 'ventas-pedidos-nuevo',
+          component: PedidoDetalleView,
+          meta: { titulo: 'Nuevo pedido', modulo: 'ventas-pedidos', accion: 'ver' },
+        },
+        {
+          path: 'ventas/pedidos/:empresa/:pedido',
+          name: 'ventas-pedidos-detalle',
+          component: PedidoDetalleView,
+          meta: { titulo: 'Pedido', modulo: 'ventas-pedidos', accion: 'ver' },
+        },
+        {
+          path: 'ventas/abc',
+          name: 'ventas-abc',
+          component: AbcVentasView,
+          meta: { titulo: 'Listado ABC Ventas', modulo: 'ventas-abc', accion: 'ver' },
+        },
+        {
+          path: 'facturacion',
+          redirect: '/facturacion/generacion',
+        },
+        {
+          path: 'facturacion/generacion',
+          name: 'facturacion-generacion',
+          component: GeneracionFacturasView,
+          meta: {
+            titulo: 'Generación de facturas',
+            modulo: 'facturacion-generacion',
+            accion: 'ver',
+          },
+        },
+        {
+          path: 'facturacion/manual',
+          name: 'facturacion-manual',
+          component: GeneracionFacturasManualView,
+          meta: {
+            titulo: 'Generador de facturas Manual',
+            modulo: 'facturacion-manual',
+            accion: 'ver',
+          },
+        },
+        {
+          path: 'facturacion/impresion',
+          name: 'facturacion-impresion',
+          component: ImpresionFacturasView,
+          meta: {
+            titulo: 'Impresión de facturas',
+            modulo: 'facturacion-impresion',
+            accion: 'ver',
+          },
+        },
+        {
+          path: 'facturacion/diario',
+          name: 'facturacion-diario',
+          component: DiarioFacturacionView,
+          meta: {
+            titulo: 'Diario de facturación',
+            modulo: 'facturacion-diario',
+            accion: 'ver',
+          },
+        },
+        {
+          path: 'facturacion/albaranes-pendientes',
+          name: 'facturacion-albaranes-pendientes',
+          component: AlbaranesPendientesView,
+          meta: {
+            titulo: 'Albaranes pendientes de facturar',
+            modulo: 'facturacion-albaranes-pendientes',
+            accion: 'ver',
+          },
+        },
+        {
+          path: 'facturacion/retroceso',
+          name: 'facturacion-retroceso',
+          component: RetrocesoFacturaView,
+          meta: {
+            titulo: 'Retroceso de facturas',
+            modulo: 'facturacion-retroceso',
+            accion: 'ver',
+          },
+        },
+        {
+          path: 'ventas/:empresa/:tipo/:albaran',
+          name: 'ventas-detalle',
+          component: VentaDetalleView,
+          meta: { titulo: 'Detalle venta', modulo: 'ventas', accion: 'ver' },
+        },
+        { path: 'mantenimiento/empresas', name: 'empresas', component: EmpresaClienteView },
+        { path: 'mantenimiento/macrofamilias', name: 'macrofamilias', component: MacrofamiliasView },
+        { path: 'mantenimiento/familias', name: 'familias', component: FamiliasView },
+        { path: 'mantenimiento/subfamilias', name: 'subfamilias', component: SubfamiliasView },
+        { path: 'mantenimiento/agrupaciones', name: 'agrupaciones', component: AgrupacionesView },
+        { path: 'mantenimiento/actividades', name: 'actividades', component: ActividadesView },
+        {
+          path: 'mantenimiento/intereses-comerciales',
+          name: 'intereses-comerciales',
+          component: InteresesComercialesView,
+        },
+        {
+          path: 'mantenimiento/oferta-clientes',
+          name: 'oferta-clientes',
+          component: OfertaClientesView,
+        },
+        {
+          path: 'mantenimiento/puestos/parametros',
+          name: 'puestos-parametros',
+          component: ParametrosPuestoView,
+        },
+        { path: 'mantenimiento/puestos-trabajo', name: 'puestos-trabajo', component: PuestosView },
+        { path: 'mantenimiento/impuestos', name: 'impuestos', component: ImpuestosView },
+        { path: 'mantenimiento/formas-pago', name: 'formas-pago', component: FormasPagoView },
+        { path: 'mantenimiento/proveedores', name: 'proveedores', component: ProveedoresView },
+        {
+          path: 'mantenimiento/oferta-proveedores',
+          name: 'oferta-proveedores',
+          component: OfertaProveedoresView,
+          meta: { titulo: 'Ofertas proveedores' },
+        },
+        ...articulosSeccionesPendientes.map((seccion) => ({
+          path: seccion.path,
+          name: seccion.name,
+          component: ArticuloSeccionPlaceholder,
+          meta: { titulo: seccion.titulo },
+        })),
+        ...clientesSeccionesPendientes.map((seccion) => ({
+          path: seccion.path,
+          name: seccion.name,
+          component: ArticuloSeccionPlaceholder,
+          meta: { titulo: seccion.titulo },
+        })),
+        { path: 'mantenimiento/:entidad', name: 'mantenimiento', component: EntidadView },
+      ],
+    },
+  ],
+})
+
+router.beforeEach(async (to) => {
+  if (to.meta.public) return true
+
+  const auth = useAuthStore()
+  if (!auth.cargado) {
+    try {
+      await auth.fetchMe()
+    } catch {
+      return { name: 'login', query: { redirect: to.fullPath } }
+    }
+  }
+
+  const modulo = to.meta.modulo as string | undefined
+  const accion = (to.meta.accion as string | undefined) ?? 'ver'
+  if (modulo) {
+    const { puede } = usePermisos()
+    if (!puede(modulo, accion)) {
+      return { name: 'home' }
+    }
+  }
+
+  return true
+})
+
+export default router

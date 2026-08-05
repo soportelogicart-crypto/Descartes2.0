@@ -1,0 +1,134 @@
+import { defineStore } from 'pinia'
+import { computed, ref } from 'vue'
+
+export type AppTab = {
+  /** fullPath de vue-router (incluye query) */
+  id: string
+  title: string
+  fullPath: string
+}
+
+const MAX_TABS = 8
+
+/**
+ * Rutas de ficha de venta (/ventas/{empresa}/{tipo}/{albaran}) comparten una sola
+ * pestaña; al pasar Anterior/Siguiente no se abren pestañas nuevas.
+ */
+function tabIdFromPath(fullPath: string): string {
+  const path = (fullPath.split('?')[0] || '/').replace(/\/+$/, '') || '/'
+  if (/^\/ventas\/pedidos\/[^/]+\/\d+$/.test(path)) {
+    return '/ventas/pedidos/ficha'
+  }
+  if (path === '/ventas/pedidos/nuevo') {
+    return '/ventas/pedidos/ficha'
+  }
+  // Ficha venta: /ventas/{empresa}/{tipo}/{albaran} — excluye /ventas/pedidos/...
+  if (/^\/ventas\/(?!pedidos(?:\/|$))[^/]+\/[^/]+\/\d+$/.test(path)) {
+    return '/ventas/ficha'
+  }
+  return fullPath || '/'
+}
+
+function tituloDesdeRuta(path: string, metaTitulo?: string): string {
+  if (metaTitulo && metaTitulo.trim()) return metaTitulo.trim()
+  if (path === '/' || path === '') return 'Inicio'
+  const partes = path.split('/').filter(Boolean)
+  if (partes[0] === 'ventas') {
+    if (partes.length === 1) return 'Ventas'
+    if (partes[1] === 'nuevo') return 'Nueva venta'
+    if (partes[1] === 'pedidos') {
+      if (partes[2] === 'nuevo') return 'Nuevo pedido'
+      if (partes.length >= 4 && /^\d+$/.test(partes[3])) return `Pedido ${partes[3]}`
+      return 'Pedidos'
+    }
+    if (partes[1] === 'arqueo' && partes[2] === 'desglose') return 'Desglose arqueo'
+    if (partes[1] === 'arqueo') return 'Arqueo'
+    if (partes.length >= 4 && /^\d+$/.test(partes[3])) return `Venta ${partes[2]}-${partes[3]}`
+    return 'Ventas'
+  }
+  if (partes[0] === 'facturacion') {
+    if (partes[1] === 'manual') return 'Facturas Manual'
+    if (partes[1] === 'generacion') return 'Generación facturas'
+    if (partes[1] === 'impresion') return 'Impresión facturas'
+    if (partes[1] === 'diario') return 'Diario facturación'
+    if (partes[1] === 'albaranes-pendientes') return 'Alb. pendientes'
+    if (partes[1] === 'retroceso') return 'Retroceso facturas'
+    return 'Facturación'
+  }
+  if (partes[0] === 'mantenimiento') {
+    return metaTitulo || partes[1] || 'Mantenimiento'
+  }
+  return metaTitulo || partes[partes.length - 1] || 'Pestaña'
+}
+
+export const useTabsStore = defineStore('tabs', () => {
+  const tabs = ref<AppTab[]>([])
+  const activeId = ref<string | null>(null)
+
+  const activas = computed(() => tabs.value)
+  const activa = computed(() => tabs.value.find((t) => t.id === activeId.value) ?? null)
+
+  function openOrActivate(fullPath: string, metaTitulo?: string) {
+    const pathOnly = fullPath.split('?')[0] || '/'
+    const id = tabIdFromPath(fullPath)
+    const existing = tabs.value.find((t) => t.id === id)
+    if (existing) {
+      existing.fullPath = fullPath || '/'
+      existing.title = tituloDesdeRuta(pathOnly, metaTitulo)
+      activeId.value = existing.id
+      return
+    }
+
+    if (tabs.value.length >= MAX_TABS) {
+      // Cierra la pestaña más antigua que no sea la activa.
+      const idx = tabs.value.findIndex((t) => t.id !== activeId.value)
+      if (idx >= 0) tabs.value.splice(idx, 1)
+      else tabs.value.shift()
+    }
+
+    tabs.value.push({
+      id,
+      fullPath: fullPath || '/',
+      title: tituloDesdeRuta(pathOnly, metaTitulo),
+    })
+    activeId.value = id
+  }
+
+  /** @returns fullPath a navegar tras cerrar, o null */
+  function close(id: string): string | null {
+    const i = tabs.value.findIndex((t) => t.id === id)
+    if (i < 0) return null
+    const wasActive = activeId.value === id
+    tabs.value.splice(i, 1)
+    if (!wasActive) return null
+    if (tabs.value.length === 0) {
+      activeId.value = null
+      return '/'
+    }
+    const next = tabs.value[Math.min(i, tabs.value.length - 1)]
+    activeId.value = next.id
+    return next.fullPath
+  }
+
+  function closeOthers(id: string) {
+    tabs.value = tabs.value.filter((t) => t.id === id)
+    activeId.value = id
+  }
+
+  function clear() {
+    tabs.value = []
+    activeId.value = null
+  }
+
+  return {
+    tabs,
+    activeId,
+    activas,
+    activa,
+    openOrActivate,
+    close,
+    closeOthers,
+    clear,
+    MAX_TABS,
+  }
+})

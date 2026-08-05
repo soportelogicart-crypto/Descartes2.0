@@ -1,0 +1,593 @@
+openapi: 3.0.3
+info:
+  title: Descartes API - Ventas (Gestión)
+  version: 0.1.0
+  description: |
+    API de consulta y gestión administrativa del módulo Ventas.
+    Las ventas/arqueos/anulaciones se originan en TPV; Gestión no crea ventas ni edita importes cobrados.
+    Permiso de módulo: `ventas` (ver / crear / editar).
+servers:
+  - url: http://localhost/descartes-api/public
+    description: XAMPP local
+tags:
+  - name: ventas
+  - name: arqueo
+  - name: anulaciones
+  - name: cobros-pagos
+  - name: vales
+  - name: pedidos-clientes
+security:
+  - sessionAuth: []
+
+paths:
+  /api/ventas/albaranes:
+    get:
+      tags: [ventas]
+      summary: Listar ventas (albaranes/tickets)
+      description: Requiere permiso ventas.ver. Filtros por fecha, puesto, vendedor, cliente, estado.
+      parameters:
+        - $ref: "#/components/parameters/fechaDesde"
+        - $ref: "#/components/parameters/fechaHasta"
+        - $ref: "#/components/parameters/puesto"
+        - name: vendedor
+          in: query
+          schema: { type: string }
+        - name: cliente
+          in: query
+          schema: { type: string }
+        - name: estado
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses:
+        "200":
+          description: Página de ventas (cabecera resumida)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VentaListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/ventas/albaranes/{empresa}/{tipo}/{albaran}:
+    get:
+      tags: [ventas]
+      summary: Detalle de venta (cabecera + líneas)
+      parameters:
+        - $ref: "#/components/parameters/empresaPath"
+        - $ref: "#/components/parameters/tipoPath"
+        - $ref: "#/components/parameters/albaranPath"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VentaDetalle"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/ventas/arqueos:
+    get:
+      tags: [arqueo]
+      summary: Arqueo por sesión y puesto
+      parameters:
+        - $ref: "#/components/parameters/empresa"
+        - $ref: "#/components/parameters/puesto"
+        - name: sesion
+          in: query
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArqueoResponse"
+
+  /api/ventas/arqueos/desglose:
+    get:
+      tags: [arqueo]
+      summary: Desglose por denominación (Moneda01-20)
+      description: Cubre el caso de uso «registradora» filtrando por puesto.
+      parameters:
+        - $ref: "#/components/parameters/empresa"
+        - $ref: "#/components/parameters/puesto"
+        - name: sesion
+          in: query
+          required: true
+          schema: { type: integer }
+        - name: formaPago
+          in: query
+          schema: { type: string }
+          description: Código forma de pago (Arqueo.Codigo); omitir = todas que cuentan arqueo
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArqueoDesgloseResponse"
+
+  /api/ventas/anulaciones:
+    get:
+      tags: [anulaciones]
+      summary: Diario de anulaciones (solo lectura)
+      parameters:
+        - $ref: "#/components/parameters/fechaDesde"
+        - $ref: "#/components/parameters/fechaHasta"
+        - name: cajero
+          in: query
+          schema: { type: string }
+        - name: motivo
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnulacionListResponse"
+
+  /api/ventas/cobros-pagos:
+    get:
+      tags: [cobros-pagos]
+      summary: Movimientos cobro/pago derivados de ventas
+      parameters:
+        - name: tipo
+          in: query
+          schema:
+            type: string
+            enum: [cobro, pago, todos]
+          description: Según FormasPago.CobroPago
+        - name: formaPago
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/fechaDesde"
+        - $ref: "#/components/parameters/fechaHasta"
+        - $ref: "#/components/parameters/puesto"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CobroPagoListResponse"
+
+  /api/ventas/vales:
+    get:
+      tags: [vales]
+      summary: Listar vales (filtro pendientes/liquidados)
+      parameters:
+        - name: estado
+          in: query
+          schema:
+            type: string
+            enum: [pendientes, liquidados, todos]
+        - name: cliente
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValeListResponse"
+    post:
+      tags: [vales]
+      summary: Emitir vale
+      description: Requiere ventas.crear
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ValeEmitirRequest"
+      responses:
+        "201":
+          description: Vale creado
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/ventas/vales/{empresa}/{codigo}/liquidar:
+    post:
+      tags: [vales]
+      summary: Liquidar vale pendiente no caducado
+      description: Requiere ventas.editar. Bloquea si Liquidado o caducado.
+      parameters:
+        - $ref: "#/components/parameters/empresaPath"
+        - name: codigo
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fechaLiquidacion, tipoLiquidacion]
+              properties:
+                fechaLiquidacion: { type: string, format: date }
+                tipoLiquidacion: { type: string, maxLength: 1 }
+      responses:
+        "200":
+          description: Vale liquidado
+        "409":
+          description: Ya liquidado o caducado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
+
+  /api/ventas/pedidos-clientes:
+    get:
+      tags: [pedidos-clientes]
+      summary: Listar pedidos de cliente
+      parameters:
+        - name: estado
+          in: query
+          schema: { type: string }
+        - name: cliente
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/fechaDesde"
+        - $ref: "#/components/parameters/fechaHasta"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PedidoListResponse"
+    post:
+      tags: [pedidos-clientes]
+      summary: Alta de pedido (cabecera + líneas)
+      description: Requiere ventas.crear. Al menos una línea.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PedidoCreateRequest"
+      responses:
+        "201":
+          description: Pedido creado
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/ventas/pedidos-clientes/{empresa}/{pedido}:
+    get:
+      tags: [pedidos-clientes]
+      summary: Detalle pedido
+      parameters:
+        - $ref: "#/components/parameters/empresaPath"
+        - name: pedido
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PedidoDetalle"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/ventas/pedidos-clientes/{empresa}/{pedido}/impreso:
+    post:
+      tags: [pedidos-clientes]
+      summary: Marcar pedido como impreso (reimpresión / indicador)
+      description: Requiere ventas.editar. Pone Impreso=1.
+      parameters:
+        - $ref: "#/components/parameters/empresaPath"
+        - name: pedido
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Marcado impreso
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  securitySchemes:
+    sessionAuth:
+      type: apiKey
+      in: cookie
+      name: PHPSESSID
+
+  parameters:
+    page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    pageSize:
+      name: pageSize
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+    fechaDesde:
+      name: fechaDesde
+      in: query
+      schema: { type: string, format: date }
+    fechaHasta:
+      name: fechaHasta
+      in: query
+      schema: { type: string, format: date }
+    puesto:
+      name: puesto
+      in: query
+      schema: { type: string }
+    empresa:
+      name: empresa
+      in: query
+      schema: { type: string }
+    empresaPath:
+      name: empresa
+      in: path
+      required: true
+      schema: { type: string }
+    tipoPath:
+      name: tipo
+      in: path
+      required: true
+      schema: { type: string }
+    albaranPath:
+      name: albaran
+      in: path
+      required: true
+      schema: { type: integer }
+
+  responses:
+    Unauthorized:
+      description: No autenticado
+    Forbidden:
+      description: Sin permiso
+    NotFound:
+      description: No encontrado
+    BadRequest:
+      description: Validación
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorMessage"
+
+  schemas:
+    ErrorMessage:
+      type: object
+      properties:
+        message: { type: string }
+
+    VentaListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/VentaResumen"
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+
+    VentaResumen:
+      type: object
+      properties:
+        empresa: { type: string }
+        tipo: { type: string }
+        albaran: { type: integer }
+        fecha: { type: string, format: date-time }
+        cliente: { type: string }
+        razonSocial: { type: string }
+        puesto: { type: string }
+        vendedor: { type: string }
+        estado: { type: string }
+        importe: { type: number }
+        facturada: { type: boolean }
+        factura: { type: integer, nullable: true }
+
+    VentaDetalle:
+      allOf:
+        - $ref: "#/components/schemas/VentaResumen"
+        - type: object
+          properties:
+            formasPago:
+              type: array
+              items:
+                type: object
+                properties:
+                  codigo: { type: string }
+                  importe: { type: number }
+            importesIva:
+              type: array
+              items:
+                type: object
+                properties:
+                  pjeIva: { type: number }
+                  base: { type: number }
+                  iva: { type: number }
+            lineas:
+              type: array
+              items:
+                type: object
+                properties:
+                  nroLin: { type: integer }
+                  articulo: { type: string }
+                  cantidad: { type: number }
+                  precio: { type: number }
+                  pjeDto: { type: number }
+                  importe: { type: number }
+
+    ArqueoResponse:
+      type: object
+      properties:
+        empresa: { type: string }
+        puesto: { type: string }
+        sesion: { type: integer }
+        totalArqueo: { type: number }
+        lineas:
+          type: array
+          items:
+            type: object
+            properties:
+              formaPago: { type: string }
+              descripcion: { type: string }
+              cuentaParaArqueo: { type: boolean }
+              acumulado: { type: number }
+              entrado: { type: number }
+
+    ArqueoDesgloseResponse:
+      type: object
+      properties:
+        empresa: { type: string }
+        puesto: { type: string }
+        sesion: { type: integer }
+        denominaciones:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            properties:
+              indice: { type: integer, minimum: 1, maximum: 20 }
+              importe: { type: number }
+              formaPago: { type: string }
+
+    AnulacionListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              fecha: { type: string, format: date-time }
+              articulo: { type: string }
+              cantidad: { type: number }
+              importeLin: { type: number }
+              motivo: { type: string, nullable: true }
+              cajero: { type: string }
+              puesto: { type: string }
+              mesa: { type: integer, nullable: true }
+              sesion: { type: integer, nullable: true }
+        total: { type: integer }
+
+    CobroPagoListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              tipo: { type: string, enum: [cobro, pago] }
+              formaPago: { type: string }
+              importe: { type: number }
+              fecha: { type: string, format: date-time }
+              puesto: { type: string }
+              empresa: { type: string }
+              tipoAlbaran: { type: string }
+              albaran: { type: integer }
+        total: { type: integer }
+
+    ValeListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Vale"
+        total: { type: integer }
+
+    Vale:
+      type: object
+      properties:
+        empresa: { type: string }
+        codigo: { type: string }
+        cliente: { type: string }
+        importe: { type: number }
+        fecha: { type: string, format: date-time }
+        fechaCaducidad: { type: string, format: date, nullable: true }
+        liquidado: { type: boolean }
+        fechaLiquidacion: { type: string, format: date, nullable: true }
+        tipoLiquidacion: { type: string, nullable: true }
+        caducado: { type: boolean }
+
+    ValeEmitirRequest:
+      type: object
+      required: [empresa, cliente, importe]
+      properties:
+        empresa: { type: string }
+        cliente: { type: string }
+        importe: { type: number }
+        fechaCaducidad: { type: string, format: date }
+        formaPago: { type: string }
+
+    PedidoListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              empresa: { type: string }
+              pedido: { type: integer }
+              cliente: { type: string }
+              fecha: { type: string, format: date-time }
+              estado: { type: string }
+              situacion: { type: string }
+              impreso: { type: boolean }
+              importe: { type: number }
+        total: { type: integer }
+
+    PedidoCreateRequest:
+      type: object
+      required: [empresa, cliente, lineas]
+      properties:
+        empresa: { type: string }
+        cliente: { type: string }
+        puesto: { type: string }
+        vendedor: { type: string }
+        lineas:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [articulo, cantidadPedida, precio]
+            properties:
+              articulo: { type: string }
+              cantidadPedida: { type: number }
+              precio: { type: number }
+
+    PedidoDetalle:
+      type: object
+      properties:
+        empresa: { type: string }
+        pedido: { type: integer }
+        cliente: { type: string }
+        estado: { type: string }
+        situacion: { type: string }
+        impreso: { type: boolean }
+        importe: { type: number }
+        lineas:
+          type: array
+          items:
+            type: object
+            properties:
+              nroLin: { type: integer }
+              articulo: { type: string }
+              cantidadPedida: { type: number }
+              precio: { type: number }
+              importe: { type: number }

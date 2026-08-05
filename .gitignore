@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+vendor/
+
+# Build / cache / installers
+dist/
+dist-install/
+build/
+*.log
+*.cache
+*.OLD
+*.exe
+*.rar
+*.zip
+
+# Environment / secrets
+.env
+.env.local
+**/.env
+!**/.env.example
+
+# IDE / OS / Cursor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.cursor/
+*.tmp
+*.swp
+
+# PHP
+composer.lock
+.phpunit.result.cache
+coverage/
+
+# Legacy / copias locales (no subir a GitHub)
+DesAbacusIA/
+Descartez-xampp/
+abc-ventas-xampp/
+abcVentas/
+abc-ventas-app/dist-install/
+abc-ventas-app/frontend/node_modules/
+descartes-electron/node_modules/
+descartes-gestion/node_modules/
+descartes-api/vendor/
+descartes-api/storage/logs/*
+!descartes-api/storage/logs/.gitignore

@@ -1,0 +1,387 @@
+﻿<script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue'
+import { api } from '@/api/client'
+import {
+  type ProveedorField,
+  type ProveedorSection,
+} from '@/config/proveedores-tabs'
+import { lookupCodigoPostal } from '@/composables/useCodigoPostalLookup'
+
+const props = defineProps<{
+  sections: ProveedorSection[]
+  modelValue: Record<string, unknown>
+  readonly?: boolean
+  codigoReadOnly?: boolean
+  ocultarCabecera?: boolean
+}>()
+
+const emit = defineEmits<{
+  'update:modelValue': [value: Record<string, unknown>]
+}>()
+
+const formasPagoOptions = ref<{ value: string; label: string }[]>([])
+const formasPagoCargadas = ref(false)
+
+const seccionesVisibles = computed(() => {
+  if (!props.ocultarCabecera) return props.sections
+  return props.sections
+    .map((section) => ({
+      ...section,
+      fields: section.fields.filter((f) => f.key !== 'codigo' && f.key !== 'nombre'),
+    }))
+    .filter((section) => section.fields.length > 0)
+})
+
+/** Agrupa secciones consecutivas con el mismo `row` para mostrarlas en paralelo. */
+const filasSecciones = computed(() => {
+  const rows: { key: string; sections: ProveedorSection[] }[] = []
+  const list = seccionesVisibles.value
+  let i = 0
+  while (i < list.length) {
+    const current = list[i]
+    if (current.row && list[i + 1]?.row === current.row) {
+      rows.push({ key: `${current.row}-${i}`, sections: [current, list[i + 1]] })
+      i += 2
+    } else {
+      rows.push({ key: `solo-${i}-${current.title}`, sections: [current] })
+      i += 1
+    }
+  }
+  return rows
+})
+
+const allFields = computed(() => props.sections.flatMap((s) => s.fields))
+
+async function cargarFormasPago() {
+  if (formasPagoCargadas.value) return
+  if (!allFields.value.some((f) => f.optionsSource === 'formas-pago')) return
+  try {
+    const { data } = await api.get('/api/mantenimiento/formas-pago', {
+      params: { activo: true, pageSize: 500 },
+    })
+    formasPagoOptions.value = (data.items ?? []).map((f: { codigo: string; descripcion: string }) => ({
+      value: String(f.codigo).trim(),
+      label: `${String(f.codigo).trim()} - ${f.descripcion}`,
+    }))
+    formasPagoCargadas.value = true
+  } catch {
+    formasPagoOptions.value = []
+  }
+}
+
+onMounted(() => {
+  void cargarFormasPago()
+})
+
+watch(
+  () => props.sections,
+  () => {
+    void cargarFormasPago()
+  },
+  { deep: true }
+)
+
+function optionsFor(field: ProveedorField) {
+  if (field.options) return field.options
+  if (field.optionsSource === 'formas-pago') return formasPagoOptions.value
+  return []
+}
+
+function isReadOnly(field: ProveedorField) {
+  if (props.readonly || field.readOnly) return true
+  if (field.key === 'codigo' && props.codigoReadOnly) return true
+  return false
+}
+
+function displayValue(field: ProveedorField) {
+  const value = props.modelValue[field.key]
+  if (field.type === 'checkbox') return Boolean(value)
+  if (field.type === 'number') return value == null || value === '' ? '' : value
+  return value ?? ''
+}
+
+const FISCAL_TO_ALMACEN: Record<string, string> = {
+  direccion: 'direccionEnvio',
+  codigoPostal: 'codigoPostalEnvio',
+  poblacion: 'poblacionEnvio',
+  provincia: 'provinciaEnvio',
+  pais: 'paisEnvio',
+}
+
+function setValue(field: ProveedorField, value: unknown) {
+  const next: Record<string, unknown> = { ...props.modelValue, [field.key]: value }
+  const dest = FISCAL_TO_ALMACEN[field.key]
+  if (dest && !props.readonly) {
+    next[dest] = value
+  }
+  emit('update:modelValue', next)
+}
+
+const CP_FIELD_MAP: Record<string, { poblacion: string; provincia: string }> = {
+  codigoPostal: { poblacion: 'poblacion', provincia: 'provincia' },
+  codigoPostalEnvio: { poblacion: 'poblacionEnvio', provincia: 'provinciaEnvio' },
+}
+
+let cpLookupSeq = 0
+
+async function onCodigoPostalInput(field: ProveedorField, raw: string) {
+  const next: Record<string, unknown> = { ...props.modelValue, [field.key]: raw }
+  if (field.key === 'codigoPostal' && !props.readonly) {
+    next.codigoPostalEnvio = raw
+  }
+  emit('update:modelValue', next)
+
+  const map = CP_FIELD_MAP[field.key]
+  if (!map || props.readonly || field.readOnly) return
+  const cp = raw.trim()
+  if (cp.length < 4) return
+  const seq = ++cpLookupSeq
+  try {
+    const data = await lookupCodigoPostal(cp)
+    if (seq !== cpLookupSeq || !data) return
+    const updated: Record<string, unknown> = { ...props.modelValue, [field.key]: raw }
+    if (field.key === 'codigoPostal') {
+      updated.codigoPostalEnvio = raw
+    }
+    if (data.poblacion) {
+      updated[map.poblacion] = data.poblacion
+      if (field.key === 'codigoPostal') updated.poblacionEnvio = data.poblacion
+    }
+    if (data.provincia) {
+      updated[map.provincia] = data.provincia
+      if (field.key === 'codigoPostal') updated.provinciaEnvio = data.provincia
+    }
+    emit('update:modelValue', updated)
+  } catch {
+    // Silencioso
+  }
+}
+
+function colsClass(section: ProveedorSection) {
+  return `cols-${section.columns ?? 4}`
+}
+</script>
+
+<template>
+  <div class="tab-form">
+    <div
+      v-for="fila in filasSecciones"
+      :key="fila.key"
+      class="section-row"
+      :class="{ paired: fila.sections.length > 1 }"
+    >
+      <section v-for="section in fila.sections" :key="section.title" class="section">
+        <h3>{{ section.title }}</h3>
+        <div class="fields" :class="colsClass(section)">
+          <label
+            v-for="field in section.fields"
+            :key="field.key"
+            class="field"
+            :class="[`span-${field.span ?? 1}`, field.layout ?? 'inline']"
+          >
+            <template v-if="field.layout === 'checkbox'">
+              <input
+                type="checkbox"
+                :checked="Boolean(displayValue(field))"
+                :disabled="isReadOnly(field)"
+                @change="setValue(field, ($event.target as HTMLInputElement).checked)"
+              />
+              <span>{{ field.label }}</span>
+            </template>
+
+            <template v-else>
+              <span class="label">{{ field.label }}</span>
+
+              <select
+                v-if="field.type === 'select'"
+                :value="String(modelValue[field.key] ?? '')"
+                :disabled="isReadOnly(field)"
+                @change="setValue(field, ($event.target as HTMLSelectElement).value)"
+              >
+                <option value="">--</option>
+                <option v-for="opt in optionsFor(field)" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </option>
+              </select>
+
+              <textarea
+                v-else-if="field.layout === 'textarea' || field.type === 'textarea'"
+                :value="String(displayValue(field))"
+                :readonly="isReadOnly(field)"
+                rows="4"
+                @input="setValue(field, ($event.target as HTMLTextAreaElement).value)"
+              />
+
+              <input
+                v-else-if="field.type === 'checkbox'"
+                type="checkbox"
+                :checked="Boolean(displayValue(field))"
+                :disabled="isReadOnly(field)"
+                @change="setValue(field, ($event.target as HTMLInputElement).checked)"
+              />
+
+              <input
+                v-else
+                :type="field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : field.type === 'email' ? 'email' : 'text'"
+                :value="displayValue(field) as string | number"
+                :readonly="isReadOnly(field)"
+                :maxlength="field.maxLength"
+                step="any"
+                @input="
+                  field.key === 'codigoPostal' || field.key === 'codigoPostalEnvio'
+                    ? onCodigoPostalInput(field, ($event.target as HTMLInputElement).value)
+                    : setValue(
+                        field,
+                        field.type === 'number'
+                          ? ($event.target as HTMLInputElement).value === ''
+                            ? null
+                            : Number(($event.target as HTMLInputElement).value)
+                          : ($event.target as HTMLInputElement).value
+                      )
+                "
+                @blur="
+                  field.key === 'codigoPostal' || field.key === 'codigoPostalEnvio'
+                    ? onCodigoPostalInput(field, ($event.target as HTMLInputElement).value)
+                    : undefined
+                "
+              />
+            </template>
+          </label>
+        </div>
+      </section>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.tab-form {
+  background: #f8fafc;
+  border: 1px solid #c5cdd8;
+  border-top: none;
+  padding: 0.65rem;
+  max-width: 1100px;
+}
+
+.section-row {
+  margin-bottom: 0.65rem;
+}
+
+.section-row.paired {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+  align-items: stretch;
+}
+
+.section-row.paired .section {
+  margin-bottom: 0;
+  height: 100%;
+}
+
+.section {
+  margin-bottom: 0;
+  padding: 0.45rem 0.55rem 0.55rem;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+}
+
+.section-row:not(.paired) .section {
+  margin-bottom: 0;
+}
+
+.section h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #334155;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 0.25rem;
+}
+
+.fields {
+  display: grid;
+  gap: 0.35rem 0.55rem;
+}
+
+.cols-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.cols-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.cols-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.cols-5 {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.field {
+  display: grid;
+  gap: 0.15rem;
+  font-size: 0.78rem;
+  min-width: 0;
+}
+
+.field.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding-top: 1.1rem;
+}
+
+.span-2 {
+  grid-column: span 2;
+}
+.span-3 {
+  grid-column: span 3;
+}
+.span-4 {
+  grid-column: span 4;
+}
+
+.label {
+  color: #475569;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 0.2rem 0.35rem;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  font: inherit;
+  background: #fff;
+}
+
+input[type='checkbox'] {
+  width: auto;
+}
+
+input:read-only,
+textarea:read-only,
+select:disabled {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+@media (max-width: 900px) {
+  .section-row.paired {
+    grid-template-columns: 1fr;
+  }
+
+  .cols-3,
+  .cols-4,
+  .cols-5 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .span-3,
+  .span-4 {
+    grid-column: span 2;
+  }
+}
+</style>
+

@@ -1,0 +1,10 @@
+{
+  "appUrl": "http://127.0.0.1:5173",
+  "apiHint": "En desarrollo, Electron arranca Vite solo. En produccion, appUrl apunta al build en el servidor (ej. http://servidor/descartes-gestion/).",
+  "window": {
+    "width": 1280,
+    "height": 800,
+    "maximized": true,
+    "fullscreen": false
+  }
+}

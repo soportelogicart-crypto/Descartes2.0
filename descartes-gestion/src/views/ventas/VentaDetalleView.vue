@@ -1,0 +1,1542 @@
+<script setup lang="ts">
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import {
+  actualizarVenta,
+  crearVenta,
+  eliminarVenta,
+  finalizarVenta,
+  marcarVentaImpresa,
+  obtenerVenta,
+  reservarAlbaran,
+} from '@/api/ventas'
+import { api } from '@/api/client'
+import type { VentaDetalle, VentaLinea, VentaPayload, VentaResumen } from '@/types/ventas'
+import { extractApiError } from '@/composables/useMantenimiento'
+import { usePermisos } from '@/composables/usePermisos'
+import { usePuestoContextoStore } from '@/stores/puestoContexto'
+import { useVentasBusquedaStore } from '@/stores/ventasBusqueda'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import EntidadBuscarModal from '@/components/common/EntidadBuscarModal.vue'
+import VentaToolbar from '@/components/ventas/VentaToolbar.vue'
+import VentaCabeceraForm from '@/components/ventas/VentaCabeceraForm.vue'
+
+const route = useRoute()
+const router = useRouter()
+const { puede } = usePermisos()
+const puesto = usePuestoContextoStore()
+const busqueda = useVentasBusquedaStore()
+
+/**
+ * KeepAlive cachea por fullPath. Al cambiar de /nuevo a /empresa/tipo/nº la instancia
+ * antigua sigue recibiendo el cambio de route y puede consumir abrirEnEdicion.
+ */
+const pathInstancia = route.fullPath
+
+function esEstaInstanciaActiva(): boolean {
+  return route.fullPath === pathInstancia
+}
+
+const puedeCrear = computed(() => puede('ventas', 'crear'))
+const puedeEditar = computed(() => puede('ventas', 'editar'))
+const puedeEliminar = computed(() => puede('ventas', 'eliminar'))
+
+const loading = ref(false)
+const error = ref<string | null>(null)
+const mensaje = ref<string | null>(null)
+const modoEdicion = ref(false)
+const esNuevo = ref(false)
+const ficha = ref<VentaDetalle | null>(null)
+const lineas = ref<VentaLinea[]>([])
+const confirmBorrar = ref(false)
+const finalizarOpen = ref(false)
+const tipoFinal = ref('A')
+/** Flujo legacy: tienda → reservar albaran → buscar cliente → grabar cabecera */
+const pasoAlta = ref<'tienda' | 'cliente' | 'listo'>('listo')
+const buscarClienteOpen = ref(false)
+const buscarArticuloOpen = ref(false)
+const buscarVendedorOpen = ref(false)
+const lineaArticuloIdx = ref(0)
+const articuloBusquedaInicial = ref('')
+/** Tras alta de cabecera: no recargar (ya tenemos la ficha) y quedar en edicion. */
+const omitirProximaCarga = ref(false)
+const cabeceraForm = ref<{ focusTienda: () => Promise<void> } | null>(null)
+const articuloInputRefs = ref<HTMLInputElement[]>([])
+const vendedorNombre = ref('')
+
+function setArticuloInputRef(el: unknown, index: number) {
+  if (el instanceof HTMLInputElement) {
+    articuloInputRefs.value[index] = el
+  }
+}
+
+async function resolverNombreVendedor(codigo: string) {
+  const c = String(codigo ?? '').trim()
+  if (!c) {
+    vendedorNombre.value = ''
+    return
+  }
+  try {
+    const { data } = await api.get(`/api/mantenimiento/trabajadores/${encodeURIComponent(c)}`)
+    vendedorNombre.value = String(data.nombre ?? data.descripcion ?? '').trim()
+  } catch {
+    vendedorNombre.value = ''
+  }
+}
+
+function abrirBuscarVendedor() {
+  if (soloLectura.value) {
+    if (!puedeEditar.value || bloqueado.value) return
+    modoEdicion.value = true
+  }
+  buscarVendedorOpen.value = true
+}
+
+function onVendedorSeleccionado(sel: { codigo: string; etiqueta: string }) {
+  buscarVendedorOpen.value = false
+  if (!ficha.value) return
+  ficha.value = { ...ficha.value, vendedor: sel.codigo }
+  vendedorNombre.value = sel.etiqueta
+}
+
+async function onVendedorKeydown(e: KeyboardEvent) {
+  if (soloLectura.value) return
+  if (e.key === 'F4') {
+    e.preventDefault()
+    abrirBuscarVendedor()
+    return
+  }
+  if (e.key !== 'Enter') return
+  e.preventDefault()
+  const codigo = String(ficha.value?.vendedor ?? '').trim()
+  if (!codigo) {
+    abrirBuscarVendedor()
+    return
+  }
+  await resolverNombreVendedor(codigo)
+  if (!vendedorNombre.value) {
+    abrirBuscarVendedor()
+  }
+}
+
+async function focusArticuloLinea(index = 0) {
+  await nextTick()
+  const el = articuloInputRefs.value[index]
+  if (el) {
+    el.focus()
+    el.select()
+  }
+}
+
+function abrirBuscarArticulo(index: number) {
+  if (soloLectura.value) {
+    if (!puedeEditar.value || bloqueado.value) return
+    modoEdicion.value = true
+  }
+  lineaArticuloIdx.value = index
+  articuloBusquedaInicial.value = String(lineas.value[index]?.articulo ?? '').trim()
+  buscarArticuloOpen.value = true
+}
+
+const TIPOS_FINAL = [
+  { codigo: 'T', label: 'Ticket' },
+  { codigo: 'A', label: 'Albaran' },
+  { codigo: 'P', label: 'Presupuesto' },
+  { codigo: 'F', label: 'Factura' },
+]
+
+/** Legacy: CobroDeArqueo / AbrirCajon / FacturacionDirecta = contado → no Albaran. */
+const clienteContado = ref(false)
+const formaPagoCliente = ref('')
+/** Formas de pago con CobroDeArqueo + AbrirCajon (legacy ticket Frame1). */
+const formasPagoContado = ref<{ codigo: string; descripcion: string }[]>([])
+const fpagoFinal = ref('')
+/** Empresas.SW_IVA: precios de linea con IVA incluido (yIVA). */
+const preciosIvaIncluido = ref(false)
+
+const tiposFinalDisponibles = computed(() => {
+  if (esTicketCerrado.value) {
+    return TIPOS_FINAL.filter((t) => t.codigo === 'F')
+  }
+  return TIPOS_FINAL.filter((t) => !(clienteContado.value && t.codigo === 'A'))
+})
+
+const mostrarSelectorFpago = computed(
+  () => clienteContado.value || tipoFinal.value === 'T' || tipoFinal.value === 'F' || esTicketCerrado.value
+)
+
+function lineaVacia(): VentaLinea {
+  return {
+    articulo: '',
+    descripcion: '',
+    loteVenta: '',
+    cantidad: 1,
+    precio: 0,
+    pjeDto: 0,
+    importe: 0,
+    pjeIva: 21,
+  }
+}
+
+function vacia(): VentaDetalle {
+  const hoy = new Date().toISOString()
+  return {
+    empresa: puesto.empresaCodigo || '',
+    tipo: 'A',
+    albaran: 0,
+    fecha: hoy,
+    cliente: '',
+    razonSocial: '',
+    razonSocial2: '',
+    nif: '',
+    puesto: puesto.puestoCodigo || '',
+    vendedor: '',
+    representante: '',
+    transporte: '',
+    direccionEnvio: '',
+    poblacionEnvio: '',
+    codigoPostalEnvio: '',
+    provinciaEnvio: '',
+    paisEnvio: '',
+    telefono: '',
+    telefono2: '',
+    fax: '',
+    email: '',
+    almacen: null,
+    pedido: null,
+    referencia1: '',
+    referencia2: '',
+    numeroDeSerie: '',
+    sujetoPasivo: false,
+    portes: '',
+    fechaEntrega: null,
+    estado: null,
+    importe: 0,
+    bruto: 0,
+    descuento: 0,
+    iva: 0,
+    pjeIva1: 21,
+    pjeDto: 0,
+    facturada: false,
+    bloqueado: false,
+    factura: null,
+    facturaTipo: null,
+    sesion: null,
+    formasPago: [],
+    importesIva: [],
+    lineas: [],
+  }
+}
+
+const bloqueado = computed(() => {
+  const f = ficha.value
+  if (!f) return false
+  const ft = String(f.facturaTipo ?? '').trim().toUpperCase()
+  // Factura/abono: bloqueo total. Ticket cerrado: no editar, pero se puede pasar a factura.
+  if (ft === 'F' || ft === 'A' || Boolean(f.bloqueado)) return true
+  return false
+})
+/** Ticket tipificado (FacturaTipo=T y numero asignado): legacy TransformacionTicketaFactura. */
+const esTicketCerrado = computed(() => {
+  const f = ficha.value
+  if (!f) return false
+  if (f.esTicket) return true
+  const ft = String(f.facturaTipo ?? '').trim().toUpperCase()
+  return ft === 'T' && Number(f.factura ?? 0) > 0
+})
+const ticketNoEditable = computed(() => esTicketCerrado.value)
+const soloLectura = computed(
+  () => !(modoEdicion.value || esNuevo.value) || bloqueado.value || ticketNoEditable.value
+)
+const tieneLineas = computed(() =>
+  lineas.value.some((l) => String(l.articulo ?? '').trim() !== '')
+)
+const puedeGuardar = computed(
+  () =>
+    (esNuevo.value ? puedeCrear.value : puedeEditar.value) &&
+    !bloqueado.value &&
+    !ticketNoEditable.value &&
+    tieneLineas.value
+)
+/** Albaran listo: cabecera creada + al menos una linea de articulo. */
+const albaranCompleto = computed(() => Boolean(ficha.value) && !esNuevo.value && tieneLineas.value)
+const puedeImprimir = computed(() => albaranCompleto.value && !modoEdicion.value)
+const puedePasarAFactura = computed(() => {
+  if (!esTicketCerrado.value || !puedeEditar.value || modoEdicion.value) return false
+  const f = ficha.value
+  if (!f) return false
+  return Boolean(String(f.cliente ?? '').trim() && String(f.nif ?? '').trim() && String(f.razonSocial ?? '').trim())
+})
+const puedeFinalizar = computed(
+  () =>
+    (albaranCompleto.value && !bloqueado.value && !ticketNoEditable.value && puedeEditar.value && !modoEdicion.value) ||
+    puedePasarAFactura.value
+)
+/** Durante alta/edicion no salir al listado ni navegar entre documentos. */
+const enTrabajo = computed(() => esNuevo.value || modoEdicion.value)
+const puedeBuscar = computed(() => !enTrabajo.value)
+const puedeNavegar = computed(() => !enTrabajo.value)
+
+function importeLinea(l: VentaLinea): number {
+  const lineaBruto = Number(l.cantidad || 0) * Number(l.precio || 0)
+  const lineaDto = lineaBruto * (Number(l.pjeDto || 0) / 100)
+  return Math.round((lineaBruto - lineaDto) * 100) / 100
+}
+
+const totales = computed(() => {
+  let bruto = 0
+  let descuento = 0
+  const acumPorIva = new Map<number, number>()
+  for (const l of lineas.value) {
+    if (!String(l.articulo ?? '').trim()) continue
+    const lineaBruto = Number(l.cantidad || 0) * Number(l.precio || 0)
+    const lineaDto = lineaBruto * (Number(l.pjeDto || 0) / 100)
+    const neto = Math.round((lineaBruto - lineaDto) * 100) / 100
+    bruto += lineaBruto
+    descuento += lineaDto
+    const pje =
+      Number(l.pjeIva) > 0
+        ? Number(l.pjeIva)
+        : Number(ficha.value?.pjeIva1) > 0
+          ? Number(ficha.value?.pjeIva1)
+          : 21
+    acumPorIva.set(pje, (acumPorIva.get(pje) ?? 0) + neto)
+  }
+  let iva = 0
+  let importe = 0
+  let baseTotal = 0
+  for (const [pje, acum] of acumPorIva) {
+    const total = Math.round(acum * 100) / 100
+    if (preciosIvaIncluido.value) {
+      const base = pje > 0 ? Math.round((total / (1 + pje / 100)) * 100) / 100 : total
+      const cuota = Math.round((total - base) * 100) / 100
+      baseTotal += base
+      iva += cuota
+      importe += total
+    } else {
+      const cuota = Math.round(total * (pje / 100) * 100) / 100
+      baseTotal += total
+      iva += cuota
+      importe += total + cuota
+    }
+  }
+  return {
+    bruto: Math.round(bruto * 100) / 100,
+    descuento: Math.round(descuento * 100) / 100,
+    iva: Math.round(iva * 100) / 100,
+    importe: Math.round(importe * 100) / 100,
+    base: Math.round(baseTotal * 100) / 100,
+  }
+})
+
+async function cargarPreciosIvaIncluido(empresa: string) {
+  const cod = String(empresa ?? '').trim()
+  if (!cod) {
+    preciosIvaIncluido.value = false
+    return
+  }
+  try {
+    const { data } = await api.get(`/api/mantenimiento/tiendas/${encodeURIComponent(cod)}`)
+    preciosIvaIncluido.value = Boolean(data.swIva)
+  } catch {
+    preciosIvaIncluido.value = false
+  }
+}
+
+async function cargarFormasPagoContado() {
+  try {
+    const { data } = await api.get('/api/mantenimiento/formas-pago', {
+      params: { pageSize: 500, activo: true },
+    })
+    const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : []
+    formasPagoContado.value = items
+      .filter((f: { cobroDeArqueo?: boolean; abrirCajon?: boolean; codigo?: string }) =>
+        Boolean(f.cobroDeArqueo && f.abrirCajon && String(f.codigo ?? '').trim())
+      )
+      .map((f: { codigo: string; descripcion?: string }) => ({
+        codigo: String(f.codigo).trim(),
+        descripcion: String(f.descripcion ?? f.codigo).trim(),
+      }))
+  } catch {
+    formasPagoContado.value = []
+  }
+}
+
+const navItems = computed(() => busqueda.items)
+
+const indiceNav = computed(() => {
+  if (!ficha.value || esNuevo.value) return -1
+  return busqueda.indiceDe(ficha.value)
+})
+
+function resumenDesdeDetalle(d: VentaDetalle): VentaResumen {
+  return {
+    empresa: d.empresa,
+    tipo: d.tipo,
+    albaran: d.albaran,
+    fecha: d.fecha,
+    cliente: d.cliente,
+    razonSocial: d.razonSocial,
+    puesto: d.puesto,
+    vendedor: d.vendedor,
+    estado: d.estado,
+    importe: d.importe,
+    facturada: d.facturada,
+    bloqueado: d.bloqueado,
+    factura: d.factura,
+    facturaTipo: d.facturaTipo,
+    sesion: d.sesion,
+  }
+}
+
+function payloadDesdeFicha(): VentaPayload {
+  const f = ficha.value!
+  return {
+    empresa: f.empresa,
+    tipo: f.tipo || 'A',
+    albaran: f.albaran > 0 ? f.albaran : undefined,
+    puesto: f.puesto,
+    cliente: f.cliente,
+    razonSocial: f.razonSocial,
+    razonSocial2: f.razonSocial2,
+    nif: f.nif,
+    fecha: f.fecha || undefined,
+    vendedor: f.vendedor,
+    vendedorApertura: f.vendedor,
+    representante: f.representante,
+    transporte: f.transporte,
+    direccionEnvio: f.direccionEnvio,
+    poblacionEnvio: f.poblacionEnvio,
+    codigoPostalEnvio: f.codigoPostalEnvio,
+    provinciaEnvio: f.provinciaEnvio,
+    paisEnvio: f.paisEnvio,
+    telefono: f.telefono,
+    telefono2: f.telefono2,
+    fax: f.fax,
+    email: f.email,
+    almacen: f.almacen,
+    pedido: f.pedido,
+    referencia1: f.referencia1,
+    referencia2: f.referencia2,
+    numeroDeSerie: f.numeroDeSerie,
+    sujetoPasivo: !!f.sujetoPasivo,
+    portes: f.portes,
+    pjeIva1: Number(f.pjeIva1) > 0 ? Number(f.pjeIva1) : 21,
+    fpago1: f.formasPago?.[0]?.codigo ?? '',
+    fpago2: f.formasPago?.[1]?.codigo ?? '',
+    impFpago1: Number(f.formasPago?.[0]?.importe ?? 0),
+    impFpago2: Number(f.formasPago?.[1]?.importe ?? 0),
+    lineas: lineas.value
+      .filter((l) => String(l.articulo ?? '').trim())
+      .map((l) => ({ ...l, importe: importeLinea(l) })),
+  }
+}
+
+async function cargar() {
+  if (!esEstaInstanciaActiva()) return
+
+  const esRutaNuevo = route.name === 'ventas-nuevo'
+  if (esRutaNuevo) {
+    iniciarNuevaVenta()
+    return
+  }
+
+  if (omitirProximaCarga.value) {
+    omitirProximaCarga.value = false
+    esNuevo.value = false
+    modoEdicion.value = true
+    pasoAlta.value = 'listo'
+    if (!lineas.value.length) lineas.value = [lineaVacia()]
+    mensaje.value = 'Introduzca articulos (Intro en codigo para buscar)'
+    await focusArticuloLinea(0)
+    return
+  }
+
+  loading.value = true
+  error.value = null
+  try {
+    const data = await obtenerVenta(
+      String(route.params.empresa),
+      String(route.params.tipo),
+      Number(route.params.albaran)
+    )
+    if (!esEstaInstanciaActiva()) return
+    aplicarDetalle(data)
+    esNuevo.value = false
+    pasoAlta.value = 'listo'
+    const forzarEdicion = busqueda.consumirAbrirEnEdicion({
+      empresa: data.empresa,
+      tipo: data.tipo,
+      albaran: data.albaran,
+    })
+    const bloqueadoDoc = Boolean(data.bloqueado || data.facturada)
+    const sinArticulos = !(data.lineas ?? []).some((l) => String(l.articulo ?? '').trim() !== '')
+    // Tras alta de cabecera el layout remonta (:key=path). Tambien reabrir borradores sin lineas.
+    modoEdicion.value = !bloqueadoDoc && (forzarEdicion || sinArticulos)
+    if (modoEdicion.value) {
+      if (!lineas.value.length) lineas.value = [lineaVacia()]
+      mensaje.value = sinArticulos
+        ? 'Puede completar cabecera (p. ej. Referencia) e introducir articulos. Luego Guardar.'
+        : 'Introduzca articulos (Intro en codigo para buscar)'
+      if (sinArticulos) {
+        await nextTick()
+      } else {
+        await focusArticuloLinea(0)
+      }
+    }
+  } catch (e: unknown) {
+    if (!esEstaInstanciaActiva()) return
+    error.value = extractApiError(e, 'No se pudo cargar la venta')
+    ficha.value = null
+  } finally {
+    if (esEstaInstanciaActiva()) {
+      loading.value = false
+    }
+  }
+}
+
+function aplicarDetalle(data: VentaDetalle) {
+  ficha.value = data
+  lineas.value = data.lineas?.length ? data.lineas.map((l) => ({ ...l })) : [lineaVacia()]
+  void cargarPreciosIvaIncluido(data.empresa)
+  void resolverNombreVendedor(String(data.vendedor ?? ''))
+}
+
+function irA(v: VentaResumen) {
+  // Misma pestaña al recorrer resultados (no apilar pestañas por albaran).
+  router.replace(`/ventas/${encodeURIComponent(v.empresa)}/${encodeURIComponent(v.tipo)}/${v.albaran}`)
+}
+
+function iniciarNuevaVenta() {
+  error.value = null
+  mensaje.value = null
+  esNuevo.value = true
+  modoEdicion.value = true
+  omitirProximaCarga.value = false
+  pasoAlta.value = 'tienda'
+  buscarClienteOpen.value = false
+  buscarArticuloOpen.value = false
+  buscarVendedorOpen.value = false
+  clienteContado.value = false
+  formaPagoCliente.value = ''
+  vendedorNombre.value = ''
+  ficha.value = vacia()
+  lineas.value = [lineaVacia()]
+  void nextTick(async () => {
+    await cabeceraForm.value?.focusTienda()
+    mensaje.value = 'Nueva venta: elija tienda y pulse Intro'
+  })
+}
+
+function onNuevo() {
+  if (route.name === 'ventas-nuevo') {
+    iniciarNuevaVenta()
+    mensaje.value = 'Nueva venta: elija tienda y pulse Intro'
+    return
+  }
+  router.push({ name: 'ventas-nuevo' })
+}
+
+function onKeyEnter(e: KeyboardEvent) {
+  // Solo captura Intro durante el alta de cabecera; no interferir con lineas/modales.
+  if (!esNuevo.value || pasoAlta.value === 'listo') return
+  if (buscarClienteOpen.value || buscarArticuloOpen.value) return
+  const t = e.target
+  if (t instanceof HTMLElement) {
+    const tag = t.tagName
+    if (tag === 'TEXTAREA' || (tag === 'INPUT' && t.closest('.lineas-panel'))) return
+  }
+  e.preventDefault()
+  void onIntroCabecera()
+}
+
+function precioSegunTarifa(art: Record<string, unknown>, tarifa: number | null | undefined): number {
+  const n = tarifa && tarifa >= 1 && tarifa <= 9 ? tarifa : 1
+  const key = `precioVen${n}`
+  const raw = art[key] ?? art.precioVenta ?? art.precioVen1 ?? 0
+  return Number(raw) || 0
+}
+
+async function resolverFormaPagoContado(codigoFpago: string): Promise<boolean> {
+  const codigo = codigoFpago.trim()
+  formaPagoCliente.value = codigo
+  if (!codigo) {
+    clienteContado.value = false
+    return false
+  }
+  try {
+    const { data } = await api.get(`/api/mantenimiento/formas-pago/${encodeURIComponent(codigo)}`)
+    const contado = Boolean(data.cobroDeArqueo || data.abrirCajon || data.facturacionDirecta)
+    clienteContado.value = contado
+    return contado
+  } catch {
+    clienteContado.value = false
+    return false
+  }
+}
+
+async function aplicarArticuloEnLinea(index: number, art: Record<string, unknown>, fallbackCodigo: string) {
+  const linea = lineas.value[index]
+  if (!linea) return
+  linea.articulo = String(art.codigo ?? fallbackCodigo).trim()
+  linea.descripcion = String(art.descripcion ?? '').trim()
+  linea.precio = precioSegunTarifa(art, ficha.value?.tarifa)
+  if (!linea.cantidad) linea.cantidad = 1
+  let pjeIva = Number(linea.pjeIva) > 0 ? Number(linea.pjeIva) : 21
+  const impuestoCodigo = String(art.impuestoCodigo ?? '').trim()
+  if (impuestoCodigo) {
+    try {
+      const { data: imp } = await api.get(
+        `/api/mantenimiento/impuestos/${encodeURIComponent(impuestoCodigo)}`
+      )
+      const pct = Number(imp.porcentajeIVA ?? imp.pjeIva ?? 0)
+      if (pct > 0) pjeIva = pct
+    } catch {
+      /* mantener default */
+    }
+  }
+  linea.pjeIva = pjeIva
+  linea.importe = importeLinea(linea)
+  if (index === lineas.value.length - 1) {
+    lineas.value.push(lineaVacia())
+  }
+  await focusArticuloLinea(index + 1)
+}
+
+async function onArticuloSeleccionado(sel: { codigo: string; etiqueta: string }) {
+  buscarArticuloOpen.value = false
+  const idx = lineaArticuloIdx.value
+  try {
+    const { data: art } = await api.get(
+      `/api/mantenimiento/articulos/${encodeURIComponent(sel.codigo)}`
+    )
+    await aplicarArticuloEnLinea(idx, art as Record<string, unknown>, sel.codigo)
+  } catch {
+    const linea = lineas.value[idx]
+    if (!linea) return
+    linea.articulo = sel.codigo
+    linea.descripcion = sel.etiqueta
+    if (idx === lineas.value.length - 1) {
+      lineas.value.push(lineaVacia())
+    }
+    await focusArticuloLinea(idx + 1)
+  }
+}
+
+async function onArticuloKeydown(e: KeyboardEvent, index: number) {
+  if (soloLectura.value) {
+    if (!puedeEditar.value || bloqueado.value) return
+    modoEdicion.value = true
+  }
+  if (e.key === 'F4') {
+    e.preventDefault()
+    e.stopPropagation()
+    abrirBuscarArticulo(index)
+    return
+  }
+  if (e.key !== 'Enter') return
+  e.preventDefault()
+  e.stopPropagation()
+
+  const codigo = String(lineas.value[index]?.articulo ?? '').trim()
+  if (!codigo) {
+    abrirBuscarArticulo(index)
+    return
+  }
+
+  try {
+    const { data: art } = await api.get(
+      `/api/mantenimiento/articulos/${encodeURIComponent(codigo)}`
+    )
+    await aplicarArticuloEnLinea(index, art as Record<string, unknown>, codigo)
+  } catch {
+    abrirBuscarArticulo(index)
+  }
+}
+
+async function onIntroCabecera() {
+  if (!esNuevo.value || !ficha.value || loading.value) return
+  error.value = null
+
+  if (pasoAlta.value === 'tienda') {
+    if (!ficha.value.empresa.trim()) {
+      error.value = 'Seleccione la tienda'
+      return
+    }
+    if (!puedeCrear.value) {
+      error.value = 'No tiene permiso para crear ventas (rol sin accion Crear en Ventas)'
+      return
+    }
+    loading.value = true
+    try {
+      const reserva = await reservarAlbaran({
+        empresa: ficha.value.empresa,
+        puesto: ficha.value.puesto || puesto.puestoCodigo || undefined,
+      })
+      ficha.value = {
+        ...ficha.value,
+        tipo: 'A',
+        albaran: reserva.albaran,
+        puesto: reserva.puesto || ficha.value.puesto,
+        // Solo trabajador del puesto (nunca codigo de usuario de login).
+        vendedor: reserva.vendedor || ficha.value.vendedor || '',
+        almacen: reserva.almacen,
+      }
+      void resolverNombreVendedor(ficha.value.vendedor || '')
+      void cargarPreciosIvaIncluido(ficha.value.empresa)
+      pasoAlta.value = 'cliente'
+      mensaje.value = `Albaran ${reserva.albaran} reservado. Pulse Intro para buscar cliente`
+    } catch (e: unknown) {
+      error.value = extractApiError(e, 'No se pudo reservar el albaran')
+    } finally {
+      loading.value = false
+    }
+    return
+  }
+
+  if (pasoAlta.value === 'cliente') {
+    buscarClienteOpen.value = true
+  }
+}
+
+async function onClienteSeleccionado(sel: { codigo: string; etiqueta: string }) {
+  buscarClienteOpen.value = false
+  if (!ficha.value) return
+  loading.value = true
+  error.value = null
+  try {
+    const { data: cli } = await api.get(`/api/mantenimiento/clientes/${encodeURIComponent(sel.codigo)}`)
+    // Vendedor = trabajador del puesto (nunca usuario de login).
+    const vendedorPuesto = String(ficha.value.vendedor ?? '').trim()
+    const representanteCli = (() => {
+      const v = cli.vendedor
+      if (v === true || v === false || v == null) return ''
+      const s = String(v).trim()
+      if (!s || s.toLowerCase() === 'true' || s.toLowerCase() === 'false') return ''
+      return s
+    })()
+    const transporteCli = String(cli.transportista ?? cli.transporte ?? '').trim()
+    const fpagoCli = String(cli.formaPago ?? '').trim()
+    // Legacy: DireccionEnvio* de cabecera se rellena con la direccion FISCAL del cliente.
+    ficha.value = {
+      ...ficha.value,
+      cliente: String(cli.codigo ?? sel.codigo).trim(),
+      razonSocial: String(cli.nombre ?? sel.etiqueta ?? '').trim(),
+      razonSocial2: cli.razonSocial2 != null ? String(cli.razonSocial2) : '',
+      nif: cli.nif != null ? String(cli.nif) : '',
+      direccionEnvio: String(cli.direccion ?? ''),
+      poblacionEnvio: String(cli.poblacion ?? ''),
+      codigoPostalEnvio: String(cli.codigoPostal ?? ''),
+      provinciaEnvio: String(cli.provincia ?? ''),
+      paisEnvio: String(cli.pais ?? ''),
+      telefono: cli.telefono1 != null ? String(cli.telefono1) : '',
+      telefono2: cli.telefono2 != null ? String(cli.telefono2) : '',
+      fax: cli.fax != null ? String(cli.fax) : '',
+      email: cli.email != null ? String(cli.email) : '',
+      // Legacy: Representante = Clientes.Vendedor; Transporte = Transportista
+      representante: representanteCli,
+      transporte: transporteCli,
+      portes: '',
+      vendedor: vendedorPuesto,
+      formasPago: fpagoCli
+        ? [{ codigo: fpagoCli, importe: 0 }, { codigo: '', importe: 0 }]
+        : ficha.value.formasPago ?? [],
+      tarifa: cli.tarifa != null && cli.tarifa !== '' ? Number(cli.tarifa) : null,
+    }
+    await resolverFormaPagoContado(fpagoCli)
+
+    const payload: VentaPayload = {
+      ...payloadDesdeFicha(),
+      representante: representanteCli || ' ',
+      transporte: transporteCli || ' ',
+      fpago1: fpagoCli || ' ',
+      fpago2: '',
+      actividad: 0,
+      agente: String(cli.agenteOrigen ?? cli.agente ?? '').trim() || ' ',
+      facturaTipo: 'R',
+      empresaFacturacion: ficha.value.empresa,
+      vendedor: vendedorPuesto || null,
+      vendedorApertura: vendedorPuesto || null,
+      tarifa: ficha.value.tarifa ?? 0,
+      tipo: 'A',
+      lineas: [],
+    }
+
+    const saved = await crearVenta(payload)
+    aplicarDetalle(saved)
+    if (!saved.lineas?.length) {
+      lineas.value = [lineaVacia()]
+    }
+    esNuevo.value = false
+    modoEdicion.value = true
+    pasoAlta.value = 'listo'
+    omitirProximaCarga.value = true
+    busqueda.marcarAbrirEnEdicion({
+      empresa: saved.empresa,
+      tipo: saved.tipo,
+      albaran: saved.albaran,
+    })
+    mensaje.value = `Cabecera guardada. Introduzca articulos (Intro en codigo para buscar)`
+    busqueda.upsertResumen(resumenDesdeDetalle(saved))
+    const mismaRuta =
+      route.name === 'ventas-detalle' &&
+      String(route.params.empresa) === saved.empresa &&
+      String(route.params.tipo) === saved.tipo &&
+      Number(route.params.albaran) === saved.albaran
+    if (mismaRuta) {
+      omitirProximaCarga.value = false
+      busqueda.consumirAbrirEnEdicion({
+        empresa: saved.empresa,
+        tipo: saved.tipo,
+        albaran: saved.albaran,
+      })
+      await focusArticuloLinea(0)
+    } else {
+      await router.replace(
+        `/ventas/${encodeURIComponent(saved.empresa)}/${encodeURIComponent(saved.tipo)}/${saved.albaran}`
+      )
+    }
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo guardar la cabecera')
+  } finally {
+    loading.value = false
+  }
+}
+
+function onModificar() {
+  if (bloqueado.value || esTicketCerrado.value) {
+    error.value = esTicketCerrado.value
+      ? 'Ticket cerrado: no se puede modificar. Use Finalizar para pasarlo a factura.'
+      : 'Documento facturado: no se puede modificar'
+    return
+  }
+  modoEdicion.value = true
+}
+
+function onCancelar() {
+  if (esNuevo.value) {
+    router.push('/ventas')
+    return
+  }
+  modoEdicion.value = false
+  cargar()
+}
+
+async function onGuardar() {
+  if (!ficha.value || !puedeGuardar.value) return
+  if (!ficha.value.empresa.trim()) {
+    error.value = 'Seleccione la tienda'
+    return
+  }
+  if (!tieneLineas.value) {
+    error.value = 'Introduzca al menos un articulo antes de guardar'
+    return
+  }
+  loading.value = true
+  error.value = null
+  mensaje.value = null
+  try {
+    const payload = payloadDesdeFicha()
+    const saved = esNuevo.value
+      ? await crearVenta(payload)
+      : await actualizarVenta(ficha.value.empresa, ficha.value.tipo, ficha.value.albaran, payload)
+    aplicarDetalle(saved)
+    esNuevo.value = false
+    modoEdicion.value = false
+    mensaje.value = tieneLineas.value
+      ? 'Albaran guardado. Ya puede Finalizar o Imprimir.'
+      : 'Venta guardada'
+    busqueda.upsertResumen(resumenDesdeDetalle(saved))
+    if (
+      route.params.empresa !== saved.empresa ||
+      route.params.tipo !== saved.tipo ||
+      Number(route.params.albaran) !== saved.albaran
+    ) {
+      router.replace(
+        `/ventas/${encodeURIComponent(saved.empresa)}/${encodeURIComponent(saved.tipo)}/${saved.albaran}`
+      )
+    }
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo guardar')
+  } finally {
+    loading.value = false
+  }
+}
+
+function onBorrar() {
+  if (!ficha.value || bloqueado.value) return
+  confirmBorrar.value = true
+}
+
+async function confirmarBorrar() {
+  confirmBorrar.value = false
+  if (!ficha.value) return
+  loading.value = true
+  try {
+    const key = {
+      empresa: ficha.value.empresa,
+      tipo: ficha.value.tipo,
+      albaran: ficha.value.albaran,
+    }
+    await eliminarVenta(key.empresa, key.tipo, key.albaran)
+    busqueda.quitar(key)
+    router.push('/ventas')
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo borrar')
+  } finally {
+    loading.value = false
+  }
+}
+
+async function onFinalizar() {
+  if (!ficha.value) return
+  if (bloqueado.value && !esTicketCerrado.value) return
+  const fpago =
+    String(ficha.value.formasPago?.[0]?.codigo ?? '').trim() || formaPagoCliente.value
+  if (fpago) {
+    await resolverFormaPagoContado(fpago)
+  } else if (ficha.value.cliente) {
+    try {
+      const { data: cli } = await api.get(
+        `/api/mantenimiento/clientes/${encodeURIComponent(ficha.value.cliente)}`
+      )
+      await resolverFormaPagoContado(String(cli.formaPago ?? ''))
+    } catch {
+      clienteContado.value = false
+    }
+  }
+  if (esTicketCerrado.value) {
+    // Legacy TransformacionTicketaFactura: solo Factura.
+    tipoFinal.value = 'F'
+  } else {
+    tipoFinal.value = clienteContado.value ? 'T' : 'A'
+  }
+  if (!tiposFinalDisponibles.value.some((t) => t.codigo === tipoFinal.value)) {
+    tipoFinal.value = tiposFinalDisponibles.value[0]?.codigo ?? 'T'
+  }
+  await cargarFormasPagoContado()
+  const preferida =
+    fpago ||
+    formaPagoCliente.value ||
+    String(ficha.value.formasPago?.[0]?.codigo ?? '').trim()
+  if (preferida && formasPagoContado.value.some((f) => f.codigo === preferida)) {
+    fpagoFinal.value = preferida
+  } else {
+    fpagoFinal.value = formasPagoContado.value[0]?.codigo ?? preferida ?? ''
+  }
+  finalizarOpen.value = true
+}
+
+async function onImprimir() {
+  if (!ficha.value || esNuevo.value) return
+  error.value = null
+  try {
+    const updated = await marcarVentaImpresa(
+      ficha.value.empresa,
+      ficha.value.tipo,
+      ficha.value.albaran
+    )
+    aplicarDetalle(updated)
+    mensaje.value = 'Documento marcado como impreso'
+    window.print()
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo marcar como impreso')
+  }
+}
+
+async function confirmarFinalizar() {
+  if (!ficha.value) return
+  if (mostrarSelectorFpago.value && !String(fpagoFinal.value).trim()) {
+    error.value = 'Seleccione la forma de pago (cobro de arqueo / abrir cajon)'
+    return
+  }
+  finalizarOpen.value = false
+  loading.value = true
+  error.value = null
+  const prev = {
+    empresa: ficha.value.empresa,
+    tipo: ficha.value.tipo,
+    albaran: ficha.value.albaran,
+  }
+  try {
+    if (modoEdicion.value) {
+      const payload = payloadDesdeFicha()
+      if (mostrarSelectorFpago.value && fpagoFinal.value) {
+        payload.fpago1 = fpagoFinal.value
+        payload.impFpago1 = totales.value.importe
+      }
+      const saved = await actualizarVenta(
+        ficha.value.empresa,
+        ficha.value.tipo,
+        ficha.value.albaran,
+        payload
+      )
+      aplicarDetalle(saved)
+    }
+    const done = await finalizarVenta(
+      ficha.value.empresa,
+      ficha.value.tipo,
+      ficha.value.albaran,
+      tipoFinal.value,
+      mostrarSelectorFpago.value ? fpagoFinal.value : undefined
+    )
+    aplicarDetalle(done)
+    modoEdicion.value = false
+    if (String(done.facturaTipo ?? '').toUpperCase() === 'F' && tipoFinal.value === 'F') {
+      mensaje.value = `Ticket pasado a factura ${done.factura ?? ''}`
+    } else {
+      mensaje.value = `Documento tipificado como ${
+        TIPOS_FINAL.find((t) => t.codigo === (done.facturaTipo || tipoFinal.value))?.label ??
+        done.facturaTipo ??
+        tipoFinal.value
+      }`
+    }
+    if (prev.empresa !== done.empresa || prev.tipo !== done.tipo || prev.albaran !== done.albaran) {
+      busqueda.quitar(prev)
+    }
+    busqueda.upsertResumen(resumenDesdeDetalle(done))
+    router.replace(
+      `/ventas/${encodeURIComponent(done.empresa)}/${encodeURIComponent(done.tipo)}/${done.albaran}`
+    )
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo finalizar')
+  } finally {
+    loading.value = false
+  }
+}
+
+function addLinea() {
+  lineas.value.push(lineaVacia())
+}
+
+function removeLinea(i: number) {
+  lineas.value.splice(i, 1)
+  if (!lineas.value.length) lineas.value.push(lineaVacia())
+}
+
+function nav(dir: 'primero' | 'anterior' | 'siguiente' | 'ultimo') {
+  if (!navItems.value.length) return
+  let i = indiceNav.value
+  if (dir === 'primero') i = 0
+  else if (dir === 'ultimo') i = navItems.value.length - 1
+  else if (dir === 'anterior') i = Math.max(0, i - 1)
+  else i = Math.min(navItems.value.length - 1, i + 1)
+  const v = navItems.value[i]
+  if (v) irA(v)
+}
+
+watch(
+  () => [route.params.empresa, route.params.tipo, route.params.albaran, route.name] as const,
+  (next, prev) => {
+    if (!esEstaInstanciaActiva()) return
+    if (prev && next[0] === prev[0] && next[1] === prev[1] && next[2] === prev[2] && next[3] === prev[3]) {
+      return
+    }
+    void cargar()
+  }
+)
+
+onMounted(() => {
+  void cargar()
+})
+</script>
+
+<template>
+  <section class="ficha-venta" tabindex="-1" @keydown.enter="onKeyEnter">
+    <VentaToolbar
+      :puede-crear="puedeCrear"
+      :puede-editar="puedeEditar"
+      :puede-eliminar="puedeEliminar"
+      :puede-guardar="puedeGuardar"
+      :puede-imprimir="puedeImprimir"
+      :puede-finalizar="puedeFinalizar"
+      :puede-buscar="puedeBuscar"
+      :puede-navegar="puedeNavegar"
+      :modo-edicion="modoEdicion || esNuevo"
+      :bloqueado="bloqueado || esTicketCerrado"
+      :es-ticket-cerrado="esTicketCerrado"
+      :hay-documento="!!ficha && !esNuevo"
+      :loading="loading"
+      :indice="indiceNav"
+      :total="navItems.length"
+      @nuevo="onNuevo"
+      @modificar="onModificar"
+      @borrar="onBorrar"
+      @buscar="router.push('/ventas')"
+      @guardar="onGuardar"
+      @cancelar="onCancelar"
+      @finalizar="onFinalizar"
+      @primero="nav('primero')"
+      @anterior="nav('anterior')"
+      @siguiente="nav('siguiente')"
+      @ultimo="nav('ultimo')"
+      @imprimir="onImprimir"
+    />
+
+    <ol v-if="esNuevo" class="pasos-alta" aria-label="Pasos alta albaran">
+      <li :class="{ activo: pasoAlta === 'tienda', hecho: pasoAlta !== 'tienda' }">1. Tienda</li>
+      <li :class="{ activo: pasoAlta === 'cliente', hecho: pasoAlta === 'listo' }">2. Cliente</li>
+      <li :class="{ activo: false, hecho: false }">3. Articulos</li>
+    </ol>
+    <ol
+      v-else-if="modoEdicion && ficha"
+      class="pasos-alta"
+      aria-label="Pasos albaran"
+    >
+      <li class="hecho">1. Tienda</li>
+      <li class="hecho">2. Cliente</li>
+      <li class="activo">3. Articulos · Guardar</li>
+    </ol>
+
+    <p v-if="bloqueado && ficha && !esTicketCerrado" class="banner-lock">
+      Documento facturado / tipo Factura - solo consulta
+    </p>
+    <p v-else-if="esTicketCerrado && ficha" class="banner-lock">
+      Ticket {{ ficha.factura }} — no editable.
+      <template v-if="puedePasarAFactura"> Puede <strong>Finalizar</strong> para pasarlo a factura.</template>
+      <template v-else> Indique Cliente, NIF y razon social para pasarlo a factura.</template>
+    </p>
+    <p v-if="esNuevo && pasoAlta === 'tienda'" class="ok">
+      Elija la <strong>tienda</strong> y pulse <strong>Intro</strong> para reservar el numero de albaran.
+    </p>
+    <p v-else-if="esNuevo && pasoAlta === 'cliente'" class="ok">
+      Albaran <strong>{{ ficha?.albaran }}</strong> reservado. Pulse <strong>Intro</strong> para buscar el cliente.
+    </p>
+    <p v-else-if="modoEdicion && !esNuevo && !tieneLineas" class="ok">
+      Introduzca articulos: codigo + <strong>Intro</strong> (o F4 / … para buscar). Luego <strong>Guardar</strong>.
+    </p>
+    <p v-else-if="modoEdicion && !esNuevo && tieneLineas" class="ok">
+      Lineas listas. Pulse <strong>Guardar</strong> y despues podra <strong>Finalizar</strong> / <strong>Imprimir</strong>.
+    </p>
+    <p v-else-if="!modoEdicion && albaranCompleto && !bloqueado && !esTicketCerrado" class="ok">
+      Albaran listo. Puede <strong>Finalizar</strong> (tipificar) o <strong>Imprimir</strong>.
+    </p>
+    <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="mensaje" class="ok">{{ mensaje }}</p>
+    <p v-if="loading && !ficha">Cargando...</p>
+
+    <template v-if="ficha">
+      <VentaCabeceraForm
+        ref="cabeceraForm"
+        v-model="ficha"
+        :readonly="soloLectura"
+        :es-nuevo="esNuevo"
+        :vendedor-nombre="vendedorNombre"
+        :totales="totales"
+        @buscar-vendedor="abrirBuscarVendedor"
+        @vendedor-keydown="onVendedorKeydown"
+        @vendedor-blur="resolverNombreVendedor(ficha?.vendedor || '')"
+      />
+
+      <div class="lineas-panel">
+        <div class="lineas-head">
+          <h3>Lineas</h3>
+          <button v-if="!soloLectura" type="button" class="btn-add" @click="addLinea">+ Linea</button>
+        </div>
+        <div class="grid-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Articulo</th>
+                <th>Descripcion</th>
+                <th>Lote Venta</th>
+                <th>Cant.</th>
+                <th>Precio</th>
+                <th>%Dto</th>
+                <th>Importe</th>
+                <th v-if="!soloLectura"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(l, i) in lineas" :key="i">
+                <td>
+                  <div class="celda-articulo">
+                    <input
+                      :ref="(el) => setArticuloInputRef(el, i)"
+                      v-model="l.articulo"
+                      maxlength="18"
+                      :readonly="soloLectura"
+                      placeholder="Codigo / buscar..."
+                      @keydown="onArticuloKeydown($event, i)"
+                      @dblclick="abrirBuscarArticulo(i)"
+                    />
+                    <button
+                      v-if="!soloLectura"
+                      type="button"
+                      class="btn-buscar-art"
+                      title="Buscar articulo (Intro / F4)"
+                      @click="abrirBuscarArticulo(i)"
+                    >
+                      ...
+                    </button>
+                  </div>
+                </td>
+                <td>
+                  <input v-model="l.descripcion" maxlength="50" :readonly="soloLectura" />
+                </td>
+                <td>
+                  <input v-model="l.loteVenta" maxlength="30" :readonly="soloLectura" />
+                </td>
+                <td class="num">
+                  <input v-model.number="l.cantidad" type="number" step="any" :readonly="soloLectura" />
+                </td>
+                <td class="num">
+                  <input v-model.number="l.precio" type="number" step="any" :readonly="soloLectura" />
+                </td>
+                <td class="num">
+                  <input v-model.number="l.pjeDto" type="number" step="any" :readonly="soloLectura" />
+                </td>
+                <td class="num importe">{{ importeLinea(l).toFixed(2) }}</td>
+                <td v-if="!soloLectura">
+                  <button type="button" class="btn-x" title="Quitar" @click="removeLinea(i)">x</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="hint">
+          En codigo: <strong>Intro</strong> carga el articulo (si existe) o abre busqueda;
+          <strong> F4</strong> / doble clic abre siempre la busqueda.
+          Tipo actual: <strong>{{ ficha.tipo }}</strong>
+          <span v-if="ficha.impreso"> · Impreso</span>
+        </p>
+      </div>
+    </template>
+
+    <ConfirmDialog
+      :open="confirmBorrar"
+      title="Borrar venta"
+      message="Eliminar este albaran y sus lineas?"
+      confirm-label="Borrar"
+      @confirm="confirmarBorrar"
+      @cancel="confirmBorrar = false"
+    />
+
+    <EntidadBuscarModal
+      :open="buscarClienteOpen"
+      entidad="clientes"
+      titulo="Buscar cliente"
+      @seleccionar="onClienteSeleccionado"
+      @cerrar="buscarClienteOpen = false"
+    />
+
+    <EntidadBuscarModal
+      :open="buscarArticuloOpen"
+      entidad="articulos"
+      titulo="Buscar articulo"
+      :busqueda-inicial="articuloBusquedaInicial"
+      @seleccionar="onArticuloSeleccionado"
+      @cerrar="buscarArticuloOpen = false"
+    />
+
+    <EntidadBuscarModal
+      :open="buscarVendedorOpen"
+      entidad="trabajadores"
+      titulo="Buscar vendedor"
+      :busqueda-inicial="ficha?.vendedor || ''"
+      @seleccionar="onVendedorSeleccionado"
+      @cerrar="buscarVendedorOpen = false"
+    />
+
+    <Teleport to="body">
+      <div v-if="finalizarOpen" class="overlay" @click.self="finalizarOpen = false">
+        <div class="modal-tipo">
+          <h3>{{ esTicketCerrado ? 'Pasar ticket a factura' : 'Finalizar documento' }}</h3>
+          <p v-if="esTicketCerrado">
+            Se convertira el ticket {{ ficha?.factura }} en factura (legacy TransformacionTicketaFactura).
+          </p>
+          <p v-else>Que tipo de documento es?</p>
+          <p v-if="clienteContado && !esTicketCerrado" class="ok">
+            Cliente de contado (forma de pago
+            <strong>{{ formaPagoCliente || '—' }}</strong>
+            con cobro de arqueo / abrir cajon): no se puede cerrar como albaran.
+          </p>
+          <div class="tipos">
+            <label v-for="t in tiposFinalDisponibles" :key="t.codigo" class="tipo-opt">
+              <input v-model="tipoFinal" type="radio" :value="t.codigo" />
+              {{ t.label }} ({{ t.codigo }})
+            </label>
+          </div>
+          <div v-if="mostrarSelectorFpago" class="fpago-final">
+            <label>
+              Forma de pago
+              <select v-model="fpagoFinal">
+                <option disabled value="">Seleccione…</option>
+                <option v-for="f in formasPagoContado" :key="f.codigo" :value="f.codigo">
+                  {{ f.codigo }} — {{ f.descripcion }}
+                </option>
+              </select>
+            </label>
+            <p v-if="!formasPagoContado.length" class="warn">
+              No hay formas de pago con cobro de arqueo y abrir cajon.
+            </p>
+          </div>
+          <p v-if="tipoFinal === 'F'" class="warn">Factura: el documento quedara bloqueado.</p>
+          <footer>
+            <button type="button" @click="finalizarOpen = false">Cancelar</button>
+            <button
+              type="button"
+              class="primary"
+              :disabled="mostrarSelectorFpago && !fpagoFinal"
+              @click="confirmarFinalizar"
+            >
+              Aceptar
+            </button>
+          </footer>
+        </div>
+      </div>
+    </Teleport>
+  </section>
+</template>
+
+<style scoped>
+.ficha-venta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.pasos-alta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-width: 960px;
+}
+.pasos-alta li {
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.pasos-alta li.activo {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+.pasos-alta li.hecho {
+  border-color: #86efac;
+  background: #dcfce7;
+  color: #166534;
+}
+.banner-lock {
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  color: #92400e;
+  padding: 0.45rem 0.75rem;
+  border-radius: 6px;
+  margin: 0;
+  font-size: 0.85rem;
+}
+.error {
+  color: #b91c1c;
+  margin: 0;
+}
+.ok {
+  color: #166534;
+  margin: 0;
+}
+.lineas-panel {
+  max-width: 960px;
+  background: #f8fafc;
+  border: 1px solid #c5cdd8;
+  border-radius: 6px;
+  padding: 0.4rem;
+}
+.lineas-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+}
+.lineas-head h3 {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #334155;
+}
+.btn-add {
+  border: 1px solid #64748b;
+  background: #fff;
+  border-radius: 6px;
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+  font-size: 0.78rem;
+}
+.grid-wrap {
+  overflow: auto;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+  background: #fff;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+th,
+td {
+  border-bottom: 1px solid #e2e8f0;
+  padding: 0.2rem 0.3rem;
+}
+th {
+  background: #f1f5f9;
+  text-align: left;
+  font-weight: 600;
+}
+td input {
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 0.2rem;
+  font: inherit;
+}
+td input:focus {
+  border-color: #94a3b8;
+  background: #fff;
+  outline: none;
+}
+td input:read-only {
+  cursor: default;
+}
+.num {
+  text-align: right;
+}
+.num input {
+  text-align: right;
+}
+.celda-articulo {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  min-width: 8rem;
+}
+.celda-articulo input {
+  flex: 1;
+}
+.btn-buscar-art {
+  border: 1px solid #94a3b8;
+  background: #f1f5f9;
+  border-radius: 4px;
+  padding: 0.1rem 0.35rem;
+  cursor: pointer;
+  font-size: 0.75rem;
+  line-height: 1.2;
+}
+.importe {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.btn-x {
+  border: none;
+  background: transparent;
+  color: #b91c1c;
+  cursor: pointer;
+  font-size: 1rem;
+}
+.hint {
+  color: #64748b;
+  font-size: 0.8rem;
+  margin: 0.35rem 0 0;
+}
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+.modal-tipo {
+  background: #fff;
+  border-radius: 10px;
+  padding: 1.25rem;
+  min-width: 18rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+.modal-tipo h3 {
+  margin: 0 0 0.5rem;
+}
+.tipos {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0.75rem 0;
+}
+.tipo-opt {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.fpago-final {
+  margin: 0.5rem 0 0.75rem;
+}
+.fpago-final label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+}
+.fpago-final select {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+.warn {
+  color: #92400e;
+  font-size: 0.85rem;
+}
+.modal-tipo footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+.modal-tipo button {
+  padding: 0.35rem 0.85rem;
+  border-radius: 6px;
+  border: 1px solid #94a3b8;
+  background: #fff;
+  cursor: pointer;
+}
+.modal-tipo button.primary {
+  background: #2563eb;
+  border-color: #1d4ed8;
+  color: #fff;
+}
+
+@media print {
+  :global(.app-layout),
+  :global(aside),
+  :global(nav) {
+    display: none !important;
+  }
+
+  .ficha-venta :deep(.toolbar),
+  .banner-lock,
+  .ok,
+  .error,
+  .hint,
+  .btn-add,
+  .btn-x,
+  .btn-buscar-art,
+  .overlay {
+    display: none !important;
+  }
+
+  .ficha-venta {
+    padding: 0;
+  }
+
+  .lineas-panel,
+  .ficha-venta :deep(.tab-form) {
+    border: none;
+    background: #fff;
+  }
+}
+</style>
