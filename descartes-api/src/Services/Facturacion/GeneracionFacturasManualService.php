@@ -26,6 +26,11 @@ final class GeneracionFacturasManualService
    */
   public function listarPendientes(array $query): array
   {
+    // Sin filtro de FacturacionManual salvo que la UI lo pida (todos | normales | manuales).
+    if (!isset($query['tipoCliente']) || trim((string) $query['tipoCliente']) === '') {
+      $query['tipoCliente'] = 'todos';
+    }
+
     [$where, $params] = $this->buildPendientesWhere($query);
 
     $sql = "SELECT TOP 2000
@@ -660,10 +665,12 @@ final class GeneracionFacturasManualService
       $fpagoCodigo = trim((string) ($primero['FormaPagoCliente'] ?? ''));
     }
 
-    $metaFpago = $this->metaFormaPagoFactura($fpagoCodigo);
-    $contadoDiferida = $metaFpago['agrupacion'] === 3 && $metaFpago['cobroDeArqueo'];
-    // Generación de crédito: Estado G (legacy CreaFactura desde GeneracionFacturas).
+    // Generación albaranes→factura (crédito): Estado G = diferida.
+    // NO confundir con "Factura contado diferida" (FacturaContadoDiferida=1 + UltFacturaDiferida),
+    // que solo aplica al tipificar contado diferido en TPV/venta (Agrupacion=3 y CobroDeArqueo).
+    // Legacy CreaFactura desde GeneracionFacturas: Estado G, flag 0, contador UltFactura.
     $estado = 'G';
+    $facturaContadoDiferida = false;
 
     $facturaTipo = ($importe < 0 && $this->empresaFacturasRectificativas($empresaFacturacion)) ? 'A' : 'F';
     $tabla = $esPrefactura ? 'PreFacturas' : 'Facturas';
@@ -679,7 +686,7 @@ final class GeneracionFacturasManualService
       $factura = $this->nextNumeroFactura(
         $empresaFacturacion,
         $facturaTipo === 'A' ? 'UltAbono' : 'UltFactura',
-        $contadoDiferida
+        false
       );
     }
 
@@ -758,7 +765,7 @@ final class GeneracionFacturasManualService
       'fpago' => $fpagoCodigo !== '' ? $fpagoCodigo : null,
       'estado' => $estado,
       'importeLiquidado' => 0.0,
-      'contadoDiferida' => $contadoDiferida ? 1 : 0,
+      'contadoDiferida' => $facturaContadoDiferida ? 1 : 0,
       'pagoACuenta' => round($pagoACuenta, 2),
       'sujetoPasivo' => $sujetoPasivo,
     ]);
@@ -847,37 +854,6 @@ final class GeneracionFacturasManualService
         return;
       }
     }
-  }
-
-  /** @return array{cobroDeArqueo: bool, agrupacion: int} */
-  private function metaFormaPagoFactura(string $codigo): array
-  {
-    $out = ['cobroDeArqueo' => false, 'agrupacion' => 0];
-    if ($codigo === '') {
-      return $out;
-    }
-    try {
-      $st = $this->pdo->prepare('SELECT CobroDeArqueo, Agrupacion FROM FormasPago WHERE Codigo = :c');
-      $st->execute(['c' => $codigo]);
-      $row = $st->fetch(PDO::FETCH_ASSOC);
-      if ($row === false) {
-        return $out;
-      }
-      $out['cobroDeArqueo'] = !empty($row['CobroDeArqueo']);
-      $out['agrupacion'] = (int) ($row['Agrupacion'] ?? 0);
-    } catch (\Throwable $e) {
-      try {
-        $st = $this->pdo->prepare('SELECT CobroDeArqueo FROM FormasPago WHERE Codigo = :c');
-        $st->execute(['c' => $codigo]);
-        $row = $st->fetch(PDO::FETCH_ASSOC);
-        if ($row !== false) {
-          $out['cobroDeArqueo'] = !empty($row['CobroDeArqueo']);
-        }
-      } catch (\Throwable $e2) {
-        // ignore
-      }
-    }
-    return $out;
   }
 
   private function nextNumeroFactura(string $empresa, string $campo, bool $facturacionDiferida): int

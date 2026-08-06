@@ -28,14 +28,22 @@ final class ImpresionFacturasService
   {
     [$where, $params] = $this->buildWhere($query);
 
+    $orden = strtolower(trim((string) ($query['ordenFecha'] ?? 'desc')));
+    if ($orden === 'asc') {
+      $orderSql = 'ORDER BY f.Fecha ASC, f.FacturaTipo ASC, f.Factura ASC';
+    } else {
+      $orderSql = 'ORDER BY f.Fecha DESC, f.FacturaTipo DESC, f.Factura DESC';
+    }
+
     $sql = "SELECT TOP 500
         f.Empresa, f.FacturaTipo, f.Factura, f.Fecha, f.Cliente, f.Importe, f.Fpago,
         ISNULL(f.Impresa, 0) AS Impresa, f.Estado,
+        ISNULL(f.FacturaContadoDiferida, 0) AS FacturaContadoDiferida,
         c.RazonSocial, c.NIF
       FROM Facturas f
       INNER JOIN Clientes c ON c.Codigo = f.Cliente
       WHERE {$where}
-      ORDER BY f.Fecha DESC, f.FacturaTipo, f.Factura DESC";
+      {$orderSql}";
 
     $stmt = $this->pdo->prepare($sql);
     $stmt->execute($params);
@@ -46,6 +54,10 @@ final class ImpresionFacturasService
     foreach ($rows as $r) {
       $imp = (float) ($r['Importe'] ?? 0);
       $importe += $imp;
+      $estado = strtoupper(trim((string) ($r['Estado'] ?? '')));
+      $contadoDif = !empty($r['FacturaContadoDiferida']);
+      // Crédito/generación (G) o contado diferido → diferida; resto contado.
+      $tipoCobro = ($estado === 'G' || $contadoDif) ? 'diferida' : 'contado';
       $items[] = [
         'empresa' => trim((string) ($r['Empresa'] ?? '')),
         'facturaTipo' => trim((string) ($r['FacturaTipo'] ?? '')),
@@ -57,7 +69,9 @@ final class ImpresionFacturasService
         'importe' => $imp,
         'fpago' => trim((string) ($r['Fpago'] ?? '')),
         'impresa' => !empty($r['Impresa']),
-        'estado' => trim((string) ($r['Estado'] ?? '')),
+        'estado' => $estado,
+        'facturaContadoDiferida' => $contadoDif,
+        'tipoCobro' => $tipoCobro,
       ];
     }
 
@@ -81,7 +95,8 @@ final class ImpresionFacturasService
       throw new \InvalidArgumentException('Indique facturas a imprimir o filtros de búsqueda');
     }
 
-    $marcar = !array_key_exists('marcarImpresa', $body) || !empty($body['marcarImpresa']);
+    // Por defecto no marcar: el preview PDF no debe alterar Impresa.
+    $marcar = array_key_exists('marcarImpresa', $body) && !empty($body['marcarImpresa']);
     $pdf = new SimplePdf();
     $primera = true;
 
@@ -218,12 +233,14 @@ final class ImpresionFacturasService
       $where[] = 'ISNULL(f.Impresa, 0) <> 0';
     }
 
-    // Tipo cobro: diferidas / contado / todas (legacy Combo Tipo).
-    $tipoCobro = strtolower(trim((string) ($query['tipoCobro'] ?? 'diferidas')));
+    // Tipo cobro (legacy Combo Tipo en Impresión):
+    // - Diferidas: crédito/generación (Estado G) o contado diferido (FacturaContadoDiferida=1).
+    // - Contado: Estado F (cobro inmediato). FacturaContadoDiferida NO es "crédito".
+    $tipoCobro = strtolower(trim((string) ($query['tipoCobro'] ?? 'todas')));
     if ($tipoCobro === 'diferidas') {
-      $where[] = '(ISNULL(f.FacturaContadoDiferida, 0) <> 0 OR f.Estado = \'G\')';
+      $where[] = "(RTRIM(ISNULL(f.Estado, '')) = 'G' OR ISNULL(f.FacturaContadoDiferida, 0) <> 0)";
     } elseif ($tipoCobro === 'contado') {
-      $where[] = '(ISNULL(f.FacturaContadoDiferida, 0) = 0 AND (f.Estado = \'F\' OR f.Estado IS NULL OR f.Estado = \'\'))';
+      $where[] = "(RTRIM(ISNULL(f.Estado, '')) = 'F' AND ISNULL(f.FacturaContadoDiferida, 0) = 0)";
     }
 
     // Estado documento legado (G/F) si se fuerza explícitamente.

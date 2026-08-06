@@ -20,7 +20,11 @@ export type ArticuloField = {
 
 export type ArticuloSection = {
   title: string
-  columns?: 2 | 3 | 4
+  columns?: 1 | 2 | 3 | 4
+  /** Cabeceras de columna (p.ej. Unidades | Precio) para rejillas tipo legacy. */
+  columnHeaders?: string[]
+  /** Oculta la etiqueta de cada campo (útil con columnHeaders). */
+  hideFieldLabels?: boolean
   fields: ArticuloField[]
 }
 
@@ -86,30 +90,33 @@ export const articuloTabs: ArticuloTab[] = [
     label: 'Tarifas',
     sections: [
       {
+        // Legacy: caja izquierda Unidades | Precio (Articulos.Cantidad/PrecioEsp).
         title: 'Unidades / precios especiales',
-        columns: 4,
+        columns: 2,
+        columnHeaders: ['Unidades', 'Precio'],
+        hideFieldLabels: true,
         fields: [
-          inline('cantidad1', 'Unidades 1', { type: 'number' }),
-          inline('precioEsp1', 'Precio 1', { type: 'number' }),
-          inline('cantidad2', 'Unidades 2', { type: 'number' }),
-          inline('precioEsp2', 'Precio 2', { type: 'number' }),
-          inline('cantidad3', 'Unidades 3', { type: 'number' }),
-          inline('precioEsp3', 'Precio 3', { type: 'number' }),
-          inline('cantidad4', 'Unidades 4', { type: 'number' }),
-          inline('precioEsp4', 'Precio 4', { type: 'number' }),
-          inline('cantidad5', 'Unidades 5', { type: 'number' }),
-          inline('precioEsp5', 'Precio 5', { type: 'number' }),
-          inline('cantidad6', 'Unidades 6', { type: 'number' }),
-          inline('precioEsp6', 'Precio 6', { type: 'number' }),
-          inline('cantidad7', 'Unidades 7', { type: 'number' }),
-          inline('precioEsp7', 'Precio 7', { type: 'number' }),
-          inline('cantidad8', 'Unidades 8', { type: 'number' }),
-          inline('precioEsp8', 'Precio 8', { type: 'number' }),
+          inline('cantidad1', 'Unidades', { type: 'number' }),
+          inline('precioEsp1', 'Precio', { type: 'number' }),
+          inline('cantidad2', 'Unidades', { type: 'number' }),
+          inline('precioEsp2', 'Precio', { type: 'number' }),
+          inline('cantidad3', 'Unidades', { type: 'number' }),
+          inline('precioEsp3', 'Precio', { type: 'number' }),
+          inline('cantidad4', 'Unidades', { type: 'number' }),
+          inline('precioEsp4', 'Precio', { type: 'number' }),
+          inline('cantidad5', 'Unidades', { type: 'number' }),
+          inline('precioEsp5', 'Precio', { type: 'number' }),
+          inline('cantidad6', 'Unidades', { type: 'number' }),
+          inline('precioEsp6', 'Precio', { type: 'number' }),
+          inline('cantidad7', 'Unidades', { type: 'number' }),
+          inline('precioEsp7', 'Precio', { type: 'number' }),
+          inline('cantidad8', 'Unidades', { type: 'number' }),
+          inline('precioEsp8', 'Precio', { type: 'number' }),
         ],
       },
       {
-        title: 'Precios venta (PVP)',
-        columns: 3,
+        title: 'Precios',
+        columns: 1,
         fields: [
           inline('precioVen1', 'PVP 1', { type: 'number' }),
           inline('precioVen2', 'PVP 2', { type: 'number' }),
@@ -124,14 +131,14 @@ export const articuloTabs: ArticuloTab[] = [
       },
       {
         title: 'Costes',
-        columns: 3,
+        columns: 1,
         fields: [
           inline('precioBase', 'Base', { type: 'number' }),
           inline('precioUltimo', 'Ultimo CT', { type: 'number' }),
           inline('precioUltimoST', 'Ultimo ST', { type: 'number' }),
           inline('precioMedio', 'Medio CT', { type: 'number' }),
           inline('precioMedioST', 'Medio ST', { type: 'number' }),
-          inline('porcentajeCosteSobreVenta', '% Calc. coste s/ PVP', { type: 'number' }),
+          inline('porcentajeCosteSobreVenta', '% Calculo Coste sobre PVP', { type: 'number' }),
         ],
       },
     ],
@@ -214,6 +221,9 @@ export const articuloTabs: ArticuloTab[] = [
           inline('literalPlanta2', 'Literal 2', { span: 4 }),
           inline('patron', 'Patron', { span: 4 }),
           inline('variedad', 'Variedad', { span: 4 }),
+          inline('imagen', 'Imagen', { span: 4 }),
+          inline('imagen2', 'Imagen 2', { span: 4 }),
+          inline('fichaPlantilla', 'Plantilla ficha', { span: 2 }),
         ],
       },
     ],
@@ -245,6 +255,8 @@ export function articuloVacio(): Record<string, unknown> {
     servicio: false,
     ventaPorPeso: false,
     precioVen1: 0,
+    precioVenta: 0,
+    fechaAlta: new Date().toISOString().slice(0, 10),
     precios: [],
     stock: [],
   }

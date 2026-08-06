@@ -286,29 +286,41 @@ export const tiendaTabs: TiendaTab[] = [
   },
 ]
 
+export const contadoresFieldsIzq: { key: string; label: string }[] = [
+  { key: 'ultPedidoCom', label: 'Pedidos' },
+  { key: 'ultAlbaranCom', label: 'Albaran Compra' },
+  { key: 'ultAlbaranVen', label: 'Albaran Ventas' },
+  { key: 'ultAlbaranTra', label: 'Traspasos' },
+  { key: 'ultTicket', label: 'Tickets' },
+  { key: 'ultFactura', label: 'Facturas' },
+  { key: 'ultFacturaDiferida', label: 'Facturas Dif.' },
+  { key: 'ultPedidoCli', label: 'Pedidos Clientes' },
+  { key: 'ultEnvio', label: 'Envio' },
+  { key: 'ultEan', label: 'Codigos Barras' },
+  { key: 'ultCliente', label: 'Clientes' },
+  { key: 'ultAbono', label: 'Fact. Rectificativas' },
+  { key: 'ultAbonoDiferido', label: 'Fact. Rectificativas Dif.' },
+]
+
+export const contadoresFieldsDer: { key: string; label: string }[] = [
+  { key: 'ultFicheroRecepcion', label: 'Com. Central' },
+  { key: 'ultFicheroRecepcionC', label: 'Com. Tienda' },
+  { key: 'ultProveedor', label: 'Proveedores' },
+  { key: 'ultPreFactura', label: 'Pre-Facturas' },
+  { key: 'ultOrdenFabricacion', label: 'Orden de Fabricacion' },
+  { key: 'ultTransacCajon', label: 'Ultima Transaccion Cajon' },
+]
+
 export const contadoresSections: TiendaSection[] = [
   {
     title: 'Contadores',
-    columns: 4,
-    fields: [
-      { key: 'ultPedidoCom', label: 'Pedidos', type: 'number', layout: 'inline' },
-      { key: 'ultAlbaranCom', label: 'Albaran compra', type: 'number', layout: 'inline' },
-      { key: 'ultAlbaranVen', label: 'Albaran ventas', type: 'number', layout: 'inline' },
-      { key: 'ultAlbaranTra', label: 'Traspasos', type: 'number', layout: 'inline' },
-      { key: 'ultTicket', label: 'Tickets', type: 'number', layout: 'inline' },
-      { key: 'ultFactura', label: 'Facturas', type: 'number', layout: 'inline' },
-      { key: 'ultFacturaDiferida', label: 'Facturas dif.', type: 'number', layout: 'inline' },
-      { key: 'ultPedidoCli', label: 'Pedidos clientes', type: 'number', layout: 'inline' },
-      { key: 'ultEnvio', label: 'Envio', type: 'number', layout: 'inline' },
-      { key: 'ultEan', label: 'Codigos barras', type: 'number', layout: 'inline' },
-      { key: 'ultCliente', label: 'Clientes', type: 'number', layout: 'inline' },
-      { key: 'ultAbono', label: 'Fact. rectificativas', type: 'number', layout: 'inline' },
-      { key: 'ultAbonoDiferido', label: 'Fact. rectif. dif.', type: 'number', layout: 'inline' },
-      { key: 'ultProveedor', label: 'Proveedores', type: 'number', layout: 'inline' },
-      { key: 'ultPreFactura', label: 'Pre-facturas', type: 'number', layout: 'inline' },
-      { key: 'ultOrdenFabricacion', label: 'Orden fabricacion', type: 'number', layout: 'inline' },
-      { key: 'ultTransacCajon', label: 'Ult. transac. cajon', type: 'number', layout: 'inline' },
-    ],
+    columns: 2,
+    fields: [...contadoresFieldsIzq, ...contadoresFieldsDer].map((f) => ({
+      key: f.key,
+      label: f.label,
+      type: 'number' as const,
+      layout: 'inline' as const,
+    })),
   },
 ]
 

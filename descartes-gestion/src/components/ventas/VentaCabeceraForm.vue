@@ -29,6 +29,8 @@ const emit = defineEmits<{
   'buscar-vendedor': []
   'vendedor-keydown': [event: KeyboardEvent]
   'vendedor-blur': []
+  'buscar-cliente': []
+  'cliente-keydown': [event: KeyboardEvent]
 }>()
 
 const tiendas = ref<{ value: string; label: string }[]>([])
@@ -283,12 +285,26 @@ onUnmounted(() => {
         <div class="fields cols-3">
           <label class="field">
             <span class="label">Codigo</span>
-            <input
-              :value="ficha.cliente ?? ''"
-              maxlength="9"
-              :readonly="readonly"
-              @input="patch('cliente', ($event.target as HTMLInputElement).value)"
-            />
+            <div class="vendedor-row">
+              <input
+                :value="ficha.cliente ?? ''"
+                maxlength="9"
+                :readonly="readonly"
+                placeholder="Código / buscar…"
+                title="Intro / F4 para buscar cliente"
+                @input="patch('cliente', ($event.target as HTMLInputElement).value)"
+                @keydown="emit('cliente-keydown', $event)"
+              />
+              <button
+                type="button"
+                class="btn-buscar"
+                :disabled="readonly"
+                title="Buscar cliente (Intro / F4)"
+                @click="emit('buscar-cliente')"
+              >
+                ...
+              </button>
+            </div>
           </label>
           <label class="field">
             <span class="label">NIF</span>

@@ -51,6 +51,8 @@ const form = ref({
   fechaFacturacion: hoyIso(),
   agrupacion: 'separar' as 'separar' | 'agrupar',
   tipo: 'facturas' as 'facturas' | 'prefacturas',
+  /** Por defecto todos: un cliente CR no lleva necesariamente FacturacionManual. */
+  tipoCliente: 'todos' as 'normales' | 'manuales' | 'todos',
   seleccion: 'todos' as 'todos' | 'con_prefactura' | 'sin_prefactura',
   formaPago: '',
   numFactura: '' as string | number,
@@ -93,6 +95,7 @@ function paramsConsulta(): Record<string, string | number | undefined> {
   const f = form.value
   const out: Record<string, string | number | undefined> = {
     seleccion: f.seleccion,
+    tipoCliente: f.tipoCliente,
   }
   const put = (k: string, v: string | number) => {
     const s = String(v ?? '').trim()
@@ -311,7 +314,10 @@ onMounted(async () => {
     <div class="toolbar">
       <div class="toolbar-title">
         <h2>Generador de facturas Manual</h2>
-        <p class="hint">Albaranes de crédito pendientes → seleccionar → facturar.</p>
+        <p class="hint">
+          Albaranes pendientes (sin facturar) → seleccionar → facturar. Si no salen, revise Tipo
+          cliente y que el documento esté finalizado como albarán.
+        </p>
       </div>
       <div class="toolbar-actions">
         <button type="button" class="btn" :disabled="loading || loadingOpts || busyExtra" @click="buscar">
@@ -374,6 +380,14 @@ onMounted(async () => {
               <select v-model="form.tipo">
                 <option value="facturas">Facturas</option>
                 <option value="prefacturas">Pre-Facturas</option>
+              </select>
+            </label>
+            <label>
+              <span>Tipo cliente</span>
+              <select v-model="form.tipoCliente" title="Flag Facturación manual del cliente">
+                <option value="todos">Todos</option>
+                <option value="normales">Normales</option>
+                <option value="manuales">Solo facturación manual</option>
               </select>
             </label>
             <label>

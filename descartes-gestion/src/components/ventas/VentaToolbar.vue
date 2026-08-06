@@ -8,6 +8,7 @@ defineProps<{
   puedeGuardar?: boolean
   puedeImprimir?: boolean
   puedeFinalizar?: boolean
+  puedeAbonar?: boolean
   puedeBuscar?: boolean
   puedeNavegar?: boolean
   modoEdicion?: boolean
@@ -27,6 +28,7 @@ defineEmits<{
   guardar: []
   cancelar: []
   finalizar: []
+  abonar: []
   primero: []
   anterior: []
   siguiente: []
@@ -152,6 +154,16 @@ defineEmits<{
       >
         <ToolIcon name="guardar" />
         <span>{{ esTicketCerrado ? 'A factura' : 'Finalizar' }}</span>
+      </button>
+      <button
+        type="button"
+        class="tool-btn"
+        :disabled="loading || !puedeAbonar"
+        title="Abono parcial por líneas (albarán cerrado, ticket o factura de contado)"
+        @click="$emit('abonar')"
+      >
+        <ToolIcon name="aviso" />
+        <span>Abono</span>
       </button>
     </div>
 

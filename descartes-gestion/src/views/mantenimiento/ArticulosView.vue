@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { api } from '@/api/client'
 import { extractApiError, useMantenimiento } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
@@ -18,6 +19,10 @@ import ArticulosGrid from '@/components/articulos/ArticulosGrid.vue'
 import ArticuloToolbar from '@/components/articulos/ArticuloToolbar.vue'
 import ArticuloTabForm from '@/components/articulos/ArticuloTabForm.vue'
 import ArticuloSidePanels from '@/components/articulos/ArticuloSidePanels.vue'
+import ArticuloFichaPlantaModal from '@/components/articulos/ArticuloFichaPlantaModal.vue'
+import ArticuloConsultaModal from '@/components/articulos/ArticuloConsultaModal.vue'
+import ArticuloEansModal from '@/components/articulos/ArticuloEansModal.vue'
+import ArticuloEscandalloModal from '@/components/articulos/ArticuloEscandalloModal.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 
@@ -27,6 +32,7 @@ const FILTER_KEYS = ['codigo', 'descripcion', 'familia', 'impuestoCodigo', 'prov
 /** Campos de texto cuyo valor se envía al API como `q` (no solo filtra lo cargado en pantalla). */
 const SERVER_SEARCH_KEYS = ['descripcion', 'codigo', 'familia', 'proveedorHabitual', 'impuestoCodigo']
 
+const route = useRoute()
 const { puede } = usePermisos()
 const { items, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(() => ENTIDAD)
 
@@ -87,6 +93,10 @@ const modoEdicion = ref(false)
 const esNuevo = ref(false)
 const ficha = ref<Record<string, unknown>>({})
 const indiceFicha = ref(-1)
+const mostrarFichaPlanta = ref(false)
+const mostrarConsulta = ref(false)
+const mostrarEans = ref(false)
+const mostrarEscandallo = ref(false)
 
 const tabSeleccionada = computed(() => articuloTabs.find((t) => t.id === tabActiva.value) ?? articuloTabs[0])
 const soloLecturaFicha = computed(() => !modoEdicion.value && !esNuevo.value)
@@ -100,7 +110,20 @@ onMounted(async () => {
   if (!puedeVer.value) return
   await cargarOpciones()
   await cargar()
+  const codigoQuery = String(route.query.codigo ?? '').trim()
+  if (codigoQuery) {
+    await abrirFichaPorCodigo(codigoQuery)
+  }
 })
+
+watch(
+  () => String(route.query.codigo ?? '').trim(),
+  async (codigo) => {
+    if (!codigo || !puedeVer.value) return
+    if (vista.value === 'ficha' && String(ficha.value.codigo ?? '').trim() === codigo) return
+    await abrirFichaPorCodigo(codigo)
+  }
+)
 
 async function cargarOpciones() {
   const [familiasRes, impuestosRes, proveedoresRes] = await Promise.all([
@@ -302,7 +325,45 @@ function volverAlGrid() {
 }
 
 function onAccionPendiente(nombre: string) {
-  mensaje.value = `${nombre}: disponible en una siguiente iteracion`
+  const detalle: Record<string, string> = {
+    Etiquetas: 'Pendiente del modulo de crear e imprimir etiquetas.',
+    Excepciones:
+      'En BD solo aparece ExcepcionesAsignacionPedidos (Region/Proveedor/Articulo), sin uso claro. Confirma el dialogo legacy para portarlo.',
+  }
+  mensaje.value = detalle[nombre] ?? `${nombre}: pendiente de portar`
+}
+
+function onFichaPlanta() {
+  if (!ficha.value.codigo || esNuevo.value) {
+    mensaje.value = 'Guarde el articulo antes de abrir la ficha de planta'
+    return
+  }
+  mostrarFichaPlanta.value = true
+}
+
+function onConsulta() {
+  mostrarConsulta.value = true
+}
+
+function onEans() {
+  if (!ficha.value.codigo || esNuevo.value) {
+    mensaje.value = 'Guarde el articulo antes de gestionar EAN'
+    return
+  }
+  mostrarEans.value = true
+}
+
+function onEscandallo() {
+  if (!ficha.value.codigo || esNuevo.value) {
+    mensaje.value = 'Guarde el articulo antes de gestionar el escandallo'
+    return
+  }
+  mostrarEscandallo.value = true
+}
+
+function onBloqueo() {
+  tabActiva.value = 'parametros'
+  mensaje.value = 'Bloqueos de compra/venta estan en la pestana Parametros'
 }
 
 async function onPrimero() {
@@ -420,12 +481,12 @@ const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
             @anterior="onAnterior"
             @siguiente="onSiguiente"
             @ultimo="onUltimo"
-            @escandallo="onAccionPendiente('Escandallo')"
-            @eans="onAccionPendiente('Eans')"
+            @escandallo="onEscandallo"
+            @eans="onEans"
             @etiquetas="onAccionPendiente('Etiquetas')"
-            @ficha="onAccionPendiente('Ficha')"
-            @consulta="onAccionPendiente('Consulta')"
-            @bloqueo="onAccionPendiente('Bloqueo')"
+            @ficha="onFichaPlanta"
+            @consulta="onConsulta"
+            @bloqueo="onBloqueo"
             @excepciones="onAccionPendiente('Excepciones')"
           />
 
@@ -472,6 +533,40 @@ const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
         :message="confirmMessage"
         @confirm="confirmarEliminar"
         @cancel="cancelarEliminar"
+      />
+
+      <ArticuloFichaPlantaModal
+        v-if="mostrarFichaPlanta && ficha.codigo"
+        :open="mostrarFichaPlanta"
+        :articulo-codigo="String(ficha.codigo)"
+        :articulo-descripcion="String(ficha.descripcion ?? '')"
+        :readonly="!puedeEditar"
+        @cerrar="mostrarFichaPlanta = false"
+        @guardado="abrirFichaPorCodigo(String(ficha.codigo))"
+      />
+
+      <ArticuloConsultaModal
+        v-if="mostrarConsulta"
+        :open="mostrarConsulta"
+        @cerrar="mostrarConsulta = false"
+      />
+
+      <ArticuloEansModal
+        v-if="mostrarEans && ficha.codigo"
+        :open="mostrarEans"
+        :codigo="String(ficha.codigo)"
+        :descripcion="String(ficha.descripcion ?? '')"
+        :readonly="!puedeEditar"
+        @cerrar="mostrarEans = false"
+      />
+
+      <ArticuloEscandalloModal
+        v-if="mostrarEscandallo && ficha.codigo"
+        :open="mostrarEscandallo"
+        :codigo="String(ficha.codigo)"
+        :descripcion="String(ficha.descripcion ?? '')"
+        :readonly="!puedeEditar"
+        @cerrar="mostrarEscandallo = false"
       />
     </template>
   </section>
@@ -630,8 +725,12 @@ const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
   .toolbar,
   .hint,
   .btn-volver,
-  h2 {
-    display: none;
+  h2,
+  .sticky-chrome,
+  .ficha-body,
+  .tabs,
+  .ficha-header {
+    display: none !important;
   }
 }
 </style>

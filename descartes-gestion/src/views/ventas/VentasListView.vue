@@ -145,6 +145,16 @@ function fmtFecha(iso: string | null | undefined) {
   return iso.slice(0, 10)
 }
 
+/** Nº documento tipificado: F-1523, T-88, A-12… */
+function fmtFactura(v: VentaResumen) {
+  const n = Number(v.factura ?? 0)
+  if (Number.isFinite(n) && n > 0) {
+    const t = String(v.facturaTipo ?? '').trim().toUpperCase() || 'F'
+    return `${t}-${n}`
+  }
+  return '—'
+}
+
 function abrirBuscar(campo: 'cliente' | 'vendedor' | 'puesto') {
   const mapa: Record<typeof campo, { entidad: BuscarEntidad; titulo: string; inicial: string }> = {
     cliente: { entidad: 'clientes', titulo: 'Buscar cliente', inicial: filtros.value.cliente },
@@ -311,7 +321,7 @@ onActivated(() => {
                 <td class="col-corto">{{ v.vendedor || '—' }}</td>
                 <td class="col-corto">{{ v.estado || '—' }}</td>
                 <td class="num col-imp">{{ Number(v.importe ?? 0).toFixed(2) }}</td>
-                <td class="col-corto">{{ v.facturada || v.bloqueado ? v.factura ?? 'F' : '—' }}</td>
+                <td class="col-corto">{{ fmtFactura(v) }}</td>
               </tr>
               <tr v-if="!loading && items.length === 0">
                 <td colspan="9">Sin resultados</td>

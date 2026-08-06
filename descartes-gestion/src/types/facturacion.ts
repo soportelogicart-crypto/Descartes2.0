@@ -89,6 +89,10 @@ export type FacturaImpresionItem = {
   fpago: string
   impresa: boolean
   estado: string
+  /** true solo en contado diferido TPV (no es crédito). */
+  facturaContadoDiferida?: boolean
+  /** Clasificación filtro: diferida | contado */
+  tipoCobro?: 'diferida' | 'contado'
 }
 
 export type FacturasImpresionListResponse = {
@@ -146,7 +150,22 @@ export type FacturaDiarioItem = FacturaImpresionItem
 
 export type FacturasDiarioListResponse = FacturasImpresionListResponse
 
-export type FacturasDiarioPdfBody = FacturasImpresionPdfBody
+/** PDF del diario: mismos filtros que el listado (informe tabular). */
+export type FacturasDiarioPdfBody = {
+  empresa?: string
+  empresaDesde?: string
+  empresaHasta?: string
+  fechaDesde?: string
+  fechaHasta?: string
+  clienteDesde?: string
+  clienteHasta?: string
+  facturaDesde?: number
+  facturaHasta?: number
+  facturaTipo?: string
+  estado?: string
+  estadoImpresion?: string
+  tipoCobro?: string
+}
 
 export type FacturasRetrocesoPreview = {
   empresa: string
@@ -161,8 +180,12 @@ export type FacturasRetrocesoPreview = {
   trasCtb: boolean
   bloqueada: boolean
   puedeRetroceder: boolean
+  modo?: 'rectificativa' | 'borrar'
+  resueltoDesdeAlbaran?: number | null
   mensajeBloqueo: string | null
   avisoCtb: string | null
+  avisoRectificativa?: string | null
+  abonoExistente?: { empresa: string; facturaTipo: string; factura: number } | null
   albaranes: Array<{
     empresa: string
     tipo: string
@@ -182,9 +205,11 @@ export type FacturasRetrocesoBody = {
 
 export type FacturasRetrocesoResponse = {
   ok: boolean
+  modo?: 'rectificativa' | 'borrar'
   empresa: string
   facturaTipo: string
   factura: number
+  abono?: { empresa: string; facturaTipo: string; factura: number; importe: number }
   albaranesLiberados: number
   mensaje: string
 }

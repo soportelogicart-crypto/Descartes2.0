@@ -83,37 +83,82 @@ defineEmits<{
     </div>
 
     <div class="toolbar-group">
-      <button type="button" class="tool-btn" :disabled="loading" title="Escandallo" @click="$emit('escandallo')">
+      <button
+        type="button"
+        class="tool-btn"
+        :disabled="loading"
+        title="Escandallo / composicion (Escandallos)"
+        @click="$emit('escandallo')"
+      >
         <ToolIcon name="escandallo" />
         <span>Escandallo</span>
       </button>
-      <button type="button" class="tool-btn" :disabled="loading" title="Eans" @click="$emit('eans')">
+      <button
+        type="button"
+        class="tool-btn"
+        :disabled="loading"
+        title="EAN / codigos de barras (ArtBarras)"
+        @click="$emit('eans')"
+      >
         <ToolIcon name="eans" />
         <span>Eans</span>
       </button>
-      <button type="button" class="tool-btn" :disabled="loading" title="Etiquetas" @click="$emit('etiquetas')">
+      <button
+        type="button"
+        class="tool-btn"
+        :disabled="true"
+        title="Etiquetas: pendiente del modulo de crear e imprimir etiquetas"
+        @click="$emit('etiquetas')"
+      >
         <ToolIcon name="etiquetas" />
         <span>Etiquetas</span>
       </button>
-      <button type="button" class="tool-btn" :disabled="loading" title="Ficha" @click="$emit('ficha')">
+    </div>
+
+    <div class="toolbar-group">
+      <button
+        type="button"
+        class="tool-btn"
+        :disabled="loading"
+        title="Ficha de planta (datos botanicos del articulo)"
+        @click="$emit('ficha')"
+      >
         <ToolIcon name="ficha" />
         <span>Ficha</span>
       </button>
-      <button type="button" class="tool-btn" :disabled="loading" title="Consulta" @click="$emit('consulta')">
+      <button
+        type="button"
+        class="tool-btn"
+        :disabled="loading"
+        title="Consulta: listado de articulos (abre ficha en pestaña nueva)"
+        @click="$emit('consulta')"
+      >
         <ToolIcon name="consulta" />
         <span>Consulta</span>
       </button>
-      <button type="button" class="tool-btn" :disabled="loading" title="Bloqueo" @click="$emit('bloqueo')">
+      <button
+        type="button"
+        class="tool-btn"
+        :disabled="loading"
+        title="Ir a bloqueos compra/venta (Parametros)"
+        @click="$emit('bloqueo')"
+      >
         <ToolIcon name="bloqueo" />
         <span>Bloqueo</span>
       </button>
-      <button type="button" class="tool-btn" :disabled="loading" title="Excepciones" @click="$emit('excepciones')">
+      <button
+        type="button"
+        class="tool-btn pending"
+        :disabled="loading"
+        title="Excepciones: funcionamiento legacy por confirmar"
+        @click="$emit('excepciones')"
+      >
         <ToolIcon name="excepciones" />
         <span>Excepciones</span>
       </button>
     </div>
 
-    <div class="toolbar-group">
+    <div class="toolbar-group actions">
       <button
         v-if="modoEdicion"
         type="button"
@@ -133,12 +178,11 @@ defineEmits<{
 
 <style scoped>
 .toolbar {
-  position: relative;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: 0.55rem 0.85rem;
   align-items: center;
-  padding: 0.75rem;
+  padding: 0.65rem 0.75rem;
   background: linear-gradient(180deg, #f8fafc 0%, #e5e7eb 100%);
   border: 1px solid #cbd5e1;
   border-radius: 10px;
@@ -150,15 +194,17 @@ defineEmits<{
   flex-wrap: wrap;
   gap: 0.35rem;
   align-items: center;
+  padding-right: 0.65rem;
+  border-right: 1px solid #cbd5e1;
 }
 
-.toolbar-group.nav {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
+.toolbar-group:last-child,
+.toolbar-group.actions {
+  border-right: none;
+  padding-right: 0;
 }
 
-.toolbar > .toolbar-group:last-child {
+.toolbar-group.actions {
   margin-left: auto;
 }
 
@@ -175,6 +221,11 @@ defineEmits<{
   font-size: 0.7rem;
   cursor: pointer;
   color: #1e293b;
+}
+
+.tool-btn.pending {
+  color: #64748b;
+  border-style: dashed;
 }
 
 .tool-btn:disabled {

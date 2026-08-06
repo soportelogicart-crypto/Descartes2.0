@@ -60,6 +60,26 @@ return function (App $app): void {
 
     $group->get('/articulos/{codigo}/stock', [ArticuloController::class, 'getStock'])
       ->add($setPermisoModulo('articulos', 'ver'));
+    $group->get('/articulos/{codigo}/eans', [ArticuloController::class, 'listEans'])
+      ->add($setPermisoModulo('articulos', 'ver'));
+    $group->put('/articulos/{codigo}/eans', [ArticuloController::class, 'putEans'])
+      ->add($setPermisoModulo('articulos', 'editar'));
+    $group->get('/articulos/{codigo}/escandallo', [ArticuloController::class, 'listEscandallo'])
+      ->add($setPermisoModulo('articulos', 'ver'));
+    $group->put('/articulos/{codigo}/escandallo', [ArticuloController::class, 'putEscandallo'])
+      ->add($setPermisoModulo('articulos', 'editar'));
+    $group->get('/articulos/{codigo}/ficha-botanica', [ArticuloController::class, 'getFichaBotanica'])
+      ->add($setPermisoModulo('articulos', 'ver'));
+    $group->put('/articulos/{codigo}/ficha-botanica', [ArticuloController::class, 'putFichaBotanica'])
+      ->add($setPermisoModulo('articulos', 'editar'));
+    $group->delete('/articulos/{codigo}/ficha-botanica', [ArticuloController::class, 'deleteFichaBotanica'])
+      ->add($setPermisoModulo('articulos', 'eliminar'));
+    $group->get('/fichas-botanicas', [ArticuloController::class, 'searchFichasBotanicas'])
+      ->add($setPermisoModulo('articulos', 'ver'));
+    $group->get('/fichas-botanicas/grupos', [ArticuloController::class, 'listGruposFicha'])
+      ->add($setPermisoModulo('articulos', 'ver'));
+    $group->get('/fichas-botanicas/{codigo}', [ArticuloController::class, 'getPlanta'])
+      ->add($setPermisoModulo('articulos', 'ver'));
 
     $group->get('/codigos-postales/{codigo}', [CodigoPostalController::class, 'lookup'])
       ->add($setPermisoModulo('mantenimiento', 'ver'));

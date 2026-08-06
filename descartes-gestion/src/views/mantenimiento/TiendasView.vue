@@ -14,7 +14,14 @@ import {
   filtrosIniciales,
   type ColumnFilter,
 } from '@/composables/useGridColumnFilters'
-import { tiendaTabs, tiendaVacia, tabDeCampoTienda, validarTiendaObligatorios } from '@/config/tiendas-tabs'
+import {
+  contadoresFieldsDer,
+  contadoresFieldsIzq,
+  tiendaTabs,
+  tiendaVacia,
+  tabDeCampoTienda,
+  validarTiendaObligatorios,
+} from '@/config/tiendas-tabs'
 import { extractApiError, useMantenimiento } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
@@ -368,6 +375,9 @@ function volverAlGrid() {
   camposInvalidos.value = []
 }
 
+const contadorKeys = [...contadoresFieldsIzq, ...contadoresFieldsDer].map((f) => f.key)
+const guardandoContadores = ref(false)
+
 async function abrirContadores() {
   if (!ficha.value.codigo) return
   try {
@@ -375,6 +385,33 @@ async function abrirContadores() {
     mostrarContadores.value = true
   } catch (e: unknown) {
     mostrarAviso(extractApiError(e, 'No se pudieron cargar los contadores'), 'error')
+  }
+}
+
+async function onGuardarContadores(payload: Record<string, unknown>) {
+  if (!puedeEditar.value) {
+    mostrarAviso('No tiene permiso para modificar contadores', 'error')
+    return
+  }
+  const codigo = String(payload.codigo ?? ficha.value.codigo ?? '').trim()
+  if (!codigo) {
+    mostrarAviso('No hay tienda seleccionada', 'aviso')
+    return
+  }
+  const body: Record<string, unknown> = {}
+  for (const key of contadorKeys) {
+    if (key in payload) body[key] = payload[key]
+  }
+  guardandoContadores.value = true
+  try {
+    const actualizado = await actualizar(codigo, body)
+    ficha.value = actualizado
+    mostrarContadores.value = false
+    mostrarAviso('Contadores actualizados', 'ok')
+  } catch (e: unknown) {
+    mostrarAviso(extractApiError(e, 'No se pudieron guardar los contadores'), 'error')
+  } finally {
+    guardandoContadores.value = false
   }
 }
 
@@ -551,7 +588,10 @@ function tabTieneErrores(tabId: string): boolean {
       <TiendaContadoresModal
         :open="mostrarContadores"
         :model-value="ficha"
-        :readonly="true"
+        :readonly="!puedeEditar"
+        :saving="guardandoContadores"
+        @update:model-value="ficha = $event"
+        @guardar="onGuardarContadores"
         @cerrar="mostrarContadores = false"
       />
 
@@ -638,6 +678,10 @@ function tabTieneErrores(tabId: string): boolean {
 .tool-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.sticky-chrome {
+  max-width: 920px;
 }
 
 .btn-volver {

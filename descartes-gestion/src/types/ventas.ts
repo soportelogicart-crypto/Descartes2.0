@@ -17,6 +17,21 @@ export type VentaResumen = {
   facturaTipo: string | null
   sesion: number | null
   impreso?: boolean
+  /** Si > 0, este albarán es abono del albarán indicado. */
+  albaranOrigenAbono?: number | null
+  /** Estado en tabla Facturas (F=contado, G=crédito/diferida). */
+  facturaEstado?: string | null
+  facturaContadoDiferida?: boolean
+  /** API: admite abono parcial por líneas (albarán cerrado, ticket o factura contado). */
+  permiteAbonoParcial?: boolean
+  /** Si es abono: datos del documento origen (albarán / ticket / factura). */
+  origenDocumento?: {
+    albaran: number
+    tipo?: string | null
+    facturaTipo?: string | null
+    factura?: number | null
+    etiqueta: string
+  } | null
 }
 
 export type VentaLinea = {

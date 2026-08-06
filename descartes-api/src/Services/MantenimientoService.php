@@ -276,6 +276,10 @@ final class MantenimientoService
     $this->bindPrimaryKey($stmt, ':pk', $codigo, $config);
     $stmt->execute();
 
+    if ($entidad === 'tiendas') {
+      $this->syncParametrosNombreTienda($codigo, $data);
+    }
+
     if ($entidad === 'articulos') {
       $this->articuloService->saveExtras($codigo, $data);
     }
@@ -522,6 +526,14 @@ final class MantenimientoService
       }
     }
 
+    if ($isCreate && isset($config['createDefaults']) && is_array($config['createDefaults'])) {
+      foreach ($config['createDefaults'] as $sqlColumn => $defaultValue) {
+        if (!array_key_exists($sqlColumn, $mapped)) {
+          $mapped[$sqlColumn] = $defaultValue;
+        }
+      }
+    }
+
     if ($isCreate && ($config['table'] ?? '') === 'Vendedores' && !array_key_exists('ComisionVenta', $mapped)) {
       $mapped['ComisionVenta'] = 0;
     }
@@ -566,7 +578,7 @@ final class MantenimientoService
 
   private function ensureParametrosTienda(string $codigo, array $data): void
   {
-    $stmt = $this->pdo->prepare('SELECT 1 FROM [Parametros] WHERE [Empresa] = :codigo');
+    $stmt = $this->pdo->prepare('SELECT 1 FROM [Parametros] WHERE RTRIM([Empresa]) = :codigo');
     $stmt->execute(['codigo' => $codigo]);
     if ($stmt->fetch()) {
       return;
@@ -584,6 +596,27 @@ final class MantenimientoService
       'INSERT INTO [Parametros] ([Empresa], [Nombre]) VALUES (:codigo, :nombre)'
     );
     $insert->execute(['codigo' => $codigo, 'nombre' => $nombre]);
+  }
+
+  /** Al renombrar la tienda en Empresas, mantener Parametros.Nombre alineado. */
+  private function syncParametrosNombreTienda(string $codigo, array $data): void
+  {
+    if (!array_key_exists('nombre', $data) && !array_key_exists('nombreFiscal', $data)) {
+      return;
+    }
+
+    $nombre = trim((string) ($data['nombre'] ?? $data['nombreFiscal'] ?? ''));
+    if ($nombre === '') {
+      return;
+    }
+    if (strlen($nombre) > 50) {
+      $nombre = substr($nombre, 0, 50);
+    }
+
+    $stmt = $this->pdo->prepare(
+      'UPDATE [Parametros] SET [Nombre] = :nombre WHERE RTRIM([Empresa]) = :codigo'
+    );
+    $stmt->execute(['nombre' => $nombre, 'codigo' => trim($codigo)]);
   }
 
   private function validarAlmacenBaja(array $data, string $codigo): void
@@ -646,7 +679,7 @@ final class MantenimientoService
       if ($nuevoCodigo === '') {
         throw new \InvalidArgumentException('El codigo de tienda es obligatorio');
       }
-      $stmt = $this->pdo->prepare('SELECT 1 FROM [Empresas] WHERE [Codigo] = :codigo');
+      $stmt = $this->pdo->prepare('SELECT 1 FROM [Empresas] WHERE RTRIM([Codigo]) = :codigo');
       $stmt->execute(['codigo' => $nuevoCodigo]);
       if ($stmt->fetch()) {
         throw new \InvalidArgumentException('Ya existe una tienda con ese codigo');

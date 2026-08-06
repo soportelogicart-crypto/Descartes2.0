@@ -62,7 +62,8 @@ final class VentaConsultaService
     $total = (int) $countStmt->fetchColumn();
 
     $sql = "SELECT c.Empresa, c.Tipo, c.Albaran, c.Fecha, c.Cliente, c.RazonSocial, c.Puesto,
-                   c.Vendedor, c.Estado, c.Importe, c.Factura, c.FacturaTipo, c.Sesion
+                   c.Vendedor, c.Estado, c.Importe, c.Factura, c.FacturaTipo, c.Sesion,
+                   c.AlbaranOrigenAbono
             FROM AlbaranesVentasCab c
             WHERE {$sqlWhere}
             ORDER BY c.Albaran DESC, c.Fecha DESC, c.Empresa ASC
@@ -105,7 +106,8 @@ final class VentaConsultaService
               Fpago1, Fpago2, Fpago3, ImpFpago1, ImpFpago2,
               ImporteBase1, ImporteBase2, ImporteBase3, ImporteBase4, ImporteBase5, ImporteBase6,
               PjeIva1, PjeIva2, PjeIva3, PjeIva4, PjeIva5, PjeIva6,
-              ImporteIva1, ImporteIva2, ImporteIva3, ImporteIva4, ImporteIva5, ImporteIva6
+              ImporteIva1, ImporteIva2, ImporteIva3, ImporteIva4, ImporteIva5, ImporteIva6,
+              AlbaranOrigenAbono
        FROM AlbaranesVentasCab
        WHERE Empresa = :empresa AND Tipo = :tipo AND Albaran = :albaran'
     );
@@ -170,8 +172,149 @@ final class VentaConsultaService
     $detalle['importesIva'] = $this->mapImportesIva($cab);
     $detalle['impreso'] = !empty($cab['Impreso']);
     $detalle['lineas'] = $lineas;
+    $this->enriquecerFacturaAbono($detalle);
 
     return $detalle;
+  }
+
+  /**
+   * Datos de Facturas para saber si el documento admite abono parcial por líneas
+   * (ticket / factura contado / albarán cerrado). Crédito (Estado G) → rectificativa.
+   *
+   * @param array<string, mixed> $detalle
+   */
+  private function enriquecerFacturaAbono(array &$detalle): void
+  {
+    $ft = strtoupper(trim((string) ($detalle['facturaTipo'] ?? '')));
+    $factura = (int) ($detalle['factura'] ?? 0);
+    $sesion = (int) ($detalle['sesion'] ?? 0);
+    $esAbonoAlb = ((int) ($detalle['albaranOrigenAbono'] ?? 0) > 0)
+      || ((float) ($detalle['importe'] ?? 0) < 0);
+
+    $detalle['facturaEstado'] = null;
+    $detalle['facturaContadoDiferida'] = false;
+
+    if ($ft === 'F' && $factura > 0) {
+      $empresa = (string) ($detalle['empresa'] ?? '');
+      try {
+        $st = $this->pdo->prepare(
+          'SELECT TOP 1 Estado, FacturaContadoDiferida
+           FROM Facturas
+           WHERE Empresa = :e AND FacturaTipo = :ft AND Factura = :f'
+        );
+        $st->execute(['e' => $empresa, 'ft' => $ft, 'f' => $factura]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if ($row !== false) {
+          $detalle['facturaEstado'] = $row['Estado'] !== null ? trim((string) $row['Estado']) : null;
+          $detalle['facturaContadoDiferida'] = !empty($row['FacturaContadoDiferida']);
+        }
+      } catch (\Throwable $e) {
+        // Sin bloqueo de ficha si falla el lookup.
+      }
+    }
+
+    $detalle['permiteAbonoParcial'] = $this->calcularPermiteAbonoParcial(
+      $ft,
+      $factura,
+      $sesion,
+      $esAbonoAlb,
+      $detalle['facturaEstado'] ?? null,
+      !empty($detalle['facturaContadoDiferida'])
+    );
+
+    $detalle['origenDocumento'] = null;
+    $origenAlb = (int) ($detalle['albaranOrigenAbono'] ?? 0);
+    if ($origenAlb > 0) {
+      $detalle['origenDocumento'] = $this->resolverOrigenDocumentoAbono(
+        (string) ($detalle['empresa'] ?? ''),
+        $origenAlb
+      );
+    }
+  }
+
+  /**
+   * @return array{albaran: int, tipo: string|null, facturaTipo: string|null, factura: int|null, etiqueta: string}|null
+   */
+  private function resolverOrigenDocumentoAbono(string $empresa, int $albaranOrigen): ?array
+  {
+    if ($empresa === '' || $albaranOrigen <= 0) {
+      return null;
+    }
+    try {
+      $st = $this->pdo->prepare(
+        'SELECT TOP 1 Tipo, FacturaTipo, Factura
+         FROM AlbaranesVentasCab
+         WHERE Empresa = :e AND Albaran = :a
+         ORDER BY CASE WHEN Tipo = \'A\' THEN 0 ELSE 1 END'
+      );
+      $st->execute(['e' => $empresa, 'a' => $albaranOrigen]);
+      $row = $st->fetch(PDO::FETCH_ASSOC);
+      if ($row === false) {
+        return [
+          'albaran' => $albaranOrigen,
+          'tipo' => null,
+          'facturaTipo' => null,
+          'factura' => null,
+          'etiqueta' => "Albarán {$albaranOrigen}",
+        ];
+      }
+      $tipo = $row['Tipo'] !== null ? trim((string) $row['Tipo']) : null;
+      $ft = strtoupper(trim((string) ($row['FacturaTipo'] ?? '')));
+      $factura = isset($row['Factura']) && (int) $row['Factura'] > 0 ? (int) $row['Factura'] : null;
+      $etiqueta = "Albarán {$albaranOrigen}";
+      if ($ft === 'T' && $factura !== null) {
+        $etiqueta = "Ticket T-{$factura} (albarán {$albaranOrigen})";
+      } elseif ($ft === 'F' && $factura !== null) {
+        $etiqueta = "Factura F-{$factura} (albarán {$albaranOrigen})";
+      } elseif ($ft === 'A' && $factura !== null) {
+        $etiqueta = "Abono A-{$factura} (albarán {$albaranOrigen})";
+      }
+      return [
+        'albaran' => $albaranOrigen,
+        'tipo' => $tipo,
+        'facturaTipo' => $ft !== '' ? $ft : null,
+        'factura' => $factura,
+        'etiqueta' => $etiqueta,
+      ];
+    } catch (\Throwable $e) {
+      return [
+        'albaran' => $albaranOrigen,
+        'tipo' => null,
+        'facturaTipo' => null,
+        'factura' => null,
+        'etiqueta' => "Albarán {$albaranOrigen}",
+      ];
+    }
+  }
+
+  private function calcularPermiteAbonoParcial(
+    string $ft,
+    int $factura,
+    int $sesion,
+    bool $esAbonoAlb,
+    ?string $facturaEstado,
+    bool $contadoDiferida
+  ): bool {
+    if ($esAbonoAlb) {
+      return false;
+    }
+    // Albarán cerrado (crédito pendiente de facturar).
+    if (($ft === '' || $ft === 'Z') && $factura <= 0 && $sesion > 0) {
+      return true;
+    }
+    // Ticket tipificado.
+    if ($ft === 'T' && $factura > 0) {
+      return true;
+    }
+    // Factura de contado (Estado F). Crédito/diferida (G) no.
+    if ($ft === 'F' && $factura > 0) {
+      $fe = strtoupper(trim((string) $facturaEstado));
+      if ($contadoDiferida || $fe === 'G') {
+        return false;
+      }
+      return $fe === 'F';
+    }
+    return false;
   }
 
   /** @param array<string, mixed> $row */
@@ -204,6 +347,9 @@ final class VentaConsultaService
       'factura' => $factura,
       'facturaTipo' => $row['FacturaTipo'] ?? null,
       'sesion' => isset($row['Sesion']) && $row['Sesion'] !== null ? (int) $row['Sesion'] : null,
+      'albaranOrigenAbono' => isset($row['AlbaranOrigenAbono']) && (int) $row['AlbaranOrigenAbono'] > 0
+        ? (int) $row['AlbaranOrigenAbono']
+        : null,
     ];
   }
 

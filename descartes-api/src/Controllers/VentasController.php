@@ -189,6 +189,30 @@ final class VentasController
     }
   }
 
+  public function crearAbonoDesdeVenta(Request $request, Response $response, array $args): Response
+  {
+    $body = (array) json_decode((string) $request->getBody(), true);
+    $empresa = (string) ($args['empresa'] ?? '');
+    $tipo = (string) ($args['tipo'] ?? '');
+    $albaran = (int) ($args['albaran'] ?? 0);
+    try {
+      $item = $this->escritura->crearAbonoDesdeAlbaran($empresa, $tipo, $albaran, $body);
+      $this->audit('ventas.abono', 'Albarán de abono creado', [
+        'empresa' => $empresa,
+        'tipoOrigen' => $tipo,
+        'albaranOrigen' => $albaran,
+        'albaranAbono' => $item['albaran'] ?? null,
+      ]);
+      return $this->json($response, 201, $item);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
   public function marcarVentaImpresa(Request $request, Response $response, array $args): Response
   {
     try {

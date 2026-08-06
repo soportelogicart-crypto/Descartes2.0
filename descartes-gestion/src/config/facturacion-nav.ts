@@ -29,7 +29,7 @@ export const facturacionMenuItems: FacturacionMenuItem[] = [
   },
   {
     id: 'facturacion-retroceso',
-    titulo: 'Retroceso de facturas',
+    titulo: 'Retroceso / rectificativa',
     ruta: '/facturacion/retroceso',
     modulo: 'facturacion-retroceso',
   },

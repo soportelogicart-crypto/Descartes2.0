@@ -339,13 +339,17 @@ final class VentaEscrituraService
     if ($this->estaBloqueado($actual) && !$esTicketAFactura) {
       throw new \RuntimeException('Documento facturado: no se puede modificar', 409);
     }
-    if ($esTicketAFactura) {
+    // Factura (directa o ticket→factura): datos fiscales reales.
+    // Cliente ZZZZZZZZZ = venta sin nombre → solo Ticket/Presupuesto.
+    if ($opcion === 'F') {
       $cliente = trim((string) ($actual['cliente'] ?? ''));
-      $nif = trim((string) ($actual['nif'] ?? ''));
+      $nif = strtoupper(preg_replace('/[\s.\-]/', '', trim((string) ($actual['nif'] ?? ''))) ?? '');
       $razon = trim((string) ($actual['razonSocial'] ?? ''));
-      if ($cliente === '' || $nif === '' || $razon === '') {
+      $sinNombre = $cliente === '' || strtoupper($cliente) === 'ZZZZZZZZZ';
+      $nifInvalido = strlen($nif) < 7 || (bool) preg_match('/^[0X]+$/', $nif);
+      if ($sinNombre || $nifInvalido || $razon === '') {
         throw new \InvalidArgumentException(
-          'Para pasar ticket a factura hacen falta Cliente, NIF y Razon social (legacy TransformacionTicketaFactura).'
+          'Para factura hacen falta Cliente real, NIF válido y Razón social. Use Ticket o Presupuesto.'
         );
       }
     }
@@ -529,6 +533,402 @@ final class VentaEscrituraService
   }
 
   /**
+   * Crea albarán de abono (parcial por líneas) desde un albarán de cargo.
+   * Cantidades negativas, AlbaranOrigenAbono, listo para pendientes de facturar.
+   *
+   * @param array<string, mixed> $body { nroLins?: list<int>, observacion?: string }
+   * @return array<string, mixed> ficha del abono creado
+   */
+  public function crearAbonoDesdeAlbaran(string $empresa, string $tipo, int $albaran, array $body = []): array
+  {
+    $origen = $this->consulta->obtenerFicha($empresa, $tipo, $albaran);
+    if ($origen === null) {
+      throw new \RuntimeException('Albarán origen no encontrado', 404);
+    }
+
+    $origenAbono = (int) ($origen['albaranOrigenAbono'] ?? 0);
+    if ($origenAbono > 0 || (float) ($origen['importe'] ?? 0) < 0) {
+      throw new \InvalidArgumentException('No se puede abonar un albarán que ya es abono');
+    }
+
+    $ft = strtoupper(trim((string) ($origen['facturaTipo'] ?? '')));
+    $factura = (int) ($origen['factura'] ?? 0);
+    $sesion = (int) ($origen['sesion'] ?? 0);
+
+    $facturaEstado = null;
+    $contadoDiferida = false;
+    if ($ft === 'F' && $factura > 0) {
+      try {
+        $st = $this->pdo->prepare(
+          'SELECT TOP 1 Estado, FacturaContadoDiferida
+           FROM Facturas
+           WHERE Empresa = :e AND FacturaTipo = :ft AND Factura = :f'
+        );
+        $st->execute(['e' => $empresa, 'ft' => $ft, 'f' => $factura]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if ($row !== false) {
+          $facturaEstado = $row['Estado'] !== null ? trim((string) $row['Estado']) : null;
+          $contadoDiferida = !empty($row['FacturaContadoDiferida']);
+        }
+      } catch (\Throwable $e) {
+        // Se valida abajo con lo disponible.
+      }
+    }
+
+    $esTicket = $ft === 'T' && $factura > 0;
+    $esAlbaranCerrado = ($ft === '' || $ft === 'Z') && $factura <= 0 && $sesion > 0;
+    $fe = strtoupper(trim((string) ($facturaEstado ?? '')));
+    $esFacturaContado = $ft === 'F' && $factura > 0 && !$contadoDiferida && $fe === 'F';
+
+    if ($ft === 'F' && $factura > 0 && ($contadoDiferida || $fe === 'G')) {
+      throw new \InvalidArgumentException(
+        'Factura a crédito / diferida: use rectificativa de factura, no abono de albarán.'
+      );
+    }
+    if ($ft === 'F' && $factura > 0 && !$esFacturaContado) {
+      throw new \InvalidArgumentException(
+        'Solo se puede abonar facturas de contado (Estado F). Use rectificativa si es crédito.'
+      );
+    }
+    if ($ft === 'A' && $factura > 0) {
+      throw new \InvalidArgumentException('No se puede abonar un documento ya tipificado como abono de factura');
+    }
+    if (!$esTicket && !$esAlbaranCerrado && !$esFacturaContado) {
+      if ($sesion <= 0 && $factura <= 0) {
+        throw new \InvalidArgumentException('Debe finalizar el documento antes de generar el abono');
+      }
+      throw new \InvalidArgumentException(
+        'Solo se puede abonar albaranes cerrados, tickets o facturas de contado'
+      );
+    }
+
+    $lineasOrig = $origen['lineas'] ?? [];
+    if (!is_array($lineasOrig) || $lineasOrig === []) {
+      throw new \InvalidArgumentException('El albarán no tiene líneas para abonar');
+    }
+
+    /** @var list<int> $nroLins */
+    $nroLins = [];
+    if (isset($body['nroLins']) && is_array($body['nroLins'])) {
+      foreach ($body['nroLins'] as $n) {
+        $nroLins[] = (int) $n;
+      }
+      $nroLins = array_values(array_unique(array_filter($nroLins, static fn ($n) => $n > 0)));
+    }
+
+    $seleccionadas = [];
+    foreach ($lineasOrig as $lin) {
+      if (!is_array($lin)) {
+        continue;
+      }
+      $art = trim((string) ($lin['articulo'] ?? ''));
+      if ($art === '' || strtoupper($art) === 'NO') {
+        continue;
+      }
+      $nro = (int) ($lin['nroLin'] ?? 0);
+      if ($nroLins !== [] && !in_array($nro, $nroLins, true)) {
+        continue;
+      }
+      $cant = (float) ($lin['cantidad'] ?? 0);
+      if (abs($cant) < 0.0001) {
+        continue;
+      }
+      $precio = (float) ($lin['precio'] ?? 0);
+      $pjeDto = (float) ($lin['pjeDto'] ?? 0);
+      $cantNeg = -abs($cant);
+      $importe = round($cantNeg * $precio * (1 - $pjeDto / 100), 2);
+      $seleccionadas[] = [
+        'articulo' => $art,
+        'descripcion' => $lin['descripcion'] ?? null,
+        'loteVenta' => $lin['loteVenta'] ?? null,
+        'cantidad' => $cantNeg,
+        'precio' => $precio,
+        'pjeDto' => $pjeDto,
+        'importe' => $importe,
+        'pjeIva' => (float) ($lin['pjeIva'] ?? 21),
+        'nroLinOrigen' => $nro,
+      ];
+    }
+
+    if ($seleccionadas === []) {
+      throw new \InvalidArgumentException('Seleccione al menos una línea para abonar');
+    }
+
+    $etiquetaOrigen = $this->etiquetaDocumentoVenta($origen, $albaran);
+    array_unshift($seleccionadas, [
+      'articulo' => 'NO',
+      'descripcion' => 'Abono de ' . $etiquetaOrigen,
+      'loteVenta' => null,
+      'cantidad' => 0.0,
+      'precio' => 0.0,
+      'pjeDto' => 0.0,
+      'importe' => 0.0,
+      'pjeIva' => 0.0,
+    ]);
+
+    $totales = $this->calcularTotales($seleccionadas, [
+      'pjeDto' => $origen['pjeDto'] ?? 0,
+      'empresa' => $empresa,
+      'cliente' => $origen['cliente'] ?? null,
+    ]);
+
+    $nuevoAlbaran = $this->nextAlbaran($empresa, 'A');
+    $fecha = $this->normalizeFecha(date('Y-m-d'));
+    $observacion = trim((string) ($body['observacion'] ?? $body['observacionDevolucion'] ?? ''));
+
+    $this->pdo->beginTransaction();
+    try {
+      $sql = 'INSERT INTO AlbaranesVentasCab (
+          Empresa, Albaran, Tipo, Puesto, Cliente, RazonSocial, RazonSocial2, NIF, Fecha, Vendedor,
+          Representante, Transporte, DireccionEnvio, PoblacionEnvio, CodigoPostalEnvio, ProvinciaEnvio, PaisEnvio,
+          ImporteBase1, ImporteBase2, ImporteBase3, ImporteBase4,
+          PjeIva1, PjeIva2, PjeIva3, PjeIva4,
+          ImporteIva1, ImporteIva2, ImporteIva3, ImporteIva4,
+          PjeRec1, PjeRec2, PjeRec3, PjeRec4,
+          ImporteRec1, ImporteRec2, ImporteRec3, ImporteRec4,
+          PjeDto, ImporteDtos, Importe,
+          Fpago1, Fpago2, Divisa1, Divisa2,
+          Estado, FechaCobro, FacturaTipo, Factura, Pedido,
+          TrasCtb, TrasModem, RebajeStock, Impreso,
+          Referencia1, Referencia2, Agente, Almacen, EmpresaFacturacion,
+          Mesa, Cubiertos, ReImpresion, LineasImpresas,
+          FechaEntrega, HoraEntrega, Telefono, Telefono2, Fax, Email,
+          SuPedido, Habitacion, CentroProduccion, TraspasadoaHotel, Sesion,
+          ImpFpago1, ImpFpago2, OrGen, PagoaCuenta, Idioma, Kilos, CostePortes, ImportePortes,
+          Seleccion, Cambio, Impresion80, ReservaCentralizada,
+          VendedorApertura, Perfil, FacturaRetroceso, AgenciaHotel, EntregaDomicilio, Tarjeta,
+          FechaApertura, LineasConDescuentos, FechaPreparacion, GenAlbaranCompras, Actividad, Anulado,
+          PuestoApertura, Portes, Tarifa, Plataforma, NumeroDeSerie, Observaciones, AlbaranOrigenAbono
+        ) VALUES (
+          :empresa, :albaran, \'A\', :puesto, :cliente, :razonSocial, :razonSocial2, :nif,
+          CONVERT(datetime, :fecha, 120), :vendedor,
+          :representante, :transporte, :direccionEnvio, :poblacionEnvio, :codigoPostalEnvio, :provinciaEnvio, :paisEnvio,
+          :importeBase1, :importeBase2, :importeBase3, :importeBase4,
+          :pjeIva1, :pjeIva2, :pjeIva3, :pjeIva4,
+          :importeIva1, :importeIva2, :importeIva3, :importeIva4,
+          0, 0, 0, 0,
+          0, 0, 0, 0,
+          :pjeDto, :importeDtos, :importe,
+          :fpago1, :fpago2, 0, 0,
+          NULL, NULL, NULL, 0, :pedido,
+          0, 0, 1, 0,
+          :referencia1, :referencia2, :agente, :almacen, NULL,
+          0, 0, 0, 0,
+          NULL, NULL, :telefono, :telefono2, :fax, :email,
+          NULL, NULL, NULL, 0, 0,
+          0, 0, 0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0,
+          :vendedorApertura, 0, 0, NULL, 0, NULL,
+          CONVERT(datetime, :fechaApertura, 120), :lineasConDescuentos, NULL, 0, 0, 0,
+          :puestoApertura, 0, NULL, :plataforma, :numeroDeSerie, :observaciones, :albaranOrigenAbono
+        )';
+
+      $fpagos = $origen['formasPago'] ?? [];
+      $fp1 = is_array($fpagos[0] ?? null) ? ($fpagos[0]['codigo'] ?? null) : ($origen['fpago1'] ?? null);
+      $fp2 = is_array($fpagos[1] ?? null) ? ($fpagos[1]['codigo'] ?? null) : ($origen['fpago2'] ?? null);
+
+      $obs = trim((string) ($origen['observaciones'] ?? ''));
+      if ($observacion !== '') {
+        $obs = trim($obs . ($obs !== '' ? ' | ' : '') . 'Abono: ' . $observacion);
+      }
+      $obs = trim($obs . ($obs !== '' ? ' | ' : '') . 'Abono de albarán ' . $albaran);
+
+      $this->pdo->prepare($sql)->execute([
+        'empresa' => $empresa,
+        'albaran' => $nuevoAlbaran,
+        'puesto' => $this->nullIfEmpty($origen['puesto'] ?? '99') ?? '99',
+        'cliente' => $this->nullIfEmpty($origen['cliente'] ?? null),
+        'razonSocial' => $this->nullIfEmpty($origen['razonSocial'] ?? null),
+        'razonSocial2' => $this->blankIfEmpty($origen['razonSocial2'] ?? null),
+        'nif' => $this->blankIfEmpty($origen['nif'] ?? null),
+        'fecha' => $fecha,
+        'fechaApertura' => $fecha,
+        'vendedor' => $this->nullIfEmpty($origen['vendedor'] ?? null),
+        'representante' => $this->codigoCharOEspacio($origen['representante'] ?? null),
+        'transporte' => $this->spaceIfEmpty($origen['transporte'] ?? null),
+        'direccionEnvio' => $this->blankIfEmpty($origen['direccionEnvio'] ?? null),
+        'poblacionEnvio' => $this->blankIfEmpty($origen['poblacionEnvio'] ?? null),
+        'codigoPostalEnvio' => $this->blankIfEmpty($origen['codigoPostalEnvio'] ?? null),
+        'provinciaEnvio' => $this->blankIfEmpty($origen['provinciaEnvio'] ?? null),
+        'paisEnvio' => $this->blankIfEmpty($origen['paisEnvio'] ?? null),
+        'importeBase1' => (float) ($totales['bases'][0] ?? 0),
+        'importeBase2' => (float) ($totales['bases'][1] ?? 0),
+        'importeBase3' => (float) ($totales['bases'][2] ?? 0),
+        'importeBase4' => (float) ($totales['bases'][3] ?? 0),
+        'pjeIva1' => (float) ($totales['pjes'][0] ?? 0),
+        'pjeIva2' => (float) ($totales['pjes'][1] ?? 0),
+        'pjeIva3' => (float) ($totales['pjes'][2] ?? 0),
+        'pjeIva4' => (float) ($totales['pjes'][3] ?? 0),
+        'importeIva1' => (float) ($totales['ivas'][0] ?? 0),
+        'importeIva2' => (float) ($totales['ivas'][1] ?? 0),
+        'importeIva3' => (float) ($totales['ivas'][2] ?? 0),
+        'importeIva4' => (float) ($totales['ivas'][3] ?? 0),
+        'pjeDto' => (float) ($totales['pjeDto'] ?? 0),
+        'importeDtos' => (float) ($totales['descuento'] ?? 0),
+        'importe' => (float) ($totales['importe'] ?? 0),
+        'fpago1' => $this->nullIfEmpty($fp1),
+        'fpago2' => $this->nullIfEmpty($fp2),
+        'pedido' => isset($origen['pedido']) && (int) $origen['pedido'] > 0 ? (int) $origen['pedido'] : null,
+        'referencia1' => $this->blankIfEmpty($origen['referencia1'] ?? null),
+        'referencia2' => $this->blankIfEmpty($origen['referencia2'] ?? null),
+        'agente' => $this->spaceIfEmpty($origen['agente'] ?? null),
+        'almacen' => isset($origen['almacen']) ? (int) $origen['almacen'] : null,
+        'telefono' => $this->blankIfEmpty($origen['telefono'] ?? null),
+        'telefono2' => $this->blankIfEmpty($origen['telefono2'] ?? null),
+        'fax' => $this->blankIfEmpty($origen['fax'] ?? null),
+        'email' => $this->blankIfEmpty($origen['email'] ?? null),
+        'vendedorApertura' => $this->nullIfEmpty($origen['vendedor'] ?? null),
+        'lineasConDescuentos' => !empty($totales['lineasConDescuentos']) ? 1 : 0,
+        'puestoApertura' => $this->nullIfEmpty($origen['puesto'] ?? null),
+        'plataforma' => $this->blankIfEmpty($origen['plataforma'] ?? null),
+        'numeroDeSerie' => $this->blankIfEmpty($origen['numeroDeSerie'] ?? null),
+        'observaciones' => $this->blankIfEmpty($obs),
+        'albaranOrigenAbono' => $albaran,
+      ]);
+
+      $this->insertarLineasAbono($empresa, 'A', $nuevoAlbaran, $seleccionadas, $albaran, $observacion);
+
+      $this->pdo->commit();
+    } catch (\Throwable $e) {
+      if ($this->pdo->inTransaction()) {
+        $this->pdo->rollBack();
+      }
+      throw $e;
+    }
+
+    $ficha = $this->consulta->obtenerFicha($empresa, 'A', $nuevoAlbaran);
+    if ($ficha === null) {
+      throw new \RuntimeException('No se pudo releer el abono creado');
+    }
+    return $ficha;
+  }
+
+  /**
+   * Etiqueta legible del documento origen (albarán / ticket / factura contado).
+   *
+   * @param array<string, mixed> $doc
+   */
+  private function etiquetaDocumentoVenta(array $doc, int $albaranFallback): string
+  {
+    $albaran = (int) ($doc['albaran'] ?? $albaranFallback);
+    $ft = strtoupper(trim((string) ($doc['facturaTipo'] ?? '')));
+    $factura = (int) ($doc['factura'] ?? 0);
+    if ($ft === 'T' && $factura > 0) {
+      return "Ticket T-{$factura} (albarán {$albaran})";
+    }
+    if ($ft === 'F' && $factura > 0) {
+      return "Factura F-{$factura} (albarán {$albaran})";
+    }
+    if ($ft === 'A' && $factura > 0) {
+      return "Abono A-{$factura} (albarán {$albaran})";
+    }
+    return "Albarán {$albaran}";
+  }
+
+  /**
+   * @param list<array<string, mixed>> $lineas
+   */
+  private function insertarLineasAbono(
+    string $empresa,
+    string $tipo,
+    int $albaran,
+    array $lineas,
+    int $albaranOrigen,
+    string $observacion
+  ): void {
+    $sqlConOrigen = 'INSERT INTO AlbaranesVentasLin (
+         Empresa, Tipo, Albaran, Articulo, Descripcion, Cantidad, Precio, PjeDto, Importe, PjeIva, PjeRec,
+         RebajeStock, PrecioMedio, Plato, Cocina, PrecioMenu, PrecioAlterado, PrecioHabitacion,
+         PrecioTarifa, Ean, UnidadesPaquete, LoteVenta, AlbaranOrigenAbono, ObservacionDevolucion
+       ) VALUES (
+         :e, :t, :a, :articulo, :descripcion, :cantidad, :precio, :pjeDto, :importe, :pjeIva, 0,
+         :rebajeStock, :precioMedio, 0, 0, 0, :precioAlterado, 0,
+         :precioTarifa, :ean, :unidadesPaquete, :loteVenta, :albaranOrigenAbono, :observacionDevolucion
+       )';
+    $sqlSinOrigen = 'INSERT INTO AlbaranesVentasLin (
+         Empresa, Tipo, Albaran, Articulo, Descripcion, Cantidad, Precio, PjeDto, Importe, PjeIva, PjeRec,
+         RebajeStock, PrecioMedio, Plato, Cocina, PrecioMenu, PrecioAlterado, PrecioHabitacion,
+         PrecioTarifa, Ean, UnidadesPaquete, LoteVenta
+       ) VALUES (
+         :e, :t, :a, :articulo, :descripcion, :cantidad, :precio, :pjeDto, :importe, :pjeIva, 0,
+         :rebajeStock, :precioMedio, 0, 0, 0, :precioAlterado, 0,
+         :precioTarifa, :ean, :unidadesPaquete, :loteVenta
+       )';
+
+    $conOrigen = true;
+    try {
+      $ins = $this->pdo->prepare($sqlConOrigen);
+    } catch (\Throwable $e) {
+      $conOrigen = false;
+      $ins = $this->pdo->prepare($sqlSinOrigen);
+    }
+
+    foreach ($lineas as $lin) {
+      $articulo = trim((string) ($lin['articulo'] ?? ''));
+      if ($articulo === '') {
+        continue;
+      }
+      $esComentario = strtoupper($articulo) === 'NO';
+      if ($esComentario) {
+        $cant = 0.0;
+        $precio = 0.0;
+        $pjeDto = 0.0;
+        $importe = 0.0;
+        $pjeIva = 0.0;
+        $meta = ['precioMedio' => 0.0, 'precioTarifa' => 0.0];
+        $precioTarifa = 0.0;
+        $precioAlterado = 0;
+        $rebajeStock = 0;
+      } else {
+        $cant = (float) ($lin['cantidad'] ?? 0);
+        $precio = (float) ($lin['precio'] ?? 0);
+        $pjeDto = (float) ($lin['pjeDto'] ?? 0);
+        $importe = isset($lin['importe']) ? (float) $lin['importe'] : round($cant * $precio * (1 - $pjeDto / 100), 2);
+        $meta = $this->metaArticuloLinea($articulo);
+        $precioTarifa = $meta['precioTarifa'] > 0 ? $meta['precioTarifa'] : $precio;
+        $precioAlterado = abs($precio - $precioTarifa) > 0.0001 ? 1 : 0;
+        $pjeIva = (float) (($lin['pjeIva'] ?? 0) > 0 ? $lin['pjeIva'] : 21);
+        $rebajeStock = 1;
+      }
+      $params = [
+        'e' => $empresa,
+        't' => $tipo,
+        'a' => $albaran,
+        'articulo' => $esComentario ? 'NO' : $articulo,
+        'descripcion' => $this->blankIfEmpty($lin['descripcion'] ?? null),
+        'cantidad' => $cant,
+        'precio' => $precio,
+        'pjeDto' => $pjeDto,
+        'importe' => $importe,
+        'pjeIva' => $pjeIva,
+        'rebajeStock' => $rebajeStock,
+        'precioMedio' => $meta['precioMedio'],
+        'precioAlterado' => $precioAlterado,
+        'precioTarifa' => $precioTarifa,
+        'ean' => $this->blankIfEmpty($lin['ean'] ?? ($esComentario ? 'NO' : $articulo)),
+        'unidadesPaquete' => $esComentario ? 0.0 : 1.0,
+        'loteVenta' => $this->spaceIfEmpty($lin['loteVenta'] ?? null),
+      ];
+      if ($conOrigen) {
+        $params['albaranOrigenAbono'] = $albaranOrigen;
+        $params['observacionDevolucion'] = $this->blankIfEmpty($observacion !== '' ? $observacion : null);
+      }
+      try {
+        $ins->execute($params);
+      } catch (\Throwable $e) {
+        if ($conOrigen) {
+          $conOrigen = false;
+          $ins = $this->pdo->prepare($sqlSinOrigen);
+          unset($params['albaranOrigenAbono'], $params['observacionDevolucion']);
+          $ins->execute($params);
+        } else {
+          throw $e;
+        }
+      }
+    }
+  }
+
+  /**
    * Reserva el siguiente albaran de venta desde Empresas.UltAlbaranVen (contador tienda)
    * e incrementa el contador en el mismo momento (como legacy al pulsar Intro).
    *
@@ -646,34 +1046,50 @@ final class VentaEscrituraService
       if ($articulo === '') {
         continue;
       }
-      $cant = (float) ($lin['cantidad'] ?? 0);
-      $precio = (float) ($lin['precio'] ?? 0);
-      $pjeDto = (float) ($lin['pjeDto'] ?? 0);
-      $importe = isset($lin['importe']) ? (float) $lin['importe'] : round($cant * $precio * (1 - $pjeDto / 100), 2);
-      $meta = $this->metaArticuloLinea($articulo);
-      $precioTarifa = isset($lin['precioTarifa']) && $lin['precioTarifa'] !== '' && $lin['precioTarifa'] !== null
-        ? (float) $lin['precioTarifa']
-        : ($meta['precioTarifa'] > 0 ? $meta['precioTarifa'] : $precio);
-      $precioAlterado = array_key_exists('precioAlterado', $lin)
-        ? (!empty($lin['precioAlterado']) ? 1 : 0)
-        : (abs($precio - $precioTarifa) > 0.0001 ? 1 : 0);
+      // Legacy: Articulo "NO" = línea de comentario (sin importe ni stock).
+      $esComentario = strtoupper($articulo) === 'NO';
+      if ($esComentario) {
+        $cant = 0.0;
+        $precio = 0.0;
+        $pjeDto = 0.0;
+        $importe = 0.0;
+        $pjeIva = 0.0;
+        $meta = ['precioMedio' => 0.0, 'precioTarifa' => 0.0];
+        $precioTarifa = 0.0;
+        $precioAlterado = 0;
+      } else {
+        $cant = (float) ($lin['cantidad'] ?? 0);
+        $precio = (float) ($lin['precio'] ?? 0);
+        $pjeDto = (float) ($lin['pjeDto'] ?? 0);
+        $importe = isset($lin['importe']) ? (float) $lin['importe'] : round($cant * $precio * (1 - $pjeDto / 100), 2);
+        $meta = $this->metaArticuloLinea($articulo);
+        $precioTarifa = isset($lin['precioTarifa']) && $lin['precioTarifa'] !== '' && $lin['precioTarifa'] !== null
+          ? (float) $lin['precioTarifa']
+          : ($meta['precioTarifa'] > 0 ? $meta['precioTarifa'] : $precio);
+        $precioAlterado = array_key_exists('precioAlterado', $lin)
+          ? (!empty($lin['precioAlterado']) ? 1 : 0)
+          : (abs($precio - $precioTarifa) > 0.0001 ? 1 : 0);
+        $pjeIva = (float) (($lin['pjeIva'] ?? 0) > 0 ? $lin['pjeIva'] : 21);
+      }
       $ins->execute([
         'e' => $empresa,
         't' => $tipo,
         'a' => $albaran,
-        'articulo' => $articulo,
+        'articulo' => $esComentario ? 'NO' : $articulo,
         'descripcion' => $this->blankIfEmpty($lin['descripcion'] ?? null),
         'cantidad' => $cant,
         'precio' => $precio,
         'pjeDto' => $pjeDto,
         'importe' => $importe,
-        'pjeIva' => (float) (($lin['pjeIva'] ?? 0) > 0 ? $lin['pjeIva'] : 21),
+        'pjeIva' => $pjeIva,
         'precioMedio' => $meta['precioMedio'],
         'precioAlterado' => $precioAlterado,
         'precioTarifa' => $precioTarifa,
-        'ean' => $this->blankIfEmpty($lin['ean'] ?? $articulo),
-        'unidadesPaquete' => isset($lin['unidadesPaquete']) && $lin['unidadesPaquete'] !== '' && $lin['unidadesPaquete'] !== null
-          ? (float) $lin['unidadesPaquete'] : 1.0,
+        'ean' => $this->blankIfEmpty($lin['ean'] ?? ($esComentario ? 'NO' : $articulo)),
+        'unidadesPaquete' => $esComentario ? 0.0 : (
+          isset($lin['unidadesPaquete']) && $lin['unidadesPaquete'] !== '' && $lin['unidadesPaquete'] !== null
+            ? (float) $lin['unidadesPaquete'] : 1.0
+        ),
         'loteVenta' => $this->spaceIfEmpty($lin['loteVenta'] ?? null),
       ]);
     }
@@ -738,7 +1154,9 @@ final class VentaEscrituraService
     $acumPorIva = [];
 
     foreach ($lineas as $lin) {
-      if (trim((string) ($lin['articulo'] ?? '')) === '') {
+      $art = trim((string) ($lin['articulo'] ?? ''));
+      // Legacy: "NO" = comentario, no entra en importes.
+      if ($art === '' || strtoupper($art) === 'NO') {
         continue;
       }
       $cant = (float) ($lin['cantidad'] ?? 0);

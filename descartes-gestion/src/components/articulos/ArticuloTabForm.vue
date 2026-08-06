@@ -128,12 +128,33 @@ function fieldLayout(field: ArticuloField) {
   if (field.type === 'textarea') return 'textarea'
   return 'inline'
 }
+
+const isTarifasLayout = computed(() =>
+  props.sections.some((s) => s.title.startsWith('Unidades') || s.title === 'Precios' || s.title === 'Costes')
+)
+
+function sectionZoneClass(section: ArticuloSection) {
+  if (!isTarifasLayout.value) return ''
+  if (section.title.startsWith('Unidades')) return 'zone-especiales'
+  if (section.title === 'Precios') return 'zone-precios'
+  if (section.title === 'Costes') return 'zone-costes'
+  return ''
+}
 </script>
 
 <template>
-  <div class="tab-form">
-    <fieldset v-for="section in sections" :key="section.title" class="form-section">
+  <div class="tab-form" :class="{ 'tab-form-tarifas': isTarifasLayout }">
+    <fieldset v-for="section in sections" :key="section.title" class="form-section" :class="sectionZoneClass(section)">
       <legend>{{ section.title }}</legend>
+      <div
+        v-if="section.columnHeaders?.length"
+        class="section-headers"
+        :class="sectionClass(section)"
+      >
+        <span v-for="(header, idx) in section.columnHeaders" :key="`${section.title}-h-${idx}`" class="col-header">
+          {{ header }}
+        </span>
+      </div>
       <div class="section-grid" :class="sectionClass(section)">
         <div
           v-for="field in section.fields"
@@ -143,9 +164,12 @@ function fieldLayout(field: ArticuloField) {
             `span-${field.span ?? 1}`,
             `field-${fieldLayout(field)}`,
             field.type === 'number' ? 'field-number' : '',
+            section.hideFieldLabels ? 'field-no-label' : '',
           ]"
         >
-          <span class="field-label">{{ field.label }}<em v-if="field.required"> *</em></span>
+          <span v-if="!section.hideFieldLabels" class="field-label">
+            {{ field.label }}<em v-if="field.required"> *</em>
+          </span>
 
           <textarea
             v-if="field.type === 'textarea'"
@@ -218,6 +242,28 @@ function fieldLayout(field: ArticuloField) {
   box-sizing: border-box;
 }
 
+.tab-form-tarifas {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.85fr) minmax(200px, 1.15fr);
+  grid-template-areas:
+    'especiales precios'
+    'especiales costes';
+  gap: 0.45rem;
+  align-items: start;
+}
+
+.tab-form-tarifas .zone-especiales {
+  grid-area: especiales;
+}
+
+.tab-form-tarifas .zone-precios {
+  grid-area: precios;
+}
+
+.tab-form-tarifas .zone-costes {
+  grid-area: costes;
+}
+
 .form-section {
   margin: 0;
   padding: 0.35rem 0.5rem 0.45rem;
@@ -233,21 +279,42 @@ function fieldLayout(field: ArticuloField) {
   color: #334155;
 }
 
+.section-headers {
+  display: grid;
+  gap: 0.2rem 0.5rem;
+  margin-bottom: 0.15rem;
+}
+
+.section-headers .col-header {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #475569;
+  text-align: center;
+}
+
 .section-grid {
   display: grid;
   gap: 0.2rem 0.5rem;
   align-items: center;
 }
 
-.section-grid.cols-2 {
+.section-grid.cols-1,
+.section-headers.cols-1 {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.section-grid.cols-2,
+.section-headers.cols-2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.section-grid.cols-3 {
+.section-grid.cols-3,
+.section-headers.cols-3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.section-grid.cols-4 {
+.section-grid.cols-4,
+.section-headers.cols-4 {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
@@ -272,6 +339,10 @@ function fieldLayout(field: ArticuloField) {
   grid-template-columns: minmax(5.2rem, auto) 1fr;
   gap: 0.35rem;
   align-items: center;
+}
+
+.field-inline.field-no-label {
+  grid-template-columns: 1fr;
 }
 
 .field-inline .field-label {
@@ -313,7 +384,13 @@ function fieldLayout(field: ArticuloField) {
 }
 
 .field-number input {
-  max-width: 6rem;
+  max-width: 7rem;
+}
+
+.field-no-label.field-number input {
+  max-width: none;
+  width: 100%;
+  text-align: right;
 }
 
 .field.required .field-label em {
@@ -349,5 +426,15 @@ textarea:read-only,
 select:disabled {
   background: #e8edf2;
   color: #475569;
+}
+
+@media (max-width: 720px) {
+  .tab-form-tarifas {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      'especiales'
+      'precios'
+      'costes';
+  }
 }
 </style>

@@ -164,6 +164,8 @@ return [
     'ultPreFactura' => 'UltPreFactura',
     'ultOrdenFabricacion' => 'UltOrdenFabricacion',
     'ultTransacCajon' => 'UltTransacCajon',
+    'ultFicheroRecepcion' => 'UltFicheroRecepcion',
+    'ultFicheroRecepcionC' => 'UltFicheroRecepcionC',
     'activo' => 'Baja',
   ],
   'booleanFields' => [

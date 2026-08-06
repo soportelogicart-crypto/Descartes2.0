@@ -98,11 +98,16 @@ return [
     'literalPlanta2' => 'LiteralPlanta2',
     'patron' => 'Patron',
     'variedad' => 'Variedad',
+    'imagen' => 'Imagen',
+    'imagen2' => 'Imagen2',
+    'fichaPlantilla' => 'Ficha',
     'comentarios' => 'Comentarios',
     'observaciones' => 'Observaciones',
     'observacionesComerciales' => 'ObservacionesVenta',
     'pendienteRecibir' => 'PendienteRecibir',
     'pendienteEntrega' => 'PendienteEntrega',
+    'numEtiElectronica' => 'NumEtiElectronica',
+    'idAliat' => 'IdWebAliat',
     'activo' => 'FechaBaja',
   ],
   'booleanFields' => [
@@ -111,4 +116,6 @@ return [
     'ventaSoloReserva', 'etiquetaPrecio', 'retIrpf', 'impresionFichaBotanica',
     'etiquetaElectronica', 'solicitarLote', 'stockBandejas', 'activo',
   ],
+  // IDENTITY en SQL Server: se lee, no se escribe en INSERT/UPDATE.
+  'hidden' => ['numEtiElectronica'],
 ];

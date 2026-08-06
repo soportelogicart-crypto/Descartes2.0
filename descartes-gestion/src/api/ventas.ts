@@ -78,6 +78,19 @@ export async function finalizarVenta(
   return data
 }
 
+export async function crearAbonoDesdeVenta(
+  empresa: string,
+  tipo: string,
+  albaran: number,
+  payload: { nroLins?: number[]; observacion?: string } = {}
+) {
+  const { data } = await api.post<VentaDetalle>(
+    `/api/ventas/albaranes/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}/abono`,
+    payload
+  )
+  return data
+}
+
 export async function marcarVentaImpresa(empresa: string, tipo: string, albaran: number) {
   const { data } = await api.post<VentaDetalle>(
     `/api/ventas/albaranes/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}/impreso`

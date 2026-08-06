@@ -32,7 +32,11 @@ const buscarClienteInicial = ref('')
 const { pdfOpen, pdfUrl, pdfTitulo, cerrarPdf, abrirPdf } = usePdfPreview('Diario de facturación')
 
 function hoyIso() {
-  return new Date().toISOString().slice(0, 10)
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 const form = ref({
@@ -126,7 +130,9 @@ async function buscar() {
   try {
     const data = await listarDiarioFacturacion(paramsConsulta())
     items.value = data.items
-    mensaje.value = `${data.totales.facturas} facturas · ${data.totales.importe.toFixed(2)} €`
+    const trunc =
+      data.items.length >= 500 ? ' (máx. 500; afine filtros si faltan)' : ''
+    mensaje.value = `${data.totales.facturas} facturas · ${data.totales.importe.toFixed(2)} €${trunc}`
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudo cargar el diario')
     items.value = []
@@ -136,8 +142,12 @@ async function buscar() {
 }
 
 async function pdf() {
-  if (!items.value.length) {
-    error.value = 'Busque primero'
+  if (!puede('facturacion-diario', 'ver')) {
+    error.value = 'Sin permiso'
+    return
+  }
+  if (!form.value.empresaDesde.trim()) {
+    error.value = 'Indique la tienda'
     return
   }
   saving.value = true
@@ -146,18 +156,15 @@ async function pdf() {
   try {
     const blob = await descargarDiarioPdf({
       ...paramsConsulta(),
-      marcarImpresa: false,
-      facturas: items.value.slice(0, 100).map((r) => ({
-        empresa: r.empresa,
-        facturaTipo: r.facturaTipo,
-        factura: r.factura,
-      })),
     })
     if (blob.type && blob.type.includes('json')) {
       throw new Error('Error al generar PDF')
     }
     abrirPdf(blob, 'Diario de facturación')
-    mensaje.value = 'PDF listo para previsualizar'
+    mensaje.value =
+      items.value.length >= 500
+        ? 'PDF del diario (máx. 500 filas) listo'
+        : 'PDF del diario listo para previsualizar'
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudo generar el PDF')
   } finally {
@@ -175,13 +182,13 @@ onMounted(async () => {
     <div class="toolbar">
       <div>
         <h2>Diario de facturación</h2>
-        <p class="hint">Consulta de facturas emitidas (auditoría / cronología).</p>
+        <p class="hint">Listado de facturas emitidas (auditoría). El PDF es el diario tabular, no reimpresión.</p>
       </div>
       <div class="actions">
         <button type="button" class="btn" :disabled="loading || loadingOpts" @click="buscar">
           {{ loading ? 'Buscando…' : 'Buscar' }}
         </button>
-        <button type="button" class="btn primary" :disabled="saving || !items.length" @click="pdf">
+        <button type="button" class="btn primary" :disabled="saving || loadingOpts" @click="pdf">
           {{ saving ? 'PDF…' : 'Previsualizar PDF' }}
         </button>
       </div>
@@ -258,8 +265,8 @@ onMounted(async () => {
             <span>Estado</span>
             <select v-model="form.estado">
               <option value="">Todos</option>
-              <option value="G">G</option>
-              <option value="F">F</option>
+              <option value="G">G — Diferida (crédito)</option>
+              <option value="F">F — Contado</option>
             </select>
           </label>
         </fieldset>
@@ -280,7 +287,8 @@ onMounted(async () => {
                 <th>Razón social</th>
                 <th>NIF</th>
                 <th class="num">Importe</th>
-                <th>Estado</th>
+                <th>Cobro</th>
+                <th>F.P.</th>
                 <th>Imp.</th>
               </tr>
             </thead>
@@ -294,7 +302,8 @@ onMounted(async () => {
                 <td class="clip">{{ r.razonSocial }}</td>
                 <td>{{ r.nif }}</td>
                 <td class="num">{{ r.importe.toFixed(2) }}</td>
-                <td>{{ r.estado }}</td>
+                <td>{{ r.tipoCobro === 'diferida' ? 'Dif.' : 'Con.' }}</td>
+                <td>{{ r.fpago || '—' }}</td>
                 <td>{{ r.impresa ? 'Sí' : '' }}</td>
               </tr>
             </tbody>

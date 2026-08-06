@@ -6,8 +6,8 @@ import { articulosMenuItems, esRutaArticulos } from '@/config/articulos-menu'
 import { clientesMenuItems, esRutaClientes } from '@/config/clientes-menu'
 import { puestosMenuItems, esRutaPuestos } from '@/config/puestos-menu'
 import { proveedoresMenuItems, esRutaProveedores } from '@/config/proveedores-menu'
-import { ventasMenuItems, esRutaVentas } from '@/config/ventas-nav'
-import { facturacionMenuItems, esRutaFacturacion } from '@/config/facturacion-nav'
+import { ventasMenuItems } from '@/config/ventas-nav'
+import { facturacionMenuItems } from '@/config/facturacion-nav'
 import { moduloDeEntradaMenu } from '@/config/mantenimiento-nav-permisos'
 import { menuPrincipalSecciones } from '@/config/menu-principal'
 import { entidades } from '@/config/entidades'
@@ -25,12 +25,10 @@ const tabsStore = useTabsStore()
 const route = useRoute()
 const router = useRouter()
 
-const articulosAbierto = ref(esRutaArticulos(route.path))
-const clientesAbierto = ref(esRutaClientes(route.path))
-const puestosAbierto = ref(esRutaPuestos(route.path))
-const proveedoresAbierto = ref(esRutaProveedores(route.path))
-const ventasAbierto = ref(esRutaVentas(route.path))
-const facturacionAbierto = ref(esRutaFacturacion(route.path))
+const articulosAbierto = ref(false)
+const clientesAbierto = ref(false)
+const puestosAbierto = ref(false)
+const proveedoresAbierto = ref(false)
 const modalEquipoAbierto = ref(false)
 
 const seccionesAbiertas = reactive<Record<string, boolean>>(
@@ -120,27 +118,13 @@ const articulosActivo = computed(() => esRutaArticulos(route.path))
 const clientesActivo = computed(() => esRutaClientes(route.path))
 const puestosActivo = computed(() => esRutaPuestos(route.path))
 const proveedoresActivo = computed(() => esRutaProveedores(route.path))
-const ventasActivo = computed(() => esRutaVentas(route.path))
 const mantenimientoActivo = computed(() => route.path.startsWith('/mantenimiento'))
 
 watch(
   () => route.fullPath,
   (fullPath) => {
-    const path = route.path
-    articulosAbierto.value = esRutaArticulos(path)
-    clientesAbierto.value = esRutaClientes(path)
-    puestosAbierto.value = esRutaPuestos(path)
-    proveedoresAbierto.value = esRutaProveedores(path)
-    ventasAbierto.value = esRutaVentas(path)
-    facturacionAbierto.value = esRutaFacturacion(path)
-    if (path.startsWith('/mantenimiento')) seccionesAbiertas.mantenimiento = true
-    for (const seccion of menuPrincipalSecciones) {
-      if (seccion.id === 'mantenimiento') continue
-      if (path === seccion.ruta || path.startsWith(`${seccion.ruta}/`)) {
-        seccionesAbiertas[seccion.id] = true
-      }
-    }
     // Pestañas: cada pantalla consultada queda abierta (máx. 8).
+    // El menu lateral no se reabre automaticamente al navegar.
     if (auth.cargado) {
       const titulo = typeof route.meta.titulo === 'string' ? route.meta.titulo : undefined
       tabsStore.openOrActivate(fullPath, titulo)
@@ -164,7 +148,28 @@ watch(
 )
 
 function toggleSeccion(id: string) {
-  seccionesAbiertas[id] = !seccionesAbiertas[id]
+  const estabaAbierta = seccionesAbiertas[id]
+  for (const key of Object.keys(seccionesAbiertas)) {
+    seccionesAbiertas[key] = false
+  }
+  // Si ya estaba abierta, queda cerrada (todo recogido). Si no, abre solo esta.
+  seccionesAbiertas[id] = !estabaAbierta
+  if (!seccionesAbiertas[id]) {
+    articulosAbierto.value = false
+    clientesAbierto.value = false
+    puestosAbierto.value = false
+    proveedoresAbierto.value = false
+  }
+}
+
+function cerrarMenu() {
+  for (const id of Object.keys(seccionesAbiertas)) {
+    seccionesAbiertas[id] = false
+  }
+  articulosAbierto.value = false
+  clientesAbierto.value = false
+  puestosAbierto.value = false
+  proveedoresAbierto.value = false
 }
 
 function toggleArticulos() {
@@ -218,7 +223,7 @@ async function logout() {
         <!-- Mantenimiento: submenu completo -->
         <nav v-if="seccion.id === 'mantenimiento'" v-show="seccionesAbiertas.mantenimiento">
           <template v-for="item in menuMantenimiento" :key="item.slug">
-            <RouterLink v-if="item.habilitado" :to="item.ruta" class="nav-link">
+            <RouterLink v-if="item.habilitado" :to="item.ruta" class="nav-link" @click="cerrarMenu">
               {{ item.titulo }}
             </RouterLink>
             <span v-else class="nav-link disabled" title="Sin permiso">{{ item.titulo }}</span>
@@ -236,7 +241,7 @@ async function logout() {
             </button>
             <div v-show="articulosAbierto" class="nav-children">
               <template v-for="item in articulosItems" :key="item.slug">
-                <RouterLink v-if="item.habilitado" :to="item.ruta" class="nav-link nav-child">
+                <RouterLink v-if="item.habilitado" :to="item.ruta" class="nav-link nav-child" @click="cerrarMenu">
                   {{ item.titulo }}
                 </RouterLink>
                 <span v-else class="nav-link nav-child disabled" title="Sin permiso">{{
@@ -258,7 +263,7 @@ async function logout() {
             </button>
             <div v-show="clientesAbierto" class="nav-children">
               <template v-for="item in clientesItems" :key="item.slug">
-                <RouterLink v-if="item.habilitado" :to="item.ruta" class="nav-link nav-child">
+                <RouterLink v-if="item.habilitado" :to="item.ruta" class="nav-link nav-child" @click="cerrarMenu">
                   {{ item.titulo }}
                 </RouterLink>
                 <span v-else class="nav-link nav-child disabled" title="Sin permiso">{{
@@ -280,7 +285,7 @@ async function logout() {
             </button>
             <div v-show="proveedoresAbierto" class="nav-children">
               <template v-for="item in proveedoresItems" :key="item.slug">
-                <RouterLink v-if="item.habilitado" :to="item.ruta" class="nav-link nav-child">
+                <RouterLink v-if="item.habilitado" :to="item.ruta" class="nav-link nav-child" @click="cerrarMenu">
                   {{ item.titulo }}
                 </RouterLink>
                 <span v-else class="nav-link nav-child disabled" title="Sin permiso">{{
@@ -302,7 +307,7 @@ async function logout() {
             </button>
             <div v-show="puestosAbierto" class="nav-children">
               <template v-for="item in puestosItems" :key="item.slug">
-                <RouterLink v-if="item.habilitado" :to="item.ruta" class="nav-link nav-child">
+                <RouterLink v-if="item.habilitado" :to="item.ruta" class="nav-link nav-child" @click="cerrarMenu">
                   {{ item.titulo }}
                 </RouterLink>
                 <span v-else class="nav-link nav-child disabled" title="Sin permiso">{{
@@ -321,6 +326,7 @@ async function logout() {
               :to="item.ruta"
               class="nav-link nav-child"
               :class="{ active: route.path === item.ruta || (item.ruta !== '/ventas' && route.path.startsWith(item.ruta + '/')) }"
+              @click="cerrarMenu"
             >
               {{ item.titulo }}
             </RouterLink>
@@ -336,6 +342,7 @@ async function logout() {
               :to="item.ruta"
               class="nav-link nav-child"
               :class="{ active: route.path === item.ruta || route.path.startsWith(item.ruta + '/') }"
+              @click="cerrarMenu"
             >
               {{ item.titulo }}
             </RouterLink>
@@ -345,7 +352,7 @@ async function logout() {
 
         <!-- Resto de secciones: placeholder hasta completar -->
         <nav v-else v-show="seccionesAbiertas[seccion.id]" class="nav-placeholder">
-          <RouterLink :to="seccion.ruta" class="nav-link nav-child">
+          <RouterLink :to="seccion.ruta" class="nav-link nav-child" @click="cerrarMenu">
             {{ seccion.titulo }} (en construccion)
           </RouterLink>
         </nav>

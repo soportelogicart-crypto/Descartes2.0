@@ -312,7 +312,7 @@ function fieldLayout(field: TiendaField) {
 
 .field-inline {
   display: grid;
-  grid-template-columns: minmax(5.5rem, auto) 1fr;
+  grid-template-columns: 7.75rem minmax(0, 1fr);
   gap: 0.35rem;
   align-items: center;
 }
@@ -323,6 +323,7 @@ function fieldLayout(field: TiendaField) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: left;
 }
 
 .field-checkbox {

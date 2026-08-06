@@ -36,6 +36,8 @@ return function (App $app): void {
       ->add($setPermiso('ventas', 'eliminar'));
     $group->post('/albaranes/{empresa}/{tipo}/{albaran}/finalizar', [VentasController::class, 'finalizarVenta'])
       ->add($setPermiso('ventas', 'editar'));
+    $group->post('/albaranes/{empresa}/{tipo}/{albaran}/abono', [VentasController::class, 'crearAbonoDesdeVenta'])
+      ->add($setPermiso('ventas', 'crear'));
     $group->post('/albaranes/{empresa}/{tipo}/{albaran}/impreso', [VentasController::class, 'marcarVentaImpresa'])
       ->add($setPermiso('ventas', 'ver'));
     $group->get('/albaranes/{empresa}/{tipo}/{albaran}/pdf', [VentasController::class, 'pdfVenta'])

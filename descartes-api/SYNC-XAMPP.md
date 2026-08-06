@@ -1,15 +1,11 @@
-# Sync XAMPP (T012)
+# Sync XAMPP
 
-Si Apache sirve `C:\xampp\htdocs\descartes-api\`, copiar tras cambios en API:
+Si Apache sirve `C:\xampp\htdocs\descartes-api\`, tras cambios en la API:
 
-- `public/index.php`
-- `src/Routes/ventas.php`
-- `src/Controllers/VentasController.php`
-- `src/Services/Ventas/*`
-- `src/Services/RolService.php` (modulo `ventas-abc`)
-- `src/bootstrap.php`
-- `src/Config/entities.php` (formas-pago: cobroDeArqueo / cobroPago)
+```powershell
+powershell -ExecutionPolicy Bypass -File c:\descartes-2.0\descartes-api\scripts\sync-xampp.ps1
+```
+
+Copia en UTF-8 sin BOM todo `src\` y `public\` (mantenimiento, ventas, facturación, etc.).
 
 El monorepo fuente es `c:\descartes-2.0\descartes-api\`.
-
-Ventas escritura: `POST .../impreso`, `PUT` con Fpago1/2 + ImpFpago1/2.

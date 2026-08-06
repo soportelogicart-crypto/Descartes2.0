@@ -38,7 +38,11 @@ const buscarClienteCampo = ref<CampoCliente>('desde')
 const buscarClienteInicial = ref('')
 
 function hoyIso() {
-  return new Date().toISOString().slice(0, 10)
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 function rowKey(r: FacturaImpresionItem) {
@@ -46,17 +50,16 @@ function rowKey(r: FacturaImpresionItem) {
 }
 
 const form = ref({
-  idioma: 'castellano',
-  divisa: 'EU',
-  estadoImpresion: 'pendientes',
+  /** Todas: tras generar, a menudo ya están marcadas si se previsualizó el PDF. */
+  estadoImpresion: 'todas',
+  /** Crédito/generación = diferidas (Estado G). */
   tipoCobro: 'diferidas',
   facturaTipo: '',
-  marca: 'sin',
   facturacion: 'normal',
   canalImpresion: 'impresora',
   clientesModo: 'todos',
-  formato: 'preimpreso',
-  marcarImpresa: true,
+  /** Solo con botón / checkbox explícito; el PDF no marca por defecto. */
+  marcarImpresa: false,
   empresaDesde: '',
   empresaHasta: '',
   fechaDesde: '',
@@ -103,10 +106,7 @@ function paramsConsulta(): Record<string, string | number | undefined> {
     estadoImpresion: f.estadoImpresion,
     tipoCobro: f.tipoCobro,
     canalImpresion: f.canalImpresion,
-    marca: f.marca,
     facturacion: f.facturacion,
-    formato: f.formato,
-    clientesModo: f.clientesModo,
   }
   const put = (k: string, v: string | number) => {
     const s = String(v ?? '').trim()
@@ -185,7 +185,14 @@ async function buscar() {
     const data = await listarFacturasImpresion(paramsConsulta())
     items.value = data.items
     selected.value = {}
-    mensaje.value = `${data.totales.facturas} facturas · ${data.totales.importe.toFixed(2)} €`
+    const trunc =
+      data.items.length >= 500 ? ' (máx. 500; afine filtros si faltan)' : ''
+    if (data.items.length === 0 && form.value.estadoImpresion === 'pendientes') {
+      mensaje.value =
+        '0 facturas pendientes de imprimir. Pruebe Estado = Todas o Impresas (pueden haberse marcado al previsualizar el PDF).'
+    } else {
+      mensaje.value = `${data.totales.facturas} facturas · ${data.totales.importe.toFixed(2)} €${trunc}`
+    }
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudieron cargar facturas')
     items.value = []
@@ -268,7 +275,10 @@ onMounted(async () => {
     <div class="toolbar">
       <div class="toolbar-title">
         <h2>Impresión de facturas</h2>
-        <p class="hint">Misma estructura que legacy: opciones + intervalos Desde/Hasta.</p>
+        <p class="hint">
+          Diferidas = crédito (Estado G). Si no salen, revise Estado impresión (Todas / Impresas):
+          previsualizar el PDF pudo marcarlas.
+        </p>
       </div>
       <div class="toolbar-actions">
         <button type="button" class="btn" :disabled="loading || loadingOpts" @click="buscar">
@@ -300,18 +310,6 @@ onMounted(async () => {
           <fieldset class="opciones">
             <legend>Opciones</legend>
             <label>
-              <span>Idioma</span>
-              <select v-model="form.idioma">
-                <option value="castellano">Castellano</option>
-              </select>
-            </label>
-            <label>
-              <span>Divisa</span>
-              <select v-model="form.divisa">
-                <option value="EU">EU</option>
-              </select>
-            </label>
-            <label>
               <span>Estado</span>
               <select v-model="form.estadoImpresion">
                 <option value="pendientes">Pendientes de Imprimir</option>
@@ -320,11 +318,14 @@ onMounted(async () => {
               </select>
             </label>
             <label>
-              <span>Tipo</span>
-              <select v-model="form.tipoCobro">
-                <option value="diferidas">Diferidas</option>
-                <option value="contado">Contado</option>
+              <span>Tipo cobro</span>
+              <select
+                v-model="form.tipoCobro"
+                title="Diferidas = Estado G (crédito). Contado = Estado F. Contado diferido TPV también es diferida."
+              >
                 <option value="todas">Todas</option>
+                <option value="diferidas">Diferidas (crédito / Est. G)</option>
+                <option value="contado">Contado (Est. F)</option>
               </select>
             </label>
             <label>
@@ -336,13 +337,6 @@ onMounted(async () => {
               </select>
             </label>
             <label>
-              <span>Marca</span>
-              <select v-model="form.marca">
-                <option value="sin">Sin Marca</option>
-                <option value="con">Con Marca</option>
-              </select>
-            </label>
-            <label>
               <span>Facturación</span>
               <select v-model="form.facturacion">
                 <option value="normal">Normal</option>
@@ -350,10 +344,10 @@ onMounted(async () => {
               </select>
             </label>
             <label>
-              <span>Impresión</span>
+              <span>Canal</span>
               <select v-model="form.canalImpresion">
                 <option value="impresora">Impresora</option>
-                <option value="email">Email</option>
+                <option value="email">Pendientes email</option>
               </select>
             </label>
             <label>
@@ -361,13 +355,6 @@ onMounted(async () => {
               <select v-model="form.clientesModo">
                 <option value="todos">Todos</option>
                 <option value="seleccionados">Clientes seleccionados</option>
-              </select>
-            </label>
-            <label>
-              <span>Formato</span>
-              <select v-model="form.formato">
-                <option value="preimpreso">Papel Preimpreso</option>
-                <option value="blanco">Papel en blanco</option>
               </select>
             </label>
             <label class="check">
@@ -482,6 +469,8 @@ onMounted(async () => {
                 <th>Razón social</th>
                 <th>NIF</th>
                 <th class="num">Importe</th>
+                <th>Est.</th>
+                <th>Cobro</th>
                 <th>Imp.</th>
               </tr>
             </thead>
@@ -503,6 +492,8 @@ onMounted(async () => {
                 <td class="clip">{{ r.razonSocial }}</td>
                 <td>{{ r.nif }}</td>
                 <td class="num">{{ r.importe.toFixed(2) }}</td>
+                <td :title="r.facturaContadoDiferida ? 'Contado diferido TPV' : ''">{{ r.estado || '—' }}</td>
+                <td>{{ r.tipoCobro === 'diferida' ? 'Diferida' : 'Contado' }}</td>
                 <td>{{ r.impresa ? 'Sí' : 'No' }}</td>
               </tr>
             </tbody>

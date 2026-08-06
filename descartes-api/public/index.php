@@ -22,6 +22,7 @@ $containerBuilder->addDefinitions([
   \Descartes\Api\Controllers\OfertaClienteController::class => DI\autowire(),
   \Descartes\Api\Controllers\OfertaProveedorController::class => DI\autowire(),
   \Descartes\Api\Controllers\ProveedorController::class => DI\autowire(),
+  \Descartes\Api\Controllers\ArticuloController::class => DI\autowire(),
   \Descartes\Api\Controllers\VentasController::class => DI\autowire(),
   \Descartes\Api\Controllers\FacturacionController::class => DI\autowire(),
   \Descartes\Api\Controllers\LogController::class => DI\autowire(),

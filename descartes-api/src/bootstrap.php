@@ -9,8 +9,11 @@ use Descartes\Api\Http\ErrorResponse;
 use Descartes\Api\Logging\FileLogger;
 use Descartes\Api\RequestContext;
 use Psr\Log\LoggerInterface;
+use Descartes\Api\Repositories\ArtBarrasRepository;
 use Descartes\Api\Repositories\ArtPreciosRepository;
 use Descartes\Api\Repositories\ArticuloStockRepository;
+use Descartes\Api\Repositories\EscandallosRepository;
+use Descartes\Api\Repositories\PlantasRepository;
 use Descartes\Api\Repositories\ClientesContactosRepository;
 use Descartes\Api\Repositories\ClientesDireccionesRepository;
 use Descartes\Api\Repositories\CodigoPostalRepository;
@@ -43,6 +46,9 @@ return function (App $app): void {
 
   $container->set(ArtPreciosRepository::class, static fn (ContainerInterface $c) => new ArtPreciosRepository($c->get(PDO::class)));
   $container->set(ArticuloStockRepository::class, static fn (ContainerInterface $c) => new ArticuloStockRepository($c->get(PDO::class)));
+  $container->set(ArtBarrasRepository::class, static fn (ContainerInterface $c) => new ArtBarrasRepository($c->get(PDO::class)));
+  $container->set(EscandallosRepository::class, static fn (ContainerInterface $c) => new EscandallosRepository($c->get(PDO::class)));
+  $container->set(PlantasRepository::class, static fn (ContainerInterface $c) => new PlantasRepository($c->get(PDO::class)));
   $container->set(ClientesDireccionesRepository::class, static fn (ContainerInterface $c) => new ClientesDireccionesRepository($c->get(PDO::class)));
   $container->set(ClientesContactosRepository::class, static fn (ContainerInterface $c) => new ClientesContactosRepository($c->get(PDO::class)));
   $container->set(OfertasClientesRepository::class, static fn (ContainerInterface $c) => new OfertasClientesRepository($c->get(PDO::class)));
@@ -51,6 +57,13 @@ return function (App $app): void {
     $c->get(PDO::class),
     $c->get(ArtPreciosRepository::class),
     $c->get(ArticuloStockRepository::class)
+  ));
+  $container->set(\Descartes\Api\Controllers\ArticuloController::class, static fn (ContainerInterface $c) => new \Descartes\Api\Controllers\ArticuloController(
+    $c->get(ArticuloStockRepository::class),
+    $c->get(ArtBarrasRepository::class),
+    $c->get(EscandallosRepository::class),
+    $c->get(PlantasRepository::class),
+    $c->get(PDO::class)
   ));
 
   $container->set(MantenimientoService::class, static fn (ContainerInterface $c) => new MantenimientoService(
