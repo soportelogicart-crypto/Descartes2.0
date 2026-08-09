@@ -16,7 +16,7 @@ IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'RolPermisos' AND schema_id
 BEGIN
     CREATE TABLE [dbo].[RolPermisos] (
         [Rol]      nvarchar(10) NOT NULL,
-        [Modulo]   nvarchar(30) NOT NULL,
+        [Modulo]   nvarchar(64) NOT NULL,
         [Ver]      bit          NOT NULL CONSTRAINT DF_RolPermisos_Ver DEFAULT (0),
         [Crear]    bit          NOT NULL CONSTRAINT DF_RolPermisos_Crear DEFAULT (0),
         [Editar]   bit          NOT NULL CONSTRAINT DF_RolPermisos_Editar DEFAULT (0),

@@ -34,6 +34,18 @@ final class ArticuloService
     $item['precios'] = $this->artPreciosRepository->findByArticulo($codigo);
     $item['stock'] = $this->articuloStockRepository->findByArticulo($codigo);
 
+    $familia = trim((string) ($item['familia'] ?? ''));
+    if ($familia !== '' && trim((string) ($item['macroFamilia'] ?? '')) === '') {
+      $stmt = $this->pdo->prepare(
+        'SELECT RTRIM(ISNULL([MacroFamilia], \'\')) FROM [Familias] WHERE RTRIM([Codigo]) = :codigo'
+      );
+      $stmt->execute(['codigo' => $familia]);
+      $macro = $stmt->fetchColumn();
+      if ($macro !== false && $macro !== null && trim((string) $macro) !== '') {
+        $item['macroFamilia'] = trim((string) $macro);
+      }
+    }
+
     return $item;
   }
 

@@ -16,6 +16,8 @@ export type TiendaField = {
 export type TiendaSection = {
   title: string
   columns?: 2 | 3 | 4 | 5
+  /** Layout especial: atributos (Atri|Col compacto) o copias (filas densas) */
+  variant?: 'default' | 'atributos' | 'copias'
   fields: TiendaField[]
 }
 
@@ -154,33 +156,56 @@ export const tiendaTabs: TiendaTab[] = [
         title: 'Central',
         columns: 4,
         fields: [
-          cb('esCentral', 'Actua como central'),
-          cb('facturaLaCentral', 'Central factura'),
-          cb('comunicaCentral', 'Central comunica'),
-          inline('unidadComunicacion', 'Unidad comunicacion', { span: 2 }),
+          cb('esCentral', 'Esta tienda actua de central'),
+          cb('facturaLaCentral', 'Factura la central'),
+          cb('comunicaCentral', 'Comunica la central'),
+          inline('unidadComunicacion', 'Unidad de comunicacion', { span: 2 }),
+        ],
+      },
+      {
+        title: 'Copias',
+        variant: 'copias',
+        columns: 2,
+        fields: [
+          inline('copiasAlbaranReparto', 'Copias albaran reserva', { type: 'number' }),
+          inline('copiasAlbaran', 'Copias albaran', { type: 'number' }),
+          inline('copiasFactura', 'Copias factura', { type: 'number' }),
+          inline('copiasFacturaReparto', 'Copias factura reparto', { type: 'number' }),
+          inline('copiasSimulacion', 'Copias presupuesto', { type: 'number' }),
+        ],
+      },
+      {
+        title: 'Compras y listados',
+        columns: 4,
+        fields: [
+          cb('checkProveedor', 'Compr. en pedido proveedor'),
+          cb('impAlternativo', 'Im.codigo alternativo pedido'),
+          cb('cambiaProveedor', 'Cambiar ult. proveedor albaranes'),
+          cb('maximizarListado', 'Maximizar listados'),
         ],
       },
       {
         title: 'Stock y venta',
         columns: 4,
         fields: [
-          cb('almacenesInternos', 'Stock almacenes internos'),
+          cb('almacenesInternos', 'Mostrar stock almacenes int.'),
           cb('conexionOnline', 'Actualizacion stock online'),
           cb('avisoStockCero', 'Aviso stock negativo/min.'),
-          cb('dtoSiCambioPrecio', 'Dto al cambiar precio'),
-          cb('desglosarBasesTicketIvaInc', 'Desglosar bases ticket', { required: true }),
-          cb('imprimirCodigoArticulo', 'Imprimir codigo articulo'),
-          cb('obligarDineroEntregado', 'Entrada efectivo oblig.'),
-          cb('impSaldoTicket', 'Imprimir saldo ticket'),
-          cb('crearReciboCredito', 'Generar recibo credito'),
+          cb('dtoSiCambioPrecio', 'Dto si cambio de precio'),
+          cb('impTicketInc', 'Impresion ticket IVA incluido'),
+          cb('desglosarBasesTicketIvaInc', 'Desglosar bases ticket IVA inc.', { required: true }),
+          cb('imprimirCodigoArticulo', 'Imprimir cod. articulo ticket'),
+          cb('obligarDineroEntregado', 'Oblig.entrar dinero entregado'),
+          cb('impSaldoTicket', 'Impresion saldo ticket'),
+          cb('crearReciboCredito', 'Generar recibo tickets credito'),
         ],
       },
       {
         title: 'Generacion codigos',
         columns: 4,
         fields: [
+          cb('genBarras', 'Generar codigo de barras'),
           inline('aecoc', 'A.E.C.O.C.', { type: 'number' }),
-          cb('genBarras', 'Generar codigo barras'),
           cb('genDesdeCodigo', '+ Codigo'),
           cb('genClientes', 'Generar clientes'),
           cb('genArticulos', 'Generar articulos'),
@@ -189,21 +214,47 @@ export const tiendaTabs: TiendaTab[] = [
         ],
       },
       {
+        title: 'Etiquetas y venta',
+        columns: 4,
+        fields: [
+          cb('impEtiquetasSinEans', 'Imp. etiquetas sin EAN'),
+          cb('etiquetasIvaIncluido', 'Imp. etiq. albaranes IVA incluido'),
+          cb('impEtiquetasSoloEansPropios', 'Imp. solo etiquetas EANs propios'),
+          inline('decimalesPrecio', 'N. decimales etiq. precio', { type: 'number' }),
+          cb('solicitarPerfilParam', 'Solicitar perfil venta'),
+          cb('desglosarEscandallo', 'Desglosar escandallo ticket'),
+          inline('recalculoTarifas', 'Calculo tarifas manual', { span: 2 }),
+          inline('literalInvitacion', 'Literal invitacion', { type: 'number' }),
+        ],
+      },
+      {
         title: 'Vales y tarifas escalado',
         columns: 4,
         fields: [
-          cb('controlVales', 'Control vales'),
-          inline('minimoCambioVales', 'Min. cambio vales', { type: 'number' }),
-          inline('importeObligatorioFactura', 'Factura oblig. importe >', { type: 'number', span: 2 }),
-          cb('tarifa1Escalado', 'Tarifa 1 escalado'),
-          cb('tarifa2Escalado', 'Tarifa 2 escalado'),
-          cb('tarifa3Escalado', 'Tarifa 3 escalado'),
-          cb('tarifa4Escalado', 'Tarifa 4 escalado'),
-          cb('tarifa5Escalado', 'Tarifa 5 escalado'),
-          cb('tarifa6Escalado', 'Tarifa 6 escalado'),
-          cb('tarifa7Escalado', 'Tarifa 7 escalado'),
-          cb('tarifa8Escalado', 'Tarifa 8 escalado'),
-          cb('tarifa9Escalado', 'Tarifa 9 escalado'),
+          cb('controlVales', 'Control de vales'),
+          inline('minimoCambioVales', 'Min. para dar cambio en vales', { type: 'number' }),
+          inline('importeObligatorioFactura', 'Obligacion factura import. sup.', { type: 'number', span: 2 }),
+          cb('tarifa1Escalado', '1'),
+          cb('tarifa2Escalado', '2'),
+          cb('tarifa3Escalado', '3'),
+          cb('tarifa4Escalado', '4'),
+          cb('tarifa5Escalado', '5'),
+          cb('tarifa6Escalado', '6'),
+          cb('tarifa7Escalado', '7'),
+          cb('tarifa8Escalado', '8'),
+          cb('tarifa9Escalado', '9'),
+        ],
+      },
+      {
+        title: 'Atributos / Col grid',
+        variant: 'atributos',
+        columns: 2,
+        fields: [
+          ...Array.from({ length: 10 }, (_, i) => inline(`atri${i}`, `${i}`)),
+          ...Array.from({ length: 10 }, (_, i) =>
+            inline(`colAtri${i}`, `${i}`, { type: 'number' })
+          ),
+          cb('appWeb', 'App Web'),
         ],
       },
     ],
@@ -213,58 +264,12 @@ export const tiendaTabs: TiendaTab[] = [
     label: 'Parametros II',
     sections: [
       {
-        title: 'Compras y listados',
-        columns: 4,
-        fields: [
-          cb('checkProveedor', 'Check pedido proveedor'),
-          cb('cambiaProveedor', 'Cambiar ult. proveedor'),
-          cb('maximizarListado', 'Maximizar listados'),
-          inline('copiasAlbaranReparto', 'Copias alb. reserva', { type: 'number' }),
-          inline('copiasAlbaran', 'Copias albaran', { type: 'number' }),
-          inline('copiasFactura', 'Copias factura', { type: 'number' }),
-          inline('copiasFacturaReparto', 'Copias fact. reparto', { type: 'number' }),
-          inline('copiasSimulacion', 'Copias presupuesto', { type: 'number' }),
-        ],
-      },
-      {
-        title: 'Etiquetas',
-        columns: 4,
-        fields: [
-          inline('impEtiquetasSinEans', 'Etiquetas sin EAN', { type: 'number' }),
-          cb('etiquetasIvaIncluido', 'Etiquetas con IVA'),
-          inline('impEtiquetasSoloEansPropios', 'Solo EAN propios', { type: 'number' }),
-          inline('decimalesPrecio', 'Decimales etiqueta', { type: 'number' }),
-          cb('desglosarEscandallo', 'Desglosar escandallo'),
-          inline('recalculoTarifas', 'Calculo tarifas manual', { span: 2 }),
-          inline('literalInvitacion', 'Literal invitacion', { type: 'number' }),
-        ],
-      },
-    ],
-  },
-  {
-    id: 'parametros3',
-    label: 'Parametros III',
-    sections: [
-      {
         title: 'Textos y rutas',
         columns: 4,
         fields: [
           area('litPiePedidoCompra', 'Literal pie pedido compra'),
           inline('pathExcelEstadisticas', 'Ruta excels estadisticas', { span: 4 }),
-          cb('appWeb', 'App Web'),
         ],
-      },
-      {
-        title: 'Atributos',
-        columns: 2,
-        fields: Array.from({ length: 10 }, (_, i) => inline(`atri${i}`, `Atributo ${i}`)),
-      },
-      {
-        title: 'Columnas atributos',
-        columns: 5,
-        fields: Array.from({ length: 10 }, (_, i) =>
-          inline(`colAtri${i}`, `Col. ${i}`, { type: 'number' })
-        ),
       },
     ],
   },
@@ -353,8 +358,15 @@ export function validarTiendaObligatorios(ficha: Record<string, unknown>): Valid
   for (const tab of tiendaTabs) {
     for (const section of tab.sections) {
       for (const field of section.fields) {
-        if (!field.required || field.type === 'checkbox') continue
+        if (!field.required) continue
         if (campos.includes(field.key)) continue
+        if (field.type === 'checkbox') {
+          if (!ficha[field.key]) {
+            campos.push(field.key)
+            mensajes.push(`Debe marcar "${field.label}"`)
+          }
+          continue
+        }
         if (!campoTiendaVacio(ficha, field)) continue
         campos.push(field.key)
         mensajes.push(`${field.label} es obligatorio`)
@@ -371,6 +383,7 @@ export function validarTiendaObligatorios(ficha: Record<string, unknown>): Valid
 /** Tab donde esta un campo (para saltar al guardar con errores). */
 export function tabDeCampoTienda(campo: string): string | null {
   if (campo === 'codigo' || campo === 'nombre') return 'generales'
+  if (campo === 'desglosarBasesTicketIvaInc') return 'parametros'
   for (const tab of tiendaTabs) {
     if (tab.sections.some((s) => s.fields.some((f) => f.key === campo))) {
       return tab.id
@@ -387,7 +400,61 @@ export function tiendaVacia(): Record<string, unknown> {
     comunicaCentral: false,
     swIva: false,
     recargo: false,
-    sumarDescuento: true,
+    sumarDescuento: false,
+    impTicketInc: false,
     desglosarBasesTicketIvaInc: false,
+    impAlternativo: false,
+    appWeb: false,
+    // Defaults alineados con alta legacy (0 / '' / MA; evita NULL en BD)
+    prefijo: 0,
+    valesEmitidos: 0,
+    valesRecibidos: 0,
+    decimalesPrecio: 0,
+    aecoc: 0,
+    copiasAlbaranReparto: 0,
+    copiasAlbaran: 0,
+    copiasFactura: 0,
+    copiasFacturaReparto: 0,
+    copiasSimulacion: 0,
+    impEtiquetasSinEans: 0,
+    impEtiquetasSoloEansPropios: 0,
+    minimoFidelizacion: 0,
+    minimoCambioVales: 0,
+    importeObligatorioFactura: 0,
+    literalInvitacion: 0,
+    recalculoTarifas: 'MA',
+    fax: '',
+    modem: '',
+    codigoExterno: '',
+    unidadComunicacion: '',
+    centroCoste: '',
+    articuloMantenimiento: '',
+    pathExcelEstadisticas: '',
+    serieFacturas: '',
+    serieAbonos: '',
+    literalFacturaDiferida: '',
+    literalFacturaContado: '',
+    literalPresupuesto: '',
+    literalVale: '',
+    atri0: '',
+    atri1: '',
+    atri2: '',
+    atri3: '',
+    atri4: '',
+    atri5: '',
+    atri6: '',
+    atri7: '',
+    atri8: '',
+    atri9: '',
+    colAtri0: 0,
+    colAtri1: 0,
+    colAtri2: 0,
+    colAtri3: 0,
+    colAtri4: 0,
+    colAtri5: 0,
+    colAtri6: 0,
+    colAtri7: 0,
+    colAtri8: 0,
+    colAtri9: 0,
   }
 }

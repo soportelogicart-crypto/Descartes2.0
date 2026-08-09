@@ -15,6 +15,7 @@ import {
   type ColumnFilter,
 } from '@/composables/useGridColumnFilters'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import ListPagination from '@/components/common/ListPagination.vue'
 import EntidadBuscarModal, {
   type EntidadBuscarResultado,
 } from '@/components/common/EntidadBuscarModal.vue'
@@ -66,6 +67,8 @@ const vista = ref<'grid' | 'ficha'>('grid')
 const filasTodas = ref<GridFila[]>([])
 const filtros = ref<Record<string, ColumnFilter>>(filtrosIniciales(FILTER_KEYS))
 const total = ref(0)
+const page = ref(1)
+const pageSize = ref(50)
 const loading = ref(false)
 const saving = ref(false)
 const error = ref<string | null>(null)
@@ -186,7 +189,7 @@ async function cargar() {
   error.value = null
   try {
     const { data } = await api.get('/api/mantenimiento/oferta-proveedores', {
-      params: { page: 1, pageSize: 500 },
+      params: { page: page.value, pageSize: pageSize.value },
     })
     const items = (data.items ?? []) as OfertaFila[]
     total.value = data.total ?? 0
@@ -199,6 +202,17 @@ async function cargar() {
   } finally {
     loading.value = false
   }
+}
+
+function onPage(p: number) {
+  page.value = p
+  void cargar()
+}
+
+function onPageSize(n: number) {
+  pageSize.value = n
+  page.value = 1
+  void cargar()
 }
 
 function seleccionar(index: number) {
@@ -421,8 +435,17 @@ function setNum(key: keyof typeof form, raw: string) {
           @nuevo="onNuevo"
         />
 
+        <ListPagination
+          :page="page"
+          :page-size="pageSize"
+          :total="total"
+          :loading="loading"
+          @update:page="onPage"
+          @update:page-size="onPageSize"
+        />
+
         <p class="hint">
-          Total: {{ total }}. Doble clic o <strong>Ficha</strong> abre el detalle. La fila
+          Doble clic o <strong>Ficha</strong> abre el detalle. La fila
           <strong>*</strong> crea con Nuevo.
         </p>
       </template>

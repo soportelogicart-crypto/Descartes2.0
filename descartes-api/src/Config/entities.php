@@ -46,6 +46,10 @@ return [
       'nombre' => 'Nombre',
       'activo' => 'Baja',
     ],
+    'stringMaxLengths' => [
+      'Codigo' => 10,
+      'Nombre' => 50,
+    ],
   ],
   'trabajadores' => [
     'table' => 'Vendedores',
@@ -63,6 +67,8 @@ return [
       'tecnico' => 'Tecnico',
       'observaciones' => 'Comentario',
       'usuarioCodigo' => 'Usuario',
+      'tarjeta' => 'Tarjeta',
+      'conceptoDescuadre' => 'ConceptoDescuadre',
       'horaInicio' => 'HoraInicio',
       'horaFinal' => 'HoraFinal',
       'horaInicio2' => 'HoraInicio2',
@@ -73,6 +79,22 @@ return [
     'writeOnly' => ['password' => 'PassWord'],
     'booleanFields' => ['agente', 'vendedor', 'operario', 'tecnico'],
     'timeFields' => ['horaInicio', 'horaFinal', 'horaInicio2', 'horaFinal2'],
+    'stringMaxLengths' => [
+      'Codigo' => 4,
+      'Nombre' => 50,
+      'Usuario' => 6,
+      'ConceptoDescuadre' => 2,
+    ],
+    /** Alinear alta con defaults SQL / legacy (bits 0, comision/tarjeta 0). */
+    'createDefaults' => [
+      'ComisionVenta' => 0,
+      'Agente' => 0,
+      'Vendedor' => 0,
+      'Operario' => 0,
+      'Tecnico' => 0,
+      'Tarjeta' => 0,
+      'MiniBar' => 0,
+    ],
   ],
   'puestos-trabajo' => array_merge([
     'table' => 'Puestos',
@@ -145,6 +167,20 @@ return [
     ],
     'booleanFields' => [
       'externo', 'reservaDirecta', 'central', 'traspasoAutomatico', 'gastos', 'consolidaStockWeb', 'activo',
+    ],
+    'stringMaxLengths' => [
+      'Descripcion' => 40,
+      'CentroCoste' => 10,
+    ],
+    /** Bits a 0; CentroCoste en blanco (''), no NULL. */
+    'createDefaults' => [
+      'Externo' => 0,
+      'ReservaDirecta' => 0,
+      'Central' => 0,
+      'TraspasoAutomatico' => 0,
+      'Gastos' => 0,
+      'ConsolidaStockWeb' => 0,
+      'CentroCoste' => '',
     ],
   ],
   'macrofamilias' => [
@@ -224,6 +260,23 @@ return [
       'regimenEspecialAGYP' => 'RegimenEspecialAGYP',
       'ivaExento' => 'IvaExento',
       'activo' => 'Baja',
+    ],
+    'stringMaxLengths' => [
+      'Codigo' => 2,
+      'Descripcion' => 40,
+    ],
+    /** Legacy: % a 0, cuentas a 0, bits a 0; CuentaCtbIta* en blanco (''). */
+    'createDefaults' => [
+      'PjeIVA' => 0,
+      'PjeRec' => 0,
+      'CuentaCtb' => 0,
+      'CuentaCtbSoportadoIntra' => 0,
+      'CuentaCtbRepercutidoIntra' => 0,
+      'idWeb' => 0,
+      'RegimenEspecialAGYP' => 0,
+      'IvaExento' => 0,
+      'CuentaCtbIta' => '',
+      'CuentaCtbIta2' => '',
     ],
   ],
   'formas-pago' => [

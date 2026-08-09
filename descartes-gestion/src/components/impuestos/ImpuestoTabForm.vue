@@ -8,6 +8,7 @@ const props = defineProps<{
   readonly?: boolean
   codigoReadOnly?: boolean
   ocultarCabecera?: boolean
+  camposInvalidos?: string[]
 }>()
 
 const emit = defineEmits<{
@@ -56,6 +57,7 @@ function sectionClass(section: ImpuestoSection) {
             field.layout === 'inline' ? 'field-inline' : '',
             field.layout === 'checkbox' ? 'field-checkbox' : '',
             field.type === 'number' ? 'field-number' : '',
+            camposInvalidos?.includes(field.key) ? 'campo-invalido' : '',
           ]"
         >
           <span class="field-label">{{ field.label }}<em v-if="field.required"> *</em></span>
@@ -63,6 +65,7 @@ function sectionClass(section: ImpuestoSection) {
           <input
             v-if="field.type === 'checkbox'"
             type="checkbox"
+            :data-field-key="field.key"
             :checked="Boolean(modelValue[field.key])"
             :disabled="isReadOnly(field)"
             @change="updateField(field.key, ($event.target as HTMLInputElement).checked)"
@@ -71,6 +74,7 @@ function sectionClass(section: ImpuestoSection) {
           <input
             v-else-if="field.type === 'number'"
             type="number"
+            :data-field-key="field.key"
             :value="displayNumber(field.key) as number"
             :readonly="isReadOnly(field)"
             :step="field.step ?? 'any'"
@@ -87,6 +91,7 @@ function sectionClass(section: ImpuestoSection) {
           <input
             v-else
             type="text"
+            :data-field-key="field.key"
             :value="String(modelValue[field.key] ?? '')"
             :readonly="isReadOnly(field)"
             :maxlength="field.maxLength"
@@ -147,6 +152,16 @@ function sectionClass(section: ImpuestoSection) {
   display: grid;
   gap: 0.15rem;
   min-width: 0;
+}
+
+.campo-invalido .field-label {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.campo-invalido input {
+  border-color: #ef4444;
+  background: #fef2f2;
 }
 
 .field.span-2 {

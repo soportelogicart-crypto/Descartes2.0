@@ -38,6 +38,8 @@ import FamiliasGrid from '@/components/familias/FamiliasGrid.vue'
 
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 
+import ListPagination from '@/components/common/ListPagination.vue'
+
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 
 
@@ -70,7 +72,9 @@ const FILTER_KEYS = [
 
 const { puede } = usePermisos()
 
-const { items, loading, error, listar, crear, actualizar, eliminar } = useMantenimiento(() => ENTIDAD)
+const { items, total, page, pageSize, loading, error, listar, crear, actualizar, eliminar } = useMantenimiento(() => ENTIDAD)
+
+pageSize.value = 50
 
 
 
@@ -206,13 +210,35 @@ async function cargar() {
 
   mensaje.value = null
 
-  await listar({ page: 1, pageSize: 500 })
+  await listar({ page: page.value, pageSize: pageSize.value })
 
   mapFilasDesdeApi()
 
   filaNuevaDraft.value = familiaVacia()
 
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
+
+}
+
+
+
+function onPage(p: number) {
+
+  page.value = p
+
+  void cargar()
+
+}
+
+
+
+function onPageSize(n: number) {
+
+  pageSize.value = n
+
+  page.value = 1
+
+  void cargar()
 
 }
 
@@ -437,6 +463,24 @@ function onListado() {
         @seleccionar="seleccionar"
 
         @actualizar="actualizarFila"
+
+      />
+
+
+
+      <ListPagination
+
+        :page="page"
+
+        :page-size="pageSize"
+
+        :total="total"
+
+        :loading="loading"
+
+        @update:page="onPage"
+
+        @update:page-size="onPageSize"
 
       />
 

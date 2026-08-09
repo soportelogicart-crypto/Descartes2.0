@@ -1,7 +1,7 @@
 # Copia la API PHP al despliegue XAMPP en UTF-8 sin BOM.
 # Sincroniza todo src\ y public\ (ventas, facturacion, mantenimiento, etc.).
 $utf8 = New-Object System.Text.UTF8Encoding $false
-$apiRoot = Join-Path $PSScriptRoot '..'
+$apiRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $xamppRoot = 'C:\xampp\htdocs\descartes-api'
 
 if (-not (Test-Path $xamppRoot)) {

@@ -100,6 +100,7 @@ defineEmits<{
   margin: 0.75rem 1rem 1rem;
   color: #334155;
   line-height: 1.45;
+  white-space: pre-line;
 }
 
 .modal-footer {

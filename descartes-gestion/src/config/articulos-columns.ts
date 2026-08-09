@@ -13,8 +13,8 @@ export type ArticuloColumn = {
 export const articuloColumns: ArticuloColumn[] = [
   { key: 'codigo', label: 'Codigo', type: 'text', width: '7rem', maxLength: 18 },
   { key: 'descripcion', label: 'Descripcion', type: 'text', width: '14rem', maxLength: 50 },
-  { key: 'familia', label: 'Familia', type: 'select', width: '8rem', optionsSource: 'familias' },
-  { key: 'impuestoCodigo', label: 'Impuesto', type: 'select', width: '7rem', optionsSource: 'impuestos' },
+  { key: 'familia', label: 'Familia *', type: 'select', width: '8rem', optionsSource: 'familias' },
+  { key: 'impuestoCodigo', label: 'Impuesto *', type: 'select', width: '7rem', optionsSource: 'impuestos' },
   { key: 'proveedorHabitual', label: 'Proveedor', type: 'select', width: '8rem', optionsSource: 'proveedores' },
   { key: 'precioVen1', label: 'PVP', type: 'number', width: '5.5rem' },
   { key: 'activo', label: 'Activo', type: 'checkbox', width: '4rem' },
@@ -75,7 +75,9 @@ export function validarArticuloFila(fila: ArticuloFila): string | null {
   if (!codigo) return 'El codigo es obligatorio'
   if (codigo.length > 18) return 'El codigo admite como maximo 18 caracteres'
   if (!String(fila.descripcion ?? '').trim()) return 'La descripcion es obligatoria'
+  if (!String(fila.familia ?? '').trim()) return 'La familia es obligatoria'
   if (!String(fila.impuestoCodigo ?? '').trim()) return 'El impuesto es obligatorio'
+  if (!String(fila.proveedorHabitual ?? '').trim()) return 'El proveedor es obligatorio'
   return null
 }
 

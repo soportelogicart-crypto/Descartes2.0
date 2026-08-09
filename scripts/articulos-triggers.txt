@@ -1,0 +1,12 @@
+﻿n d
+- -
+Articulos_UTrig /****** Objeto:  desencadenador dbo.Articulos_UTrig  fecha de la secuencia de comandos: 06/05/2005 12:42:34 ******/
+CREATE TRIGGER "Articulos_UTrig" ON dbo.Articulos FOR UPDATE AS
+SET NOCOUNT ON
+/* * EXTENDER ACTUALIZACIONES EN CASCADA A 'ArtBarras' */
+
+Articulos_DTrig /****** Objeto:  desencadenador dbo.Articulos_DTrig  fecha de la secuencia de comandos: 06/05/2005 12:42:34 ******/
+CREATE TRIGGER "Articulos_DTrig" ON dbo.Articulos FOR DELETE AS
+SET NOCOUNT ON
+/* * EXTENDER ELIMINACIONES EN CASCADA A 'ArtBarras' */
+D

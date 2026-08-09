@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { extractApiError, useMantenimiento } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
@@ -16,21 +16,24 @@ import {
   type AlmacenFila,
 } from '@/config/almacenes-columns'
 import {
+  ALMACEN_CAMPOS_OBLIGATORIOS,
   almacenFichaVacia,
   almacenTabs,
-  validarAlmacenFicha,
+  camposAlmacenObligatoriosVacios,
 } from '@/config/almacenes-tabs'
 import AlmacenesGrid from '@/components/almacenes/AlmacenesGrid.vue'
 import AlmacenTabForm from '@/components/almacenes/AlmacenTabForm.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import ListPagination from '@/components/common/ListPagination.vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
 
 const FILTER_KEYS = ['codigo', 'descripcion']
 
 const { puede } = usePermisos()
-const { items, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(
+const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(
   () => 'almacenes'
 )
+pageSize.value = 50
 
 const puedeCrear = computed(() => puede('almacenes', 'crear'))
 const puedeEditar = computed(() => puede('almacenes', 'editar'))
@@ -54,6 +57,13 @@ const modoEdicion = ref(false)
 const esNuevo = ref(false)
 const ficha = ref<Record<string, unknown>>({})
 const indiceFicha = ref(-1)
+const camposInvalidos = ref<string[]>([])
+const avisoModalOpen = ref(false)
+const avisoModalTitulo = ref('Campo obligatorio')
+const avisoModalMensaje = ref('')
+const campoAvisoActual = ref<string | null>(null)
+const codigoInput = ref<HTMLInputElement | null>(null)
+const descripcionInput = ref<HTMLInputElement | null>(null)
 
 onBeforeUnmount(() => {
   vistaMontada = false
@@ -63,6 +73,53 @@ function mostrarAviso(texto: string | null, tipo: 'ok' | 'error' | 'aviso' = 'ok
   mensaje.value = texto
   mensajeTipo.value = tipo
 }
+
+function mostrarAvisoModal(titulo: string, message: string, campo?: string | null) {
+  campoAvisoActual.value = campo ?? null
+  if (campo) camposInvalidos.value = [campo]
+  avisoModalTitulo.value = titulo
+  avisoModalMensaje.value = message
+  avisoModalOpen.value = true
+}
+
+async function cerrarAvisoModal() {
+  const key = campoAvisoActual.value
+  avisoModalOpen.value = false
+  avisoModalMensaje.value = ''
+  campoAvisoActual.value = null
+  if (!key) return
+  await nextTick()
+  await nextTick()
+  if (key === 'codigo') {
+    codigoInput.value?.focus()
+    codigoInput.value?.select()
+    return
+  }
+  if (key === 'descripcion') {
+    descripcionInput.value?.focus()
+    return
+  }
+  document.querySelector<HTMLElement>(`[data-field-key="${key}"]`)?.focus()
+}
+
+function esCampoInvalido(key: string) {
+  return camposInvalidos.value.includes(key)
+}
+
+function limpiarCampoInvalido(key: string) {
+  if (!camposInvalidos.value.includes(key)) return
+  camposInvalidos.value = camposInvalidos.value.filter((k) => k !== key)
+}
+
+watch(
+  ficha,
+  () => {
+    if (camposInvalidos.value.length === 0) return
+    const pendientes = camposAlmacenObligatoriosVacios(ficha.value)
+    camposInvalidos.value = camposInvalidos.value.filter((k) => pendientes.includes(k))
+  },
+  { deep: true }
+)
 
 const filas = computed<AlmacenFila[]>(() => {
   const datos = filasTodas.value.filter((f) => !f._nuevo)
@@ -154,7 +211,7 @@ onMounted(async () => {
 
 async function cargar() {
   mostrarAviso(null)
-  const params: Record<string, string | number | boolean> = { page: 1, pageSize: 500 }
+  const params: Record<string, string | number | boolean> = { page: page.value, pageSize: pageSize.value }
   if (filtroActivo.value === 'activos') params.activo = true
   if (filtroActivo.value === 'inactivos') params.activo = false
   const seqFiltro = filtroActivo.value
@@ -163,6 +220,17 @@ async function cargar() {
   filasTodas.value = items.value.map(clonarFila)
   filaNuevaDraft.value = almacenVacio()
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
+}
+
+function onPage(p: number) {
+  page.value = p
+  void cargar()
+}
+
+function onPageSize(n: number) {
+  pageSize.value = n
+  page.value = 1
+  void cargar()
 }
 
 function seleccionar(index: number) {
@@ -208,6 +276,7 @@ function onListado() {
 }
 
 async function onCambioFiltroActivo() {
+  page.value = 1
   indiceSeleccionado.value = 0
   await cargar()
 }
@@ -236,7 +305,7 @@ async function abrirFicha(index?: number) {
   await abrirFichaPorCodigo(String(fila.codigo))
 }
 
-function onNuevo() {
+async function onNuevo() {
   if (!puedeCrear.value) return
   ficha.value = almacenFichaVacia()
   esNuevo.value = true
@@ -245,6 +314,10 @@ function onNuevo() {
   tabActiva.value = 'generales'
   vista.value = 'ficha'
   mostrarAviso(null)
+  camposInvalidos.value = []
+  await nextTick()
+  await nextTick()
+  codigoInput.value?.focus()
 }
 
 function onModificar() {
@@ -253,11 +326,14 @@ function onModificar() {
 }
 
 async function onGuardarFicha() {
-  const errorValidacion = validarAlmacenFicha(ficha.value)
-  if (errorValidacion) {
-    mostrarAviso(errorValidacion, 'error')
+  const vacios = camposAlmacenObligatoriosVacios(ficha.value)
+  if (vacios.length > 0) {
+    const key = vacios[0]
+    const label = ALMACEN_CAMPOS_OBLIGATORIOS.find((c) => c.key === key)?.label ?? key
+    mostrarAvisoModal('Campo obligatorio', `El campo "${label}" es obligatorio.`, key)
     return
   }
+  camposInvalidos.value = []
   try {
     const payload = payloadAlmacen(ficha.value as AlmacenFila)
     if (esNuevo.value) {
@@ -280,7 +356,12 @@ async function onGuardarFicha() {
     modoEdicion.value = false
     esNuevo.value = false
   } catch (e: unknown) {
-    mostrarAviso(extractApiError(e, 'No se pudo guardar el almacen'), 'error')
+    const msg = extractApiError(e, 'No se pudo guardar el almacen')
+    if (/ya existe|duplicad/i.test(msg)) {
+      mostrarAvisoModal('Codigo duplicado', msg, 'codigo')
+      return
+    }
+    mostrarAvisoModal('Error al guardar', msg)
   }
 }
 
@@ -322,6 +403,7 @@ function volverAlGrid() {
   vista.value = 'grid'
   modoEdicion.value = false
   esNuevo.value = false
+  camposInvalidos.value = []
   ficha.value = {}
 }
 
@@ -430,6 +512,15 @@ async function onUltimo() {
           @nuevo="onNuevo"
         />
 
+        <ListPagination
+          :page="page"
+          :page-size="pageSize"
+          :total="total"
+          :loading="loading"
+          @update:page="onPage"
+          @update:page-size="onPageSize"
+        />
+
         <p class="hint">
           Use <strong>Nuevo</strong> para el formulario de alta. Doble clic o <strong>Ficha</strong>
           abre el detalle. En rejilla solo se guardan almacenes existentes.
@@ -520,21 +611,32 @@ async function onUltimo() {
         </div>
 
         <div class="ficha-header">
-          <label>
+          <label :class="{ 'campo-invalido': esCampoInvalido('codigo') }">
             Codigo *
             <input
+              ref="codigoInput"
               v-model.number="ficha.codigo"
+              data-field-key="codigo"
               type="number"
               min="1"
               step="1"
               :readonly="!esNuevo"
               class="codigo-input"
               required
+              @input="limpiarCampoInvalido('codigo')"
             />
           </label>
-          <label class="descripcion-input">
+          <label class="descripcion-input" :class="{ 'campo-invalido': esCampoInvalido('descripcion') }">
             Descripcion *
-            <input v-model="ficha.descripcion" :readonly="soloLecturaFicha" maxlength="40" required />
+            <input
+              ref="descripcionInput"
+              v-model="ficha.descripcion"
+              data-field-key="descripcion"
+              :readonly="soloLecturaFicha"
+              maxlength="40"
+              required
+              @input="limpiarCampoInvalido('descripcion')"
+            />
           </label>
         </div>
 
@@ -574,6 +676,16 @@ async function onUltimo() {
         message="Va a dar de baja este almacen (Baja=1). Podra verlo filtrando por Inactivos."
         @confirm="confirmarBorrarFicha"
         @cancel="confirmBorrarFichaOpen = false"
+      />
+      <ConfirmDialog
+        :open="avisoModalOpen"
+        :title="avisoModalTitulo"
+        :message="avisoModalMensaje"
+        confirm-label="Aceptar"
+        :danger="false"
+        hide-cancel
+        @confirm="cerrarAvisoModal"
+        @cancel="cerrarAvisoModal"
       />
     </template>
   </section>
@@ -728,6 +840,17 @@ async function onUltimo() {
   border: 1px solid #94a3b8;
   border-radius: 3px;
   font-size: 0.8rem;
+}
+
+.ficha-header label.campo-invalido {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.ficha-header label.campo-invalido input {
+  border-color: #dc2626;
+  background: #fef2f2;
+  box-shadow: 0 0 0 1px #fecaca;
 }
 
 .tabs {

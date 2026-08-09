@@ -16,6 +16,7 @@ import {
 } from '@/config/intereses-comerciales-columns'
 import InteresesComercialesGrid from '@/components/intereses-comerciales/InteresesComercialesGrid.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import ListPagination from '@/components/common/ListPagination.vue'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 
 const MODULO = 'intereses-comerciales'
@@ -23,7 +24,8 @@ const ENTIDAD = 'intereses-comerciales'
 const FILTER_KEYS = ['codigo', 'descripcion']
 
 const { puede } = usePermisos()
-const { items, loading, error, listar, crear, actualizar, eliminar } = useMantenimiento(() => ENTIDAD)
+const { items, total, page, pageSize, loading, error, listar, crear, actualizar, eliminar } = useMantenimiento(() => ENTIDAD)
+pageSize.value = 50
 
 const puedeCrear = computed(() => puede(MODULO, 'crear'))
 const puedeEditar = computed(() => puede(MODULO, 'editar'))
@@ -73,10 +75,21 @@ onMounted(async () => {
 
 async function cargar() {
   mensaje.value = null
-  await listar({ page: 1, pageSize: 500 })
+  await listar({ page: page.value, pageSize: pageSize.value })
   filasTodas.value = items.value.map(clonarInteresComercial)
   filaNuevaDraft.value = interesComercialVacio()
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
+}
+
+function onPage(p: number) {
+  page.value = p
+  void cargar()
+}
+
+function onPageSize(n: number) {
+  pageSize.value = n
+  page.value = 1
+  void cargar()
 }
 
 const {
@@ -188,6 +201,15 @@ function onListado() {
         :loading="loading"
         @seleccionar="seleccionar"
         @actualizar="actualizarFila"
+      />
+
+      <ListPagination
+        :page="page"
+        :page-size="pageSize"
+        :total="total"
+        :loading="loading"
+        @update:page="onPage"
+        @update:page-size="onPageSize"
       />
 
       <p class="hint">

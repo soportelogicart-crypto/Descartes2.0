@@ -24,6 +24,7 @@ import { extractApiError, useMantenimiento } from '@/composables/useMantenimient
 import { usePermisos } from '@/composables/usePermisos'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import ListPagination from '@/components/common/ListPagination.vue'
 import EntidadGrid from '@/components/mantenimiento/EntidadGrid.vue'
 import FormaPagoTabForm from '@/components/formas-pago/FormaPagoTabForm.vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
@@ -35,9 +36,10 @@ const columns = getGridColumns(ENTIDAD)
 const esEstrecho = esGridEstrecho(columns)
 
 const { puede } = usePermisos()
-const { items, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(
+const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(
   () => ENTIDAD
 )
+pageSize.value = 50
 
 const puedeCrear = computed(() => puede(MODULO, 'crear'))
 const puedeEditar = computed(() => puede(MODULO, 'editar'))
@@ -135,7 +137,7 @@ onMounted(async () => {
 
 async function cargar() {
   mensaje.value = null
-  const params: Record<string, string | number | boolean> = { page: 1, pageSize: 500 }
+  const params: Record<string, string | number | boolean> = { page: page.value, pageSize: pageSize.value }
   if (filtroActivo.value === 'activos') params.activo = true
   if (filtroActivo.value === 'inactivos') params.activo = false
   const seqFiltro = filtroActivo.value
@@ -145,7 +147,19 @@ async function cargar() {
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
 }
 
+function onPage(p: number) {
+  page.value = p
+  void cargar()
+}
+
+function onPageSize(n: number) {
+  pageSize.value = n
+  page.value = 1
+  void cargar()
+}
+
 async function onCambioFiltroActivo() {
+  page.value = 1
   indiceSeleccionado.value = 0
   await cargar()
 }
@@ -376,6 +390,15 @@ async function onUltimo() {
           @actualizar="actualizarFila"
           @abrir="abrirFicha"
           @nuevo="onNuevo"
+        />
+
+        <ListPagination
+          :page="page"
+          :page-size="pageSize"
+          :total="total"
+          :loading="loading"
+          @update:page="onPage"
+          @update:page-size="onPageSize"
         />
 
         <p class="hint">

@@ -88,7 +88,7 @@ export function payloadAlmacen(fila: AlmacenFila): Record<string, unknown> {
     central: Boolean(fila.central),
     traspasoAutomatico: Boolean(fila.traspasoAutomatico),
     consolidaStockWeb: Boolean(fila.consolidaStockWeb),
-    centroCoste: String(fila.centroCoste ?? '').trim() || null,
+    centroCoste: String(fila.centroCoste ?? '').trim(),
     gastos: Boolean(fila.gastos),
     activo: fila.activo !== false,
   }

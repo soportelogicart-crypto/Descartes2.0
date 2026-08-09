@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import {
   clonarFilaGrid,
@@ -17,6 +17,7 @@ import { extractApiError, useMantenimiento } from '@/composables/useMantenimient
 import { usePermisos } from '@/composables/usePermisos'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import ListPagination from '@/components/common/ListPagination.vue'
 import EntidadGrid, { type GridOptionsMap } from '@/components/mantenimiento/EntidadGrid.vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
 
@@ -37,6 +38,8 @@ function trabajadorVacio(): Record<string, unknown> {
     observaciones: '',
     usuarioCodigo: '',
     password: '',
+    tarjeta: 0,
+    conceptoDescuadre: '',
     horaInicio: '',
     horaFinal: '',
     horaInicio2: '',
@@ -51,7 +54,7 @@ function tieneRolTrabajador(ficha: Record<string, unknown>): boolean {
 
 function validarTrabajador(ficha: Record<string, unknown>): string | null {
   if (!String(ficha.codigo ?? '').trim()) return 'El codigo es obligatorio'
-  if (!String(ficha.nombre ?? '').trim()) return 'El nombre es obligatorio'
+  if (!String(ficha.nombre ?? '').trim()) return 'La descripcion es obligatoria'
   if (!String(ficha.usuarioCodigo ?? '').trim()) return 'El usuario es obligatorio'
   if (!tieneRolTrabajador(ficha)) {
     return 'Debe marcar al menos un tipo: Agente, Vendedor, Operario o Tecnico'
@@ -63,17 +66,29 @@ function validarTrabajador(ficha: Record<string, unknown>): string | null {
   return null
 }
 
+const CAMPOS_OBLIGATORIOS_TRABAJADOR: { key: string; label: string }[] = [
+  { key: 'codigo', label: 'Codigo' },
+  { key: 'nombre', label: 'Descripcion' },
+  { key: 'roles', label: 'Tipo' },
+  { key: 'usuarioCodigo', label: 'Usuario' },
+]
+
 function camposInvalidosTrabajador(ficha: Record<string, unknown>): string[] {
   const campos: string[] = []
   if (!String(ficha.codigo ?? '').trim()) campos.push('codigo')
   if (!String(ficha.nombre ?? '').trim()) campos.push('nombre')
-  if (!String(ficha.usuarioCodigo ?? '').trim()) campos.push('usuarioCodigo')
   if (!tieneRolTrabajador(ficha)) campos.push('roles')
+  if (!String(ficha.usuarioCodigo ?? '').trim()) campos.push('usuarioCodigo')
   return campos
 }
 
+function primerCampoObligatorioVacio(ficha: Record<string, unknown>): string | null {
+  return camposInvalidosTrabajador(ficha)[0] ?? null
+}
+
 const { puede } = usePermisos()
-const { items, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(() => ENTIDAD)
+const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(() => ENTIDAD)
+pageSize.value = 50
 
 const puedeCrear = computed(() => puede(MODULO, 'crear'))
 const puedeEditar = computed(() => puede(MODULO, 'editar'))
@@ -90,7 +105,9 @@ const confirmBorrarFichaOpen = ref(false)
 const avisoModalOpen = ref(false)
 const avisoModalTitulo = ref('Aviso')
 const avisoModalMensaje = ref('')
+const campoAvisoActual = ref<string | null>(null)
 const camposInvalidos = ref<string[]>([])
+const codigoInput = ref<HTMLInputElement | null>(null)
 const optionsMap = ref<GridOptionsMap>({})
 const usuariosOpciones = ref<{ value: string; label: string }[]>([])
 let vistaMontada = true
@@ -99,14 +116,28 @@ onBeforeUnmount(() => {
   vistaMontada = false
 })
 
-function mostrarAvisoModal(titulo: string, mensajeTexto: string) {
+function mostrarAvisoModal(titulo: string, mensajeTexto: string, campo?: string | null) {
+  campoAvisoActual.value = campo ?? null
+  if (campo) camposInvalidos.value = [campo]
   avisoModalTitulo.value = titulo
   avisoModalMensaje.value = mensajeTexto
   avisoModalOpen.value = true
 }
 
-function cerrarAvisoModal() {
+async function cerrarAvisoModal() {
+  const key = campoAvisoActual.value
   avisoModalOpen.value = false
+  avisoModalMensaje.value = ''
+  campoAvisoActual.value = null
+  if (!key) return
+  await nextTick()
+  await nextTick()
+  if (key === 'codigo') {
+    codigoInput.value?.focus()
+    codigoInput.value?.select()
+    return
+  }
+  document.querySelector<HTMLElement>(`[data-field-key="${key}"]`)?.focus()
 }
 
 function codigoTrabajadorExiste(codigo: string): boolean {
@@ -202,7 +233,7 @@ async function cargarUsuarios() {
 
 async function cargar() {
   mensaje.value = null
-  const params: Record<string, string | number | boolean> = { page: 1, pageSize: 500 }
+  const params: Record<string, string | number | boolean> = { page: page.value, pageSize: pageSize.value }
   if (filtroActivo.value === 'activos') params.activo = true
   if (filtroActivo.value === 'inactivos') params.activo = false
   const seqFiltro = filtroActivo.value
@@ -212,7 +243,19 @@ async function cargar() {
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
 }
 
+function onPage(p: number) {
+  page.value = p
+  void cargar()
+}
+
+function onPageSize(n: number) {
+  pageSize.value = n
+  page.value = 1
+  void cargar()
+}
+
 async function onCambioFiltroActivo() {
+  page.value = 1
   indiceSeleccionado.value = 0
   await cargar()
 }
@@ -275,6 +318,8 @@ function cargarFichaDesdeData(data: Record<string, unknown>, codigo: string) {
     ...data,
     comision: data.comision ?? 0,
     password: '',
+    tarjeta: data.tarjeta ?? 0,
+    conceptoDescuadre: String(data.conceptoDescuadre ?? '').trim(),
     horaInicio: data.horaInicio ?? '',
     horaFinal: data.horaFinal ?? '',
     horaInicio2: data.horaInicio2 ?? '',
@@ -314,7 +359,7 @@ async function abrirFichaPorCodigo(codigo: string) {
   }
 }
 
-function onNuevo() {
+async function onNuevo() {
   if (!puedeCrear.value) return
   ficha.value = trabajadorVacio()
   esNuevo.value = true
@@ -323,6 +368,10 @@ function onNuevo() {
   vista.value = 'ficha'
   mensaje.value = null
   camposInvalidos.value = []
+  await nextTick()
+  await nextTick()
+  codigoInput.value?.focus()
+  codigoInput.value?.select()
 }
 
 function onModificar() {
@@ -341,6 +390,8 @@ function payloadFicha(): Record<string, unknown> {
     tecnico: !!ficha.value.tecnico,
     observaciones: ficha.value.observaciones ?? '',
     usuarioCodigo: ficha.value.usuarioCodigo || null,
+    tarjeta: ficha.value.tarjeta === '' || ficha.value.tarjeta == null ? 0 : Number(ficha.value.tarjeta),
+    conceptoDescuadre: String(ficha.value.conceptoDescuadre ?? '').trim() || null,
     horaInicio: ficha.value.horaInicio || null,
     horaFinal: ficha.value.horaFinal || null,
     horaInicio2: ficha.value.horaInicio2 || null,
@@ -355,8 +406,24 @@ function payloadFicha(): Record<string, unknown> {
 }
 
 async function onGuardarFicha() {
-  const invalidos = camposInvalidosTrabajador(ficha.value)
-  camposInvalidos.value = invalidos
+  const primerVacio = primerCampoObligatorioVacio(ficha.value)
+  if (primerVacio) {
+    const label =
+      CAMPOS_OBLIGATORIOS_TRABAJADOR.find((c) => c.key === primerVacio)?.label ?? primerVacio
+    const msg =
+      primerVacio === 'roles'
+        ? 'Debe marcar al menos un tipo: Agente, Vendedor, Operario o Tecnico'
+        : `El campo "${label}" es obligatorio.`
+    mensaje.value = msg
+    mostrarAvisoModal(
+      primerVacio === 'roles' ? 'Tipo obligatorio' : 'Campo obligatorio',
+      msg,
+      primerVacio
+    )
+    return
+  }
+  camposInvalidos.value = []
+
   const errorValidacion = validarTrabajador(ficha.value)
   if (errorValidacion) {
     mensaje.value = errorValidacion
@@ -366,10 +433,9 @@ async function onGuardarFicha() {
 
   const codigo = String(ficha.value.codigo ?? '').trim()
   if (esNuevo.value && codigoTrabajadorExiste(codigo)) {
-    camposInvalidos.value = ['codigo']
     const msg = `Ya existe un trabajador con el codigo "${codigo}".`
     mensaje.value = msg
-    mostrarAvisoModal('Codigo duplicado', msg)
+    mostrarAvisoModal('Codigo duplicado', msg, 'codigo')
     return
   }
 
@@ -403,8 +469,7 @@ async function onGuardarFicha() {
     const msg = extractApiError(e, 'No se pudo guardar el trabajador')
     mensaje.value = msg
     if (/ya existe|duplicad|codigo/i.test(msg)) {
-      camposInvalidos.value = ['codigo']
-      mostrarAvisoModal('Codigo duplicado', msg)
+      mostrarAvisoModal('Codigo duplicado', msg, 'codigo')
     } else {
       mostrarAvisoModal('Error al guardar', msg)
     }
@@ -541,6 +606,15 @@ async function onUltimo() {
           @nuevo="onNuevo"
         />
 
+        <ListPagination
+          :page="page"
+          :page-size="pageSize"
+          :total="total"
+          :loading="loading"
+          @update:page="onPage"
+          @update:page-size="onPageSize"
+        />
+
         <p class="hint">
           Desmarque <strong>Activo</strong> y pulse <strong>Guardar</strong> para dar de baja. Filtro
           <strong>Estado</strong> para ver activos, todos o inactivos.
@@ -637,7 +711,9 @@ async function onUltimo() {
               <label :class="{ 'campo-invalido': camposInvalidos.includes('codigo') }">
                 Codigo *
                 <input
+                  ref="codigoInput"
                   v-model="ficha.codigo"
+                  data-field-key="codigo"
                   :readonly="!esNuevo"
                   maxlength="4"
                   class="codigo-input"
@@ -647,8 +723,13 @@ async function onUltimo() {
                 class="nombre-input"
                 :class="{ 'campo-invalido': camposInvalidos.includes('nombre') }"
               >
-                Nombre *
-                <input v-model="ficha.nombre" :readonly="soloLecturaFicha" maxlength="50" />
+                Descripcion *
+                <input
+                  v-model="ficha.nombre"
+                  data-field-key="nombre"
+                  :readonly="soloLecturaFicha"
+                  maxlength="50"
+                />
               </label>
               <label>
                 Comision
@@ -668,7 +749,12 @@ async function onUltimo() {
             >
               <span class="checks-label">Tipo * <small>(al menos uno)</small></span>
               <label class="check-field">
-                <input v-model="ficha.agente" type="checkbox" :disabled="soloLecturaFicha" />
+                <input
+                  v-model="ficha.agente"
+                  type="checkbox"
+                  data-field-key="roles"
+                  :disabled="soloLecturaFicha"
+                />
                 Agente
               </label>
               <label class="check-field">
@@ -701,7 +787,11 @@ async function onUltimo() {
             <div class="ficha-campos">
               <label :class="{ 'campo-invalido': camposInvalidos.includes('usuarioCodigo') }">
                 Usuario *
-                <select v-model="ficha.usuarioCodigo" :disabled="soloLecturaFicha">
+                <select
+                  v-model="ficha.usuarioCodigo"
+                  data-field-key="usuarioCodigo"
+                  :disabled="soloLecturaFicha"
+                >
                   <option value="">-- Seleccionar --</option>
                   <option v-for="opt in usuariosOpciones" :key="opt.value" :value="opt.value">
                     {{ opt.label }}
@@ -717,6 +807,25 @@ async function onUltimo() {
                   :readonly="soloLecturaFicha"
                   :placeholder="esNuevo ? 'Numerica (visible)' : 'Dejar vacio para no cambiar'"
                   autocomplete="off"
+                />
+              </label>
+              <label>
+                Tarjeta
+                <input
+                  v-model.number="ficha.tarjeta"
+                  type="number"
+                  step="1"
+                  :readonly="soloLecturaFicha"
+                  class="tarjeta-input"
+                />
+              </label>
+              <label>
+                Con.Des
+                <input
+                  v-model="ficha.conceptoDescuadre"
+                  :readonly="soloLecturaFicha"
+                  maxlength="2"
+                  class="concepto-input"
                 />
               </label>
             </div>
@@ -985,6 +1094,15 @@ async function onUltimo() {
 
 .comision-input {
   width: 6rem;
+}
+
+.tarjeta-input {
+  width: 6rem;
+}
+
+.concepto-input {
+  width: 4rem;
+  text-transform: uppercase;
 }
 
 .password-input {

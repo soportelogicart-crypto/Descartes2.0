@@ -9,6 +9,7 @@ import {
   type ColumnFilter,
 } from '@/composables/useGridColumnFilters'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import ListPagination from '@/components/common/ListPagination.vue'
 import GridFilterRow from '@/components/common/GridFilterRow.vue'
 
 const MODULO = 'oferta-clientes'
@@ -67,6 +68,8 @@ const vista = ref<'grid' | 'ficha'>('grid')
 const itemsTodas = ref<OfertaFila[]>([])
 const filtros = ref<Record<string, ColumnFilter>>(filtrosIniciales(FILTER_KEYS))
 const total = ref(0)
+const page = ref(1)
+const pageSize = ref(50)
 const loading = ref(false)
 const saving = ref(false)
 const error = ref<string | null>(null)
@@ -181,7 +184,7 @@ async function cargar() {
   error.value = null
   try {
     const { data } = await api.get('/api/mantenimiento/oferta-clientes', {
-      params: { page: 1, pageSize: 500 },
+      params: { page: page.value, pageSize: pageSize.value },
     })
     itemsTodas.value = data.items ?? []
     total.value = data.total ?? itemsTodas.value.length
@@ -195,6 +198,17 @@ async function cargar() {
   } finally {
     loading.value = false
   }
+}
+
+function onPage(p: number) {
+  page.value = p
+  void cargar()
+}
+
+function onPageSize(n: number) {
+  pageSize.value = n
+  page.value = 1
+  void cargar()
 }
 
 function seleccionar(index: number) {
@@ -456,7 +470,17 @@ function setEmp(key: keyof typeof form, raw: string) {
             </tr>
           </tbody>
         </table>
-        <p class="hint">Total: {{ total }}. Doble clic o Ficha abre el detalle.</p>
+
+        <ListPagination
+          :page="page"
+          :page-size="pageSize"
+          :total="total"
+          :loading="loading"
+          @update:page="onPage"
+          @update:page-size="onPageSize"
+        />
+
+        <p class="hint">Doble clic o Ficha abre el detalle.</p>
       </template>
 
       <template v-else>

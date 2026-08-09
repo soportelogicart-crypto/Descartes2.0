@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   clonarFilaGrid,
   esFilaActiva,
@@ -26,6 +26,7 @@ import { extractApiError, useMantenimiento } from '@/composables/useMantenimient
 import { usePermisos } from '@/composables/usePermisos'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import ListPagination from '@/components/common/ListPagination.vue'
 import EntidadGrid from '@/components/mantenimiento/EntidadGrid.vue'
 import TiendaToolbar from '@/components/tiendas/TiendaToolbar.vue'
 import TiendaTabForm from '@/components/tiendas/TiendaTabForm.vue'
@@ -36,7 +37,8 @@ const FILTER_KEYS = ['codigo', 'nombre', 'nif', 'poblacion', 'telefono1']
 const columns = getGridColumns('tiendas')
 
 const { puede } = usePermisos()
-const { items, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(() => MODULO)
+const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(() => MODULO)
+pageSize.value = 50
 
 const puedeCrear = computed(() => puede(MODULO, 'crear'))
 const puedeEditar = computed(() => puede(MODULO, 'editar'))
@@ -68,8 +70,26 @@ function avisoDesdeTexto(msg: string | null) {
     mostrarAviso(null)
     return
   }
-  const esError = /no se|error|dependencias|permiso|obligatori|conflicto|central/i.test(msg)
+  const esError =
+    /no se|error|dependencias|permiso|obligatori|conflicto|central|ya existe|duplicad|invalido|inválido/i.test(
+      msg
+    )
   mostrarAviso(msg, esError ? 'error' : 'ok')
+}
+
+async function codigoTiendaExiste(codigo: string): Promise<boolean> {
+  const c = codigo.trim().toLowerCase()
+  if (!c) return false
+  if (filasTodas.value.some((f) => String(f.codigo ?? '').trim().toLowerCase() === c)) {
+    return true
+  }
+  try {
+    await obtener(codigo.trim())
+    return true
+  } catch {
+    // 404 u otro error: la API validara en el alta
+    return false
+  }
 }
 
 const tabActiva = ref(tiendaTabs[0].id)
@@ -79,6 +99,11 @@ const ficha = ref<Record<string, unknown>>({})
 const indiceFicha = ref(-1)
 const mostrarContadores = ref(false)
 const camposInvalidos = ref<string[]>([])
+const avisoModalOpen = ref(false)
+const avisoModalTitulo = ref('Campo obligatorio')
+const avisoModalMensaje = ref('')
+const campoAvisoActual = ref<string | null>(null)
+const codigoInput = ref<HTMLInputElement | null>(null)
 
 const camposInvalidosSet = computed(() => new Set(camposInvalidos.value))
 
@@ -86,11 +111,44 @@ watch(
   ficha,
   () => {
     if (camposInvalidos.value.length === 0) return
+    // Solo quita el resaltado de los campos que ya se han rellenado.
     const pendientes = validarTiendaObligatorios(ficha.value).campos
     camposInvalidos.value = camposInvalidos.value.filter((k) => pendientes.includes(k))
   },
   { deep: true }
 )
+
+function mostrarAvisoModal(titulo: string, message: string, campo?: string | null) {
+  campoAvisoActual.value = campo ?? null
+  if (campo) camposInvalidos.value = [campo]
+  avisoModalTitulo.value = titulo
+  avisoModalMensaje.value = message
+  avisoModalOpen.value = true
+}
+
+async function cerrarAvisoModal() {
+  const key = campoAvisoActual.value
+  avisoModalOpen.value = false
+  avisoModalMensaje.value = ''
+  campoAvisoActual.value = null
+  if (!key) return
+  await nextTick()
+  await enfocarCampoTienda(key)
+}
+
+async function enfocarCampoTienda(key: string) {
+  const tab = tabDeCampoTienda(key)
+  if (tab) tabActiva.value = tab
+  await nextTick()
+  await nextTick()
+  if (key === 'codigo') {
+    codigoInput.value?.focus()
+    codigoInput.value?.select()
+    return
+  }
+  const el = document.querySelector<HTMLElement>(`[data-field-key="${key}"]`)
+  el?.focus()
+}
 
 const filas = computed<GridFila[]>(() => {
   const datos = filasTodas.value.filter((f) => !f._nuevo)
@@ -156,7 +214,7 @@ onMounted(async () => {
 
 async function cargar() {
   mostrarAviso(null)
-  const params: Record<string, string | number | boolean> = { page: 1, pageSize: 500 }
+  const params: Record<string, string | number | boolean> = { page: page.value, pageSize: pageSize.value }
   if (filtroActivo.value === 'activos') params.activo = true
   if (filtroActivo.value === 'inactivos') params.activo = false
   const seqFiltro = filtroActivo.value
@@ -166,7 +224,19 @@ async function cargar() {
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
 }
 
+function onPage(p: number) {
+  page.value = p
+  void cargar()
+}
+
+function onPageSize(n: number) {
+  pageSize.value = n
+  page.value = 1
+  void cargar()
+}
+
 async function onCambioFiltroActivo() {
+  page.value = 1
   indiceSeleccionado.value = 0
   await cargar()
 }
@@ -268,7 +338,7 @@ async function abrirFicha(index?: number) {
   await abrirFichaPorCodigo(String(fila.codigo))
 }
 
-function onNuevo() {
+async function onNuevo() {
   if (!puedeCrear.value) return
   ficha.value = tiendaVacia()
   esNuevo.value = true
@@ -278,6 +348,9 @@ function onNuevo() {
   vista.value = 'ficha'
   mostrarAviso(null)
   camposInvalidos.value = []
+  await nextTick()
+  await nextTick()
+  codigoInput.value?.focus()
 }
 
 function onModificar() {
@@ -286,12 +359,25 @@ function onModificar() {
 }
 
 async function onGuardarFicha() {
+  const codigo = String(ficha.value.codigo ?? '').trim()
+  if (esNuevo.value && codigo) {
+    if (await codigoTiendaExiste(codigo)) {
+      tabActiva.value = 'generales'
+      mostrarAvisoModal(
+        'Codigo duplicado',
+        `Ya existe una tienda con el codigo "${codigo}".`,
+        'codigo'
+      )
+      return
+    }
+  }
+
   const validacion = validarTiendaObligatorios(ficha.value)
   if (validacion.mensaje) {
-    camposInvalidos.value = validacion.campos
-    const tab = tabDeCampoTienda(validacion.campos[0] ?? '')
+    const key = validacion.campos[0] ?? null
+    const tab = tabDeCampoTienda(key ?? '')
     if (tab) tabActiva.value = tab
-    mostrarAviso(validacion.mensaje, 'error')
+    mostrarAvisoModal('Campo obligatorio', validacion.mensaje, key)
     return
   }
   camposInvalidos.value = []
@@ -300,21 +386,28 @@ async function onGuardarFicha() {
       const creado = await crear(ficha.value)
       mostrarAviso('Tienda creada correctamente', 'ok')
       await cargar()
+      // cargar() limpia el mensaje; reponer confirmacion
+      mostrarAviso('Tienda creada correctamente', 'ok')
       const idx = filas.value.findIndex((t) => String(t.codigo) === String(creado.codigo))
       if (idx >= 0) await abrirFicha(idx)
       else volverAlGrid()
     } else {
-      const codigo = String(ficha.value.codigo)
       await actualizar(codigo, ficha.value)
-      mostrarAviso('Tienda actualizada', 'ok')
       await cargar()
       await abrirFichaPorCodigo(codigo)
+      mostrarAviso('Tienda actualizada', 'ok')
     }
     modoEdicion.value = false
     esNuevo.value = false
     mostrarContadores.value = false
   } catch (e: unknown) {
-    mostrarAviso(extractApiError(e, 'No se pudo guardar la tienda'), 'error')
+    const msg = extractApiError(e, 'No se pudo guardar la tienda')
+    if (/ya existe|duplicad/i.test(msg)) {
+      tabActiva.value = 'generales'
+      mostrarAvisoModal('Codigo duplicado', msg, 'codigo')
+      return
+    }
+    mostrarAvisoModal('Error al guardar', msg)
   }
 }
 
@@ -512,6 +605,15 @@ function tabTieneErrores(tabId: string): boolean {
           @nuevo="onNuevo"
         />
 
+        <ListPagination
+          :page="page"
+          :page-size="pageSize"
+          :total="total"
+          :loading="loading"
+          @update:page="onPage"
+          @update:page-size="onPageSize"
+        />
+
         <p class="hint">
           Filtra por <strong>Codigo</strong>, <strong>Nombre</strong>, <strong>NIF</strong>,
           <strong>Poblacion</strong> y <strong>Telefono</strong> con el embudo. Doble clic o
@@ -548,7 +650,14 @@ function tabTieneErrores(tabId: string): boolean {
           <div class="ficha-header">
             <label :class="{ 'campo-invalido': camposInvalidosSet.has('codigo') }">
               Codigo *
-              <input v-model="ficha.codigo" :readonly="!esNuevo" maxlength="3" class="codigo-input" />
+              <input
+                ref="codigoInput"
+                v-model="ficha.codigo"
+                data-field-key="codigo"
+                :readonly="!esNuevo"
+                maxlength="3"
+                class="codigo-input"
+              />
             </label>
             <label class="nombre-input">
               Nombre
@@ -609,6 +718,17 @@ function tabTieneErrores(tabId: string): boolean {
         :message="`Va a dar de baja la tienda ${String(ficha.codigo ?? '').trim()}.`"
         @confirm="confirmarBajaFicha"
         @cancel="cancelarBajaFicha"
+      />
+
+      <ConfirmDialog
+        :open="avisoModalOpen"
+        :title="avisoModalTitulo"
+        :message="avisoModalMensaje"
+        confirm-label="Aceptar"
+        :danger="false"
+        hide-cancel
+        @confirm="cerrarAvisoModal"
+        @cancel="cerrarAvisoModal"
       />
     </template>
   </section>

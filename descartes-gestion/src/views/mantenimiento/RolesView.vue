@@ -18,6 +18,7 @@ import { extractApiError, useMantenimiento } from '@/composables/useMantenimient
 import { usePermisos } from '@/composables/usePermisos'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import ListPagination from '@/components/common/ListPagination.vue'
 import EntidadGrid from '@/components/mantenimiento/EntidadGrid.vue'
 import RolPermisosMatrix from '@/components/mantenimiento/RolPermisosMatrix.vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
@@ -39,7 +40,8 @@ function validarRol(ficha: Record<string, unknown>): string | null {
 }
 
 const { puede } = usePermisos()
-const { items, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(() => ENTIDAD)
+const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(() => ENTIDAD)
+pageSize.value = 50
 
 const puedeCrear = computed(() => puede(MODULO, 'crear'))
 const puedeEditar = computed(() => puede(MODULO, 'editar'))
@@ -130,9 +132,20 @@ onMounted(async () => {
 
 async function cargar() {
   mensaje.value = null
-  await listar({ page: 1, pageSize: 500 })
+  await listar({ page: page.value, pageSize: pageSize.value })
   filasTodas.value = items.value.map((item) => clonarFilaGrid(item, columns))
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
+}
+
+function onPage(p: number) {
+  page.value = p
+  void cargar()
+}
+
+function onPageSize(n: number) {
+  pageSize.value = n
+  page.value = 1
+  void cargar()
 }
 
 function seleccionar(index: number) {
@@ -350,6 +363,15 @@ async function onUltimo() {
           @actualizar="actualizarFila"
           @abrir="abrirFicha"
           @nuevo="onNuevo"
+        />
+
+        <ListPagination
+          :page="page"
+          :page-size="pageSize"
+          :total="total"
+          :loading="loading"
+          @update:page="onPage"
+          @update:page-size="onPageSize"
         />
 
         <p class="hint">

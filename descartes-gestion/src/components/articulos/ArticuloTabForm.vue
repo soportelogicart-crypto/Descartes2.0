@@ -8,13 +8,18 @@ const props = defineProps<{
   modelValue: Record<string, unknown>
   readonly?: boolean
   codigoReadOnly?: boolean
+  /** Keys de campos a marcar como error de validacion. */
+  invalidKeys?: string[]
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: Record<string, unknown>]
 }>()
 
-const familiasOptions = ref<{ value: string; label: string }[]>([])
+type FamiliaOpt = { value: string; label: string; macroFamiliaCodigo: string }
+
+const macrofamiliasOptions = ref<{ value: string; label: string }[]>([])
+const familiasAll = ref<FamiliaOpt[]>([])
 const subfamiliasOptions = ref<{ value: string; label: string }[]>([])
 const agrupacionesOptions = ref<{ value: string; label: string }[]>([])
 const impuestosOptions = ref<{ value: string; label: string }[]>([])
@@ -22,8 +27,15 @@ const proveedoresOptions = ref<{ value: string; label: string }[]>([])
 
 const allFields = computed(() => props.sections.flatMap((s) => s.fields))
 
+const familiasOptions = computed(() => {
+  const macro = String(props.modelValue.macroFamilia ?? '').trim()
+  if (!macro) return familiasAll.value
+  return familiasAll.value.filter((f) => f.macroFamiliaCodigo === macro)
+})
+
 onMounted(async () => {
   const needs = {
+    macrofamilias: allFields.value.some((f) => f.optionsSource === 'macrofamilias'),
     familias: allFields.value.some((f) => f.optionsSource === 'familias'),
     subfamilias: allFields.value.some((f) => f.optionsSource === 'subfamilias'),
     agrupaciones: allFields.value.some((f) => f.optionsSource === 'agrupaciones'),
@@ -33,14 +45,29 @@ onMounted(async () => {
 
   const requests: Promise<void>[] = []
 
-  if (needs.familias) {
+  if (needs.macrofamilias) {
     requests.push(
-      api.get('/api/mantenimiento/familias', { params: { pageSize: 500 } }).then(({ data }) => {
-        familiasOptions.value = (data.items ?? []).map((f: { codigo: string; descripcion: string }) => ({
+      api.get('/api/mantenimiento/macrofamilias', { params: { pageSize: 500 } }).then(({ data }) => {
+        macrofamiliasOptions.value = (data.items ?? []).map((f: { codigo: string; descripcion: string }) => ({
           value: String(f.codigo).trim(),
           label: `${String(f.codigo).trim()} - ${f.descripcion}`,
         }))
       })
+    )
+  }
+  if (needs.familias) {
+    requests.push(
+      api
+        .get('/api/mantenimiento/familias', { params: { pageSize: 500 } })
+        .then(({ data }) => {
+          familiasAll.value = (data.items ?? []).map(
+            (f: { codigo: string; descripcion: string; macroFamiliaCodigo?: string }) => ({
+              value: String(f.codigo).trim(),
+              label: `${String(f.codigo).trim()} - ${f.descripcion}`,
+              macroFamiliaCodigo: String(f.macroFamiliaCodigo ?? '').trim(),
+            })
+          )
+        })
     )
   }
   if (needs.subfamilias) {
@@ -88,6 +115,7 @@ onMounted(async () => {
 })
 
 function optionsFor(field: ArticuloField) {
+  if (field.optionsSource === 'macrofamilias') return macrofamiliasOptions.value
   if (field.optionsSource === 'familias') return familiasOptions.value
   if (field.optionsSource === 'subfamilias') return subfamiliasOptions.value
   if (field.optionsSource === 'agrupaciones') return agrupacionesOptions.value
@@ -99,7 +127,23 @@ function optionsFor(field: ArticuloField) {
 function updateField(key: string, value: unknown) {
   const next = { ...props.modelValue, [key]: value }
   if (key === 'precioVen1') next.precioVenta = value
+  if (key === 'macroFamilia') {
+    const macro = String(value ?? '').trim()
+    const fam = String(next.familia ?? '').trim()
+    if (fam) {
+      const hit = familiasAll.value.find((f) => f.value === fam)
+      if (hit && hit.macroFamiliaCodigo !== macro) next.familia = null
+    }
+  }
+  if (key === 'familia') {
+    const fam = String(value ?? '').trim()
+    const hit = familiasAll.value.find((f) => f.value === fam)
+    if (hit?.macroFamiliaCodigo) next.macroFamilia = hit.macroFamiliaCodigo
+  }
   emit('update:modelValue', next)
+}
+function isInvalid(field: ArticuloField) {
+  return (props.invalidKeys ?? []).includes(field.key)
 }
 
 function isReadOnly(field: ArticuloField) {
@@ -165,6 +209,7 @@ function sectionZoneClass(section: ArticuloSection) {
             `field-${fieldLayout(field)}`,
             field.type === 'number' ? 'field-number' : '',
             section.hideFieldLabels ? 'field-no-label' : '',
+            isInvalid(field) ? 'field-invalid' : '',
           ]"
         >
           <span v-if="!section.hideFieldLabels" class="field-label">
@@ -173,6 +218,7 @@ function sectionZoneClass(section: ArticuloSection) {
 
           <textarea
             v-if="field.type === 'textarea'"
+            :data-field-key="field.key"
             :value="String(modelValue[field.key] ?? '')"
             :readonly="isReadOnly(field)"
             rows="5"
@@ -182,6 +228,7 @@ function sectionZoneClass(section: ArticuloSection) {
           <input
             v-else-if="field.type === 'checkbox'"
             type="checkbox"
+            :data-field-key="field.key"
             :checked="Boolean(modelValue[field.key])"
             :disabled="isReadOnly(field)"
             @change="updateField(field.key, ($event.target as HTMLInputElement).checked)"
@@ -189,6 +236,7 @@ function sectionZoneClass(section: ArticuloSection) {
 
           <select
             v-else-if="field.type === 'select'"
+            :data-field-key="field.key"
             :value="modelValue[field.key] != null ? String(modelValue[field.key]).trim() : ''"
             :disabled="isReadOnly(field)"
             @change="updateField(field.key, ($event.target as HTMLSelectElement).value || null)"
@@ -200,6 +248,7 @@ function sectionZoneClass(section: ArticuloSection) {
           <input
             v-else-if="field.type === 'date'"
             type="date"
+            :data-field-key="field.key"
             :value="displayDate(field.key)"
             :readonly="isReadOnly(field)"
             @input="updateField(field.key, ($event.target as HTMLInputElement).value || null)"
@@ -208,6 +257,7 @@ function sectionZoneClass(section: ArticuloSection) {
           <input
             v-else-if="field.type === 'number'"
             type="number"
+            :data-field-key="field.key"
             :value="displayNumber(field.key) as number"
             :readonly="isReadOnly(field)"
             step="any"
@@ -217,6 +267,7 @@ function sectionZoneClass(section: ArticuloSection) {
           <input
             v-else
             type="text"
+            :data-field-key="field.key"
             :value="String(modelValue[field.key] ?? '')"
             :readonly="isReadOnly(field)"
             @input="updateField(field.key, ($event.target as HTMLInputElement).value)"
@@ -320,6 +371,19 @@ function sectionZoneClass(section: ArticuloSection) {
 
 .field {
   min-width: 0;
+}
+
+.field-invalid .field-label {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.field-invalid input,
+.field-invalid select,
+.field-invalid textarea {
+  border-color: #dc2626 !important;
+  background: #fef2f2 !important;
+  box-shadow: 0 0 0 1px #fecaca;
 }
 
 .field.span-2 {

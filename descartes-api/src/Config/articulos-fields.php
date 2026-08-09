@@ -118,4 +118,36 @@ return [
   ],
   // IDENTITY en SQL Server: se lee, no se escribe en INSERT/UPDATE.
   'hidden' => ['numEtiElectronica'],
+  /**
+   * Defaults de alta alineados con legacy (espacios/'' y 0; LUpdate lo pone el servicio).
+   * Se aplican si el campo no viene o llega null.
+   */
+  'createDefaults' => [
+    'Alternativo' => '',
+    'Estado' => '',
+    'Inventario' => '',
+    'PesoEnKilos' => 0,
+    'UnidadStock' => '',
+    'Seccion' => '',
+    'SubSeccion' => '',
+    'Imagen' => '',
+    'Categoria' => '',
+    'NombreBotanico' => '',
+    'Floracion' => '',
+    'Exposicion' => '',
+    'Poda' => '',
+    'UnidadEmpaquetado' => '',
+    'TipoPlanta' => '',
+    'CodigoB2B' => '',
+    'LiteralPlanta1' => '',
+    'LiteralPlanta2' => '',
+    'CodIvaAgrario' => '',
+    'Patron' => '',
+    'Variedad' => '',
+    'Altura' => '',
+    'RegistroSanitario' => '',
+    'CodigoIntrastat' => '',
+    'ObservacionesVenta' => '',
+    'idWeb' => '',
+  ],
 ];

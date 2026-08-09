@@ -78,12 +78,25 @@ export function almacenFichaVacia(): Record<string, unknown> {
   }
 }
 
-export function validarAlmacenFicha(ficha: Record<string, unknown>): string | null {
+export const ALMACEN_CAMPOS_OBLIGATORIOS: { key: string; label: string }[] = [
+  { key: 'codigo', label: 'Codigo' },
+  { key: 'descripcion', label: 'Descripcion' },
+]
+
+export function camposAlmacenObligatoriosVacios(ficha: Record<string, unknown>): string[] {
+  const vacios: string[] = []
   if (ficha.codigo == null || ficha.codigo === '' || Number(ficha.codigo) <= 0) {
-    return 'El codigo es obligatorio'
+    vacios.push('codigo')
   }
   if (!String(ficha.descripcion ?? '').trim()) {
-    return 'La descripcion es obligatoria'
+    vacios.push('descripcion')
   }
-  return null
+  return vacios
+}
+
+export function validarAlmacenFicha(ficha: Record<string, unknown>): string | null {
+  const vacios = camposAlmacenObligatoriosVacios(ficha)
+  if (vacios.length === 0) return null
+  const label = ALMACEN_CAMPOS_OBLIGATORIOS.find((c) => c.key === vacios[0])?.label ?? vacios[0]
+  return `El campo "${label}" es obligatorio.`
 }

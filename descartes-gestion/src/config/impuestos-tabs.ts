@@ -97,11 +97,25 @@ export function impuestoVacio(): Record<string, unknown> {
   }
 }
 
-export function validarImpuestoObligatorios(ficha: Record<string, unknown>): string | null {
-  if (!String(ficha.codigo ?? '').trim()) return 'El codigo es obligatorio'
-  if (!String(ficha.descripcion ?? '').trim()) return 'La descripcion es obligatoria'
+export const IMPUESTO_CAMPOS_OBLIGATORIOS: { key: string; label: string }[] = [
+  { key: 'codigo', label: 'Codigo' },
+  { key: 'descripcion', label: 'Descripcion' },
+  { key: 'porcentajeIVA', label: '% IVA' },
+]
+
+export function camposImpuestoObligatoriosVacios(ficha: Record<string, unknown>): string[] {
+  const vacios: string[] = []
+  if (!String(ficha.codigo ?? '').trim()) vacios.push('codigo')
+  if (!String(ficha.descripcion ?? '').trim()) vacios.push('descripcion')
   if (ficha.porcentajeIVA === null || ficha.porcentajeIVA === undefined || ficha.porcentajeIVA === '') {
-    return 'El % IVA es obligatorio'
+    vacios.push('porcentajeIVA')
   }
-  return null
+  return vacios
+}
+
+export function validarImpuestoObligatorios(ficha: Record<string, unknown>): string | null {
+  const key = camposImpuestoObligatoriosVacios(ficha)[0]
+  if (!key) return null
+  const label = IMPUESTO_CAMPOS_OBLIGATORIOS.find((c) => c.key === key)?.label ?? key
+  return `El campo "${label}" es obligatorio.`
 }

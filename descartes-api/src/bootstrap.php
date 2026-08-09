@@ -58,19 +58,20 @@ return function (App $app): void {
     $c->get(ArtPreciosRepository::class),
     $c->get(ArticuloStockRepository::class)
   ));
-  $container->set(\Descartes\Api\Controllers\ArticuloController::class, static fn (ContainerInterface $c) => new \Descartes\Api\Controllers\ArticuloController(
-    $c->get(ArticuloStockRepository::class),
-    $c->get(ArtBarrasRepository::class),
-    $c->get(EscandallosRepository::class),
-    $c->get(PlantasRepository::class),
-    $c->get(PDO::class)
-  ));
-
   $container->set(MantenimientoService::class, static fn (ContainerInterface $c) => new MantenimientoService(
     $c->get(PDO::class),
     $c->get(DependencyCheckService::class),
     $c->get(TiendaAlmacenService::class),
     $c->get(ArticuloService::class)
+  ));
+
+  $container->set(\Descartes\Api\Controllers\ArticuloController::class, static fn (ContainerInterface $c) => new \Descartes\Api\Controllers\ArticuloController(
+    $c->get(ArticuloStockRepository::class),
+    $c->get(ArtBarrasRepository::class),
+    $c->get(EscandallosRepository::class),
+    $c->get(PlantasRepository::class),
+    $c->get(MantenimientoService::class),
+    $c->get(PDO::class)
   ));
 
   $container->set(EmpresaClienteRepository::class, static fn (ContainerInterface $c) => new EmpresaClienteRepository($c->get(PDO::class)));

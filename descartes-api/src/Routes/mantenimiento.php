@@ -58,6 +58,8 @@ return function (App $app): void {
     $group->put('/roles/{codigo}/permisos', [RolController::class, 'putPermisos'])
       ->add($setPermisoModulo('roles', 'editar'));
 
+    $group->get('/articulos/siguiente-codigo', [ArticuloController::class, 'siguienteCodigo'])
+      ->add($setPermisoModulo('articulos', 'crear'));
     $group->get('/articulos/{codigo}/stock', [ArticuloController::class, 'getStock'])
       ->add($setPermisoModulo('articulos', 'ver'));
     $group->get('/articulos/{codigo}/eans', [ArticuloController::class, 'listEans'])

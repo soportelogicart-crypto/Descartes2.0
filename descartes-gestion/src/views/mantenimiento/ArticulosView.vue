@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '@/api/client'
 import { extractApiError, useMantenimiento } from '@/composables/useMantenimiento'
@@ -14,7 +14,12 @@ import {
   clonarArticuloFila,
   type ArticuloFila,
 } from '@/config/articulos-columns'
-import { articuloTabs, articuloVacio, validarArticuloObligatorios } from '@/config/articulos-tabs'
+import {
+  ARTICULO_CAMPOS_OBLIGATORIOS,
+  articuloTabs,
+  articuloVacio,
+  camposArticuloObligatoriosVacios,
+} from '@/config/articulos-tabs'
 import ArticulosGrid from '@/components/articulos/ArticulosGrid.vue'
 import ArticuloToolbar from '@/components/articulos/ArticuloToolbar.vue'
 import ArticuloTabForm from '@/components/articulos/ArticuloTabForm.vue'
@@ -24,7 +29,9 @@ import ArticuloConsultaModal from '@/components/articulos/ArticuloConsultaModal.
 import ArticuloEansModal from '@/components/articulos/ArticuloEansModal.vue'
 import ArticuloEscandalloModal from '@/components/articulos/ArticuloEscandalloModal.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import ListPagination from '@/components/common/ListPagination.vue'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
+import { usePuestoContextoStore } from '@/stores/puestoContexto'
 
 const MODULO = 'articulos'
 const ENTIDAD = 'articulos'
@@ -34,7 +41,10 @@ const SERVER_SEARCH_KEYS = ['descripcion', 'codigo', 'familia', 'proveedorHabitu
 
 const route = useRoute()
 const { puede } = usePermisos()
-const { items, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(() => ENTIDAD)
+const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } =
+  useMantenimiento(() => ENTIDAD)
+pageSize.value = 50
+const puestoContexto = usePuestoContextoStore()
 
 const puedeCrear = computed(() => puede(MODULO, 'crear'))
 const puedeEditar = computed(() => puede(MODULO, 'editar'))
@@ -91,12 +101,81 @@ const puedeMostrarEliminar = computed(
 const tabActiva = ref(articuloTabs[0].id)
 const modoEdicion = ref(false)
 const esNuevo = ref(false)
+const codigoAutomatico = ref(false)
 const ficha = ref<Record<string, unknown>>({})
 const indiceFicha = ref(-1)
 const mostrarFichaPlanta = ref(false)
 const mostrarConsulta = ref(false)
 const mostrarEans = ref(false)
 const mostrarEscandallo = ref(false)
+const camposInvalidos = ref<string[]>([])
+const avisoOpen = ref(false)
+const avisoTitulo = ref('Campo obligatorio')
+const avisoMensaje = ref('')
+/** Campo que acaba de avisar el modal (para enfocar al aceptar). */
+const campoAvisoActual = ref<string | null>(null)
+const codigoInput = ref<HTMLInputElement | null>(null)
+const descripcionInput = ref<HTMLInputElement | null>(null)
+
+const codigoReadOnlyFicha = computed(() => !esNuevo.value || codigoAutomatico.value)
+
+function mostrarAviso(titulo: string, message: string) {
+  campoAvisoActual.value = null
+  avisoTitulo.value = titulo
+  avisoMensaje.value = message
+  avisoOpen.value = true
+}
+
+/** Un solo aviso: el primer campo obligatorio vacio. */
+function mostrarAvisoCampoObligatorio(key: string, message: string) {
+  campoAvisoActual.value = key
+  camposInvalidos.value = [key]
+  avisoTitulo.value = 'Campo obligatorio'
+  avisoMensaje.value = message
+  avisoOpen.value = true
+}
+
+async function cerrarAviso() {
+  const key = campoAvisoActual.value
+  avisoOpen.value = false
+  avisoMensaje.value = ''
+  campoAvisoActual.value = null
+  if (!key) return
+  await nextTick()
+  await enfocarCampo(key)
+}
+
+async function enfocarCampo(key: string) {
+  tabActiva.value = 'general'
+  await nextTick()
+  await nextTick()
+  if (key === 'codigo') {
+    codigoInput.value?.focus()
+    return
+  }
+  if (key === 'descripcion') {
+    descripcionInput.value?.focus()
+    return
+  }
+  const el = document.querySelector<HTMLElement>(`[data-field-key="${key}"]`)
+  el?.focus()
+}
+
+function esCampoInvalido(key: string) {
+  return camposInvalidos.value.includes(key)
+}
+
+function limpiarCampoInvalido(key: string) {
+  if (!camposInvalidos.value.includes(key)) return
+  camposInvalidos.value = camposInvalidos.value.filter((k) => k !== key)
+}
+
+function onFichaUpdate(next: Record<string, unknown>) {
+  ficha.value = next
+  if (camposInvalidos.value.length === 0) return
+  // Solo quita el resaltado de los campos que ya se han rellenado.
+  camposInvalidos.value = camposInvalidos.value.filter((k) => !String(next[k] ?? '').trim())
+}
 
 const tabSeleccionada = computed(() => articuloTabs.find((t) => t.id === tabActiva.value) ?? articuloTabs[0])
 const soloLecturaFicha = computed(() => !modoEdicion.value && !esNuevo.value)
@@ -169,15 +248,29 @@ async function cargar(opts?: { silent?: boolean }) {
   const q = textoBusquedaServidor()
   ultimaQServidor = q
   const seq = ++cargaSeq
-  await listar({ page: 1, pageSize: 500, ...(q ? { q } : {}) }, { silent: opts?.silent === true })
+  await listar({ page: page.value, pageSize: pageSize.value, ...(q ? { q } : {}) }, {
+    silent: opts?.silent === true,
+  })
   if (seq !== cargaSeq) return
   mapFilasDesdeApi()
   filaNuevaDraft.value = articuloFilaVacia()
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
 }
 
+function onPage(p: number) {
+  page.value = p
+  void cargar()
+}
+
+function onPageSize(n: number) {
+  pageSize.value = n
+  page.value = 1
+  void cargar()
+}
+
 function buscarServidorAhora() {
   if (debounceFiltros) clearTimeout(debounceFiltros)
+  page.value = 1
   void cargar({ silent: true })
 }
 
@@ -193,6 +286,7 @@ watch(
     debounceFiltros = setTimeout(() => {
       const q = textoBusquedaServidor()
       if (q === ultimaQServidor) return
+      page.value = 1
       void cargar({ silent: true })
     }, 500)
   }
@@ -234,6 +328,8 @@ async function abrirFichaPorCodigo(codigo: string) {
     indiceFicha.value = filas.value.findIndex((f) => String(f.codigo) === codigo)
     modoEdicion.value = false
     esNuevo.value = false
+    codigoAutomatico.value = false
+    camposInvalidos.value = []
     tabActiva.value = 'general'
     vista.value = 'ficha'
     mensaje.value = null
@@ -252,14 +348,37 @@ async function abrirFicha(index?: number) {
   await abrirFichaPorCodigo(String(fila.codigo))
 }
 
-function onNuevoFicha() {
+async function onNuevoFicha() {
   if (!puedeCrear.value) return
-  ficha.value = articuloVacio()
+  const vacio = articuloVacio()
+  codigoAutomatico.value = false
+  mensaje.value = null
+  camposInvalidos.value = []
+  try {
+    const { data } = await api.get('/api/mantenimiento/articulos/siguiente-codigo', {
+      params: { empresa: puestoContexto.empresaCodigo || undefined },
+    })
+    if (data.automatico && data.codigo) {
+      vacio.codigo = String(data.codigo)
+      codigoAutomatico.value = true
+    }
+  } catch (e: unknown) {
+    mensaje.value = extractApiError(e, 'No se pudo obtener el siguiente codigo')
+  }
+  ficha.value = vacio
   esNuevo.value = true
   modoEdicion.value = true
   indiceFicha.value = -1
   tabActiva.value = 'general'
   vista.value = 'ficha'
+  await enfocarDescripcion()
+}
+
+async function enfocarDescripcion() {
+  await nextTick()
+  // Segundo tick: al venir del grid la ficha acaba de montarse.
+  await nextTick()
+  descripcionInput.value?.focus()
 }
 
 function onModificarFicha() {
@@ -268,11 +387,15 @@ function onModificarFicha() {
 }
 
 async function onGuardarFicha() {
-  const errorValidacion = validarArticuloObligatorios(ficha.value)
-  if (errorValidacion) {
-    mensaje.value = errorValidacion
+  const vacios = camposArticuloObligatoriosVacios(ficha.value)
+  if (vacios.length > 0) {
+    const key = vacios[0]
+    const label = ARTICULO_CAMPOS_OBLIGATORIOS.find((c) => c.key === key)?.label ?? key
+    tabActiva.value = 'general'
+    mostrarAvisoCampoObligatorio(key, `El campo "${label}" es obligatorio.`)
     return
   }
+  camposInvalidos.value = []
   try {
     if (ficha.value.precioVen1 != null) ficha.value.precioVenta = ficha.value.precioVen1
     if (esNuevo.value) {
@@ -291,7 +414,9 @@ async function onGuardarFicha() {
     modoEdicion.value = false
     esNuevo.value = false
   } catch (e: unknown) {
-    mensaje.value = extractApiError(e, 'No se pudo guardar el articulo')
+    const msg = extractApiError(e, 'No se pudo guardar el articulo')
+    mensaje.value = msg
+    mostrarAviso('Error al guardar', msg)
   }
 }
 
@@ -321,6 +446,8 @@ function volverAlGrid() {
   vista.value = 'grid'
   modoEdicion.value = false
   esNuevo.value = false
+  codigoAutomatico.value = false
+  camposInvalidos.value = []
   ficha.value = {}
 }
 
@@ -451,6 +578,15 @@ const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
           @search="buscarServidorAhora"
         />
 
+        <ListPagination
+          :page="page"
+          :page-size="pageSize"
+          :total="total"
+          :loading="loading"
+          @update:page="onPage"
+          @update:page-size="onPageSize"
+        />
+
         <p class="hint">
           Filtra columnas con el embudo. La fila <strong>*</strong> no se edita aqui: use <strong>Nuevo</strong> o doble
           clic en ella para crear en ficha.
@@ -491,13 +627,30 @@ const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
           />
 
           <div class="ficha-header">
-            <label>
+            <label :class="{ 'campo-invalido': esCampoInvalido('codigo') }">
               Codigo *
-              <input v-model="ficha.codigo" :readonly="!esNuevo" maxlength="18" class="codigo-input" required />
+              <input
+                ref="codigoInput"
+                v-model="ficha.codigo"
+                data-field-key="codigo"
+                :readonly="codigoReadOnlyFicha"
+                maxlength="18"
+                class="codigo-input"
+                required
+                @input="limpiarCampoInvalido('codigo')"
+              />
             </label>
-            <label class="nombre-input">
+            <label class="nombre-input" :class="{ 'campo-invalido': esCampoInvalido('descripcion') }">
               Descripcion *
-              <input v-model="ficha.descripcion" :readonly="soloLecturaFicha" maxlength="50" required />
+              <input
+                ref="descripcionInput"
+                v-model="ficha.descripcion"
+                data-field-key="descripcion"
+                :readonly="soloLecturaFicha"
+                maxlength="50"
+                required
+                @input="limpiarCampoInvalido('descripcion')"
+              />
             </label>
           </div>
 
@@ -521,7 +674,8 @@ const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
             :model-value="ficha"
             :readonly="soloLecturaFicha"
             :codigo-read-only="!esNuevo"
-            @update:model-value="ficha = $event"
+            :invalid-keys="camposInvalidos"
+            @update:model-value="onFichaUpdate"
           />
           <ArticuloSidePanels :ficha="ficha" />
         </div>
@@ -533,6 +687,17 @@ const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
         :message="confirmMessage"
         @confirm="confirmarEliminar"
         @cancel="cancelarEliminar"
+      />
+
+      <ConfirmDialog
+        :open="avisoOpen"
+        :title="avisoTitulo"
+        :message="avisoMensaje"
+        confirm-label="Aceptar"
+        :danger="false"
+        hide-cancel
+        @confirm="cerrarAviso"
+        @cancel="cerrarAviso"
       />
 
       <ArticuloFichaPlantaModal
@@ -666,6 +831,17 @@ const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
   border: 1px solid #94a3b8;
   border-radius: 3px;
   font-size: 0.8rem;
+}
+
+.ficha-header label.campo-invalido {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.ficha-header label.campo-invalido input {
+  border-color: #dc2626;
+  background: #fef2f2;
+  box-shadow: 0 0 0 1px #fecaca;
 }
 
 .tabs {

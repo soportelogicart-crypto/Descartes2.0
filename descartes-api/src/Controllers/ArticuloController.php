@@ -9,6 +9,7 @@ use Descartes\Api\Repositories\ArtBarrasRepository;
 use Descartes\Api\Repositories\ArticuloStockRepository;
 use Descartes\Api\Repositories\EscandallosRepository;
 use Descartes\Api\Repositories\PlantasRepository;
+use Descartes\Api\Services\MantenimientoService;
 use PDO;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -20,6 +21,7 @@ final class ArticuloController
   private ArtBarrasRepository $artBarrasRepository;
   private EscandallosRepository $escandallosRepository;
   private PlantasRepository $plantasRepository;
+  private MantenimientoService $mantenimientoService;
   private PDO $pdo;
 
   public function __construct(
@@ -27,13 +29,29 @@ final class ArticuloController
     ArtBarrasRepository $artBarrasRepository,
     EscandallosRepository $escandallosRepository,
     PlantasRepository $plantasRepository,
+    MantenimientoService $mantenimientoService,
     PDO $pdo
   ) {
     $this->articuloStockRepository = $articuloStockRepository;
     $this->artBarrasRepository = $artBarrasRepository;
     $this->escandallosRepository = $escandallosRepository;
     $this->plantasRepository = $plantasRepository;
+    $this->mantenimientoService = $mantenimientoService;
     $this->pdo = $pdo;
+  }
+
+  public function siguienteCodigo(Request $request, Response $response): Response
+  {
+    $params = $request->getQueryParams();
+    $empresa = trim((string) ($params['empresa'] ?? ''));
+    try {
+      $info = $this->mantenimientoService->siguienteCodigoArticulo($empresa);
+      return $this->json($response, 200, $info);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
   }
 
   public function getStock(Request $request, Response $response, array $args): Response

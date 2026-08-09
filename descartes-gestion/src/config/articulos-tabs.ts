@@ -11,6 +11,7 @@ export type ArticuloField = {
   readOnly?: boolean
   required?: boolean
   optionsSource?:
+    | 'macrofamilias'
     | 'familias'
     | 'subfamilias'
     | 'agrupaciones'
@@ -64,12 +65,13 @@ export const articuloTabs: ArticuloTab[] = [
         title: 'Clasificacion',
         columns: 2,
         fields: [
-          inline('familia', 'Familia', { type: 'select', optionsSource: 'familias' }),
-          inline('subfamilia', 'Subfamilia', { type: 'select', optionsSource: 'subfamilias' }),
+          inline('macroFamilia', 'Macrofamilia', { type: 'select', optionsSource: 'macrofamilias', required: true }),
+          inline('familia', 'Familia', { type: 'select', optionsSource: 'familias', required: true }),
+          inline('subfamilia', 'Subfamilia', { type: 'select', optionsSource: 'subfamilias', required: true }),
           inline('seccion', 'Seccion'),
           inline('subSeccion', 'Subseccion'),
-          inline('agrupacion', 'Agrupacion', { type: 'select', optionsSource: 'agrupaciones' }),
-          inline('proveedorHabitual', 'Proveedor', { type: 'select', optionsSource: 'proveedores' }),
+          inline('agrupacion', 'Agrupacion', { type: 'select', optionsSource: 'agrupaciones', required: true }),
+          inline('proveedorHabitual', 'Proveedor', { type: 'select', optionsSource: 'proveedores', required: true }),
           inline('impuestoCodigo', 'Impuesto', { type: 'select', optionsSource: 'impuestos', required: true }),
           inline('impuestoAgrario', 'Imp. agrario', { type: 'select', optionsSource: 'impuestos' }),
         ],
@@ -262,9 +264,34 @@ export function articuloVacio(): Record<string, unknown> {
   }
 }
 
+/** Campos obligatorios de ficha (API camelCase). */
+export const ARTICULO_CAMPOS_OBLIGATORIOS: { key: string; label: string }[] = [
+  { key: 'codigo', label: 'Codigo' },
+  { key: 'descripcion', label: 'Descripcion' },
+  { key: 'macroFamilia', label: 'Macrofamilia' },
+  { key: 'familia', label: 'Familia' },
+  { key: 'subfamilia', label: 'Subfamilia' },
+  { key: 'agrupacion', label: 'Agrupacion' },
+  { key: 'proveedorHabitual', label: 'Proveedor' },
+  { key: 'impuestoCodigo', label: 'Impuesto' },
+]
+
+export function camposArticuloObligatoriosVacios(ficha: Record<string, unknown>): string[] {
+  return ARTICULO_CAMPOS_OBLIGATORIOS.filter((c) => !String(ficha[c.key] ?? '').trim()).map((c) => c.key)
+}
+
+/** Un mensaje por cada campo obligatorio vacio (para modales secuenciales). */
+export function mensajesArticuloObligatoriosVacios(ficha: Record<string, unknown>): string[] {
+  return ARTICULO_CAMPOS_OBLIGATORIOS.filter((c) => !String(ficha[c.key] ?? '').trim()).map(
+    (c) => `El campo "${c.label}" es obligatorio.`
+  )
+}
+
+/**
+ * Obligatorios alineados con alta legacy:
+ * codigo, descripcion, macrofamilia, familia, subfamilia, agrupacion, proveedor, impuesto.
+ */
 export function validarArticuloObligatorios(ficha: Record<string, unknown>): string | null {
-  if (!String(ficha.codigo ?? '').trim()) return 'El codigo es obligatorio'
-  if (!String(ficha.descripcion ?? '').trim()) return 'La descripcion es obligatoria'
-  if (!String(ficha.impuestoCodigo ?? '').trim()) return 'El impuesto es obligatorio'
-  return null
+  const msgs = mensajesArticuloObligatoriosVacios(ficha)
+  return msgs[0] ?? null
 }

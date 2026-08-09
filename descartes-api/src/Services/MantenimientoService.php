@@ -171,6 +171,7 @@ final class MantenimientoService
       $this->validarTienda($data, null);
     }
     if ($entidad === 'articulos') {
+      $this->asignarCodigoArticuloSiCorresponde($data);
       $this->validarArticulo($data, null);
     }
     if ($entidad === 'clientes') {
@@ -178,6 +179,12 @@ final class MantenimientoService
     }
     if ($entidad === 'trabajadores') {
       $this->validarTrabajador($data, null);
+    }
+    if ($entidad === 'almacenes') {
+      $this->validarAlmacen($data, null);
+    }
+    if ($entidad === 'impuestos') {
+      $this->validarImpuesto($data, null);
     }
     if ($entidad === 'proveedores') {
       $empresaCodigo = trim((string) ($data['empresaCodigo'] ?? ''));
@@ -456,6 +463,10 @@ final class MantenimientoService
         $result[$apiField] = (bool) $value;
         continue;
       }
+      if ($this->isIntField($config, $apiField)) {
+        $result[$apiField] = $value === null || $value === '' ? null : (int) $value;
+        continue;
+      }
       if ($this->isTimeField($config, $apiField)) {
         $result[$apiField] = $this->normalizeTimeValue($value);
         continue;
@@ -498,12 +509,25 @@ final class MantenimientoService
         $mapped[$sqlColumn] = $value ? 1 : 0;
         continue;
       }
+      if ($this->isIntField($config, $apiField)) {
+        $mapped[$sqlColumn] = $value === null || $value === '' ? null : (int) $value;
+        continue;
+      }
       if ($this->isTimeField($config, $apiField)) {
         $mapped[$sqlColumn] = $this->timeToSqlDateTime($value);
         continue;
       }
       if ($apiField === 'almacenCodigo') {
         $mapped[$sqlColumn] = $value === null || $value === '' ? 0 : (int) $value;
+        continue;
+      }
+      if ($apiField === 'tarjeta') {
+        $mapped[$sqlColumn] = $value === null || $value === '' ? 0 : (int) $value;
+        continue;
+      }
+      if ($apiField === 'conceptoDescuadre') {
+        $concepto = trim((string) ($value ?? ''));
+        $mapped[$sqlColumn] = $concepto === '' ? null : substr($concepto, 0, 2);
         continue;
       }
       if ($this->isDateField($config, $apiField) || $this->isDateSqlColumn($sqlColumn)) {
@@ -519,6 +543,8 @@ final class MantenimientoService
       }
     }
 
+    $this->assertStringMaxLengths($config, $mapped);
+
     if ($isCreate && isset($config['softDelete']) && !isset($data['activo'])) {
       $soft = $config['softDelete'];
       if (($soft['inactiveValue'] ?? null) !== 'NOT_NULL') {
@@ -528,10 +554,16 @@ final class MantenimientoService
 
     if ($isCreate && isset($config['createDefaults']) && is_array($config['createDefaults'])) {
       foreach ($config['createDefaults'] as $sqlColumn => $defaultValue) {
-        if (!array_key_exists($sqlColumn, $mapped)) {
+        // Legacy rellena 0/'' en alta; no dejar NULL si el cliente omite el campo.
+        if (!array_key_exists($sqlColumn, $mapped) || $mapped[$sqlColumn] === null) {
           $mapped[$sqlColumn] = $defaultValue;
         }
       }
+    }
+
+    // Almacenes.CentroCoste: mantener en blanco ('') aunque el payload vacio se normalice a null.
+    if (($config['table'] ?? '') === 'Almacenes' && array_key_exists('CentroCoste', $mapped) && $mapped['CentroCoste'] === null) {
+      $mapped['CentroCoste'] = '';
     }
 
     if ($isCreate && ($config['table'] ?? '') === 'Vendedores' && !array_key_exists('ComisionVenta', $mapped)) {
@@ -559,11 +591,46 @@ final class MantenimientoService
     }
 
     // Sello de modificacion (servidor): no depende del payload del cliente.
-    if (in_array('LUpdate', $config['fields'], true)) {
+    // Articulos.LUpdate: legacy lo pone en alta/modificacion.
+    $fieldValues = array_values($config['fields'] ?? []);
+    if (in_array('LUpdate', $fieldValues, true) || ($config['table'] ?? '') === 'Articulos') {
       $mapped['LUpdate'] = date('Y-m-d H:i:s');
     }
 
     return $mapped;
+  }
+
+  /**
+   * Evita SQLSTATE 22001 avisando que campo supera la longitud de columna.
+   *
+   * @param array<string, mixed> $mapped
+   */
+  private function assertStringMaxLengths(array $config, array $mapped): void
+  {
+    $limits = $config['stringMaxLengths'] ?? null;
+    if (!is_array($limits) || $limits === []) {
+      return;
+    }
+
+    $labels = array_flip($config['fields'] ?? []);
+    foreach ($limits as $sqlColumn => $maxLen) {
+      if (!array_key_exists($sqlColumn, $mapped)) {
+        continue;
+      }
+      $value = $mapped[$sqlColumn];
+      if ($value === null || is_bool($value) || is_int($value) || is_float($value)) {
+        continue;
+      }
+      $text = (string) $value;
+      $len = function_exists('mb_strlen') ? mb_strlen($text, 'UTF-8') : strlen($text);
+      if ($len <= (int) $maxLen) {
+        continue;
+      }
+      $apiField = $labels[$sqlColumn] ?? $sqlColumn;
+      throw new \InvalidArgumentException(
+        "El campo \"{$apiField}\" supera la longitud maxima de {$maxLen} caracteres (tiene {$len})"
+      );
+    }
   }
 
   private function validarUsuario(array $data, bool $isCreate): void
@@ -619,6 +686,34 @@ final class MantenimientoService
     $stmt->execute(['nombre' => $nombre, 'codigo' => trim($codigo)]);
   }
 
+  private function validarAlmacen(array $data, ?string $codigo): void
+  {
+    $isCreate = $codigo === null;
+
+    if ($isCreate) {
+      if (!array_key_exists('codigo', $data) || $data['codigo'] === null || $data['codigo'] === '') {
+        throw new \InvalidArgumentException('El codigo es obligatorio');
+      }
+
+      $nuevoCodigo = (int) $data['codigo'];
+      if ($nuevoCodigo <= 0) {
+        throw new \InvalidArgumentException('El codigo es obligatorio');
+      }
+
+      $stmt = $this->pdo->prepare('SELECT 1 FROM [Almacenes] WHERE [Codigo] = :codigo');
+      $stmt->execute(['codigo' => $nuevoCodigo]);
+      if ($stmt->fetch()) {
+        throw new \InvalidArgumentException('Ya existe un almacen con ese codigo');
+      }
+    }
+
+    if ($isCreate || array_key_exists('descripcion', $data)) {
+      if (trim((string) ($data['descripcion'] ?? '')) === '') {
+        throw new \InvalidArgumentException('La descripcion es obligatoria');
+      }
+    }
+  }
+
   private function validarAlmacenBaja(array $data, string $codigo): void
   {
     if (!array_key_exists('activo', $data) || $data['activo'] !== false) {
@@ -631,6 +726,35 @@ final class MantenimientoService
         'No se puede dar de baja el registro porque tiene dependencias activas',
         $check['dependencias']
       );
+    }
+  }
+
+  private function validarImpuesto(array $data, ?string $codigo): void
+  {
+    if ($codigo !== null) {
+      return;
+    }
+
+    $nuevoCodigo = trim((string) ($data['codigo'] ?? ''));
+    if ($nuevoCodigo === '') {
+      throw new \InvalidArgumentException('El codigo es obligatorio');
+    }
+    if (strlen($nuevoCodigo) > 2) {
+      throw new \InvalidArgumentException('El codigo de impuesto no puede superar 2 caracteres');
+    }
+
+    $stmt = $this->pdo->prepare('SELECT 1 FROM [Impuestos] WHERE RTRIM([Codigo]) = :codigo');
+    $stmt->execute(['codigo' => $nuevoCodigo]);
+    if ($stmt->fetch()) {
+      throw new \InvalidArgumentException('Ya existe un impuesto con ese codigo');
+    }
+
+    if (trim((string) ($data['descripcion'] ?? '')) === '') {
+      throw new \InvalidArgumentException('La descripcion es obligatoria');
+    }
+
+    if (!array_key_exists('porcentajeIVA', $data) || $data['porcentajeIVA'] === null || $data['porcentajeIVA'] === '') {
+      throw new \InvalidArgumentException('El % IVA es obligatorio');
     }
   }
 
@@ -679,7 +803,12 @@ final class MantenimientoService
       if ($nuevoCodigo === '') {
         throw new \InvalidArgumentException('El codigo de tienda es obligatorio');
       }
-      $stmt = $this->pdo->prepare('SELECT 1 FROM [Empresas] WHERE RTRIM([Codigo]) = :codigo');
+      if (strlen($nuevoCodigo) > 3) {
+        throw new \InvalidArgumentException('El codigo de tienda admite como maximo 3 caracteres');
+      }
+      $stmt = $this->pdo->prepare(
+        'SELECT 1 FROM [Empresas] WHERE RTRIM(LTRIM([Codigo])) = :codigo'
+      );
       $stmt->execute(['codigo' => $nuevoCodigo]);
       if ($stmt->fetch()) {
         throw new \InvalidArgumentException('Ya existe una tienda con ese codigo');
@@ -747,8 +876,13 @@ final class MantenimientoService
       throw new \InvalidArgumentException('La tarifa es obligatoria');
     }
 
-    if ($debe('desglosarBasesTicketIvaInc') && !array_key_exists('desglosarBasesTicketIvaInc', $data)) {
-      throw new \InvalidArgumentException('El campo desglosar bases ticket IVA inc. es obligatorio');
+    if ($debe('desglosarBasesTicketIvaInc')) {
+      if (!array_key_exists('desglosarBasesTicketIvaInc', $data)) {
+        throw new \InvalidArgumentException('Debe marcar Desglosar bases ticket');
+      }
+      if (empty($data['desglosarBasesTicketIvaInc'])) {
+        throw new \InvalidArgumentException('Debe marcar Desglosar bases ticket');
+      }
     }
   }
 
@@ -775,7 +909,7 @@ final class MantenimientoService
     };
 
     if ($exige('nombre') && trim((string) ($data['nombre'] ?? '')) === '') {
-      throw new \InvalidArgumentException('El nombre es obligatorio');
+      throw new \InvalidArgumentException('La descripcion es obligatoria');
     }
 
     if ($exige('usuarioCodigo') && trim((string) ($data['usuarioCodigo'] ?? '')) === '') {
@@ -820,13 +954,16 @@ final class MantenimientoService
 
   private function validarArticulo(array $data, ?string $codigo): void
   {
-    if ($codigo === null) {
+    $isCreate = $codigo === null;
+    if ($isCreate) {
       $nuevoCodigo = trim((string) ($data['codigo'] ?? ''));
       if ($nuevoCodigo === '') {
         throw new \InvalidArgumentException('El codigo de articulo es obligatorio');
       }
       $this->articuloService->assertCodigoUnico($nuevoCodigo);
     }
+
+    $this->assertArticuloCamposObligatorios($data, $isCreate);
 
     if ($codigo !== null && array_key_exists('activo', $data) && $data['activo'] === false) {
       $check = $this->dependencyCheckService->puedeDarDeBaja('articulos', $codigo);
@@ -837,6 +974,65 @@ final class MantenimientoService
         );
       }
     }
+  }
+
+  /**
+   * Obligatorios de ficha alineados con legacy.
+   * macroFamilia no es columna de Articulos: se valida vía Familias.MacroFamilia.
+   *
+   * @param array<string, mixed> $data
+   */
+  private function assertArticuloCamposObligatorios(array $data, bool $isCreate): void
+  {
+    $debe = static function (string $key) use ($data, $isCreate): bool {
+      return $isCreate || array_key_exists($key, $data);
+    };
+
+    if ($debe('descripcion') && trim((string) ($data['descripcion'] ?? '')) === '') {
+      throw new \InvalidArgumentException('La descripcion es obligatoria');
+    }
+    if ($debe('familia') && trim((string) ($data['familia'] ?? '')) === '') {
+      throw new \InvalidArgumentException('La familia es obligatoria');
+    }
+    if ($debe('subfamilia') && trim((string) ($data['subfamilia'] ?? '')) === '') {
+      throw new \InvalidArgumentException('La subfamilia es obligatoria');
+    }
+    if ($debe('agrupacion') && trim((string) ($data['agrupacion'] ?? '')) === '') {
+      throw new \InvalidArgumentException('La agrupacion es obligatoria');
+    }
+    if ($debe('proveedorHabitual') && trim((string) ($data['proveedorHabitual'] ?? '')) === '') {
+      throw new \InvalidArgumentException('El proveedor es obligatorio');
+    }
+    if ($debe('impuestoCodigo') && trim((string) ($data['impuestoCodigo'] ?? '')) === '') {
+      throw new \InvalidArgumentException('El impuesto es obligatorio');
+    }
+
+    $familia = trim((string) ($data['familia'] ?? ''));
+    $macroPayload = trim((string) ($data['macroFamilia'] ?? ''));
+    $debeMacro = $isCreate || array_key_exists('macroFamilia', $data) || array_key_exists('familia', $data);
+    if ($debeMacro) {
+      $macroDeFamilia = $familia !== '' ? $this->macroFamiliaDeFamilia($familia) : '';
+      $macro = $macroPayload !== '' ? $macroPayload : $macroDeFamilia;
+      if ($macro === '') {
+        throw new \InvalidArgumentException('La macrofamilia es obligatoria');
+      }
+      if ($familia !== '' && $macroDeFamilia !== '' && strcasecmp($macroDeFamilia, $macro) !== 0) {
+        throw new \InvalidArgumentException('La familia no pertenece a la macrofamilia indicada');
+      }
+      if ($familia !== '' && $macroDeFamilia === '') {
+        throw new \InvalidArgumentException('La familia seleccionada no tiene macrofamilia');
+      }
+    }
+  }
+
+  private function macroFamiliaDeFamilia(string $familiaCodigo): string
+  {
+    $stmt = $this->pdo->prepare(
+      'SELECT RTRIM(ISNULL([MacroFamilia], \'\')) FROM [Familias] WHERE RTRIM([Codigo]) = :codigo'
+    );
+    $stmt->execute(['codigo' => trim($familiaCodigo)]);
+    $val = $stmt->fetchColumn();
+    return $val === false || $val === null ? '' : trim((string) $val);
   }
 
   private function validarCliente(array $data, ?string $codigo): void
@@ -888,6 +1084,11 @@ final class MantenimientoService
     }
 
     return in_array($apiField, ['esCentral', 'externo', 'central', 'esVendedor', 'esOperario', 'agente', 'vendedor', 'operario', 'tecnico', 'facturaLaCentral'], true);
+  }
+
+  private function isIntField(array $config, string $apiField): bool
+  {
+    return in_array($apiField, $config['intFields'] ?? [], true);
   }
 
   private function isTimeField(array $config, string $apiField): bool
@@ -1261,6 +1462,200 @@ final class MantenimientoService
   private function formatearCodigoProveedor(int $numero): string
   {
     return (string) $numero;
+  }
+
+  /**
+   * Preview del siguiente codigo de articulo (si Empresas.GenArticulos=1).
+   * Sin UltArticulo en schema: se calcula como MAX(codigos numericos)+1, con ceros a la izquierda.
+   *
+   * @return array{automatico: bool, codigo: ?string, empresaCodigo: ?string, ancho: ?int}
+   */
+  public function siguienteCodigoArticulo(string $empresaCodigo = ''): array
+  {
+    $empresa = $this->resolverEmpresaNumeracionArticulo($empresaCodigo);
+    if ($empresa === null) {
+      return [
+        'automatico' => false,
+        'codigo' => null,
+        'empresaCodigo' => null,
+        'ancho' => null,
+      ];
+    }
+
+    if (!$empresa['genArticulos']) {
+      return [
+        'automatico' => false,
+        'codigo' => null,
+        'empresaCodigo' => $empresa['codigo'],
+        'ancho' => null,
+      ];
+    }
+
+    $info = $this->leerMaxCodigoArticuloNumerico();
+    $candidato = $info['maxNum'] + 1;
+    $ancho = $info['ancho'];
+    for ($i = 0; $i < 100; $i++) {
+      $codigo = $this->formatearCodigoArticulo($candidato, $ancho);
+      if (!$this->existeCodigoArticulo($codigo)) {
+        return [
+          'automatico' => true,
+          'codigo' => $codigo,
+          'empresaCodigo' => $empresa['codigo'],
+          'ancho' => $ancho,
+        ];
+      }
+      $candidato++;
+    }
+
+    return [
+      'automatico' => true,
+      'codigo' => $this->formatearCodigoArticulo($info['maxNum'] + 1, $ancho),
+      'empresaCodigo' => $empresa['codigo'],
+      'ancho' => $ancho,
+    ];
+  }
+
+  /** @param array<string, mixed> $data */
+  private function asignarCodigoArticuloSiCorresponde(array &$data): void
+  {
+    $empresa = $this->resolverEmpresaNumeracionArticulo('');
+    if ($empresa === null || !$empresa['genArticulos']) {
+      return;
+    }
+
+    // Con GenArticulos activo, legacy asigna el codigo (como GenProveedores).
+    $info = $this->leerMaxCodigoArticuloNumerico();
+    $candidato = $info['maxNum'] + 1;
+    $ancho = $info['ancho'];
+    for ($i = 0; $i < 100; $i++) {
+      $codigo = $this->formatearCodigoArticulo($candidato, $ancho);
+      if (!$this->existeCodigoArticulo($codigo)) {
+        $data['codigo'] = $codigo;
+        return;
+      }
+      $candidato++;
+    }
+
+    throw new \InvalidArgumentException(
+      'No se pudo generar un codigo de articulo libre (revise GenArticulos / codigos existentes)'
+    );
+  }
+
+  private function existeCodigoArticulo(string $codigo): bool
+  {
+    $stmt = $this->pdo->prepare(
+      'SELECT 1 FROM [Articulos] WHERE RTRIM([Codigo]) = :codigo'
+    );
+    $stmt->execute(['codigo' => trim($codigo)]);
+    return (bool) $stmt->fetchColumn();
+  }
+
+  /**
+   * @return array{codigo: string, genArticulos: bool}|null
+   */
+  private function resolverEmpresaNumeracionArticulo(string $empresaCodigo): ?array
+  {
+    $codigo = trim($empresaCodigo);
+    if ($codigo !== '') {
+      $row = $this->leerEmpresaNumeracionArticulo($codigo);
+      if ($row !== null) {
+        return $row;
+      }
+    }
+
+    $stmt = $this->pdo->query(
+      "SELECT TOP 1 RTRIM([Codigo]) AS Codigo
+       FROM [Empresas]
+       WHERE ISNULL([Central], 0) = 1
+       ORDER BY [Codigo]"
+    );
+    $central = $stmt ? $stmt->fetchColumn() : false;
+    if ($central) {
+      $row = $this->leerEmpresaNumeracionArticulo((string) $central);
+      if ($row !== null) {
+        return $row;
+      }
+    }
+
+    $stmt = $this->pdo->query(
+      "SELECT TOP 1 RTRIM([Codigo]) AS Codigo
+       FROM [Empresas]
+       WHERE ISNULL([GenArticulos], 0) = 1
+       ORDER BY [Codigo]"
+    );
+    $any = $stmt ? $stmt->fetchColumn() : false;
+    return $any ? $this->leerEmpresaNumeracionArticulo((string) $any) : null;
+  }
+
+  /**
+   * @return array{codigo: string, genArticulos: bool}|null
+   */
+  private function leerEmpresaNumeracionArticulo(string $codigo): ?array
+  {
+    $stmt = $this->pdo->prepare(
+      'SELECT RTRIM([Codigo]) AS Codigo,
+              CAST(ISNULL([GenArticulos], 0) AS int) AS GenArticulos
+       FROM [Empresas]
+       WHERE RTRIM([Codigo]) = :codigo'
+    );
+    $stmt->execute(['codigo' => trim($codigo)]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+      return null;
+    }
+
+    return [
+      'codigo' => (string) $row['Codigo'],
+      'genArticulos' => ((int) $row['GenArticulos']) === 1,
+    ];
+  }
+
+  /**
+   * @return array{maxNum: int, ancho: int}
+   */
+  private function leerMaxCodigoArticuloNumerico(): array
+  {
+    $stmt = $this->pdo->query(
+      "SELECT
+         MAX(CONVERT(decimal(18,0), RTRIM([Codigo]))) AS MaxNum,
+         MAX(LEN(RTRIM([Codigo]))) AS MaxLen
+       FROM [Articulos]
+       WHERE RTRIM([Codigo]) NOT LIKE '%[^0-9]%'
+         AND LEN(RTRIM([Codigo])) BETWEEN 1 AND 18
+         AND ISNUMERIC(RTRIM([Codigo])) = 1"
+    );
+    $row = $stmt ? $stmt->fetch(PDO::FETCH_ASSOC) : false;
+    $maxNum = $row && $row['MaxNum'] !== null ? (int) $row['MaxNum'] : 0;
+    $ancho = $row && $row['MaxLen'] !== null ? (int) $row['MaxLen'] : 10;
+    if ($ancho < 1) {
+      $ancho = 10;
+    }
+    if ($ancho > 18) {
+      $ancho = 18;
+    }
+    // Si el siguiente numero supera el ancho actual, ampliar (sin pasar de 18).
+    $siguienteLen = strlen((string) ($maxNum + 1));
+    if ($siguienteLen > $ancho) {
+      $ancho = min(18, $siguienteLen);
+    }
+
+    return ['maxNum' => $maxNum, 'ancho' => $ancho];
+  }
+
+  private function formatearCodigoArticulo(int $numero, int $ancho): string
+  {
+    if ($numero < 0) {
+      throw new \InvalidArgumentException('Codigo de articulo invalido');
+    }
+    $s = (string) $numero;
+    if (strlen($s) > 18) {
+      throw new \InvalidArgumentException('Codigo de articulo fuera de rango');
+    }
+    $pad = max($ancho, strlen($s));
+    if ($pad > 18) {
+      $pad = 18;
+    }
+    return str_pad($s, $pad, '0', STR_PAD_LEFT);
   }
 }
 

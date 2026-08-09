@@ -22,8 +22,16 @@ export type GridFila = Record<string, unknown> & {
 /** Columnas visibles en la rejilla (alta via formulario/ficha). */
 export const entidadGridColumns: Record<string, GridColumn[]> = {
   impuestos: [
-    { key: 'codigo', label: 'Codigo', type: 'text', width: '5rem', maxLength: 2, required: true },
-    { key: 'descripcion', label: 'Descripcion', type: 'text', width: '14rem', maxLength: 40, required: true },
+    { key: 'codigo', label: 'Codigo', type: 'text', width: '4rem', maxLength: 2, required: true },
+    { key: 'descripcion', label: 'Descripcion', type: 'text', width: '12rem', maxLength: 40, required: true },
+    { key: 'porcentajeIVA', label: '% Iva', type: 'number', width: '5rem', required: true },
+    { key: 'porcentajeRec', label: '% Rec', type: 'number', width: '5rem' },
+    { key: 'cuentaCtb', label: 'Cuenta Ctb.', type: 'number', width: '7rem' },
+    { key: 'cuentaCtbSoportadoIntra', label: 'Intr.Soport.', type: 'number', width: '7rem' },
+    { key: 'cuentaCtbRepercutidoIntra', label: 'Intr.Reper.', type: 'number', width: '7rem' },
+    { key: 'idWeb', label: 'Id WEB', type: 'number', width: '4.5rem' },
+    { key: 'regimenEspecialAGYP', label: 'R.E. A.G Y P.', type: 'checkbox', width: '6rem' },
+    { key: 'ivaExento', label: 'IVA EX.', type: 'checkbox', width: '4.5rem' },
     { key: 'activo', label: 'Activo', type: 'checkbox', width: '4rem' },
   ],
   'formas-pago': [
@@ -47,13 +55,15 @@ export const entidadGridColumns: Record<string, GridColumn[]> = {
   ],
   trabajadores: [
     { key: 'codigo', label: 'Codigo', type: 'text', width: '5rem', maxLength: 4, required: true },
-    { key: 'nombre', label: 'Nombre', type: 'text', width: '12rem', maxLength: 50, required: true },
+    { key: 'nombre', label: 'Descripcion', type: 'text', width: '12rem', maxLength: 50, required: true },
     { key: 'comision', label: 'Comision', type: 'number', width: '5.5rem' },
     { key: 'agente', label: 'Agente', type: 'checkbox', width: '4rem' },
     { key: 'vendedor', label: 'Vendedor', type: 'checkbox', width: '4.5rem' },
     { key: 'operario', label: 'Operario', type: 'checkbox', width: '4.5rem' },
     { key: 'tecnico', label: 'Tecnico', type: 'checkbox', width: '4rem' },
     { key: 'usuarioCodigo', label: 'Usuario', type: 'select', width: '8rem', optionsSource: 'usuarios' },
+    { key: 'tarjeta', label: 'Tarjeta', type: 'number', width: '5rem' },
+    { key: 'conceptoDescuadre', label: 'Con.Des', type: 'text', width: '4.5rem', maxLength: 2 },
     { key: 'activo', label: 'Activo', type: 'checkbox', width: '4rem' },
   ],
   clientes: [

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   clonarFilaGrid,
   esGridEstrecho,
@@ -14,11 +14,18 @@ import {
   filtrosIniciales,
   type ColumnFilter,
 } from '@/composables/useGridColumnFilters'
-import { impuestoTabs, impuestoVacio, validarImpuestoObligatorios } from '@/config/impuestos-tabs'
+import {
+  IMPUESTO_CAMPOS_OBLIGATORIOS,
+  camposImpuestoObligatoriosVacios,
+  impuestoTabs,
+  impuestoVacio,
+  validarImpuestoObligatorios,
+} from '@/config/impuestos-tabs'
 import { extractApiError, useMantenimiento } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import ListPagination from '@/components/common/ListPagination.vue'
 import EntidadGrid from '@/components/mantenimiento/EntidadGrid.vue'
 import ImpuestoTabForm from '@/components/impuestos/ImpuestoTabForm.vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
@@ -30,7 +37,8 @@ const columns = getGridColumns(ENTIDAD)
 const esEstrecho = esGridEstrecho(columns)
 
 const { puede } = usePermisos()
-const { items, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(() => ENTIDAD)
+const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(() => ENTIDAD)
+pageSize.value = 50
 
 const puedeCrear = computed(() => puede(MODULO, 'crear'))
 const puedeEditar = computed(() => puede(MODULO, 'editar'))
@@ -45,11 +53,41 @@ const indiceSeleccionado = ref(0)
 const filtroActivo = ref<'activos' | 'todos' | 'inactivos'>('activos')
 const mensaje = ref<string | null>(null)
 const confirmBorrarFichaOpen = ref(false)
+const avisoModalOpen = ref(false)
+const avisoModalTitulo = ref('Campo obligatorio')
+const avisoModalMensaje = ref('')
+const campoAvisoActual = ref<string | null>(null)
+const camposInvalidos = ref<string[]>([])
+const codigoInput = ref<HTMLInputElement | null>(null)
 let vistaMontada = true
 
 onBeforeUnmount(() => {
   vistaMontada = false
 })
+
+function mostrarAvisoModal(titulo: string, message: string, campo?: string | null) {
+  campoAvisoActual.value = campo ?? null
+  if (campo) camposInvalidos.value = [campo]
+  avisoModalTitulo.value = titulo
+  avisoModalMensaje.value = message
+  avisoModalOpen.value = true
+}
+
+async function cerrarAvisoModal() {
+  const key = campoAvisoActual.value
+  avisoModalOpen.value = false
+  avisoModalMensaje.value = ''
+  campoAvisoActual.value = null
+  if (!key) return
+  await nextTick()
+  await nextTick()
+  if (key === 'codigo') {
+    codigoInput.value?.focus()
+    codigoInput.value?.select()
+    return
+  }
+  document.querySelector<HTMLElement>(`[data-field-key="${key}"]`)?.focus()
+}
 
 const tabActiva = ref(impuestoTabs[0].id)
 const modoEdicion = ref(false)
@@ -124,7 +162,7 @@ onMounted(async () => {
 
 async function cargar() {
   mensaje.value = null
-  const params: Record<string, string | number | boolean> = { page: 1, pageSize: 500 }
+  const params: Record<string, string | number | boolean> = { page: page.value, pageSize: pageSize.value }
   if (filtroActivo.value === 'activos') params.activo = true
   if (filtroActivo.value === 'inactivos') params.activo = false
   const seqFiltro = filtroActivo.value
@@ -134,7 +172,19 @@ async function cargar() {
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
 }
 
+function onPage(p: number) {
+  page.value = p
+  void cargar()
+}
+
+function onPageSize(n: number) {
+  pageSize.value = n
+  page.value = 1
+  void cargar()
+}
+
 async function onCambioFiltroActivo() {
+  page.value = 1
   indiceSeleccionado.value = 0
   await cargar()
 }
@@ -180,6 +230,7 @@ async function abrirFichaPorCodigo(codigo: string) {
     tabActiva.value = 'generales'
     vista.value = 'ficha'
     mensaje.value = null
+    camposInvalidos.value = []
   } catch (e: unknown) {
     mensaje.value = extractApiError(e, 'No se pudo cargar la ficha')
   }
@@ -195,7 +246,7 @@ async function abrirFicha(index?: number) {
   await abrirFichaPorCodigo(String(fila.codigo))
 }
 
-function onNuevo() {
+async function onNuevo() {
   if (!puedeCrear.value) return
   ficha.value = impuestoVacio()
   esNuevo.value = true
@@ -204,6 +255,11 @@ function onNuevo() {
   tabActiva.value = 'generales'
   vista.value = 'ficha'
   mensaje.value = null
+  camposInvalidos.value = []
+  await nextTick()
+  await nextTick()
+  codigoInput.value?.focus()
+  codigoInput.value?.select()
 }
 
 function onModificar() {
@@ -212,10 +268,27 @@ function onModificar() {
 }
 
 async function onGuardarFicha() {
-  const errorValidacion = validarImpuestoObligatorios(ficha.value)
-  if (errorValidacion) {
-    mensaje.value = errorValidacion
+  const vacios = camposImpuestoObligatoriosVacios(ficha.value)
+  if (vacios.length > 0) {
+    const key = vacios[0]
+    const label = IMPUESTO_CAMPOS_OBLIGATORIOS.find((c) => c.key === key)?.label ?? key
+    const msg = validarImpuestoObligatorios(ficha.value) ?? `El campo "${label}" es obligatorio.`
+    mensaje.value = msg
+    mostrarAvisoModal('Campo obligatorio', msg, key)
     return
+  }
+  camposInvalidos.value = []
+  const codigo = String(ficha.value.codigo ?? '').trim()
+  if (esNuevo.value) {
+    const existe = filasTodas.value.some(
+      (f) => String(f.codigo ?? '').trim().toLowerCase() === codigo.toLowerCase()
+    )
+    if (existe) {
+      const msg = `Ya existe un impuesto con el codigo "${codigo}".`
+      mensaje.value = msg
+      mostrarAvisoModal('Codigo duplicado', msg, 'codigo')
+      return
+    }
   }
   try {
     if (esNuevo.value) {
@@ -226,7 +299,6 @@ async function onGuardarFicha() {
       if (idx >= 0) await abrirFicha(idx)
       else volverAlGrid()
     } else {
-      const codigo = String(ficha.value.codigo)
       await actualizar(codigo, ficha.value)
       mensaje.value = 'Impuesto actualizado'
       await cargar()
@@ -235,7 +307,13 @@ async function onGuardarFicha() {
     modoEdicion.value = false
     esNuevo.value = false
   } catch (e: unknown) {
-    mensaje.value = extractApiError(e, 'No se pudo guardar el impuesto')
+    const msg = extractApiError(e, 'No se pudo guardar el impuesto')
+    mensaje.value = msg
+    if (/ya existe|duplicad|codigo/i.test(msg)) {
+      mostrarAvisoModal('Codigo duplicado', msg, 'codigo')
+    } else {
+      mostrarAvisoModal('Error al guardar', msg)
+    }
   }
 }
 
@@ -273,6 +351,7 @@ function volverAlGrid() {
   modoEdicion.value = false
   esNuevo.value = false
   ficha.value = {}
+  camposInvalidos.value = []
 }
 
 async function onPrimero() {
@@ -366,6 +445,15 @@ async function onUltimo() {
           @nuevo="onNuevo"
         />
 
+        <ListPagination
+          :page="page"
+          :page-size="pageSize"
+          :total="total"
+          :loading="loading"
+          @update:page="onPage"
+          @update:page-size="onPageSize"
+        />
+
         <p class="hint">
           Filtra por <strong>Codigo</strong> y <strong>Descripcion</strong> con el embudo. Doble clic o
           <strong>Ficha</strong> abre el detalle.
@@ -456,19 +544,28 @@ async function onUltimo() {
         </div>
 
         <div class="ficha-header">
-          <label>
+          <label :class="{ 'campo-invalido': camposInvalidos.includes('codigo') }">
             Codigo *
             <input
+              ref="codigoInput"
               v-model="ficha.codigo"
+              data-field-key="codigo"
               :readonly="!esNuevo"
               maxlength="2"
               class="codigo-input"
-              required
             />
           </label>
-          <label class="descripcion-input">
+          <label
+            class="descripcion-input"
+            :class="{ 'campo-invalido': camposInvalidos.includes('descripcion') }"
+          >
             Descripcion *
-            <input v-model="ficha.descripcion" :readonly="soloLecturaFicha" maxlength="40" required />
+            <input
+              v-model="ficha.descripcion"
+              data-field-key="descripcion"
+              :readonly="soloLecturaFicha"
+              maxlength="40"
+            />
           </label>
         </div>
 
@@ -491,6 +588,7 @@ async function onUltimo() {
           :readonly="soloLecturaFicha"
           :codigo-read-only="!esNuevo"
           :ocultar-cabecera="true"
+          :campos-invalidos="camposInvalidos"
           @update:model-value="ficha = $event"
         />
       </template>
@@ -508,6 +606,16 @@ async function onUltimo() {
         message="Va a eliminar este impuesto de la base de datos. Esta accion no se puede deshacer."
         @confirm="confirmarBorrarFicha"
         @cancel="confirmBorrarFichaOpen = false"
+      />
+      <ConfirmDialog
+        :open="avisoModalOpen"
+        :title="avisoModalTitulo"
+        :message="avisoModalMensaje"
+        confirm-label="Aceptar"
+        :danger="false"
+        hide-cancel
+        @confirm="cerrarAvisoModal"
+        @cancel="cerrarAvisoModal"
       />
     </template>
   </section>
@@ -668,6 +776,16 @@ async function onUltimo() {
   border: 1px solid #94a3b8;
   border-radius: 3px;
   font-size: 0.8rem;
+}
+
+.campo-invalido {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.campo-invalido input {
+  border-color: #ef4444;
+  background: #fef2f2;
 }
 
 .tabs {

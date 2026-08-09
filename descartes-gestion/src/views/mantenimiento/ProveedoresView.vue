@@ -19,6 +19,7 @@ import { extractApiError, useMantenimiento } from '@/composables/useMantenimient
 import { usePermisos } from '@/composables/usePermisos'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import ListPagination from '@/components/common/ListPagination.vue'
 import EntidadGrid from '@/components/mantenimiento/EntidadGrid.vue'
 import ProveedorToolbar from '@/components/proveedores/ProveedorToolbar.vue'
 import ProveedorTabForm from '@/components/proveedores/ProveedorTabForm.vue'
@@ -35,7 +36,8 @@ const esEstrecho = esGridEstrecho(columns)
 
 const { puede } = usePermisos()
 const puestoContexto = usePuestoContextoStore()
-const { items, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(() => MODULO)
+const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(() => MODULO)
+pageSize.value = 50
 
 const puedeCrear = computed(() => puede(MODULO, 'crear'))
 const puedeEditar = computed(() => puede(MODULO, 'editar'))
@@ -139,10 +141,21 @@ async function cargar(opts?: { silent?: boolean }) {
   const q = textoBusquedaServidor()
   ultimaQServidor = q
   const seq = ++cargaSeq
-  await listar({ page: 1, pageSize: 500, ...(q ? { q } : {}) }, { silent: opts?.silent === true })
+  await listar({ page: page.value, pageSize: pageSize.value, ...(q ? { q } : {}) }, { silent: opts?.silent === true })
   if (seq !== cargaSeq) return
   filasTodas.value = items.value.map((item) => clonarFilaGrid(item, columns))
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
+}
+
+function onPage(p: number) {
+  page.value = p
+  void cargar()
+}
+
+function onPageSize(n: number) {
+  pageSize.value = n
+  page.value = 1
+  void cargar()
 }
 
 function textoBusquedaServidor(): string {
@@ -162,6 +175,7 @@ let debounceFiltros: ReturnType<typeof setTimeout> | null = null
 
 function buscarServidorAhora() {
   if (debounceFiltros) clearTimeout(debounceFiltros)
+  page.value = 1
   void cargar({ silent: true })
 }
 
@@ -176,6 +190,7 @@ watch(
     debounceFiltros = setTimeout(() => {
       const q = textoBusquedaServidor()
       if (q === ultimaQServidor) return
+      page.value = 1
       void cargar({ silent: true })
     }, 500)
   }
@@ -454,6 +469,15 @@ async function onUltimo() {
           @abrir="abrirFicha"
           @nuevo="onNuevo"
           @search="buscarServidorAhora"
+        />
+
+        <ListPagination
+          :page="page"
+          :page-size="pageSize"
+          :total="total"
+          :loading="loading"
+          @update:page="onPage"
+          @update:page-size="onPageSize"
         />
 
         <p class="hint">
