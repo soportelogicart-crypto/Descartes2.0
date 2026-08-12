@@ -18,6 +18,7 @@ import { usePedidosBusquedaStore } from '@/stores/pedidosBusqueda'
 import VentaToolbar from '@/components/ventas/VentaToolbar.vue'
 import EntidadBuscarModal from '@/components/common/EntidadBuscarModal.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -1281,45 +1282,37 @@ onActivated(() => {
                 <span v-else>{{ l.loteVenta || '' }}</span>
               </td>
               <td class="num">
-                <input
+                <DecimalInput
                   v-if="editando"
-                  v-model.number="l.cantidadPedida"
-                  type="number"
-                  step="0.01"
-                  min="0"
+                  v-model="l.cantidadPedida"
+                  :empty-as-null="false"
                 />
                 <span v-else>{{ Number(l.cantidadPedida).toFixed(2) }}</span>
               </td>
               <td class="num">{{ Number(l.cantidadServida || 0).toFixed(2) }}</td>
               <td class="num pend">{{ pendienteDe(l).toFixed(2) }}</td>
               <td class="num">
-                <input
+                <DecimalInput
                   v-if="editando"
-                  v-model.number="l.cantidadAServir"
-                  type="number"
-                  step="0.01"
-                  min="0"
+                  v-model="l.cantidadAServir"
+                  :empty-as-null="false"
                   class="input-servir"
                 />
                 <span v-else>{{ Number(l.cantidadAServir || 0).toFixed(2) }}</span>
               </td>
               <td class="num">
-                <input
+                <DecimalInput
                   v-if="editando"
-                  v-model.number="l.precio"
-                  type="number"
-                  step="0.0001"
-                  min="0"
+                  v-model="l.precio"
+                  :empty-as-null="false"
                 />
                 <span v-else>{{ Number(l.precio).toFixed(4) }}</span>
               </td>
               <td class="num">
-                <input
+                <DecimalInput
                   v-if="editando"
-                  v-model.number="l.pjeDto"
-                  type="number"
-                  step="0.01"
-                  min="0"
+                  v-model="l.pjeDto"
+                  :empty-as-null="false"
                 />
                 <span v-else>{{ Number(l.pjeDto || 0).toFixed(2) }}</span>
               </td>

@@ -43,7 +43,6 @@ const route = useRoute()
 const { puede } = usePermisos()
 const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } =
   useMantenimiento(() => ENTIDAD)
-pageSize.value = 50
 const puestoContexto = usePuestoContextoStore()
 
 const puedeCrear = computed(() => puede(MODULO, 'crear'))

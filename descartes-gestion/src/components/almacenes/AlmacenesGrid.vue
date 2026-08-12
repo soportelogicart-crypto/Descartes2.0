@@ -8,6 +8,7 @@ import {
   type ColumnFilter,
   type FilterOperador,
 } from '@/composables/useGridColumnFilters'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 const props = defineProps<{
   filas: AlmacenFila[]
@@ -212,15 +213,14 @@ onBeforeUnmount(() => {
               :disabled="readonly || (col.key === 'codigo' && !fila._nuevo)"
               @change="onCellChange(index, col.key, ($event.target as HTMLInputElement).checked)"
             />
-            <input
+            <DecimalInput
               v-else-if="col.type === 'number'"
-              type="number"
               class="cell-input"
-              :value="cellValue(fila, col)"
+              :model-value="(cellValue(fila, col) as number | null) ?? null"
+              :empty-as-null="true"
+              :integer="true"
               :readonly="readonly || !fila._nuevo"
-              min="1"
-              step="1"
-              @input="onCellChange(index, col.key, ($event.target as HTMLInputElement).value === '' ? null : Number(($event.target as HTMLInputElement).value))"
+              @update:model-value="onCellChange(index, col.key, $event)"
             />
             <input
               v-else

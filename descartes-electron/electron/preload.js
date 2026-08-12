@@ -13,7 +13,9 @@ contextBridge.exposeInMainWorld('descartes', {
   clearEquipoConfig: () => ipcRenderer.invoke('equipo:clear'),
   getHostname: () => ipcRenderer.invoke('equipo:hostname'),
 
+  listPrinters: () => ipcRenderer.invoke('peripheral:listPrinters'),
   printTicket: (payload) => ipcRenderer.invoke('peripheral:printTicket', payload),
+  printHtml: (payload) => ipcRenderer.invoke('peripheral:printHtml', payload),
   printLabel: (payload) => ipcRenderer.invoke('peripheral:printLabel', payload),
   openCashDrawer: () => ipcRenderer.invoke('peripheral:openCashDrawer'),
   readCashDrawer: (payload) => ipcRenderer.invoke('peripheral:readCashDrawer', payload || {}),

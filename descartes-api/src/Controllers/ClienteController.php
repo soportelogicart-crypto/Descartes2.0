@@ -7,6 +7,7 @@ namespace Descartes\Api\Controllers;
 use Descartes\Api\Http\ErrorResponse;
 use Descartes\Api\Repositories\ClientesContactosRepository;
 use Descartes\Api\Repositories\ClientesDireccionesRepository;
+use Descartes\Api\Services\MantenimientoService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Slim\Psr7\Response as SlimResponse;
@@ -15,13 +16,46 @@ final class ClienteController
 {
   private ClientesDireccionesRepository $direccionesRepository;
   private ClientesContactosRepository $contactosRepository;
+  private MantenimientoService $mantenimientoService;
 
   public function __construct(
     ClientesDireccionesRepository $direccionesRepository,
-    ClientesContactosRepository $contactosRepository
+    ClientesContactosRepository $contactosRepository,
+    MantenimientoService $mantenimientoService
   ) {
     $this->direccionesRepository = $direccionesRepository;
     $this->contactosRepository = $contactosRepository;
+    $this->mantenimientoService = $mantenimientoService;
+  }
+
+  public function siguienteCodigo(Request $request, Response $response): Response
+  {
+    $params = $request->getQueryParams();
+    $empresa = trim((string) ($params['empresa'] ?? ''));
+    try {
+      $info = $this->mantenimientoService->siguienteCodigoCliente($empresa);
+      return $this->json($response, 200, $info);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function checkNif(Request $request, Response $response): Response
+  {
+    $params = $request->getQueryParams();
+    $nif = trim((string) ($params['nif'] ?? ''));
+    $excluir = trim((string) ($params['excluir'] ?? ''));
+    try {
+      $encontrado = $this->mantenimientoService->buscarClienteActivoPorNif($nif, $excluir);
+      return $this->json($response, 200, [
+        'duplicado' => $encontrado !== null,
+        'codigo' => $encontrado['codigo'] ?? null,
+      ]);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
   }
 
   public function listDirecciones(Request $request, Response $response, array $args): Response

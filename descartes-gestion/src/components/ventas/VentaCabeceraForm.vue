@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import type { VentaDetalle } from '@/types/ventas'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 type DireccionEnvioOpcion = {
   key: string
@@ -223,7 +224,7 @@ onUnmounted(() => {
           </label>
           <label class="field">
             <span class="label">N. albaran</span>
-            <input :value="ficha.albaran || ''" type="number" readonly />
+            <DecimalInput :model-value="(ficha.albaran as number | null) ?? null" :integer="true" readonly />
           </label>
           <label class="field">
             <span class="label">Fecha</span>
@@ -237,18 +238,12 @@ onUnmounted(() => {
           </label>
           <label class="field">
             <span class="label">Pedido</span>
-            <input
-              :value="ficha.pedido ?? ''"
-              type="number"
+            <DecimalInput
+              :model-value="(ficha.pedido as number | null) ?? null"
+              :empty-as-null="true"
+              :integer="true"
               :readonly="readonly"
-              @input="
-                patch(
-                  'pedido',
-                  ($event.target as HTMLInputElement).value === ''
-                    ? null
-                    : Number(($event.target as HTMLInputElement).value)
-                )
-              "
+              @update:model-value="patch('pedido', $event)"
             />
           </label>
           <label class="field">
@@ -517,18 +512,12 @@ onUnmounted(() => {
         </label>
         <label class="field">
           <span class="label">Almacen</span>
-          <input
-            :value="ficha.almacen ?? ''"
-            type="number"
+          <DecimalInput
+            :model-value="(ficha.almacen as number | null) ?? null"
+            :empty-as-null="true"
+            :integer="true"
             :readonly="readonly"
-            @input="
-              patch(
-                'almacen',
-                ($event.target as HTMLInputElement).value === ''
-                  ? null
-                  : Number(($event.target as HTMLInputElement).value)
-              )
-            "
+            @update:model-value="patch('almacen', $event)"
           />
         </label>
         <label class="field">
@@ -557,12 +546,11 @@ onUnmounted(() => {
         </label>
         <label class="field">
           <span class="label">Importe 1</span>
-          <input
-            :value="fpagoImporte(0)"
-            type="number"
-            step="0.01"
+          <DecimalInput
+            :model-value="fpagoImporte(0)"
+            :empty-as-null="false"
             :readonly="readonly"
-            @input="setImpFpago(0, Number(($event.target as HTMLInputElement).value) || 0)"
+            @update:model-value="setImpFpago(0, $event ?? 0)"
           />
         </label>
         <label class="field">
@@ -576,12 +564,11 @@ onUnmounted(() => {
         </label>
         <label class="field">
           <span class="label">Importe 2</span>
-          <input
-            :value="fpagoImporte(1)"
-            type="number"
-            step="0.01"
+          <DecimalInput
+            :model-value="fpagoImporte(1)"
+            :empty-as-null="false"
             :readonly="readonly"
-            @input="setImpFpago(1, Number(($event.target as HTMLInputElement).value) || 0)"
+            @update:model-value="setImpFpago(1, $event ?? 0)"
           />
         </label>
       </div>

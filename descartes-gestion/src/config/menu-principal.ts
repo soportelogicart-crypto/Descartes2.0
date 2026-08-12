@@ -9,7 +9,7 @@ export type MenuPrincipalSeccion = {
 
 /**
  * Secciones del menu principal de Gestion.
- * Solo Mantenimiento tiene submenus implementados; el resto es estructura para ir completando.
+ * Mantenimiento, Compras, Ventas y Facturacion tienen submenus; el resto es placeholder.
  */
 export const menuPrincipalSecciones: MenuPrincipalSeccion[] = [
   { id: 'mantenimiento', titulo: 'Mantenimiento', modulo: 'mantenimiento', ruta: '/' },

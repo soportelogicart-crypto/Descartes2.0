@@ -13,7 +13,7 @@ export const clientesMenuItems: ClientesMenuItem[] = [
   },
   { slug: 'clientes', titulo: 'Clientes', ruta: '/mantenimiento/clientes' },
   { slug: 'oferta-clientes', titulo: 'Oferta de clientes', ruta: '/mantenimiento/oferta-clientes' },
-  { slug: 'campanas', titulo: 'Campanas', ruta: '/mantenimiento/campanas' },
+  { slug: 'campanas', titulo: 'Campañas', ruta: '/mantenimiento/campanas' },
 ]
 
 export const clientesMenuRutas = clientesMenuItems.map((item) => item.ruta)

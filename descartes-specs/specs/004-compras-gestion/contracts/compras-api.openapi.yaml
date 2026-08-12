@@ -1,0 +1,752 @@
+openapi: 3.0.3
+info:
+  title: Descartes API — Compras (Gestión)
+  version: 1.0.0
+  description: |
+    API REST del módulo Compras (004-compras-gestion).
+
+    - Auth: cookie de sesión PHP (`AuthMiddleware` + `PermissionMiddleware`).
+    - Permisos módulo `compras`: `ver` (GET), `crear` (POST alta), `editar` (PUT / stock / recepción), `eliminar` (DELETE).
+    - `empresa` = código de tienda (`Empresas.Codigo`), no empresa cliente.
+    - JSON camelCase; mapeo SQL en `data-model.md`.
+    - Errores homogéneos: `{ error, codigo }` (`VALIDACION` | `NO_ENCONTRADO` | `CONFLICTO` | `ERROR`).
+    - Facturas proveedor: **solo lectura** en v1.
+    - Impresión A4: cliente (puesto Generales II); no hay endpoint de print en este módulo.
+
+servers:
+  - url: http://localhost/descartes-api/public
+    description: XAMPP local
+  - url: /api
+    description: Relativo al host de la SPA (proxy / baseURL)
+
+tags:
+  - name: compras
+    description: Ping / salud del módulo
+  - name: compras-albaranes
+  - name: compras-pedidos
+  - name: compras-facturas
+
+security:
+  - sessionAuth: []
+
+paths:
+  /api/compras/ping:
+    get:
+      tags: [compras]
+      summary: Salud del módulo Compras
+      responses:
+        '200':
+          description: API montada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  modulo: { type: string, example: compras }
+                  message: { type: string }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/compras/albaranes:
+    get:
+      tags: [compras-albaranes]
+      summary: Listar albaranes de compra
+      parameters:
+        - $ref: '#/components/parameters/qEmpresa'
+        - $ref: '#/components/parameters/qProveedor'
+        - $ref: '#/components/parameters/qFechaDesde'
+        - $ref: '#/components/parameters/qFechaHasta'
+        - $ref: '#/components/parameters/qAlmacen'
+        - in: query
+          name: albaran
+          schema: { type: integer }
+        - in: query
+          name: suAlbaran
+          schema: { type: string }
+        - $ref: '#/components/parameters/qPage'
+        - $ref: '#/components/parameters/qPageSize'
+      responses:
+        '200':
+          description: Listado paginado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedAlbaranCompraResumen'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ApiError'
+    post:
+      tags: [compras-albaranes]
+      summary: Crear albarán de compra
+      description: Numera con `UltAlbaranCom` de la tienda; `Actualizado=0`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlbaranCompraPayload'
+      responses:
+        '201':
+          description: Creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlbaranCompraDetalle'
+        '400':
+          $ref: '#/components/responses/ApiError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ApiError'
+
+  /api/compras/albaranes/{empresa}/{albaran}:
+    parameters:
+      - $ref: '#/components/parameters/empresa'
+      - $ref: '#/components/parameters/albaran'
+    get:
+      tags: [compras-albaranes]
+      summary: Detalle albarán de compra
+      responses:
+        '200':
+          description: Detalle con líneas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlbaranCompraDetalle'
+        '400':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    put:
+      tags: [compras-albaranes]
+      summary: Actualizar albarán
+      description: Bloqueado si `TrasCtb=1` o preferiblemente si `Actualizado=1`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlbaranCompraPayload'
+      responses:
+        '200':
+          description: Actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlbaranCompraDetalle'
+        '400':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '409':
+          $ref: '#/components/responses/ApiError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    delete:
+      tags: [compras-albaranes]
+      summary: Borrar albarán
+      description: Solo si `Actualizado=0` y `TrasCtb=0`.
+      responses:
+        '204':
+          description: Eliminado
+        '400':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '409':
+          $ref: '#/components/responses/ApiError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/compras/albaranes/{empresa}/{albaran}/actualizar-stock:
+    post:
+      tags: [compras-albaranes]
+      summary: Actualizar stock del albarán
+      description: |
+        Upsert `Stock` (Entradas/Salidas según signo), marca `Actualizado=1`.
+        Conflicto si ya actualizado o traspasado a contabilidad.
+      parameters:
+        - $ref: '#/components/parameters/empresa'
+        - $ref: '#/components/parameters/albaran'
+      responses:
+        '200':
+          description: Stock aplicado; devuelve detalle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlbaranCompraDetalle'
+        '400':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '409':
+          $ref: '#/components/responses/ApiError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/compras/pedidos:
+    get:
+      tags: [compras-pedidos]
+      summary: Listar pedidos a proveedor
+      parameters:
+        - $ref: '#/components/parameters/qEmpresa'
+        - $ref: '#/components/parameters/qProveedor'
+        - $ref: '#/components/parameters/qFechaDesde'
+        - $ref: '#/components/parameters/qFechaHasta'
+        - $ref: '#/components/parameters/qAlmacen'
+        - in: query
+          name: pedido
+          schema: { type: integer }
+        - in: query
+          name: situacion
+          description: '0=pendiente, 1=parcial, 2=servido (columna SQL; label UI se deriva de cantidades)'
+          schema: { type: integer, enum: [0, 1, 2] }
+        - $ref: '#/components/parameters/qPage'
+        - $ref: '#/components/parameters/qPageSize'
+      responses:
+        '200':
+          description: Listado paginado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedPedidoProveedorResumen'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ApiError'
+    post:
+      tags: [compras-pedidos]
+      summary: Crear pedido a proveedor
+      description: Numera con `UltPedidoCom` de la tienda.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PedidoProveedorPayload'
+      responses:
+        '201':
+          description: Creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PedidoProveedorDetalle'
+        '400':
+          $ref: '#/components/responses/ApiError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ApiError'
+
+  /api/compras/pedidos/{empresa}/{pedido}:
+    parameters:
+      - $ref: '#/components/parameters/empresa'
+      - $ref: '#/components/parameters/pedido'
+    get:
+      tags: [compras-pedidos]
+      summary: Detalle pedido a proveedor
+      responses:
+        '200':
+          description: Detalle con líneas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PedidoProveedorDetalle'
+        '400':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    put:
+      tags: [compras-pedidos]
+      summary: Actualizar pedido abierto
+      description: No editable si `situacionLabel=servido`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PedidoProveedorPayload'
+      responses:
+        '200':
+          description: Actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PedidoProveedorDetalle'
+        '400':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '409':
+          $ref: '#/components/responses/ApiError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/compras/pedidos/{empresa}/{pedido}/recibir:
+    post:
+      tags: [compras-pedidos]
+      summary: Recibir pedido (genera albarán de compra)
+      description: |
+        Crea albarán desde líneas con cantidad a recibir; incrementa `CantidadSer`.
+        409 si el pedido ya está servido; 400 si cantidad > pendiente.
+      parameters:
+        - $ref: '#/components/parameters/empresa'
+        - $ref: '#/components/parameters/pedido'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecepcionPedidoPayload'
+      responses:
+        '201':
+          description: Albarán creado + pedido actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecepcionPedidoResultado'
+        '400':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '409':
+          $ref: '#/components/responses/ApiError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/compras/facturas:
+    get:
+      tags: [compras-facturas]
+      summary: Listar facturas de proveedor (solo lectura)
+      parameters:
+        - $ref: '#/components/parameters/qProveedor'
+        - $ref: '#/components/parameters/qFechaDesde'
+        - $ref: '#/components/parameters/qFechaHasta'
+        - in: query
+          name: factura
+          schema: { type: integer }
+        - in: query
+          name: suFactura
+          schema: { type: string }
+        - in: query
+          name: estado
+          schema: { type: string }
+        - $ref: '#/components/parameters/qPage'
+        - $ref: '#/components/parameters/qPageSize'
+      responses:
+        '200':
+          description: Listado paginado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedFacturaCompraResumen'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ApiError'
+
+  /api/compras/facturas/{factura}:
+    get:
+      tags: [compras-facturas]
+      summary: Detalle factura de proveedor (solo lectura)
+      description: PK es solo `Factura` (sin empresa). Campo API `importeVto3` ← SQL `ImporteVto31`.
+      parameters:
+        - in: path
+          name: factura
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Detalle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FacturaCompraDetalle'
+        '400':
+          $ref: '#/components/responses/ApiError'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  securitySchemes:
+    sessionAuth:
+      type: apiKey
+      in: cookie
+      name: PHPSESSID
+
+  parameters:
+    empresa:
+      in: path
+      name: empresa
+      required: true
+      description: Código tienda
+      schema: { type: string }
+    albaran:
+      in: path
+      name: albaran
+      required: true
+      schema: { type: integer }
+    pedido:
+      in: path
+      name: pedido
+      required: true
+      schema: { type: integer }
+    qEmpresa:
+      in: query
+      name: empresa
+      schema: { type: string }
+    qProveedor:
+      in: query
+      name: proveedor
+      description: Código o razón social (LIKE)
+      schema: { type: string }
+    qFechaDesde:
+      in: query
+      name: fechaDesde
+      schema: { type: string, format: date }
+    qFechaHasta:
+      in: query
+      name: fechaHasta
+      schema: { type: string, format: date }
+    qAlmacen:
+      in: query
+      name: almacen
+      schema: { type: integer }
+    qPage:
+      in: query
+      name: page
+      schema: { type: integer, default: 1, minimum: 1 }
+    qPageSize:
+      in: query
+      name: pageSize
+      schema: { type: integer, default: 25, minimum: 1, maximum: 500 }
+
+  schemas:
+    ApiError:
+      type: object
+      required: [error, codigo]
+      properties:
+        error: { type: string }
+        codigo:
+          type: string
+          enum: [VALIDACION, NO_ENCONTRADO, CONFLICTO, ERROR, NO_AUTENTICADO, SIN_PERMISO]
+        dependencias:
+          type: array
+          items: { type: string }
+
+    AlbaranCompraLinea:
+      type: object
+      properties:
+        nroLin: { type: integer }
+        articulo: { type: string, nullable: true }
+        descripcion: { type: string, nullable: true }
+        cantidad: { type: number }
+        precio: { type: number }
+        pjeDto: { type: number }
+        dto1: { type: number }
+        dto2: { type: number }
+        dto3: { type: number }
+        pedido: { type: integer, nullable: true, description: 'Pedido origen; 0 = ninguno' }
+        lote: { type: string, nullable: true }
+        almacen: { type: integer, nullable: true, description: '0 → almacén de cabecera' }
+        articuloOriginal: { type: string, nullable: true }
+
+    AlbaranCompraResumen:
+      type: object
+      properties:
+        empresa: { type: string }
+        albaran: { type: integer }
+        suAlbaran: { type: string, nullable: true }
+        fechaAlbaran: { type: string, nullable: true, format: date }
+        proveedor: { type: string, nullable: true }
+        razonSocial: { type: string, nullable: true }
+        fpago: { type: string, nullable: true }
+        importeAlb: { type: number }
+        importeDtos: { type: number }
+        importeIva: { type: number }
+        importeRec: { type: number }
+        actualizado: { type: boolean }
+        albaranDevolucion: { type: boolean }
+        trasCtb: { type: boolean }
+        almacen: { type: integer, nullable: true }
+        estado: { type: string, nullable: true }
+
+    AlbaranCompraDetalle:
+      allOf:
+        - $ref: '#/components/schemas/AlbaranCompraResumen'
+        - type: object
+          properties:
+            observaciones: { type: string, nullable: true }
+            albaranDevolucionEstado: { type: integer, nullable: true }
+            trasModem: { type: boolean }
+            serie: { type: string, nullable: true }
+            seleccion: { type: boolean }
+            cliente: { type: string, nullable: true }
+            proyecto: { type: string, nullable: true }
+            importeTransporte: { type: number }
+            coeficienteTransporte: { type: number }
+            brutoConTransporte: { type: number }
+            lUpdate: { type: string, nullable: true }
+            editable: { type: boolean }
+            lineas:
+              type: array
+              items:
+                $ref: '#/components/schemas/AlbaranCompraLinea'
+
+    AlbaranCompraPayload:
+      type: object
+      required: [empresa, lineas]
+      properties:
+        empresa: { type: string }
+        albaran: { type: integer }
+        suAlbaran: { type: string, nullable: true }
+        fechaAlbaran: { type: string, nullable: true, format: date }
+        proveedor: { type: string, nullable: true }
+        fpago: { type: string, nullable: true }
+        observaciones: { type: string, nullable: true }
+        albaranDevolucion: { type: boolean }
+        almacen: { type: integer, nullable: true }
+        serie: { type: string, nullable: true }
+        cliente: { type: string, nullable: true }
+        proyecto: { type: string, nullable: true }
+        importeTransporte: { type: number }
+        coeficienteTransporte: { type: number }
+        lineas:
+          type: array
+          items:
+            $ref: '#/components/schemas/AlbaranCompraLinea'
+
+    PagedAlbaranCompraResumen:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AlbaranCompraResumen'
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+
+    PedidoProveedorLinea:
+      type: object
+      properties:
+        numLin: { type: integer }
+        articulo: { type: string, nullable: true }
+        descripcion: { type: string, nullable: true }
+        cantidadPed: { type: number }
+        cantidadSer: { type: number }
+        precioPed: { type: number }
+        precioRec: { type: number }
+        pjeDto: { type: number }
+        dto1: { type: number }
+        dto2: { type: number }
+        dto3: { type: number }
+        importe: { type: number }
+        almacen: { type: integer, nullable: true }
+        prevision: { type: string, nullable: true, format: date-time }
+
+    PedidoProveedorResumen:
+      type: object
+      properties:
+        empresa: { type: string }
+        pedido: { type: integer }
+        fechaPedido: { type: string, nullable: true, format: date }
+        proveedor: { type: string, nullable: true }
+        razonSocial: { type: string, nullable: true }
+        importe: { type: number }
+        situacion: { type: integer, nullable: true, enum: [0, 1, 2] }
+        situacionLabel:
+          type: string
+          nullable: true
+          enum: [pendiente, parcial, servido]
+        fechaMaxRecepcion: { type: string, nullable: true, format: date }
+        vendedor: { type: string, nullable: true }
+        almacen: { type: integer, nullable: true }
+
+    PedidoProveedorDetalle:
+      allOf:
+        - $ref: '#/components/schemas/PedidoProveedorResumen'
+        - type: object
+          properties:
+            observaciones: { type: string, nullable: true }
+            observInternas: { type: string, nullable: true }
+            trasModem: { type: boolean }
+            preciosActualizados: { type: boolean }
+            previsionC: { type: string, nullable: true, format: date-time }
+            importeRec: { type: number, nullable: true }
+            pedidosWeb: { type: boolean }
+            editable: { type: boolean }
+            lineas:
+              type: array
+              items:
+                $ref: '#/components/schemas/PedidoProveedorLinea'
+
+    PedidoProveedorPayload:
+      type: object
+      required: [empresa, lineas]
+      properties:
+        empresa: { type: string }
+        pedido: { type: integer }
+        fechaPedido: { type: string, nullable: true, format: date }
+        proveedor: { type: string, nullable: true }
+        fechaMaxRecepcion: { type: string, nullable: true, format: date }
+        observaciones: { type: string, nullable: true }
+        observInternas: { type: string, nullable: true }
+        vendedor: { type: string, nullable: true }
+        almacen: { type: integer, nullable: true }
+        lineas:
+          type: array
+          items:
+            $ref: '#/components/schemas/PedidoProveedorLinea'
+
+    PagedPedidoProveedorResumen:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PedidoProveedorResumen'
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+
+    RecepcionPedidoLinea:
+      type: object
+      required: [numLin, cantidad]
+      properties:
+        numLin: { type: integer }
+        cantidad: { type: number }
+
+    RecepcionPedidoPayload:
+      type: object
+      required: [lineas]
+      properties:
+        lineas:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecepcionPedidoLinea'
+        fechaAlbaran: { type: string, nullable: true, format: date }
+        suAlbaran: { type: string, nullable: true }
+        almacen: { type: integer, nullable: true }
+        observaciones: { type: string, nullable: true }
+
+    RecepcionPedidoResultado:
+      type: object
+      required: [albaran, pedido]
+      properties:
+        albaran:
+          $ref: '#/components/schemas/AlbaranCompraDetalle'
+        pedido:
+          $ref: '#/components/schemas/PedidoProveedorDetalle'
+
+    FacturaCompraResumen:
+      type: object
+      properties:
+        factura: { type: integer }
+        suFactura: { type: string, nullable: true }
+        fecha: { type: string, nullable: true, format: date }
+        proveedor: { type: string, nullable: true }
+        razonSocial: { type: string, nullable: true }
+        estado: { type: string, nullable: true }
+        fpago: { type: string, nullable: true }
+        baseImp1: { type: number }
+        baseImp2: { type: number }
+        baseImp3: { type: number }
+        pjeIva1: { type: number }
+        pjeIva2: { type: number }
+        pjeIva3: { type: number }
+
+    FacturaCompraDetalle:
+      allOf:
+        - $ref: '#/components/schemas/FacturaCompraResumen'
+        - type: object
+          properties:
+            fechaVto1: { type: string, nullable: true, format: date }
+            fechaVto2: { type: string, nullable: true, format: date }
+            fechaVto3: { type: string, nullable: true, format: date }
+            fechaVto4: { type: string, nullable: true, format: date }
+            fechaVto5: { type: string, nullable: true, format: date }
+            fechaVto6: { type: string, nullable: true, format: date }
+            importeVto1: { type: number }
+            importeVto2: { type: number }
+            importeVto3: { type: number, description: '← SQL ImporteVto31' }
+            importeVto4: { type: number }
+            importeVto5: { type: number }
+            importeVto6: { type: number }
+            estadoVto1: { type: string, nullable: true }
+            estadoVto2: { type: string, nullable: true }
+            estadoVto3: { type: string, nullable: true }
+            estadoVto4: { type: string, nullable: true }
+            estadoVto5: { type: string, nullable: true }
+            estadoVto6: { type: string, nullable: true }
+            pjeRec1: { type: number }
+            pjeRec2: { type: number }
+            pjeRec3: { type: number }
+            editable: { type: boolean, description: 'Siempre false en v1' }
+
+    PagedFacturaCompraResumen:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/FacturaCompraResumen'
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+
+  responses:
+    Unauthorized:
+      description: Sesión no iniciada
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    Forbidden:
+      description: Sin permiso para la acción
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    ApiError:
+      description: Error de negocio o validación
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'

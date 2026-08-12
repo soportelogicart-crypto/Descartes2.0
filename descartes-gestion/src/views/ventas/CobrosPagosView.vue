@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { listarCobrosPagos } from '@/api/ventas'
 import type { CobroPago } from '@/types/ventas'
+import { leerGridPageSize } from '@/composables/useGridPageSize'
 import { extractApiError } from '@/composables/useMantenimiento'
 import ListPagination from '@/components/common/ListPagination.vue'
 
@@ -11,7 +12,7 @@ const error = ref<string | null>(null)
 const items = ref<CobroPago[]>([])
 const total = ref(0)
 const page = ref(1)
-const pageSize = ref(50)
+const pageSize = ref(leerGridPageSize())
 const filtros = ref({
   tipo: 'todos',
   formaPago: '',

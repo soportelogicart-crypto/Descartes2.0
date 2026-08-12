@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import {
   clonarFilaGrid,
@@ -14,7 +14,15 @@ import {
   filtrosIniciales,
   type ColumnFilter,
 } from '@/composables/useGridColumnFilters'
-import { clienteTabs, clienteVacio, fechaParaInput, validarClienteObligatorios } from '@/config/clientes-tabs'
+import {
+  CLIENTE_CAMPOS_OBLIGATORIOS,
+  camposClienteObligatoriosVacios,
+  clienteTabs,
+  clienteVacio,
+  fechaParaInput,
+  tabDeCampoCliente,
+  validarClienteObligatorios,
+} from '@/config/clientes-tabs'
 import { extractApiError, useMantenimiento } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
@@ -36,7 +44,6 @@ const columns = getGridColumns('clientes')
 const { puede } = usePermisos()
 const puestoContexto = usePuestoContextoStore()
 const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(() => MODULO)
-pageSize.value = 50
 
 const puedeCrear = computed(() => puede(MODULO, 'crear'))
 const puedeEditar = computed(() => puede(MODULO, 'editar'))
@@ -54,11 +61,101 @@ const optionsMap = ref<GridOptionsMap>({})
 const tabActiva = ref(clienteTabs[0].id)
 const modoEdicion = ref(false)
 const esNuevo = ref(false)
+const codigoAutomatico = ref(false)
 const ficha = ref<Record<string, unknown>>({})
 const indiceFicha = ref(-1)
 const mostrarIntereses = ref(false)
 const mostrarDireccion = ref(false)
 const mostrarContactos = ref(false)
+const avisoModalOpen = ref(false)
+const avisoModalTitulo = ref('Campo obligatorio')
+const avisoModalMensaje = ref('')
+const campoAvisoActual = ref<string | null>(null)
+const camposInvalidos = ref<string[]>([])
+const codigoInput = ref<HTMLInputElement | null>(null)
+
+function mostrarAvisoModal(titulo: string, message: string, campo?: string | null) {
+  campoAvisoActual.value = campo ?? null
+  if (campo) camposInvalidos.value = [campo]
+  avisoModalTitulo.value = titulo
+  avisoModalMensaje.value = message
+  avisoModalOpen.value = true
+}
+
+async function cerrarAvisoModal() {
+  const key = campoAvisoActual.value
+  avisoModalOpen.value = false
+  avisoModalMensaje.value = ''
+  campoAvisoActual.value = null
+  if (!key) return
+  await nextTick()
+  await nextTick()
+  if (key === 'codigo') {
+    codigoInput.value?.focus()
+    codigoInput.value?.select()
+    return
+  }
+  tabActiva.value = tabDeCampoCliente(key)
+  await nextTick()
+  await nextTick()
+  if (key === 'nombre') {
+    document.querySelector<HTMLInputElement>('[data-field-key="nombre"]')?.focus()
+    return
+  }
+  document.querySelector<HTMLElement>(`[data-field-key="${key}"]`)?.focus()
+}
+
+watch(
+  ficha,
+  () => {
+    if (camposInvalidos.value.length === 0) return
+    const pendientes = camposClienteObligatoriosVacios(ficha.value)
+    camposInvalidos.value = camposInvalidos.value.filter((k) => pendientes.includes(k))
+  },
+  { deep: true }
+)
+
+function actualizarFicha(next: Record<string, unknown>) {
+  ficha.value = next
+}
+
+let nifCheckSeq = 0
+let ultimoNifAvisado = ''
+
+async function onBlurCampo(key: string, value: string) {
+  if (key !== 'nif' || soloLecturaFicha.value) return
+  const nif = String(value ?? '').trim()
+  if (!nif) {
+    ultimoNifAvisado = ''
+    return
+  }
+  // Evitar reavisar el mismo NIF tras cerrar el modal (refocus).
+  if (nif === ultimoNifAvisado) return
+
+  const excluir = esNuevo.value ? '' : String(ficha.value.codigo ?? '').trim()
+  const seq = ++nifCheckSeq
+  try {
+    const { data } = await api.get('/api/mantenimiento/clientes/check-nif', {
+      params: { nif, ...(excluir ? { excluir } : {}) },
+    })
+    if (seq !== nifCheckSeq) return
+    if (!data?.duplicado) {
+      ultimoNifAvisado = ''
+      return
+    }
+    const codigoOtro = data.codigo ? String(data.codigo).trim() : ''
+    const msg = codigoOtro
+      ? `Ya existe un cliente activo con ese NIF (codigo ${codigoOtro}).`
+      : 'Ya existe un cliente activo con ese NIF.'
+    ultimoNifAvisado = nif
+    mensaje.value = msg
+    tabActiva.value = 'generales'
+    await nextTick()
+    mostrarAvisoModal('NIF duplicado', msg, 'nif')
+  } catch {
+    // Silencioso en blur; al guardar la API vuelve a validar.
+  }
+}
 
 const filas = computed<GridFila[]>(() => {
   const datos = filasTodas.value.filter((f) => !f._nuevo)
@@ -86,6 +183,7 @@ const puedeMostrarEliminar = computed(
 
 const tabSeleccionada = computed(() => clienteTabs.find((t) => t.id === tabActiva.value) ?? clienteTabs[0])
 const soloLecturaFicha = computed(() => !modoEdicion.value && !esNuevo.value)
+const codigoReadOnlyFicha = computed(() => !esNuevo.value || codigoAutomatico.value)
 const totalFicha = computed(() => filasTodas.value.filter((f) => !f._nuevo).length)
 const hayCliente = computed(() => Boolean(ficha.value.codigo) || esNuevo.value)
 
@@ -251,6 +349,9 @@ async function abrirFichaPorCodigo(codigo: string) {
     tabActiva.value = 'generales'
     vista.value = 'ficha'
     mensaje.value = null
+    camposInvalidos.value = []
+    codigoAutomatico.value = false
+    ultimoNifAvisado = ''
   } catch (e: unknown) {
     mensaje.value = extractApiError(e, 'No se pudo cargar la ficha')
   }
@@ -272,6 +373,7 @@ async function onNuevo() {
     ...clienteVacio(),
     tiendaCodigo: puestoContexto.empresaCodigo || '',
   }
+  codigoAutomatico.value = false
   // Legacy PreAlta: FormaPago = Divisa de la empresa/tienda
   const tienda = String(puestoContexto.empresaCodigo || '').trim()
   if (tienda) {
@@ -283,6 +385,18 @@ async function onNuevo() {
       /* sin default */
     }
   }
+  // Si la tienda tiene GenClientes, Prefijo + UltCliente+1 (ej. 001012100).
+  try {
+    const { data } = await api.get('/api/mantenimiento/clientes/siguiente-codigo', {
+      params: { empresa: puestoContexto.empresaCodigo || undefined },
+    })
+    if (data.automatico && data.codigo) {
+      base.codigo = String(data.codigo)
+      codigoAutomatico.value = true
+    }
+  } catch (e: unknown) {
+    mensaje.value = extractApiError(e, 'No se pudo obtener el siguiente codigo')
+  }
   ficha.value = base
   esNuevo.value = true
   modoEdicion.value = true
@@ -290,6 +404,16 @@ async function onNuevo() {
   tabActiva.value = 'generales'
   vista.value = 'ficha'
   mensaje.value = null
+  camposInvalidos.value = []
+  ultimoNifAvisado = ''
+  await nextTick()
+  await nextTick()
+  if (codigoAutomatico.value) {
+    document.querySelector<HTMLElement>('[data-field-key="nombre"]')?.focus()
+  } else {
+    codigoInput.value?.focus()
+    codigoInput.value?.select()
+  }
 }
 
 function onModificar() {
@@ -315,12 +439,35 @@ function normalizarFechasFicha(data: Record<string, unknown>): Record<string, un
 }
 
 async function onGuardarFicha() {
-  const errorValidacion = validarClienteObligatorios(ficha.value)
-  if (errorValidacion) {
-    mensaje.value = errorValidacion
+  const vacios = camposClienteObligatoriosVacios(ficha.value)
+  if (vacios.length > 0) {
+    const key = vacios[0]
+    const msg =
+      validarClienteObligatorios(ficha.value) ??
+      CLIENTE_CAMPOS_OBLIGATORIOS.find((c) => c.key === key)?.mensaje ??
+      `El campo "${key}" es obligatorio.`
+    mensaje.value = msg
+    tabActiva.value = tabDeCampoCliente(key)
+    await nextTick()
+    mostrarAvisoModal('Campo obligatorio', msg, key)
     return
   }
-  const payload = normalizarFechasFicha(ficha.value)
+  camposInvalidos.value = []
+  // Asegurar copia fiscal → envio al guardar (por si envio quedo vacio).
+  const payload = normalizarFechasFicha({
+    ...ficha.value,
+    direccionEnvio:
+      String(ficha.value.direccionEnvio ?? '').trim() || String(ficha.value.direccion ?? '').trim(),
+    codigoPostalEnvio:
+      String(ficha.value.codigoPostalEnvio ?? '').trim() ||
+      String(ficha.value.codigoPostal ?? '').trim(),
+    poblacionEnvio:
+      String(ficha.value.poblacionEnvio ?? '').trim() || String(ficha.value.poblacion ?? '').trim(),
+    provinciaEnvio:
+      String(ficha.value.provinciaEnvio ?? '').trim() || String(ficha.value.provincia ?? '').trim(),
+    paisEnvio:
+      String(ficha.value.paisEnvio ?? '').trim() || String(ficha.value.pais ?? '').trim() || 'España',
+  })
   try {
     if (esNuevo.value) {
       const creado = await crear(payload)
@@ -339,7 +486,29 @@ async function onGuardarFicha() {
     modoEdicion.value = false
     esNuevo.value = false
   } catch (e: unknown) {
-    mensaje.value = extractApiError(e, 'No se pudo guardar el cliente')
+    const msg = extractApiError(e, 'No se pudo guardar el cliente')
+    mensaje.value = msg
+    if (/ya existe un cliente activo con ese nif|nif duplicad/i.test(msg)) {
+      tabActiva.value = 'generales'
+      await nextTick()
+      mostrarAvisoModal('NIF duplicado', msg, 'nif')
+    } else if (/nif es obligatorio/i.test(msg)) {
+      tabActiva.value = 'generales'
+      await nextTick()
+      mostrarAvisoModal('Campo obligatorio', msg, 'nif')
+    } else if (/razon social/i.test(msg)) {
+      tabActiva.value = 'generales'
+      await nextTick()
+      mostrarAvisoModal('Campo obligatorio', msg, 'nombre')
+    } else if (/forma de pago/i.test(msg)) {
+      tabActiva.value = 'facturacion'
+      await nextTick()
+      mostrarAvisoModal('Campo obligatorio', msg, 'formaPago')
+    } else if (/ya existe|duplicad|codigo/i.test(msg)) {
+      mostrarAvisoModal('Codigo duplicado', msg, 'codigo')
+    } else {
+      mostrarAvisoModal('Error al guardar', msg)
+    }
   }
 }
 
@@ -369,8 +538,10 @@ function volverAlGrid() {
   vista.value = 'grid'
   modoEdicion.value = false
   esNuevo.value = false
+  codigoAutomatico.value = false
   ficha.value = {}
   mostrarIntereses.value = false
+  camposInvalidos.value = []
 }
 
 function onAccionPendiente(nombre: string) {
@@ -544,13 +715,28 @@ async function onUltimo() {
           />
 
           <div class="ficha-header">
-            <label>
+            <label :class="{ 'campo-invalido': camposInvalidos.includes('codigo') }">
               Codigo *
-              <input v-model="ficha.codigo" :readonly="!esNuevo" maxlength="9" class="codigo-input" required />
+              <input
+                ref="codigoInput"
+                v-model="ficha.codigo"
+                data-field-key="codigo"
+                :readonly="codigoReadOnlyFicha"
+                maxlength="9"
+                class="codigo-input"
+              />
             </label>
-            <label class="nombre-input">
+            <label
+              class="nombre-input"
+              :class="{ 'campo-invalido': camposInvalidos.includes('nombre') }"
+            >
               Razon social *
-              <input v-model="ficha.nombre" :readonly="soloLecturaFicha" maxlength="50" required />
+              <input
+                v-model="ficha.nombre"
+                data-field-key="nombre"
+                :readonly="soloLecturaFicha"
+                maxlength="50"
+              />
             </label>
           </div>
 
@@ -572,9 +758,11 @@ async function onUltimo() {
           :sections="tabSeleccionada.sections"
           :model-value="ficha"
           :readonly="soloLecturaFicha"
-          :codigo-read-only="!esNuevo"
+          :codigo-read-only="codigoReadOnlyFicha"
           :ocultar-cabecera="true"
-          @update:model-value="ficha = $event"
+          :campos-invalidos="camposInvalidos"
+          @update:model-value="actualizarFicha"
+          @blur-field="onBlurCampo"
         />
       </template>
 
@@ -606,6 +794,16 @@ async function onUltimo() {
         :message="confirmMessage"
         @confirm="confirmarEliminar"
         @cancel="cancelarEliminar"
+      />
+      <ConfirmDialog
+        :open="avisoModalOpen"
+        :title="avisoModalTitulo"
+        :message="avisoModalMensaje"
+        confirm-label="Aceptar"
+        :danger="false"
+        hide-cancel
+        @confirm="cerrarAvisoModal"
+        @cancel="cerrarAvisoModal"
       />
     </template>
   </section>
@@ -700,6 +898,16 @@ async function onUltimo() {
   border: 1px solid #94a3b8;
   border-radius: 3px;
   font-size: 0.8rem;
+}
+
+.campo-invalido {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.campo-invalido input {
+  border-color: #ef4444;
+  background: #fef2f2;
 }
 
 .tabs {

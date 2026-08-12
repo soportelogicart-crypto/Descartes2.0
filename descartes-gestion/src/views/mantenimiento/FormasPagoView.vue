@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   clonarFilaGrid,
   esGridEstrecho,
@@ -15,6 +15,8 @@ import {
   type ColumnFilter,
 } from '@/composables/useGridColumnFilters'
 import {
+  FORMA_PAGO_CAMPOS_OBLIGATORIOS,
+  camposFormaPagoObligatoriosVacios,
   formaPagoTabs,
   formaPagoVacia,
   payloadFormaPago,
@@ -39,7 +41,6 @@ const { puede } = usePermisos()
 const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(
   () => ENTIDAD
 )
-pageSize.value = 50
 
 const puedeCrear = computed(() => puede(MODULO, 'crear'))
 const puedeEditar = computed(() => puede(MODULO, 'editar'))
@@ -54,11 +55,41 @@ const indiceSeleccionado = ref(0)
 const filtroActivo = ref<'activos' | 'todos' | 'inactivos'>('activos')
 const mensaje = ref<string | null>(null)
 const confirmBorrarFichaOpen = ref(false)
+const avisoModalOpen = ref(false)
+const avisoModalTitulo = ref('Campo obligatorio')
+const avisoModalMensaje = ref('')
+const campoAvisoActual = ref<string | null>(null)
+const camposInvalidos = ref<string[]>([])
+const codigoInput = ref<HTMLInputElement | null>(null)
 let vistaMontada = true
 
 onBeforeUnmount(() => {
   vistaMontada = false
 })
+
+function mostrarAvisoModal(titulo: string, message: string, campo?: string | null) {
+  campoAvisoActual.value = campo ?? null
+  if (campo) camposInvalidos.value = [campo]
+  avisoModalTitulo.value = titulo
+  avisoModalMensaje.value = message
+  avisoModalOpen.value = true
+}
+
+async function cerrarAvisoModal() {
+  const key = campoAvisoActual.value
+  avisoModalOpen.value = false
+  avisoModalMensaje.value = ''
+  campoAvisoActual.value = null
+  if (!key) return
+  await nextTick()
+  await nextTick()
+  if (key === 'codigo') {
+    codigoInput.value?.focus()
+    codigoInput.value?.select()
+    return
+  }
+  document.querySelector<HTMLElement>(`[data-field-key="${key}"]`)?.focus()
+}
 
 const tabActiva = ref(formaPagoTabs[0].id)
 const modoEdicion = ref(false)
@@ -205,6 +236,7 @@ async function abrirFichaPorCodigo(codigo: string) {
     tabActiva.value = 'generales'
     vista.value = 'ficha'
     mensaje.value = null
+    camposInvalidos.value = []
   } catch (e: unknown) {
     mensaje.value = extractApiError(e, 'No se pudo cargar la ficha')
   }
@@ -220,7 +252,7 @@ async function abrirFicha(index?: number) {
   await abrirFichaPorCodigo(String(fila.codigo))
 }
 
-function onNuevo() {
+async function onNuevo() {
   if (!puedeCrear.value) return
   ficha.value = formaPagoVacia()
   esNuevo.value = true
@@ -229,6 +261,11 @@ function onNuevo() {
   tabActiva.value = 'generales'
   vista.value = 'ficha'
   mensaje.value = null
+  camposInvalidos.value = []
+  await nextTick()
+  await nextTick()
+  codigoInput.value?.focus()
+  codigoInput.value?.select()
 }
 
 function onModificar() {
@@ -237,11 +274,22 @@ function onModificar() {
 }
 
 async function onGuardarFicha() {
+  const vacios = camposFormaPagoObligatoriosVacios(ficha.value)
+  if (vacios.length > 0) {
+    const key = vacios[0]
+    const label = FORMA_PAGO_CAMPOS_OBLIGATORIOS.find((c) => c.key === key)?.label ?? key
+    const msg = validarFormaPagoObligatorios(ficha.value) ?? `El campo "${label}" es obligatorio.`
+    mensaje.value = msg
+    mostrarAvisoModal('Campo obligatorio', msg, key)
+    return
+  }
   const errorValidacion = validarFormaPagoObligatorios(ficha.value)
   if (errorValidacion) {
     mensaje.value = errorValidacion
+    mostrarAvisoModal('Campo obligatorio', errorValidacion, 'codigo')
     return
   }
+  camposInvalidos.value = []
   const payload = payloadFormaPago(ficha.value)
   try {
     if (esNuevo.value) {
@@ -261,7 +309,13 @@ async function onGuardarFicha() {
     modoEdicion.value = false
     esNuevo.value = false
   } catch (e: unknown) {
-    mensaje.value = extractApiError(e, 'No se pudo guardar la forma de pago')
+    const msg = extractApiError(e, 'No se pudo guardar la forma de pago')
+    mensaje.value = msg
+    if (/ya existe|duplicad|codigo/i.test(msg)) {
+      mostrarAvisoModal('Codigo duplicado', msg, 'codigo')
+    } else {
+      mostrarAvisoModal('Error al guardar', msg)
+    }
   }
 }
 
@@ -299,6 +353,7 @@ function volverAlGrid() {
   modoEdicion.value = false
   esNuevo.value = false
   ficha.value = {}
+  camposInvalidos.value = []
 }
 
 async function onPrimero() {
@@ -491,19 +546,28 @@ async function onUltimo() {
         </div>
 
         <div class="ficha-header">
-          <label>
-            Forma de Cobro *
+          <label :class="{ 'campo-invalido': camposInvalidos.includes('codigo') }">
+            Codigo *
             <input
+              ref="codigoInput"
               v-model="ficha.codigo"
+              data-field-key="codigo"
               :readonly="!esNuevo"
               maxlength="2"
               class="codigo-input"
-              required
             />
           </label>
-          <label class="descripcion-input">
+          <label
+            class="descripcion-input"
+            :class="{ 'campo-invalido': camposInvalidos.includes('descripcion') }"
+          >
             Descripcion *
-            <input v-model="ficha.descripcion" :readonly="soloLecturaFicha" maxlength="40" required />
+            <input
+              v-model="ficha.descripcion"
+              data-field-key="descripcion"
+              :readonly="soloLecturaFicha"
+              maxlength="40"
+            />
           </label>
         </div>
 
@@ -543,6 +607,16 @@ async function onUltimo() {
         message="Va a dar de baja esta forma de pago. Si tiene movimientos asociados puede fallar."
         @confirm="confirmarBorrarFicha"
         @cancel="confirmBorrarFichaOpen = false"
+      />
+      <ConfirmDialog
+        :open="avisoModalOpen"
+        :title="avisoModalTitulo"
+        :message="avisoModalMensaje"
+        confirm-label="Aceptar"
+        :danger="false"
+        hide-cancel
+        @confirm="cerrarAvisoModal"
+        @cancel="cerrarAvisoModal"
       />
     </template>
   </section>
@@ -702,6 +776,16 @@ async function onUltimo() {
   border: 1px solid #94a3b8;
   border-radius: 3px;
   font-size: 0.8rem;
+}
+
+.campo-invalido {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.campo-invalido input {
+  border-color: #ef4444;
+  background: #fef2f2;
 }
 
 .tabs {

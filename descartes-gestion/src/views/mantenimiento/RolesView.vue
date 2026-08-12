@@ -41,7 +41,6 @@ function validarRol(ficha: Record<string, unknown>): string | null {
 
 const { puede } = usePermisos()
 const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(() => ENTIDAD)
-pageSize.value = 50
 
 const puedeCrear = computed(() => puede(MODULO, 'crear'))
 const puedeEditar = computed(() => puede(MODULO, 'editar'))

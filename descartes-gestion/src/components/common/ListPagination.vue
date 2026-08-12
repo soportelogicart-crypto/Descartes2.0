@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { guardarGridPageSize } from '@/composables/useGridPageSize'
 
 const props = withDefaults(
   defineProps<{
@@ -39,6 +40,7 @@ function ir(p: number) {
 
 function onPageSize(e: Event) {
   const v = Number((e.target as HTMLSelectElement).value) || props.pageSize
+  guardarGridPageSize(v)
   emit('update:pageSize', v)
 }
 </script>

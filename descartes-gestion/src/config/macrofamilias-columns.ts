@@ -37,9 +37,28 @@ export function validarMacrofamilia(fila: MacrofamiliaFila): string | null {
   return null
 }
 
-export function payloadMacrofamilia(fila: MacrofamiliaFila): Record<string, unknown> {
+export function payloadMacrofamilia(fila: Record<string, unknown>): Record<string, unknown> {
   return {
     codigo: String(fila.codigo ?? '').trim(),
     descripcion: String(fila.descripcion ?? '').trim(),
   }
+}
+
+export const MACROFAMILIA_CAMPOS_OBLIGATORIOS: { key: string; label: string }[] = [
+  { key: 'codigo', label: 'Codigo' },
+  { key: 'descripcion', label: 'Descripcion' },
+]
+
+export function camposMacrofamiliaObligatoriosVacios(ficha: Record<string, unknown>): string[] {
+  const vacios: string[] = []
+  if (!String(ficha.codigo ?? '').trim()) vacios.push('codigo')
+  if (!String(ficha.descripcion ?? '').trim()) vacios.push('descripcion')
+  return vacios
+}
+
+export function validarMacrofamiliaObligatorios(ficha: Record<string, unknown>): string | null {
+  const key = camposMacrofamiliaObligatoriosVacios(ficha)[0]
+  if (!key) return null
+  const label = MACROFAMILIA_CAMPOS_OBLIGATORIOS.find((c) => c.key === key)?.label ?? key
+  return `El campo "${label}" es obligatorio.`
 }

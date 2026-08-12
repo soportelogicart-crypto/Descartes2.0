@@ -20,6 +20,7 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import ListPagination from '@/components/common/ListPagination.vue'
 import EntidadGrid, { type GridOptionsMap } from '@/components/mantenimiento/EntidadGrid.vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 const ENTIDAD = 'trabajadores'
 const MODULO = 'trabajadores'
@@ -88,7 +89,6 @@ function primerCampoObligatorioVacio(ficha: Record<string, unknown>): string | n
 
 const { puede } = usePermisos()
 const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(() => ENTIDAD)
-pageSize.value = 50
 
 const puedeCrear = computed(() => puede(MODULO, 'crear'))
 const puedeEditar = computed(() => puede(MODULO, 'editar'))
@@ -733,12 +733,12 @@ async function onUltimo() {
               </label>
               <label>
                 Comision
-                <input
-                  v-model.number="ficha.comision"
-                  type="number"
-                  step="any"
+                <DecimalInput
+                  :model-value="(ficha.comision as number | null) ?? null"
+                  :empty-as-null="false"
                   :readonly="soloLecturaFicha"
                   class="comision-input"
+                  @update:model-value="ficha.comision = $event ?? 0"
                 />
               </label>
             </div>
@@ -811,12 +811,13 @@ async function onUltimo() {
               </label>
               <label>
                 Tarjeta
-                <input
-                  v-model.number="ficha.tarjeta"
-                  type="number"
-                  step="1"
+                <DecimalInput
+                  :model-value="(ficha.tarjeta as number | null) ?? null"
+                  :empty-as-null="false"
+                  :integer="true"
                   :readonly="soloLecturaFicha"
                   class="tarjeta-input"
+                  @update:model-value="ficha.tarjeta = $event ?? 0"
                 />
               </label>
               <label>
@@ -1129,7 +1130,6 @@ async function onUltimo() {
 }
 
 .ficha-campos input[type='text'],
-.ficha-campos input[type='number'],
 .ficha-campos input[type='password'],
 .ficha-campos input:not([type]),
 .ficha-campos select,

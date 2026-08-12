@@ -57,6 +57,8 @@ return function (App $app): void {
       ->add($setPermiso('ventas-arqueo', 'crear'));
     $group->get('/arqueos/{empresa}/{puesto}/{sesion}/informe', [VentasController::class, 'informeArqueo'])
       ->add($setPermiso('ventas-arqueo', 'ver'));
+    $group->get('/dispositivo/impresoras', [VentasController::class, 'listarImpresorasDispositivo'])
+      ->add($setPermiso('puestos-trabajo', 'ver'));
     $group->post('/puestos/{puesto}/dispositivo/leer-cajon', [VentasController::class, 'leerCajonDispositivo'])
       ->add($setPermiso('ventas-arqueo', 'editar'));
     $group->post('/puestos/{puesto}/dispositivo/imprimir', [VentasController::class, 'imprimirDispositivo'])

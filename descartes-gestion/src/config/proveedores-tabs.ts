@@ -1,6 +1,6 @@
 export type ProveedorFieldType = 'text' | 'number' | 'checkbox' | 'textarea' | 'select' | 'email'
 
-export type ProveedorFieldLayout = 'inline' | 'checkbox' | 'textarea'
+export type ProveedorFieldLayout = 'inline' | 'checkbox' | 'textarea' | 'dias-pago'
 
 export type ProveedorField = {
   key: string
@@ -12,15 +12,19 @@ export type ProveedorField = {
   required?: boolean
   maxLength?: number
   step?: string
+  inputWidth?: string
   options?: { value: string; label: string }[]
   optionsSource?: 'formas-pago'
+
+  lookup?: boolean
 }
 
 export type ProveedorSection = {
   title: string
-  columns?: 2 | 3 | 4
+  columns?: 1 | 2 | 3 | 4
   fields: ProveedorField[]
-  row?: string
+  /** Empareja secciones consecutivas (p.ej. direcciones). */
+  pair?: string
 }
 
 export type ProveedorTab = {
@@ -38,7 +42,7 @@ function inline(key: string, label: string, extra: Partial<ProveedorField> = {})
 }
 
 function area(key: string, label: string, extra: Partial<ProveedorField> = {}): ProveedorField {
-  return { key, label, type: 'textarea', layout: 'textarea', span: 4, ...extra }
+  return { key, label, type: 'textarea', layout: 'textarea', span: 2, ...extra }
 }
 
 export const proveedorTabs: ProveedorTab[] = [
@@ -48,57 +52,73 @@ export const proveedorTabs: ProveedorTab[] = [
     sections: [
       {
         title: 'Identificacion',
-        columns: 4,
+        columns: 3,
         fields: [
-          inline('codigo', 'Codigo', { required: true, maxLength: 6 }),
-          inline('nombre', 'Razon social', { span: 3, required: true, maxLength: 50 }),
-          inline('nif', 'N.I.F.', { maxLength: 16 }),
-          inline('swift', 'Swift', { maxLength: 20 }),
-          inline('iban', 'IBAN', { span: 2, maxLength: 34 }),
+          inline('codigo', 'Codigo', { required: true, maxLength: 6, inputWidth: '5rem' }),
+          inline('nombre', 'Razon social', {
+            span: 2,
+            required: true,
+            maxLength: 50,
+            inputWidth: '100%',
+          }),
+          inline('nif', 'N.I.F.', { maxLength: 16, inputWidth: '9rem' }),
+          inline('swift', 'Swift', { maxLength: 20, inputWidth: '10rem' }),
+          inline('iban', 'IBAN', { maxLength: 34, inputWidth: '100%' }),
         ],
       },
       {
-        title: 'Relaciones',
-        columns: 4,
-        fields: [
-          inline('personaContacto', 'Contacto', { span: 4, maxLength: 50 }),
-          inline('codigoCliente', 'Su Cliente', { span: 2, maxLength: 20 }),
-          inline('codigoCentral', 'Central', { span: 2, maxLength: 15 }),
-        ],
-      },
-      {
-        title: 'Direccion fiscal',
+        title: 'Contacto',
         columns: 2,
-        row: 'direcciones',
         fields: [
-          inline('direccion', 'Direccion', { span: 2, maxLength: 50 }),
-          inline('codigoPostal', 'C.P.', { maxLength: 8 }),
-          inline('poblacion', 'Poblacion', { maxLength: 50 }),
-          inline('provincia', 'Provincia', { maxLength: 50 }),
-          inline('pais', 'Pais', { maxLength: 30 }),
+          inline('personaContacto', 'Contacto', { span: 2, maxLength: 50, inputWidth: '100%' }),
+          inline('codigoCliente', 'Su Cliente', { maxLength: 20, inputWidth: '12rem' }),
+          inline('codigoCentral', 'Central', { maxLength: 15, inputWidth: '10rem' }),
         ],
       },
       {
-        title: 'Direccion almacen',
+        title: 'Direccion Fiscal',
         columns: 2,
-        row: 'direcciones',
+        pair: 'direcciones',
         fields: [
-          inline('direccionEnvio', 'Direccion', { span: 2, maxLength: 50 }),
-          inline('codigoPostalEnvio', 'C.P.', { maxLength: 8 }),
-          inline('poblacionEnvio', 'Poblacion', { maxLength: 50 }),
-          inline('provinciaEnvio', 'Provincia', { maxLength: 50 }),
-          inline('paisEnvio', 'Pais', { maxLength: 50 }),
+          inline('direccion', 'Direccion', { span: 2, maxLength: 50, inputWidth: '100%' }),
+          inline('codigoPostal', 'C.P.', { maxLength: 8, inputWidth: '4.5rem' }),
+          inline('poblacion', 'Poblacion', { maxLength: 50, inputWidth: '100%' }),
+          inline('provincia', 'Provincia', { span: 2, maxLength: 50, inputWidth: '100%' }),
+          inline('pais', 'Pais', { span: 2, maxLength: 30, inputWidth: '100%' }),
+        ],
+      },
+      {
+        title: 'Direccion Almacen',
+        columns: 2,
+        pair: 'direcciones',
+        fields: [
+          inline('direccionEnvio', 'Direccion', { span: 2, maxLength: 50, inputWidth: '100%' }),
+          inline('codigoPostalEnvio', 'C.P.', { maxLength: 8, inputWidth: '4.5rem' }),
+          inline('poblacionEnvio', 'Poblacion', { maxLength: 50, inputWidth: '100%' }),
+          inline('provinciaEnvio', 'Provincia', { span: 2, maxLength: 50, inputWidth: '100%' }),
+          inline('paisEnvio', 'Pais', { span: 2, maxLength: 50, inputWidth: '100%' }),
         ],
       },
       {
         title: 'Comunicacion',
-        columns: 2,
+        columns: 3,
         fields: [
-          inline('telefono1', 'Telefono 1', { maxLength: 15 }),
-          inline('telefono2', 'Telefono 2', { maxLength: 15 }),
-          inline('email', 'E-Mail', { type: 'email', span: 2, maxLength: 50 }),
-          inline('emailComercial', 'E-mail. Com.', { type: 'email', span: 2, maxLength: 200 }),
-          inline('emailFacturacion', 'E-mail. Fac.', { type: 'email', span: 2, maxLength: 200 }),
+          inline('telefono1', 'Telefono 1', { maxLength: 15, inputWidth: '8rem' }),
+          inline('telefono2', 'Telefono 2', { maxLength: 15, inputWidth: '8rem' }),
+          inline('fax', 'Fax', { maxLength: 15, inputWidth: '8rem' }),
+          inline('email', 'E-Mail', { type: 'email', span: 3, maxLength: 50, inputWidth: '100%' }),
+          inline('emailComercial', 'E-mail. Com.', {
+            type: 'email',
+            span: 3,
+            maxLength: 200,
+            inputWidth: '100%',
+          }),
+          inline('emailFacturacion', 'E-mail. Fac.', {
+            type: 'email',
+            span: 3,
+            maxLength: 200,
+            inputWidth: '100%',
+          }),
         ],
       },
     ],
@@ -109,25 +129,34 @@ export const proveedorTabs: ProveedorTab[] = [
     sections: [
       {
         title: 'Fiscal',
-        columns: 4,
+        columns: 3,
         fields: [
-          inline('tratamientoFiscal', 'Tratamiento fiscal', {
+          inline('tratamientoFiscal', 'Tratamiento Fiscal', {
             type: 'select',
+            span: 2,
             options: [
               { value: 'N', label: 'NACIONAL' },
               { value: 'I', label: 'INTRACOMUNITARIO' },
               { value: 'E', label: 'EXTRANJERO' },
               { value: 'S', label: 'SUJETO PASIVO' },
             ],
+            inputWidth: '100%',
+            required: true,
           }),
-          inline('codigoTransaccionSII', 'Cod.Transaccion SII', { maxLength: 2 }),
+          inline('codigoTransaccionSII', 'Cod. SII', { maxLength: 2, inputWidth: '3rem' }),
           cb('swIva', 'Aplicar IVA'),
           cb('swRec', 'Recargo'),
-          cb('ivaAgrario', 'Imp.Agrario'),
-          cb('pedidosAutomaticos', 'Ped.Automaticos'),
-          cb('pedidosWeb', 'Envio a WEB'),
+          cb('ivaAgrario', 'Imp. Agrario'),
+        ],
+      },
+      {
+        title: 'Pedidos',
+        columns: 3,
+        fields: [
+          cb('pedidosAutomaticos', 'Ped. Automaticos'),
           cb('asociado', 'Asociado'),
-          inline('claveFirma', 'Clave Firma', { maxLength: 20 }),
+          inline('claveFirma', 'Clave Firma', { maxLength: 20, inputWidth: '9rem' }),
+          cb('pedidosWeb', 'Envio a WEB'),
         ],
       },
       {
@@ -137,39 +166,44 @@ export const proveedorTabs: ProveedorTab[] = [
           inline('formaPago', 'Forma Pago', {
             type: 'select',
             optionsSource: 'formas-pago',
-            span: 2,
             required: true,
+            lookup: true,
+            inputWidth: '5rem',
           }),
-          inline('diaPago1', 'Dias Pago', { type: 'number' }),
-          inline('diaPago2', 'Dias Pago 2', { type: 'number' }),
+          inline('diaPago1', 'Dias Pago', {
+            type: 'number',
+            layout: 'dias-pago',
+            inputWidth: '5rem',
+          }),
+          inline('dto', 'Descuento', { type: 'number', step: '0.01', inputWidth: '5rem' }),
+          inline('dto2', 'Dto 2', { type: 'number', step: '0.01', inputWidth: '5rem' }),
+          inline('dto3', 'Dto 3', { type: 'number', step: '0.01', inputWidth: '5rem' }),
         ],
       },
       {
-        title: 'Descuentos',
-        columns: 4,
+        title: 'Importes y contabilidad',
+        columns: 3,
         fields: [
-          inline('dto', 'Descuento', { type: 'number', step: '0.01' }),
-          inline('dto2', 'Dto 2', { type: 'number', step: '0.01' }),
-          inline('dto3', 'Dto 3', { type: 'number', step: '0.01' }),
-        ],
-      },
-      {
-        title: 'Otros importes',
-        columns: 4,
-        fields: [
-          inline('acumIva', 'Acumulado Iva', { type: 'number', step: '0.01' }),
-          inline('minSinPortes', 'Minimo Sin Port.', { type: 'number', step: '0.01' }),
-          inline('coeficienteTransporte', 'Coef. Transporte', { type: 'number', step: '0.0001' }),
-        ],
-      },
-      {
-        title: 'Contabilidad y logistica',
-        columns: 4,
-        fields: [
-          inline('cuentaCtb', 'Cta.Ctb', { type: 'number', step: '1' }),
-          inline('cuentaBanco', 'Banco', { type: 'number', step: '1' }),
-          inline('aecoc', 'A.E.C.O.C', { type: 'number', step: '1' }),
-          inline('pasaporteFitosanitario', 'Pas.Fitosanitario', { span: 2, maxLength: 20 }),
+          inline('acumIva', 'Acumulado Iva', { type: 'number', step: '0.01', inputWidth: '7rem' }),
+          inline('minSinPortes', 'Minimo Sin Port.', { type: 'number', step: '0.01', inputWidth: '7rem' }),
+          inline('coeficienteTransporte', 'Coef. Transporte', {
+            type: 'number',
+            step: '0.0001',
+            inputWidth: '10rem',
+          }),
+          inline('cuentaCtb', 'Cta. Ctb', { type: 'number', step: '1', inputWidth: '7rem' }),
+          inline('cuentaBanco', 'Banco', {
+            type: 'text',
+            maxLength: 10,
+            lookup: true,
+            inputWidth: '7rem',
+          }),
+          inline('aecoc', 'A.E.C.O.C', { type: 'number', step: '1', inputWidth: '10rem' }),
+          inline('pasaporteFitosanitario', 'Pas. Fitosanitario', {
+            span: 2,
+            maxLength: 20,
+            inputWidth: '14rem',
+          }),
           cb('activo', 'Activo'),
         ],
       },
@@ -181,8 +215,8 @@ export const proveedorTabs: ProveedorTab[] = [
     sections: [
       {
         title: 'Comentarios',
-        columns: 2,
-        fields: [area('notas', 'Comentarios', { span: 2 })],
+        columns: 1,
+        fields: [area('notas', 'Comentarios', { span: 1, inputWidth: '100%' })],
       },
     ],
   },
@@ -202,6 +236,7 @@ export function proveedorVacio(): Record<string, unknown> {
     pais: '',
     telefono1: '',
     telefono2: '',
+    fax: '',
     dto: 0,
     dto2: 0,
     dto3: 0,
@@ -232,19 +267,33 @@ export function proveedorVacio(): Record<string, unknown> {
     codigoPostalEnvio: '',
     provinciaEnvio: '',
     paisEnvio: '',
-    codigoTransaccionSII: '',
+    codigoTransaccionSII: '1',
     pedidosWeb: false,
-    cuentaBanco: 0,
+    cuentaBanco: '',
     asociado: false,
     claveFirma: '',
     activo: true,
   }
 }
 
-export function validarProveedorObligatorios(ficha: Record<string, unknown>): string | null {
-  if (!String(ficha.codigo ?? '').trim()) return 'El codigo es obligatorio'
-  if (!String(ficha.nombre ?? '').trim()) return 'La razon social es obligatoria'
-  if (!String(ficha.formaPago ?? '').trim()) return 'Debe asignar una forma de pago al proveedor'
+export function validarProveedorObligatorios(ficha: Record<string, unknown>): {
+  mensaje: string
+  campo: string
+  tab: string
+} | null {
+  if (!String(ficha.codigo ?? '').trim()) {
+    return { mensaje: 'El codigo es obligatorio', campo: 'codigo', tab: 'generales' }
+  }
+  if (!String(ficha.nombre ?? '').trim()) {
+    return { mensaje: 'La razon social es obligatoria', campo: 'nombre', tab: 'generales' }
+  }
+  if (!String(ficha.formaPago ?? '').trim()) {
+    return {
+      mensaje: 'Debe asignar una forma de pago al proveedor',
+      campo: 'formaPago',
+      tab: 'parametros',
+    }
+  }
   return null
 }
 

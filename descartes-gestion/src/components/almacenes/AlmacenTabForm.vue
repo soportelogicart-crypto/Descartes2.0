@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { AlmacenField, AlmacenSection } from '@/config/almacenes-tabs'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 const props = defineProps<{
   sections: AlmacenSection[]
@@ -68,21 +69,13 @@ function sectionClass(section: AlmacenSection) {
             @change="updateField(field.key, ($event.target as HTMLInputElement).checked)"
           />
 
-          <input
+          <DecimalInput
             v-else-if="field.type === 'number'"
-            type="number"
-            :value="displayNumber(field.key) as number | string"
+            :model-value="(modelValue[field.key] as number | null) ?? null"
+            :empty-as-null="true"
+            :integer="true"
             :readonly="isReadOnly(field)"
-            :step="field.step ?? 'any'"
-            min="1"
-            @input="
-              updateField(
-                field.key,
-                ($event.target as HTMLInputElement).value === ''
-                  ? null
-                  : Number(($event.target as HTMLInputElement).value)
-              )
-            "
+            @update:model-value="updateField(field.key, $event)"
           />
 
           <input
@@ -193,8 +186,7 @@ function sectionClass(section: AlmacenSection) {
   font-style: normal;
 }
 
-.field input[type='text'],
-.field input[type='number'] {
+.field input[type='text'] {
   width: 100%;
   min-width: 0;
   padding: 0.2rem 0.35rem;

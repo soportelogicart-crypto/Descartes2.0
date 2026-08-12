@@ -30,10 +30,13 @@ return [
       'codigo' => 'Codigo',
       'nombre' => 'Nombre',
       'rolCodigo' => 'Rol',
+      'password' => 'PassWord',
       'activo' => 'Baja',
     ],
-    'hidden' => ['password'],
-    'writeOnly' => ['password' => 'PassWord'],
+    'stringMaxLengths' => [
+      'Codigo' => 20,
+      'Nombre' => 50,
+    ],
   ],
   'roles' => [
     'table' => 'Roles',
@@ -120,6 +123,9 @@ return [
       'codigo' => 'Codigo',
       'descripcion' => 'Descripcion',
     ],
+    'createDefaults' => [
+      'Descripcion' => '',
+    ],
   ],
   'intereses-comerciales' => [
     'table' => 'InteresesComerciales',
@@ -130,6 +136,9 @@ return [
     'fields' => [
       'codigo' => 'Codigo',
       'descripcion' => 'Descripcion',
+    ],
+    'createDefaults' => [
+      'Descripcion' => '',
     ],
   ],
   'clientes' => array_merge([
@@ -193,6 +202,10 @@ return [
       'codigo' => 'Codigo',
       'descripcion' => 'Descripcion',
     ],
+    'stringMaxLengths' => [
+      'Codigo' => 6,
+      'Descripcion' => 40,
+    ],
   ],
   'familias' => [
     'table' => 'Familias',
@@ -209,6 +222,19 @@ return [
       'idWeb' => 'idWeb',
       'ctaTraspasoEntrada' => 'CtaTraspasoEntrada',
       'ctaTraspasoSalida' => 'CtaTraspasoSalida',
+    ],
+    'stringMaxLengths' => [
+      'Codigo' => 6,
+      'Descripcion' => 40,
+      'MacroFamilia' => 6,
+      'CuentaCtbIta' => 6,
+    ],
+    'createDefaults' => [
+      'CuentaCtb' => 0,
+      'CuentaCtbIta' => '',
+      'idWeb' => 0,
+      'CtaTraspasoEntrada' => 0,
+      'CtaTraspasoSalida' => 0,
     ],
   ],
   'subfamilias' => [
@@ -229,6 +255,59 @@ return [
       'ctaTraspasoEntrada' => 'CtaTraspasoEntrada',
       'ctaTraspasoSalida' => 'CtaTraspasoSalida',
     ],
+    'stringMaxLengths' => [
+      'Subfamilia' => 6,
+      'Descripción' => 40,
+      'Familia' => 6,
+    ],
+    'createDefaults' => [
+      'CuentaCtb' => 0,
+      'idWeb' => 0,
+      'idWeb2' => 0,
+      'idWeb3' => 0,
+      'idWeb4' => 0,
+      'CtaTraspasoEntrada' => 0,
+      'CtaTraspasoSalida' => 0,
+    ],
+  ],
+  'secciones' => [
+    'table' => 'Secciones',
+    'primaryKey' => 'Codigo',
+    'modulo' => 'secciones',
+    'hardDelete' => true,
+    'searchColumns' => ['Codigo', 'Descripcion'],
+    'fields' => [
+      'codigo' => 'Codigo',
+      'descripcion' => 'Descripcion',
+      'subFamiliaCodigo' => 'SubFamilia',
+    ],
+    'stringMaxLengths' => [
+      'Codigo' => 6,
+      'Descripcion' => 50,
+      'SubFamilia' => 6,
+    ],
+    'createDefaults' => [
+      'Descripcion' => '',
+      'SubFamilia' => '',
+    ],
+  ],
+  'subsecciones' => [
+    'table' => 'SubSecciones',
+    'primaryKey' => 'Codigo',
+    'modulo' => 'subsecciones',
+    'hardDelete' => true,
+    'searchColumns' => ['Codigo', 'Descripcion'],
+    'fields' => [
+      'codigo' => 'Codigo',
+      'descripcion' => 'Descripcion',
+    ],
+    'stringMaxLengths' => [
+      'Codigo' => 6,
+      'Descripcion' => 50,
+    ],
+    'createDefaults' => [
+      'Descripcion' => '',
+    ],
   ],
   'agrupaciones' => [
     'table' => 'Agrupaciones',
@@ -239,6 +318,10 @@ return [
     'fields' => [
       'codigo' => 'Codigo',
       'descripcion' => 'Descripcion',
+    ],
+    'stringMaxLengths' => [
+      'Codigo' => 6,
+      'Descripcion' => 50,
     ],
   ],
   'impuestos' => [
@@ -341,6 +424,97 @@ return [
       'facteBanPrv' => 'FACTEBanPrv',
       'facteBanPai' => 'FACTEBanPai',
       'activo' => 'Baja',
+    ],
+    'stringMaxLengths' => [
+      'Codigo' => 2,
+      'Descripcion' => 40,
+      'Abreviacion' => 3,
+    ],
+    /**
+     * Legacy (alta tipica): numericos/bits a 0; textos FACTE/Tipo/Abreviacion/Nota en '' (no NULL).
+     * Cambio/Decimales los rellena el cliente (1/2 como el resto de formas activas).
+     */
+    'createDefaults' => [
+      'Cambio' => 1,
+      'Decimales' => 2,
+      'NumVtos' => 0,
+      'Dias1erVto' => 0,
+      'DiasEntreVtos' => 0,
+      'DtoPPgo' => 0,
+      'RecFinan' => 0,
+      'CobroDeArqueo' => 0,
+      'Vales' => 0,
+      'Agrupacion' => 0,
+      'Chip' => 0,
+      'AbrirCajon' => 0,
+      'TarjetaMonedero' => 0,
+      'Datafono' => 0,
+      'CopiasTicket' => 0,
+      'ChipAcumuladoMenu' => 0,
+      'CobroEnTienda' => 0,
+      'EMV' => 0,
+      'GenerarTraspaso' => 0,
+      'CajonElectronico' => 0,
+      'FacturacionDirecta' => 0,
+      'FACTEFPCodigo' => 0,
+      'FACTETransferencia' => 0,
+      'FACTEReciboDom' => 0,
+      'ControlPagare' => 0,
+      'OrdenAparicionVenta' => 0,
+      'FPagoActivaConPermiso' => 0,
+      'Abreviacion' => '',
+      'Tipo' => '',
+      'Nota' => '',
+      'FACTEIban' => '',
+      'FACTEBanco' => '',
+      'FACTESucursal' => '',
+      'FACTEBanDir' => '',
+      'FACTEBanCodPos' => '',
+      'FACTEBanPob' => '',
+      'FACTEBanPrv' => '',
+      'FACTEBanPai' => '',
+    ],
+  ],
+  'bancos' => [
+    'table' => 'Bancos',
+    'primaryKey' => 'Codigo',
+    'modulo' => 'proveedores',
+    'hardDelete' => true,
+    'searchColumns' => ['Codigo', 'Nombre'],
+    'fields' => [
+      'codigo' => 'Codigo',
+      'nombre' => 'Nombre',
+      'domicilio' => 'Domicilio',
+      'poblacion' => 'Poblacion',
+      'codigoPostal' => 'CodigoPostal',
+      'provincia' => 'Provincia',
+      'cuenta' => 'Cuenta',
+      'sufijo' => 'Sufijo',
+    ],
+    'stringMaxLengths' => [
+      'Codigo' => 9,
+      'Nombre' => 50,
+      'Domicilio' => 50,
+      'Poblacion' => 50,
+      'CodigoPostal' => 8,
+      'Provincia' => 50,
+      'Cuenta' => 23,
+    ],
+  ],
+  /** Plan contable (legacy consulta CuentasBan en ficha Proveedores → campo Banco). */
+  'cuentas' => [
+    'table' => 'Cuentas',
+    'primaryKey' => 'Codigo',
+    'modulo' => 'proveedores',
+    'hardDelete' => true,
+    'searchColumns' => ['Codigo', 'Descripcion'],
+    'fields' => [
+      'codigo' => 'Codigo',
+      'descripcion' => 'Descripcion',
+    ],
+    'stringMaxLengths' => [
+      'Codigo' => 10,
+      'Descripcion' => 40,
     ],
   ],
 ];

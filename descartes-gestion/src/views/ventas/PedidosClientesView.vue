@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import { listarPedidos } from '@/api/ventas'
 import type { PedidoResumen } from '@/types/ventas'
+import { leerGridPageSize } from '@/composables/useGridPageSize'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
@@ -34,7 +35,7 @@ const error = ref<string | null>(null)
 const items = ref<PedidoResumen[]>([])
 const total = ref(0)
 const page = ref(1)
-const pageSize = ref(50)
+const pageSize = ref(leerGridPageSize())
 const tiendas = ref<{ value: string; label: string; corto: string }[]>([])
 const buscarOpen = ref(false)
 const buscarEntidad = ref<BuscarEntidad>('clientes')

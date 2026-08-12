@@ -93,7 +93,9 @@ function registerIpc() {
   ipcMain.handle('equipo:set', (_event, payload) => localConfig.writeEquipo(payload || {}))
   ipcMain.handle('equipo:clear', () => localConfig.clearEquipo())
 
+  ipcMain.handle('peripheral:listPrinters', () => peripherals.listPrinters())
   ipcMain.handle('peripheral:printTicket', (_event, payload) => peripherals.printTicket(payload))
+  ipcMain.handle('peripheral:printHtml', (_event, payload) => peripherals.printHtml(payload))
   ipcMain.handle('peripheral:printLabel', (_event, payload) => peripherals.printLabel(payload))
   ipcMain.handle('peripheral:openCashDrawer', () => peripherals.openCashDrawer())
   ipcMain.handle('peripheral:readCashDrawer', (_event, payload) => peripherals.readCashDrawer(payload || {}))

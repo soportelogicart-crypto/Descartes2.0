@@ -135,7 +135,7 @@ defineEmits<{
         type="button"
         class="tool-btn"
         :disabled="loading || puedeImprimir === false"
-        title="Imprimir (requiere albaran con lineas guardadas)"
+        title="Imprimir (solo tras Finalizar: ticket térmico o A4 según tipo)"
         @click="$emit('imprimir')"
       >
         <ToolIcon name="listado" />

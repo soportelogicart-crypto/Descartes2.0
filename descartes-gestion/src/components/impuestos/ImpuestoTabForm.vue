@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { ImpuestoField, ImpuestoSection } from '@/config/impuestos-tabs'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 const props = defineProps<{
   sections: ImpuestoSection[]
@@ -71,21 +72,13 @@ function sectionClass(section: ImpuestoSection) {
             @change="updateField(field.key, ($event.target as HTMLInputElement).checked)"
           />
 
-          <input
+          <DecimalInput
             v-else-if="field.type === 'number'"
-            type="number"
-            :data-field-key="field.key"
-            :value="displayNumber(field.key) as number"
+            :field-key="field.key"
+            :model-value="(modelValue[field.key] as number | null) ?? null"
+            :empty-as-null="true"
             :readonly="isReadOnly(field)"
-            :step="field.step ?? 'any'"
-            @input="
-              updateField(
-                field.key,
-                ($event.target as HTMLInputElement).value === ''
-                  ? null
-                  : Number(($event.target as HTMLInputElement).value)
-              )
-            "
+            @update:model-value="updateField(field.key, $event)"
           />
 
           <input
@@ -200,8 +193,7 @@ function sectionClass(section: ImpuestoSection) {
   font-style: normal;
 }
 
-.field input[type='text'],
-.field input[type='number'] {
+.field input[type='text'] {
   width: 100%;
   min-width: 0;
   padding: 0.2rem 0.35rem;

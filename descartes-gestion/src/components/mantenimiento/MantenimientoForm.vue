@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import type { CampoEntidad } from '@/config/entidades'
 import { api } from '@/api/client'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 const props = defineProps<{
   campos: CampoEntidad[]
@@ -152,6 +153,14 @@ function onGuardar() {
         type="checkbox"
         :disabled="campo.readOnly || (campo.key === 'activo' && esTiendaCentral)"
       />
+      <DecimalInput
+        v-else-if="campo.type === 'number'"
+        :id="campo.key"
+        :model-value="(local[campo.key] as number | null) ?? null"
+        :required="campo.required"
+        :readonly="campo.readOnly || (!esNuevo && campo.key === 'codigo')"
+        @update:model-value="local[campo.key] = $event"
+      />
       <input
         v-else
         :id="campo.key"
@@ -210,7 +219,6 @@ function onGuardar() {
 }
 
 input[type='text'],
-input[type='number'],
 input[type='email'],
 input[type='password'],
 select {

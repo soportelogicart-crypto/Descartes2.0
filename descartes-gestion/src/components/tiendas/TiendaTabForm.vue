@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import type { TiendaField, TiendaSection } from '@/config/tiendas-tabs'
 import { lookupCodigoPostal } from '@/composables/useCodigoPostalLookup'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 const props = defineProps<{
   sections: TiendaSection[]
@@ -208,20 +209,13 @@ function atributosPairs(section: TiendaSection) {
             :readonly="isReadOnly(pair.atri)"
             @input="updateField(pair.atri.key, ($event.target as HTMLInputElement).value)"
           />
-          <input
+          <DecimalInput
             v-if="pair.col"
-            type="number"
-            step="1"
-            :value="displayNumber(pair.col.key) as number"
+            :integer="true"
+            :model-value="(modelValue[pair.col.key] as number | null) ?? null"
+            :empty-as-null="false"
             :readonly="isReadOnly(pair.col)"
-            @input="
-              updateField(
-                pair.col.key,
-                ($event.target as HTMLInputElement).value === ''
-                  ? 0
-                  : Number(($event.target as HTMLInputElement).value)
-              )
-            "
+            @update:model-value="updateField(pair.col.key, $event ?? 0)"
           />
         </div>
         <label
@@ -248,19 +242,12 @@ function atributosPairs(section: TiendaSection) {
           :class="{ 'field-invalid': esInvalido(field.key) }"
         >
           <span>{{ field.label }}</span>
-          <input
-            type="number"
-            step="1"
-            :value="displayNumber(field.key) as number"
+          <DecimalInput
+            :integer="true"
+            :model-value="(modelValue[field.key] as number | null) ?? null"
+            :empty-as-null="true"
             :readonly="isReadOnly(field)"
-            @input="
-              updateField(
-                field.key,
-                ($event.target as HTMLInputElement).value === ''
-                  ? null
-                  : Number(($event.target as HTMLInputElement).value)
-              )
-            "
+            @update:model-value="updateField(field.key, $event)"
           />
         </label>
       </div>
@@ -319,14 +306,13 @@ function atributosPairs(section: TiendaSection) {
             <option v-for="opt in impuestosOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
           </select>
 
-          <input
+          <DecimalInput
             v-else-if="field.type === 'number'"
-            type="number"
-            :data-field-key="field.key"
-            :value="displayNumber(field.key) as number"
+            :field-key="field.key"
+            :model-value="(modelValue[field.key] as number | null) ?? null"
+            :empty-as-null="true"
             :readonly="isReadOnly(field)"
-            step="any"
-            @input="updateField(field.key, ($event.target as HTMLInputElement).value === '' ? null : Number(($event.target as HTMLInputElement).value))"
+            @update:model-value="updateField(field.key, $event)"
           />
 
           <input
@@ -499,7 +485,8 @@ function atributosPairs(section: TiendaSection) {
   font-size: 0.78rem;
 }
 
-.atributos-row input[type='number'] {
+.atributos-row :deep(input[inputmode='numeric']),
+.atributos-row :deep(input[inputmode='decimal']) {
   width: 100%;
   box-sizing: border-box;
   padding: 0.12rem 0.2rem;

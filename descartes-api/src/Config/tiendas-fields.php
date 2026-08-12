@@ -151,6 +151,7 @@ return [
     'literal25' => 'Literal25',
     'ultPedidoCom' => 'UltPedidoCom',
     'ultAlbaranCom' => 'UltAlbaranCom',
+    'ultAlbaranDevCom' => 'UltAlbaranDevCom',
     'ultAlbaranVen' => 'UltAlbaranVen',
     'ultAlbaranTra' => 'UltAlbaranTra',
     'ultTicket' => 'UltTicket',
@@ -193,8 +194,17 @@ return [
     'impEtiquetasSinEans',
     'impEtiquetasSoloEansPropios',
     'literalInvitacion',
+    'literalTicket',
     'colAtri0', 'colAtri1', 'colAtri2', 'colAtri3', 'colAtri4',
     'colAtri5', 'colAtri6', 'colAtri7', 'colAtri8', 'colAtri9',
+    'ultAlbaranDevCom',
+  ],
+  /**
+   * Campos visibles en GET pero ignorados en create/update (004-compras T010).
+   * @var list<string>
+   */
+  'readOnlyFields' => [
+    'ultAlbaranDevCom',
   ],
   /** Longitudes max. columnas string en [Empresas] (evitar SQLSTATE 22001). */
   'stringMaxLengths' => [

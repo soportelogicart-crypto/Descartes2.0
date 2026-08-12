@@ -23,20 +23,31 @@ export function clonarInteresComercial(item: Record<string, unknown>): InteresCo
   }
 }
 
-export function validarInteresComercial(fila: InteresComercialFila): string | null {
-  const codigo = String(fila.codigo ?? '').trim()
-  if (!codigo) return 'El codigo es obligatorio'
-  if (codigo.length > 2) return 'El codigo admite como maximo 2 caracteres'
-  if (!String(fila.descripcion ?? '').trim()) return 'La descripcion es obligatoria'
-  if (String(fila.descripcion ?? '').trim().length > 50) {
-    return 'La descripcion admite como maximo 50 caracteres'
-  }
-  return null
-}
-
-export function payloadInteresComercial(fila: InteresComercialFila): Record<string, unknown> {
+export function payloadInteresComercial(fila: Record<string, unknown>): Record<string, unknown> {
   return {
     codigo: String(fila.codigo ?? '').trim(),
     descripcion: String(fila.descripcion ?? '').trim(),
   }
+}
+
+export const INTERES_CAMPOS_OBLIGATORIOS: { key: string; label: string }[] = [
+  { key: 'codigo', label: 'Codigo' },
+  { key: 'descripcion', label: 'Descripcion' },
+]
+
+export function camposInteresObligatoriosVacios(ficha: Record<string, unknown>): string[] {
+  const vacios: string[] = []
+  if (!String(ficha.codigo ?? '').trim()) vacios.push('codigo')
+  if (!String(ficha.descripcion ?? '').trim()) vacios.push('descripcion')
+  return vacios
+}
+
+export function validarInteresObligatorios(ficha: Record<string, unknown>): string | null {
+  const codigo = String(ficha.codigo ?? '').trim()
+  if (!codigo) return 'El campo "Codigo" es obligatorio.'
+  if (codigo.length > 2) return 'El codigo admite como maximo 2 caracteres'
+  const desc = String(ficha.descripcion ?? '').trim()
+  if (!desc) return 'El campo "Descripcion" es obligatorio.'
+  if (desc.length > 50) return 'La descripcion admite como maximo 50 caracteres'
+  return null
 }

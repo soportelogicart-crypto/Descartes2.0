@@ -13,6 +13,7 @@ import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { api } from '@/api/client'
 import PdfPreviewModal from '@/components/common/PdfPreviewModal.vue'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 type Opt = { value: string; label: string }
 
@@ -386,8 +387,18 @@ onMounted(async () => {
             </div>
             <div class="rango-row">
               <span class="rango-label">Sesión</span>
-              <input v-model="form.sesionDesde" type="number" min="0" />
-              <input v-model="form.sesionHasta" type="number" min="0" />
+              <DecimalInput
+                :model-value="form.sesionDesde === '' || form.sesionDesde == null ? null : Number(form.sesionDesde)"
+                :empty-as-null="true"
+                :integer="true"
+                @update:model-value="form.sesionDesde = $event ?? ''"
+              />
+              <DecimalInput
+                :model-value="form.sesionHasta === '' || form.sesionHasta == null ? null : Number(form.sesionHasta)"
+                :empty-as-null="true"
+                :integer="true"
+                @update:model-value="form.sesionHasta = $event ?? ''"
+              />
             </div>
             <div class="rango-row">
               <span class="rango-label">Fecha</span>
@@ -406,8 +417,18 @@ onMounted(async () => {
             </div>
             <div class="rango-row">
               <span class="rango-label">Albarán</span>
-              <input v-model="form.albaranDesde" type="number" min="0" />
-              <input v-model="form.albaranHasta" type="number" min="0" />
+              <DecimalInput
+                :model-value="form.albaranDesde === '' || form.albaranDesde == null ? null : Number(form.albaranDesde)"
+                :empty-as-null="true"
+                :integer="true"
+                @update:model-value="form.albaranDesde = $event ?? ''"
+              />
+              <DecimalInput
+                :model-value="form.albaranHasta === '' || form.albaranHasta == null ? null : Number(form.albaranHasta)"
+                :empty-as-null="true"
+                :integer="true"
+                @update:model-value="form.albaranHasta = $event ?? ''"
+              />
             </div>
             <div class="rango-row">
               <span class="rango-label">F.Pago</span>
@@ -639,7 +660,6 @@ legend {
   color: #334155;
   white-space: nowrap;
 }
-.rangos input[type='number'],
 .rangos input[type='date'],
 .rangos input[type='text'],
 .rangos select {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 export interface PrecioEscalonado {
   desdeCantidad: number
@@ -65,22 +66,19 @@ function onChange() {
       <tbody>
         <tr v-for="(fila, index) in filas" :key="index">
           <td>
-            <input
-              v-model.number="fila.desdeCantidad"
-              type="number"
-              min="0"
+            <DecimalInput
+              :model-value="fila.desdeCantidad"
+              :empty-as-null="false"
               :readonly="readonly"
-              @change="onChange"
+              @update:model-value="(v) => { fila.desdeCantidad = v ?? 0; onChange() }"
             />
           </td>
           <td>
-            <input
-              v-model.number="fila.precio"
-              type="number"
-              min="0"
-              step="0.01"
+            <DecimalInput
+              :model-value="fila.precio"
+              :empty-as-null="false"
               :readonly="readonly"
-              @change="onChange"
+              @update:model-value="(v) => { fila.precio = v ?? 0; onChange() }"
             />
           </td>
           <td v-if="!readonly">

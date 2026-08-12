@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { contadoresFieldsDer, contadoresFieldsIzq } from '@/config/tiendas-tabs'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 const props = defineProps<{
   open: boolean
@@ -37,11 +38,6 @@ function num(key: string) {
   return Number(v)
 }
 
-function setNum(key: string, raw: string) {
-  const n = raw === '' ? 0 : Number(raw)
-  draft.value = { ...draft.value, [key]: Number.isFinite(n) ? n : 0 }
-}
-
 function onGuardar() {
   const next = { ...draft.value }
   emit('update:modelValue', next)
@@ -69,12 +65,12 @@ function onCerrar() {
       <div class="box">
         <label v-for="f in contadoresFieldsIzq" :key="f.key" class="row">
           <span class="lbl">{{ f.label }}</span>
-          <input
-            type="number"
-            step="1"
-            :value="num(f.key)"
-            :readonly="readonly"
-            @input="setNum(f.key, ($event.target as HTMLInputElement).value)"
+          <DecimalInput
+            :integer="true"
+            :model-value="num(f.key)"
+            :empty-as-null="false"
+            :readonly="readonly || !!f.readOnly"
+            @update:model-value="(v) => { if (!f.readOnly) draft[f.key] = v ?? 0 }"
           />
         </label>
 
@@ -82,12 +78,12 @@ function onCerrar() {
 
         <label v-for="f in contadoresFieldsDer" :key="f.key" class="row">
           <span class="lbl">{{ f.label }}</span>
-          <input
-            type="number"
-            step="1"
-            :value="num(f.key)"
-            :readonly="readonly"
-            @input="setNum(f.key, ($event.target as HTMLInputElement).value)"
+          <DecimalInput
+            :integer="true"
+            :model-value="num(f.key)"
+            :empty-as-null="false"
+            :readonly="readonly || !!f.readOnly"
+            @update:model-value="(v) => { if (!f.readOnly) draft[f.key] = v ?? 0 }"
           />
         </label>
       </div>

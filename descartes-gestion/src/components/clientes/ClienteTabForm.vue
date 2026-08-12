@@ -7,6 +7,7 @@ import {
   type ClienteSection,
 } from '@/config/clientes-tabs'
 import { lookupCodigoPostal } from '@/composables/useCodigoPostalLookup'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 const props = defineProps<{
   sections: ClienteSection[]
@@ -14,10 +15,12 @@ const props = defineProps<{
   readonly?: boolean
   codigoReadOnly?: boolean
   ocultarCabecera?: boolean
+  camposInvalidos?: string[]
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: Record<string, unknown>]
+  'blur-field': [key: string, value: string]
 }>()
 
 const tiendasOptions = ref<{ value: string; label: string }[]>([])
@@ -200,8 +203,22 @@ function displayValue(field: ClienteField) {
   return value ?? ''
 }
 
+/** Direccion fiscal → envio (mismo criterio que legacy PreAlta/copia). */
+const FISCAL_A_ENVIO: Record<string, string> = {
+  direccion: 'direccionEnvio',
+  codigoPostal: 'codigoPostalEnvio',
+  poblacion: 'poblacionEnvio',
+  provincia: 'provinciaEnvio',
+  pais: 'paisEnvio',
+}
+
 function setValue(field: ClienteField, value: unknown) {
-  emit('update:modelValue', { ...props.modelValue, [field.key]: value })
+  const next: Record<string, unknown> = { ...props.modelValue, [field.key]: value }
+  const envioKey = FISCAL_A_ENVIO[field.key]
+  if (envioKey) {
+    next[envioKey] = value
+  }
+  emit('update:modelValue', next)
 }
 
 const CP_FIELD_MAP: Record<string, { poblacion: string; provincia: string }> = {
@@ -210,6 +227,16 @@ const CP_FIELD_MAP: Record<string, { poblacion: string; provincia: string }> = {
 }
 
 let cpLookupSeq = 0
+
+function onFieldBlur(field: ClienteField, raw: string) {
+  if (field.key === 'codigoPostal' || field.key === 'codigoPostalEnvio') {
+    void onCodigoPostalInput(field, raw)
+    return
+  }
+  if (field.key === 'nif') {
+    emit('blur-field', 'nif', raw)
+  }
+}
 
 async function onCodigoPostalInput(field: ClienteField, raw: string) {
   setValue(field, raw)
@@ -221,9 +248,15 @@ async function onCodigoPostalInput(field: ClienteField, raw: string) {
   try {
     const data = await lookupCodigoPostal(cp)
     if (seq !== cpLookupSeq || !data) return
-    const next = { ...props.modelValue, [field.key]: raw }
+    const next: Record<string, unknown> = { ...props.modelValue, [field.key]: raw }
     if (data.poblacion) next[map.poblacion] = data.poblacion
     if (data.provincia) next[map.provincia] = data.provincia
+    // Si es CP fiscal, reflejar tambien en envio.
+    if (field.key === 'codigoPostal') {
+      next.codigoPostalEnvio = raw
+      if (data.poblacion) next.poblacionEnvio = data.poblacion
+      if (data.provincia) next.provinciaEnvio = data.provincia
+    }
     emit('update:modelValue', next)
   } catch {
     // Silencioso
@@ -250,7 +283,11 @@ function colsClass(section: ClienteSection) {
             v-for="field in section.fields"
             :key="field.key"
             class="field"
-            :class="[`span-${field.span ?? 1}`, field.layout ?? 'inline']"
+            :class="[
+              `span-${field.span ?? 1}`,
+              field.layout ?? 'inline',
+              camposInvalidos?.includes(field.key) ? 'campo-invalido' : '',
+            ]"
           >
             <template v-if="field.layout === 'checkbox'">
               <input
@@ -270,6 +307,7 @@ function colsClass(section: ClienteSection) {
 
               <select
                 v-if="field.type === 'select'"
+                :data-field-key="field.key"
                 :value="String(modelValue[field.key] ?? '')"
                 :disabled="isReadOnly(field)"
                 @change="setValue(field, ($event.target as HTMLSelectElement).value)"
@@ -282,6 +320,7 @@ function colsClass(section: ClienteSection) {
 
               <textarea
                 v-else-if="field.layout === 'textarea' || field.type === 'textarea'"
+                :data-field-key="field.key"
                 :value="String(displayValue(field))"
                 :readonly="isReadOnly(field)"
                 rows="4"
@@ -291,35 +330,34 @@ function colsClass(section: ClienteSection) {
               <input
                 v-else-if="field.type === 'checkbox'"
                 type="checkbox"
+                :data-field-key="field.key"
                 :checked="Boolean(displayValue(field))"
                 :disabled="isReadOnly(field)"
                 @change="setValue(field, ($event.target as HTMLInputElement).checked)"
               />
 
+              <DecimalInput
+                v-else-if="field.type === 'number'"
+                :field-key="field.key"
+                :model-value="(modelValue[field.key] as number | null) ?? null"
+                :empty-as-null="true"
+                :readonly="isReadOnly(field)"
+                @update:model-value="setValue(field, $event)"
+              />
+
               <input
                 v-else
-                :type="field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : field.type === 'email' ? 'email' : 'text'"
+                :data-field-key="field.key"
+                :type="field.type === 'date' ? 'date' : field.type === 'email' ? 'email' : 'text'"
                 :value="displayValue(field) as string | number"
                 :readonly="isReadOnly(field)"
                 :maxlength="field.maxLength"
-                step="any"
                 @input="
                   field.key === 'codigoPostal' || field.key === 'codigoPostalEnvio'
                     ? onCodigoPostalInput(field, ($event.target as HTMLInputElement).value)
-                    : setValue(
-                        field,
-                        field.type === 'number'
-                          ? ($event.target as HTMLInputElement).value === ''
-                            ? null
-                            : Number(($event.target as HTMLInputElement).value)
-                          : ($event.target as HTMLInputElement).value
-                      )
+                    : setValue(field, ($event.target as HTMLInputElement).value)
                 "
-                @blur="
-                  field.key === 'codigoPostal' || field.key === 'codigoPostalEnvio'
-                    ? onCodigoPostalInput(field, ($event.target as HTMLInputElement).value)
-                    : undefined
-                "
+                @blur="onFieldBlur(field, ($event.target as HTMLInputElement).value)"
               />
             </template>
           </label>
@@ -398,6 +436,18 @@ function colsClass(section: ClienteSection) {
   gap: 0.15rem;
   font-size: 0.78rem;
   min-width: 0;
+}
+
+.campo-invalido .label {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.campo-invalido input,
+.campo-invalido select,
+.campo-invalido textarea {
+  border-color: #ef4444;
+  background: #fef2f2;
 }
 
 .field.checkbox {

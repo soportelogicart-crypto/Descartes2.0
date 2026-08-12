@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { api } from '@/api/client'
 import { entidades } from '@/config/entidades'
 import { usePermisos } from '@/composables/usePermisos'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 const config = entidades.empresas
 const { puede } = usePermisos()
@@ -124,15 +125,33 @@ onMounted(cargar)
         <legend>Contadores de documentos</legend>
         <label>
           Ultima factura
-          <input v-model.number="(form.contadores as Record<string, number>).ultFactura" type="number" min="0" :readonly="!puedeEditar" />
+          <DecimalInput
+            :model-value="Number((form.contadores as Record<string, number>).ultFactura) || 0"
+            :empty-as-null="false"
+            :integer="true"
+            :readonly="!puedeEditar"
+            @update:model-value="(form.contadores as Record<string, number>).ultFactura = $event ?? 0"
+          />
         </label>
         <label>
           Ultimo ticket
-          <input v-model.number="(form.contadores as Record<string, number>).ultTicket" type="number" min="0" :readonly="!puedeEditar" />
+          <DecimalInput
+            :model-value="Number((form.contadores as Record<string, number>).ultTicket) || 0"
+            :empty-as-null="false"
+            :integer="true"
+            :readonly="!puedeEditar"
+            @update:model-value="(form.contadores as Record<string, number>).ultTicket = $event ?? 0"
+          />
         </label>
         <label>
           Ultimo albaran venta
-          <input v-model.number="(form.contadores as Record<string, number>).ultAlbaranVen" type="number" min="0" :readonly="!puedeEditar" />
+          <DecimalInput
+            :model-value="Number((form.contadores as Record<string, number>).ultAlbaranVen) || 0"
+            :empty-as-null="false"
+            :integer="true"
+            :readonly="!puedeEditar"
+            @update:model-value="(form.contadores as Record<string, number>).ultAlbaranVen = $event ?? 0"
+          />
         </label>
       </fieldset>
 

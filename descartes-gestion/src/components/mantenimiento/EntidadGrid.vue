@@ -8,6 +8,7 @@ import {
   type ColumnFilter,
   type FilterOperador,
 } from '@/composables/useGridColumnFilters'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 export type GridOptionsMap = Record<string, { value: string; label: string }[]>
 
@@ -267,22 +268,13 @@ onBeforeUnmount(() => {
                 @change="onCellChange(index, col.key, ($event.target as HTMLInputElement).checked)"
               />
 
-              <input
+              <DecimalInput
                 v-else-if="col.type === 'number'"
-                type="number"
                 class="cell-input"
-                :value="cellValue(fila, col) as number"
+                :model-value="(cellValue(fila, col) as number | null) ?? null"
+                :empty-as-null="false"
                 :readonly="isReadOnly(col, fila)"
-                step="any"
-                @input="
-                  onCellChange(
-                    index,
-                    col.key,
-                    ($event.target as HTMLInputElement).value === ''
-                      ? 0
-                      : Number(($event.target as HTMLInputElement).value)
-                  )
-                "
+                @update:model-value="onCellChange(index, col.key, $event ?? 0)"
               />
 
               <input

@@ -114,7 +114,6 @@ export const mantenimientoNavPermisos: NavPermisoNodo[] = [
 export const otrosModulosPermisos: NavPermisoItem[] = [
   { id: 'mantenimiento', titulo: 'Mantenimiento (general)', modulo: 'mantenimiento' },
   { id: 'puestos', titulo: 'Puestos (legado)', modulo: 'puestos' },
-  { id: 'compras', titulo: 'Compras', modulo: 'compras' },
   { id: 'inventario', titulo: 'Inventario', modulo: 'inventario' },
   { id: 'listados', titulo: 'Listados', modulo: 'listados' },
   { id: 'tpv', titulo: 'TPV', modulo: 'tpv' },

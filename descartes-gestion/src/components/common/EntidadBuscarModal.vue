@@ -10,7 +10,21 @@ export type EntidadBuscarResultado = {
 
 const props = defineProps<{
   open: boolean
-  entidad: 'articulos' | 'proveedores' | 'clientes' | 'trabajadores' | 'puestos-trabajo'
+  entidad:
+    | 'articulos'
+    | 'proveedores'
+    | 'clientes'
+    | 'trabajadores'
+    | 'puestos-trabajo'
+    | 'tiendas'
+    | 'familias'
+    | 'macrofamilias'
+    | 'subfamilias'
+    | 'secciones'
+    | 'subsecciones'
+    | 'formas-pago'
+    | 'bancos'
+    | 'cuentas'
   titulo?: string
   busquedaInicial?: string
 }>()
@@ -34,6 +48,15 @@ const tituloModal = () => {
   if (props.entidad === 'clientes') return 'Buscar cliente'
   if (props.entidad === 'trabajadores') return 'Buscar vendedor'
   if (props.entidad === 'puestos-trabajo') return 'Buscar puesto'
+  if (props.entidad === 'tiendas') return 'Buscar empresa'
+  if (props.entidad === 'familias') return 'Buscar familia'
+  if (props.entidad === 'macrofamilias') return 'Buscar macrofamilia'
+  if (props.entidad === 'subfamilias') return 'Buscar subfamilia'
+  if (props.entidad === 'secciones') return 'Buscar seccion'
+  if (props.entidad === 'subsecciones') return 'Buscar subseccion'
+  if (props.entidad === 'formas-pago') return 'Buscar forma de pago'
+  if (props.entidad === 'bancos') return 'Buscar banco'
+  if (props.entidad === 'cuentas') return 'Buscar cuenta'
   return 'Buscar proveedor'
 }
 
@@ -66,6 +89,8 @@ async function buscar() {
         etiqueta = String(item.nombre ?? item.descripcion ?? '')
       } else if (props.entidad === 'puestos-trabajo') {
         etiqueta = String(item.descripcion ?? item.nombre ?? '')
+      } else if (props.entidad === 'tiendas') {
+        etiqueta = String(item.nombre ?? item.nombreFiscal ?? '')
       } else {
         etiqueta = String(item.nombre ?? item.razonSocial ?? item.descripcion ?? '')
       }
@@ -106,15 +131,13 @@ function aceptar(i?: number) {
             v-model="q"
             type="search"
             :placeholder="
-              entidad === 'articulos'
-                ? 'Codigo o descripcion...'
-                : entidad === 'puestos-trabajo'
-                  ? 'Codigo o descripcion...'
-                  : entidad === 'trabajadores'
+              entidad === 'clientes'
+                ? 'Codigo o razon social...'
+                : entidad === 'proveedores'
+                  ? 'Codigo o razon social...'
+                  : entidad === 'trabajadores' || entidad === 'tiendas'
                     ? 'Codigo o nombre...'
-                    : entidad === 'clientes'
-                      ? 'Codigo o razon social...'
-                      : 'Codigo o razon social...'
+                    : 'Codigo o descripcion...'
             "
             autofocus
             @keyup.enter="buscar"

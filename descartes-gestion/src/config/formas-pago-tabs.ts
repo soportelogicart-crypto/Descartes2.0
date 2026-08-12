@@ -186,7 +186,7 @@ export function formaPagoVacia(): Record<string, unknown> {
     cobroPago: 'A',
     cuentaCtb: 0,
     nota: '',
-    facteFpCodigo: null,
+    facteFpCodigo: 0,
     facteTransferencia: false,
     facteReciboDom: false,
     facteIban: '',
@@ -201,11 +201,26 @@ export function formaPagoVacia(): Record<string, unknown> {
   }
 }
 
+export const FORMA_PAGO_CAMPOS_OBLIGATORIOS: { key: string; label: string }[] = [
+  { key: 'codigo', label: 'Codigo' },
+  { key: 'descripcion', label: 'Descripcion' },
+]
+
+export function camposFormaPagoObligatoriosVacios(ficha: Record<string, unknown>): string[] {
+  const vacios: string[] = []
+  if (!String(ficha.codigo ?? '').trim()) vacios.push('codigo')
+  if (!String(ficha.descripcion ?? '').trim()) vacios.push('descripcion')
+  return vacios
+}
+
 export function validarFormaPagoObligatorios(ficha: Record<string, unknown>): string | null {
-  if (!String(ficha.codigo ?? '').trim()) return 'El codigo es obligatorio'
-  if (String(ficha.codigo ?? '').trim().length > 2) return 'El codigo tiene maximo 2 caracteres'
-  if (!String(ficha.descripcion ?? '').trim()) return 'La descripcion es obligatoria'
-  return null
+  const key = camposFormaPagoObligatoriosVacios(ficha)[0]
+  if (!key) {
+    if (String(ficha.codigo ?? '').trim().length > 2) return 'El codigo tiene maximo 2 caracteres'
+    return null
+  }
+  const label = FORMA_PAGO_CAMPOS_OBLIGATORIOS.find((c) => c.key === key)?.label ?? key
+  return `El campo "${label}" es obligatorio.`
 }
 
 export function payloadFormaPago(ficha: Record<string, unknown>): Record<string, unknown> {
@@ -220,6 +235,26 @@ export function payloadFormaPago(ficha: Record<string, unknown>): Record<string,
   }
   if (out.tipo != null) {
     out.tipo = String(out.tipo).trim().toUpperCase().slice(0, 1)
+  }
+  // Legacy guarda cadenas vacias (no NULL) en varios campos de texto.
+  for (const key of [
+    'abreviacion',
+    'tipo',
+    'nota',
+    'facteIban',
+    'facteBanco',
+    'facteSucursal',
+    'facteBanDir',
+    'facteBanCodPos',
+    'facteBanPob',
+    'facteBanPrv',
+    'facteBanPai',
+  ] as const) {
+    if (out[key] == null) out[key] = ''
+    else out[key] = String(out[key]).trim()
+  }
+  if (out.facteFpCodigo === '' || out.facteFpCodigo == null) {
+    out.facteFpCodigo = 0
   }
   return out
 }

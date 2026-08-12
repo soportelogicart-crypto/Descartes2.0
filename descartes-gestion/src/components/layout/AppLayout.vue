@@ -8,6 +8,7 @@ import { puestosMenuItems, esRutaPuestos } from '@/config/puestos-menu'
 import { proveedoresMenuItems, esRutaProveedores } from '@/config/proveedores-menu'
 import { ventasMenuItems } from '@/config/ventas-nav'
 import { facturacionMenuItems } from '@/config/facturacion-nav'
+import { comprasMenuItems } from '@/config/compras-nav'
 import { moduloDeEntradaMenu } from '@/config/mantenimiento-nav-permisos'
 import { menuPrincipalSecciones } from '@/config/menu-principal'
 import { entidades } from '@/config/entidades'
@@ -44,6 +45,15 @@ const ventasItems = computed(() =>
 
 const ventasSeccionVisible = computed(() => ventasItems.value.some((i) => i.habilitado))
 
+const comprasItems = computed(() =>
+  comprasMenuItems.map((item) => ({
+    ...item,
+    habilitado: puede(item.modulo, 'ver'),
+  }))
+)
+
+const comprasSeccionVisible = computed(() => comprasItems.value.some((i) => i.habilitado))
+
 const facturacionItems = computed(() =>
   facturacionMenuItems.map((item) => ({
     ...item,
@@ -58,13 +68,15 @@ const facturacionSeccionVisible = computed(() =>
 const secciones = computed(() =>
   menuPrincipalSecciones.map((seccion) => ({
     ...seccion,
-    // Estructura siempre visible salvo Ventas/Facturacion si no hay submenu permitido.
+    // Ocultar seccion si no hay submenu permitido (compras / ventas / facturacion).
     habilitado:
-      seccion.id === 'ventas'
-        ? ventasSeccionVisible.value
-        : seccion.id === 'facturacion'
-          ? facturacionSeccionVisible.value
-          : true,
+      seccion.id === 'compras'
+        ? comprasSeccionVisible.value
+        : seccion.id === 'ventas'
+          ? ventasSeccionVisible.value
+          : seccion.id === 'facturacion'
+            ? facturacionSeccionVisible.value
+            : true,
     activa:
       seccion.id === 'mantenimiento'
         ? route.path.startsWith('/mantenimiento')
@@ -318,6 +330,27 @@ async function logout() {
           </div>
         </nav>
 
+        <!-- Compras: submenus del modulo -->
+        <nav v-else-if="seccion.id === 'compras'" v-show="seccionesAbiertas.compras">
+          <template v-for="item in comprasItems" :key="item.id">
+            <RouterLink
+              v-if="item.habilitado"
+              :to="item.ruta"
+              class="nav-link nav-child"
+              :class="{
+                active:
+                  route.path === item.ruta || route.path.startsWith(item.ruta + '/'),
+              }"
+              @click="cerrarMenu"
+            >
+              {{ item.titulo }}
+            </RouterLink>
+            <span v-else class="nav-link nav-child disabled" title="Sin permiso">{{
+              item.titulo
+            }}</span>
+          </template>
+        </nav>
+
         <!-- Ventas: submenus del modulo -->
         <nav v-else-if="seccion.id === 'ventas'" v-show="seccionesAbiertas.ventas">
           <template v-for="item in ventasItems" :key="item.id">
@@ -359,10 +392,16 @@ async function logout() {
       </div>
       </div>
 
-      <button type="button" class="btn-salir" title="Salir" @click="logout">
-        <ToolIcon name="salir" />
-        <span>Salir</span>
-      </button>
+      <div class="sidebar-footer">
+        <RouterLink to="/configuracion" class="btn-config" title="Configuracion" @click="cerrarMenu">
+          <ToolIcon name="config" />
+          <span>Configuracion</span>
+        </RouterLink>
+        <button type="button" class="btn-salir" title="Salir" @click="logout">
+          <ToolIcon name="salir" />
+          <span>Salir</span>
+        </button>
+      </div>
     </aside>
     <div class="main">
       <header class="topbar">
@@ -414,12 +453,12 @@ async function logout() {
   overscroll-behavior: contain;
 }
 
+.btn-config,
 .btn-salir {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
   width: 100%;
-  margin-top: 0.75rem;
   padding: 0.55rem 0.75rem;
   border: 1px solid #4b5563;
   border-radius: 8px;
@@ -429,6 +468,22 @@ async function logout() {
   font-size: 0.9rem;
   cursor: pointer;
   flex-shrink: 0;
+  text-decoration: none;
+  box-sizing: border-box;
+}
+
+.sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+  flex-shrink: 0;
+}
+
+.btn-config:hover,
+.btn-config.router-link-active {
+  background: #1e3a5f;
+  border-color: #3b82f6;
 }
 
 .btn-salir:hover {

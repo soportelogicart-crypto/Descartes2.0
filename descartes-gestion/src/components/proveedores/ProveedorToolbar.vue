@@ -65,12 +65,15 @@ defineEmits<{
     </div>
 
     <div class="toolbar-group nav">
-      <button type="button" class="nav-btn" :disabled="loading || (indice ?? -1) < 0" @click="$emit('primero')">|&lt;</button>
-      <button type="button" class="nav-btn" :disabled="loading || (indice ?? -1) <= 0" @click="$emit('anterior')">&lt;</button>
-      <span class="nav-counter">{{ total ? ((indice ?? -1) + 1) : 0 }}/{{ total ?? 0 }}</span>
+      <button type="button" class="nav-btn" :disabled="loading || (indice ?? -1) < 0" title="Primero" @click="$emit('primero')">|&lt;</button>
+      <button type="button" class="nav-btn" :disabled="loading || (indice ?? -1) <= 0" title="Anterior" @click="$emit('anterior')">&lt;</button>
+      <span class="nav-counter">
+        {{ (indice ?? -1) >= 0 && total ? `${(indice ?? 0) + 1}/${total}` : `—/${total ?? 0}` }}
+      </span>
       <button
         type="button"
         class="nav-btn"
+        title="Siguiente"
         :disabled="loading || total === 0 || (indice ?? -1) < 0 || (indice ?? -1) >= (total ?? 1) - 1"
         @click="$emit('siguiente')"
       >
@@ -79,6 +82,7 @@ defineEmits<{
       <button
         type="button"
         class="nav-btn"
+        title="Ultimo"
         :disabled="loading || total === 0 || (indice ?? -1) < 0 || (indice ?? -1) >= (total ?? 1) - 1"
         @click="$emit('ultimo')"
       >
@@ -89,11 +93,7 @@ defineEmits<{
     <div class="toolbar-group">
       <button type="button" class="tool-btn" :disabled="loading || !hayProveedor" title="Estadistica" @click="$emit('estadistica')">
         <ToolIcon name="estadistica" />
-        <span>Estadistica</span>
-      </button>
-      <button type="button" class="tool-btn" :disabled="loading || !hayProveedor" title="Excepciones" @click="$emit('excepciones')">
-        <ToolIcon name="excepciones" />
-        <span>Excepciones</span>
+        <span>Estadist.</span>
       </button>
       <button type="button" class="tool-btn" :disabled="loading || !hayProveedor" title="Contactos" @click="$emit('contactos')">
         <ToolIcon name="contactos" />
@@ -103,21 +103,33 @@ defineEmits<{
         <ToolIcon name="intereses" />
         <span>Intereses</span>
       </button>
-          </div>
+      <button type="button" class="tool-btn" :disabled="loading || !hayProveedor" title="Excepciones" @click="$emit('excepciones')">
+        <ToolIcon name="excepciones" />
+        <span>Excepc.</span>
+      </button>
+    </div>
 
-    <div class="toolbar-group">
+    <div class="toolbar-group actions">
       <button
         v-if="modoEdicion"
         type="button"
         class="tool-btn primary"
+        title="Guardar"
         :disabled="loading || !puedeGuardar"
         @click="$emit('guardar')"
       >
         <ToolIcon name="guardar" />
         <span>Guardar</span>
       </button>
-      <button v-if="modoEdicion" type="button" class="tool-btn" :disabled="loading" @click="$emit('cancelar')">
-        Cancelar
+      <button
+        v-if="modoEdicion"
+        type="button"
+        class="tool-btn"
+        title="Cancelar"
+        :disabled="loading"
+        @click="$emit('cancelar')"
+      >
+        <span>Cancelar</span>
       </button>
     </div>
   </div>
@@ -125,32 +137,30 @@ defineEmits<{
 
 <style scoped>
 .toolbar {
-  position: relative;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
+  flex-wrap: nowrap;
+  gap: 0.3rem;
   align-items: center;
-  padding: 0.75rem;
-  background: linear-gradient(180deg, #f8fafc 0%, #e5e7eb 100%);
-  border: 1px solid #cbd5e1;
-  border-radius: 10px;
-  margin-bottom: 0.75rem;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.3rem 0.4rem;
+  background: linear-gradient(180deg, #f8fafc 0%, #e8edf3 100%);
+  border: 1px solid #c5cdd8;
+  border-bottom: 1px solid #cbd5e1;
+  border-radius: 8px 8px 0 0;
+  margin: 0;
+  overflow-x: auto;
 }
 
 .toolbar-group {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
+  flex-wrap: nowrap;
+  gap: 0.2rem;
   align-items: center;
+  flex-shrink: 0;
 }
 
-.toolbar-group.nav {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-.toolbar > .toolbar-group:last-child {
+.toolbar-group.actions {
   margin-left: auto;
 }
 
@@ -158,15 +168,23 @@ defineEmits<{
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.15rem;
-  min-width: 4.2rem;
-  padding: 0.35rem 0.45rem;
+  justify-content: center;
+  gap: 0.05rem;
+  min-width: 3.35rem;
+  padding: 0.2rem 0.25rem;
   border: 1px solid #94a3b8;
-  border-radius: 8px;
+  border-radius: 6px;
   background: #fff;
-  font-size: 0.7rem;
+  font-size: 0.62rem;
+  line-height: 1.05;
   cursor: pointer;
   color: #1e293b;
+  white-space: nowrap;
+}
+
+.tool-btn :deep(.tool-icon) {
+  width: 1.05rem;
+  height: 1.05rem;
 }
 
 .tool-btn:disabled {
@@ -183,16 +201,17 @@ defineEmits<{
 .nav {
   background: #fff;
   border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  padding: 0.12rem 0.3rem;
 }
 
 .nav-btn {
   border: 1px solid #86efac;
   background: #dcfce7;
   color: #166534;
-  border-radius: 6px;
-  padding: 0.2rem 0.45rem;
+  border-radius: 4px;
+  padding: 0.12rem 0.3rem;
+  font-size: 0.7rem;
   cursor: pointer;
 }
 
@@ -202,10 +221,9 @@ defineEmits<{
 }
 
 .nav-counter {
-  min-width: 3rem;
+  min-width: 2.6rem;
   text-align: center;
-  font-size: 0.85rem;
+  font-size: 0.72rem;
   font-weight: 600;
 }
 </style>
-

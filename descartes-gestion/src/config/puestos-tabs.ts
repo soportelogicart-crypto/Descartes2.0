@@ -4,13 +4,34 @@ export type PuestoFieldLayout = 'inline' | 'checkbox'
 
 export type PuestoField = TiendaField & {
   layout?: PuestoFieldLayout
-  optionsSource?: 'trabajadores' | 'usuarios' | 'tiendas' | TiendaField['optionsSource']
+  optionsSource?: 'trabajadores' | 'usuarios' | 'tiendas' | 'impresoras-sistema' | TiendaField['optionsSource']
+}
+
+/** Asignacion documento → impresora + plantilla (nombre en Formato*). */
+export type PuestoImpresoraDoc = {
+  label: string
+  /**
+   * Índice legacy (smallint). Opcional: p.ej. Tickets solo guarda el nombre Windows.
+   */
+  indiceKey?: string
+  nombreKey: string
+  /** Longitud max. columna Imp* / ImpresoraTickets en SQL. */
+  nombreMax?: number
+  /** Columna Formato* = nombre de plantilla del diseñador. */
+  formatoKey?: string
+  formatoMax?: number
+  /** Tipo(s) en DocumentoPlantillas para el desplegable. */
+  plantillaTipo?: string | string[]
+  /** Clave estable para selección de fila (por defecto indiceKey o nombreKey). */
+  rowKey?: string
 }
 
 export type PuestoSection = {
   title: string
   columns?: 2 | 3 | 4
-  fields: PuestoField[]
+  fields?: PuestoField[]
+  kind?: 'fields' | 'impresoras'
+  impresoras?: PuestoImpresoraDoc[]
 }
 
 export type PuestoTab = {
@@ -19,21 +40,93 @@ export type PuestoTab = {
   sections: PuestoSection[]
 }
 
-function impresoraSection(
-  title: string,
-  indiceKey: string,
-  nombreKey: string,
-  formatoKey?: string
-): PuestoSection {
-  const fields: PuestoField[] = [
-    { key: indiceKey, label: 'Ind.', type: 'number', layout: 'inline' },
-    { key: nombreKey, label: 'Impresora', layout: 'inline', span: 2 },
-  ]
-  if (formatoKey) {
-    fields.push({ key: formatoKey, label: 'Formato', layout: 'inline' })
-  }
-  return { title, columns: 4, fields }
-}
+/** Tipos de plantilla del diseñador (Confeccionar documentos). */
+const PLANTILLAS_DOC = [
+  'albaran',
+  'factura-contado',
+  'factura-credito',
+  'factura-rectificativa',
+  'ticket',
+] as const
+
+/** Documentos de Generales II: impresora + plantilla creada en el diseñador. */
+export const puestoImpresorasDocumento: PuestoImpresoraDoc[] = [
+  { label: 'Listados', indiceKey: 'impresora80', nombreKey: 'imp80', nombreMax: 100 },
+  { label: 'Fax', indiceKey: 'fax', nombreKey: 'impFax', nombreMax: 100 },
+  { label: 'Tarjetas', indiceKey: 'impresoraTarjetas', nombreKey: 'impTarjetas', nombreMax: 100 },
+  {
+    label: 'Albaranes',
+    indiceKey: 'impresoraAlbaranes',
+    nombreKey: 'impAlbaranes',
+    nombreMax: 100,
+    formatoKey: 'formatoAlbaranes',
+    formatoMax: 100,
+    plantillaTipo: 'albaran',
+  },
+  {
+    label: 'Presupuestos',
+    indiceKey: 'impresoraPresupuestos',
+    nombreKey: 'impPresupuestos',
+    nombreMax: 100,
+    formatoKey: 'formatoPresupuestos',
+    formatoMax: 100,
+    plantillaTipo: [...PLANTILLAS_DOC],
+  },
+  {
+    label: 'Facturas contado',
+    indiceKey: 'impresoraFacturasContado',
+    nombreKey: 'impFacturasContado',
+    nombreMax: 100,
+    formatoKey: 'formatoFacturasContado',
+    formatoMax: 100,
+    plantillaTipo: 'factura-contado',
+  },
+  {
+    label: 'Facturas',
+    indiceKey: 'impresoraFacturas',
+    nombreKey: 'impFacturas',
+    nombreMax: 100,
+    formatoKey: 'formatoFacturas',
+    formatoMax: 100,
+    plantillaTipo: ['factura-credito', 'factura-rectificativa'],
+  },
+  {
+    label: 'Recibos',
+    indiceKey: 'impresoraRecibos',
+    nombreKey: 'impRecibos',
+    nombreMax: 100,
+    formatoKey: 'formatoRecibos',
+    formatoMax: 100,
+    plantillaTipo: [...PLANTILLAS_DOC],
+  },
+  {
+    label: 'Pedidos clientes',
+    indiceKey: 'impresoraPedidos',
+    nombreKey: 'impPedidos',
+    nombreMax: 100,
+    formatoKey: 'formatoPedidos',
+    formatoMax: 100,
+    plantillaTipo: [...PLANTILLAS_DOC],
+  },
+  {
+    label: 'Albaranes compras',
+    indiceKey: 'impresoraAlbaranCompras',
+    nombreKey: 'impAlbaranCompras',
+    nombreMax: 100,
+    formatoKey: 'formatoAlbaranCompras',
+    formatoMax: 100,
+    plantillaTipo: [...PLANTILLAS_DOC],
+  },
+  {
+    label: 'Pedidos compras',
+    indiceKey: 'impresoraPedidoCompras',
+    nombreKey: 'impPedidoCompras',
+    nombreMax: 100,
+    formatoKey: 'formatoPedidoCompras',
+    formatoMax: 100,
+    plantillaTipo: [...PLANTILLAS_DOC],
+  },
+]
 
 export const puestoTabs: PuestoTab[] = [
   {
@@ -54,12 +147,19 @@ export const puestoTabs: PuestoTab[] = [
             span: 2,
             layout: 'inline',
           },
-          { key: 'impresoraTickets', label: 'Tickets', span: 2, layout: 'inline' },
-          { key: 'impresoraTicketsF', label: 'Slip printer', span: 2, layout: 'inline' },
-          { key: 'impresoraEtiquetas', label: 'Etiquetas', span: 2, layout: 'inline' },
+          { key: 'impresoraTickets', label: 'Tickets (impresora Windows)', span: 2, layout: 'inline', type: 'select', optionsSource: 'impresoras-sistema' },
+          {
+            key: 'impresoraTicketsF',
+            label: 'Slip / 2ª impresora',
+            span: 2,
+            layout: 'inline',
+            type: 'select',
+            optionsSource: 'impresoras-sistema',
+          },
+          { key: 'impresoraEtiquetas', label: 'Etiquetas', span: 2, layout: 'inline', type: 'select', optionsSource: 'impresoras-sistema' },
           { key: 'lineasDeSalto', label: 'Salto final', type: 'number', layout: 'inline' },
           { key: 'caracteresPorLinea', label: 'Car. linea', type: 'number', layout: 'inline' },
-          { key: 'copiasTicket', label: 'Copias', type: 'number', layout: 'inline' },
+          { key: 'copiasTicket', label: 'Copias ticket', type: 'number', layout: 'inline' },
         ],
       },
       {
@@ -123,17 +223,11 @@ export const puestoTabs: PuestoTab[] = [
     id: 'generales2',
     label: 'Datos Generales II',
     sections: [
-      impresoraSection('Listados', 'impresora80', 'imp80'),
-      impresoraSection('Fax', 'fax', 'impFax'),
-      impresoraSection('Tarjetas', 'impresoraTarjetas', 'impTarjetas'),
-      impresoraSection('Albaranes', 'impresoraAlbaranes', 'impAlbaranes', 'formatoAlbaranes'),
-      impresoraSection('Presupuestos', 'impresoraPresupuestos', 'impPresupuestos', 'formatoPresupuestos'),
-      impresoraSection('Facturas contado', 'impresoraFacturasContado', 'impFacturasContado', 'formatoFacturasContado'),
-      impresoraSection('Facturas', 'impresoraFacturas', 'impFacturas', 'formatoFacturas'),
-      impresoraSection('Recibos', 'impresoraRecibos', 'impRecibos', 'formatoRecibos'),
-      impresoraSection('Pedidos clientes', 'impresoraPedidos', 'impPedidos', 'formatoPedidos'),
-      impresoraSection('Albaranes compras', 'impresoraAlbaranCompras', 'impAlbaranCompras', 'formatoAlbaranCompras'),
-      impresoraSection('Pedidos compras', 'impresoraPedidoCompras', 'impPedidoCompras', 'formatoPedidoCompras'),
+      {
+        title: 'Asignacion de impresoras',
+        kind: 'impresoras',
+        impresoras: puestoImpresorasDocumento,
+      },
       {
         title: 'Opciones',
         columns: 4,

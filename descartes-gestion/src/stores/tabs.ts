@@ -13,6 +13,7 @@ const MAX_TABS = 8
 /**
  * Rutas de ficha de venta (/ventas/{empresa}/{tipo}/{albaran}) comparten una sola
  * pestaña; al pasar Anterior/Siguiente no se abren pestañas nuevas.
+ * Igual para albarán de compra, pedido a proveedor y factura de proveedor.
  */
 function tabIdFromPath(fullPath: string): string {
   const path = (fullPath.split('?')[0] || '/').replace(/\/+$/, '') || '/'
@@ -26,13 +27,52 @@ function tabIdFromPath(fullPath: string): string {
   if (/^\/ventas\/(?!pedidos(?:\/|$))[^/]+\/[^/]+\/\d+$/.test(path)) {
     return '/ventas/ficha'
   }
+  if (/^\/compras\/albaranes\/nuevo$/.test(path)) {
+    return '/compras/albaranes/ficha'
+  }
+  if (/^\/compras\/albaranes\/[^/]+\/\d+$/.test(path)) {
+    return '/compras/albaranes/ficha'
+  }
+  if (/^\/compras\/pedidos\/nuevo$/.test(path)) {
+    return '/compras/pedidos/ficha'
+  }
+  if (/^\/compras\/pedidos\/[^/]+\/\d+$/.test(path)) {
+    return '/compras/pedidos/ficha'
+  }
+  if (/^\/compras\/facturas\/\d+$/.test(path)) {
+    return '/compras/facturas/ficha'
+  }
   return fullPath || '/'
 }
 
 function tituloDesdeRuta(path: string, metaTitulo?: string): string {
+  const partes = path.split('/').filter(Boolean)
+  // Ficha compra: preferir nº de documento frente al meta genérico.
+  if (partes[0] === 'compras' && partes[1] === 'albaranes') {
+    if (partes[2] === 'nuevo') return 'Nuevo alb. compra'
+    if (partes.length >= 4 && /^\d+$/.test(partes[3])) {
+      return `Alb. compra ${partes[2]}-${partes[3]}`
+    }
+  }
+  if (partes[0] === 'compras' && partes[1] === 'pedidos') {
+    if (partes[2] === 'nuevo') return 'Nuevo ped. proveedor'
+    if (partes.length >= 4 && /^\d+$/.test(partes[3])) {
+      return `Ped. proveedor ${partes[2]}-${partes[3]}`
+    }
+  }
+  if (partes[0] === 'compras' && partes[1] === 'facturas') {
+    if (partes.length >= 3 && /^\d+$/.test(partes[2])) {
+      return `Fact. proveedor ${partes[2]}`
+    }
+  }
   if (metaTitulo && metaTitulo.trim()) return metaTitulo.trim()
   if (path === '/' || path === '') return 'Inicio'
-  const partes = path.split('/').filter(Boolean)
+  if (partes[0] === 'compras') {
+    if (partes[1] === 'albaranes') return 'Albaranes de compra'
+    if (partes[1] === 'pedidos') return 'Pedidos a proveedor'
+    if (partes[1] === 'facturas') return 'Facturas de proveedor'
+    return 'Compras'
+  }
   if (partes[0] === 'ventas') {
     if (partes.length === 1) return 'Ventas'
     if (partes[1] === 'nuevo') return 'Nueva venta'

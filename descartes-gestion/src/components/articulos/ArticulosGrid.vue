@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { articuloColumns, type ArticuloColumn, type ArticuloFila } from '@/config/articulos-columns'
 import type { ColumnFilter } from '@/composables/useGridColumnFilters'
 import GridFilterRow from '@/components/common/GridFilterRow.vue'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 const props = defineProps<{
   filas: ArticuloFila[]
@@ -159,22 +160,13 @@ function onRowDblClick(index: number, fila: ArticuloFila) {
                   @change="onCellChange(index, col.key, ($event.target as HTMLInputElement).checked)"
                 />
 
-                <input
+                <DecimalInput
                   v-else-if="col.type === 'number'"
-                  type="number"
                   class="cell-input"
-                  :value="cellValue(fila, col) as number"
-                  step="any"
+                  :model-value="(cellValue(fila, col) as number | null) ?? null"
+                  :empty-as-null="false"
                   @click.stop
-                  @input="
-                    onCellChange(
-                      index,
-                      col.key,
-                      ($event.target as HTMLInputElement).value === ''
-                        ? 0
-                        : Number(($event.target as HTMLInputElement).value)
-                    )
-                  "
+                  @update:model-value="onCellChange(index, col.key, $event ?? 0)"
                 />
 
                 <input

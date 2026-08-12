@@ -2,9 +2,11 @@
 import { computed, onMounted, ref } from 'vue'
 import { emitirVale, liquidarVale, listarVales } from '@/api/ventas'
 import type { Vale } from '@/types/ventas'
+import { leerGridPageSize } from '@/composables/useGridPageSize'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
 import ListPagination from '@/components/common/ListPagination.vue'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 const { puede } = usePermisos()
 const puedeCrear = computed(() => puede('ventas-vales', 'crear'))
@@ -16,7 +18,7 @@ const msg = ref<string | null>(null)
 const items = ref<Vale[]>([])
 const total = ref(0)
 const page = ref(1)
-const pageSize = ref(50)
+const pageSize = ref(leerGridPageSize())
 const estado = ref('pendientes')
 
 const emitir = ref({ empresa: '001', cliente: '', importe: 0, fechaCaducidad: '', formaPago: '' })
@@ -114,7 +116,7 @@ onMounted(cargar)
       <h3>Emitir vale</h3>
       <label>Empresa <input v-model="emitir.empresa" maxlength="3" required /></label>
       <label>Cliente <input v-model="emitir.cliente" required /></label>
-      <label>Importe <input v-model.number="emitir.importe" type="number" step="0.01" min="0.01" required /></label>
+      <label>Importe <DecimalInput v-model="emitir.importe" :empty-as-null="false" :required="true" /></label>
       <label>Caducidad <input v-model="emitir.fechaCaducidad" type="date" /></label>
       <label>Forma pago <input v-model="emitir.formaPago" maxlength="2" /></label>
       <button type="submit">Emitir</button>

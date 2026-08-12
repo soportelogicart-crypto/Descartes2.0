@@ -13,7 +13,6 @@ const props = defineProps<{
   filas: FamiliaFila[]
   indiceSeleccionado: number
   macroOpciones: { value: string; label: string }[]
-  readonly?: boolean
   loading?: boolean
   filterableKeys?: string[]
   filters?: Record<string, ColumnFilter>
@@ -21,39 +20,34 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   seleccionar: [index: number]
-  actualizar: [index: number, fila: FamiliaFila]
+  abrir: [index: number]
+  nuevo: []
   'update:filters': [filters: Record<string, ColumnFilter>]
 }>()
 
 const filterMenuOpen = ref(false)
 
-function onCellChange(index: number, key: string, value: unknown) {
-  const fila: FamiliaFila = { ...props.filas[index], [key]: value, _dirty: true }
-  if (key === 'macroFamiliaCodigo') {
-    fila.macroFamiliaNombre = nombreMacrofamilia(String(value ?? ''), props.macroOpciones)
-  }
-  emit('actualizar', index, fila)
-}
-
 function cellValue(fila: FamiliaFila, col: FamiliaColumn) {
-  const value = fila[col.key as keyof FamiliaFila]
-  if (col.type === 'number') return value == null || value === '' ? 0 : value
   if (col.key === 'macroFamiliaNombre') {
     return fila.macroFamiliaNombre || nombreMacrofamilia(fila.macroFamiliaCodigo ?? '', props.macroOpciones)
   }
+  const value = fila[col.key as keyof FamiliaFila]
+  if (col.type === 'number') return value == null || value === '' ? 0 : value
   return value ?? ''
-}
-
-function isReadOnly(col: FamiliaColumn, fila: FamiliaFila) {
-  if (props.readonly || col.readOnly) return true
-  if (col.key === 'codigo' && !fila._nuevo) return true
-  return false
 }
 
 function indicadorFila(index: number, fila: FamiliaFila) {
   if (fila._nuevo) return '*'
   if (index === props.indiceSeleccionado) return '>'
   return ''
+}
+
+function onRowDblClick(index: number, fila: FamiliaFila) {
+  if (fila._nuevo) {
+    emit('nuevo')
+    return
+  }
+  emit('abrir', index)
 }
 </script>
 
@@ -87,47 +81,21 @@ function indicadorFila(index: number, fila: FamiliaFila) {
           :key="fila._nuevo ? 'nuevo' : fila.codigo"
           :class="{ selected: index === indiceSeleccionado, nuevo: fila._nuevo }"
           @click="emit('seleccionar', index)"
+          @dblclick="onRowDblClick(index, fila)"
         >
           <td class="col-ind">{{ indicadorFila(index, fila) }}</td>
-          <td v-for="col in familiaColumns" :key="col.key" @click.stop>
-            <select
-              v-if="col.type === 'select-macro'"
-              :value="String(fila.macroFamiliaCodigo ?? '')"
-              :disabled="isReadOnly(col, fila)"
-              @change="onCellChange(index, 'macroFamiliaCodigo', ($event.target as HTMLSelectElement).value)"
+          <template v-if="fila._nuevo">
+            <td v-for="col in familiaColumns" :key="col.key" class="celda-vacia">&nbsp;</td>
+          </template>
+          <template v-else>
+            <td
+              v-for="col in familiaColumns"
+              :key="col.key"
+              :class="{ 'col-num': col.type === 'number' }"
             >
-              <option value="">--</option>
-              <option v-for="opt in macroOpciones" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-            </select>
-
-            <input
-              v-else-if="col.type === 'number'"
-              type="number"
-              class="cell-input"
-              :value="cellValue(fila, col) as number"
-              :readonly="isReadOnly(col, fila)"
-              step="any"
-              @input="
-                onCellChange(
-                  index,
-                  col.key,
-                  ($event.target as HTMLInputElement).value === ''
-                    ? 0
-                    : Number(($event.target as HTMLInputElement).value)
-                )
-              "
-            />
-
-            <input
-              v-else
-              type="text"
-              class="cell-input"
-              :value="String(cellValue(fila, col))"
-              :readonly="isReadOnly(col, fila)"
-              :maxlength="col.maxLength"
-              @input="onCellChange(index, col.key, ($event.target as HTMLInputElement).value)"
-            />
-          </td>
+              {{ cellValue(fila, col) }}
+            </td>
+          </template>
         </tr>
       </tbody>
     </table>
@@ -160,7 +128,7 @@ function indicadorFila(index: number, fila: FamiliaFila) {
 .familias-grid th,
 .familias-grid td {
   border: 1px solid #cbd5e1;
-  padding: 0.12rem 0.2rem;
+  padding: 0.2rem 0.4rem;
   vertical-align: middle;
 }
 
@@ -179,6 +147,10 @@ function indicadorFila(index: number, fila: FamiliaFila) {
   background: #f8fafc;
 }
 
+.col-num {
+  text-align: right;
+}
+
 .familias-grid tbody tr {
   cursor: pointer;
 }
@@ -191,19 +163,11 @@ function indicadorFila(index: number, fila: FamiliaFila) {
   background: #fefce8;
 }
 
-.cell-input,
-select {
-  width: 100%;
-  border: none;
-  background: transparent;
-  padding: 0.15rem 0.3rem;
-  font: inherit;
-  min-width: 0;
+.familias-grid tbody tr:nth-child(even):not(.selected):not(.nuevo) {
+  background: #f8fafc;
 }
 
-.cell-input:focus,
-select:focus {
-  outline: 2px solid #2563eb;
-  background: #fff;
+.celda-vacia {
+  height: 1.7rem;
 }
 </style>

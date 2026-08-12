@@ -18,12 +18,15 @@ use Descartes\Api\Repositories\ClientesContactosRepository;
 use Descartes\Api\Repositories\ClientesDireccionesRepository;
 use Descartes\Api\Repositories\CodigoPostalRepository;
 use Descartes\Api\Repositories\ConfigEquipoRepository;
+use Descartes\Api\Repositories\DocumentoPlantillasRepository;
 use Descartes\Api\Repositories\EmpresaClienteRepository;
+use Descartes\Api\Repositories\CampanasRepository;
 use Descartes\Api\Repositories\OfertasClientesRepository;
 use Descartes\Api\Repositories\RolPermisoRepository;
 use Descartes\Api\Repositories\RolRepository;
 use Descartes\Api\Services\ArticuloService;
 use Descartes\Api\Services\ConfigEquipoService;
+use Descartes\Api\Services\DocumentoPlantillasService;
 use Descartes\Api\Services\DependencyCheckService;
 use Descartes\Api\Services\TiendaAlmacenService;
 use Descartes\Api\Services\EmpresaClienteService;
@@ -51,6 +54,7 @@ return function (App $app): void {
   $container->set(PlantasRepository::class, static fn (ContainerInterface $c) => new PlantasRepository($c->get(PDO::class)));
   $container->set(ClientesDireccionesRepository::class, static fn (ContainerInterface $c) => new ClientesDireccionesRepository($c->get(PDO::class)));
   $container->set(ClientesContactosRepository::class, static fn (ContainerInterface $c) => new ClientesContactosRepository($c->get(PDO::class)));
+  $container->set(CampanasRepository::class, static fn (ContainerInterface $c) => new CampanasRepository($c->get(PDO::class)));
   $container->set(OfertasClientesRepository::class, static fn (ContainerInterface $c) => new OfertasClientesRepository($c->get(PDO::class)));
   $container->set(CodigoPostalRepository::class, static fn (ContainerInterface $c) => new CodigoPostalRepository($c->get(PDO::class)));
   $container->set(ArticuloService::class, static fn (ContainerInterface $c) => new ArticuloService(
@@ -86,6 +90,11 @@ return function (App $app): void {
     $c->get(PDO::class)
   ));
 
+  $container->set(DocumentoPlantillasRepository::class, static fn (ContainerInterface $c) => new DocumentoPlantillasRepository($c->get(PDO::class)));
+  $container->set(DocumentoPlantillasService::class, static fn (ContainerInterface $c) => new DocumentoPlantillasService(
+    $c->get(DocumentoPlantillasRepository::class)
+  ));
+
   $container->set(RolRepository::class, static fn (ContainerInterface $c) => new RolRepository($c->get(PDO::class)));
   $container->set(RolPermisoRepository::class, static fn (ContainerInterface $c) => new RolPermisoRepository($c->get(PDO::class)));
   $container->set(RolService::class, static fn (ContainerInterface $c) => new RolService(
@@ -95,6 +104,23 @@ return function (App $app): void {
   ));
 
   $container->set(\Descartes\Api\Services\Ventas\VentaConsultaService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\VentaConsultaService($c->get(PDO::class)));
+  $container->set(\Descartes\Api\Services\Compras\AlbaranCompraConsultaService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Compras\AlbaranCompraConsultaService($c->get(PDO::class)));
+  $container->set(\Descartes\Api\Services\Compras\AlbaranCompraEscrituraService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Compras\AlbaranCompraEscrituraService(
+    $c->get(PDO::class),
+    $c->get(\Descartes\Api\Services\Compras\AlbaranCompraConsultaService::class)
+  ));
+  $container->set(\Descartes\Api\Services\Compras\PedidoProveedorConsultaService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Compras\PedidoProveedorConsultaService($c->get(PDO::class)));
+  $container->set(\Descartes\Api\Services\Compras\PedidoProveedorEscrituraService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Compras\PedidoProveedorEscrituraService(
+    $c->get(PDO::class),
+    $c->get(\Descartes\Api\Services\Compras\PedidoProveedorConsultaService::class)
+  ));
+  $container->set(\Descartes\Api\Services\Compras\PedidoProveedorRecepcionService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Compras\PedidoProveedorRecepcionService(
+    $c->get(PDO::class),
+    $c->get(\Descartes\Api\Services\Compras\PedidoProveedorConsultaService::class),
+    $c->get(\Descartes\Api\Services\Compras\PedidoProveedorEscrituraService::class),
+    $c->get(\Descartes\Api\Services\Compras\AlbaranCompraEscrituraService::class)
+  ));
+  $container->set(\Descartes\Api\Services\Compras\FacturaCompraConsultaService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Compras\FacturaCompraConsultaService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Ventas\ArqueoService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\ArqueoService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Ventas\DesgloseArqueoVentasService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\DesgloseArqueoVentasService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Ventas\DispositivoPuestoService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\DispositivoPuestoService($c->get(PDO::class)));

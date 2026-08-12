@@ -7,8 +7,10 @@ use Descartes\Api\Controllers\ArticuloController;
 use Descartes\Api\Controllers\ClienteController;
 use Descartes\Api\Controllers\CodigoPostalController;
 use Descartes\Api\Controllers\ConfigEquipoController;
+use Descartes\Api\Controllers\DocumentoPlantillasController;
 use Descartes\Api\Controllers\EmpresaClienteController;
 use Descartes\Api\Controllers\MantenimientoController;
+use Descartes\Api\Controllers\CampanaController;
 use Descartes\Api\Controllers\OfertaClienteController;
 use Descartes\Api\Controllers\OfertaProveedorController;
 use Descartes\Api\Controllers\ProveedorController;
@@ -86,6 +88,10 @@ return function (App $app): void {
     $group->get('/codigos-postales/{codigo}', [CodigoPostalController::class, 'lookup'])
       ->add($setPermisoModulo('mantenimiento', 'ver'));
 
+    $group->get('/clientes/siguiente-codigo', [ClienteController::class, 'siguienteCodigo'])
+      ->add($setPermisoModulo('clientes', 'crear'));
+    $group->get('/clientes/check-nif', [ClienteController::class, 'checkNif'])
+      ->add($setPermisoModulo('clientes', 'ver'));
     $group->get('/clientes/{codigo}/direcciones', [ClienteController::class, 'listDirecciones'])
       ->add($setPermisoModulo('clientes', 'ver'));
     $group->post('/clientes/{codigo}/direcciones', [ClienteController::class, 'createDireccion'])
@@ -115,6 +121,17 @@ return function (App $app): void {
     $group->delete('/proveedores/{codigo}/contactos/{num}/{nroLin}', [ProveedorController::class, 'deleteContacto'])
       ->add($setPermisoModulo('proveedores', 'editar'));
 
+    $group->get('/campanas', [CampanaController::class, 'list'])
+      ->add($setPermisoModulo('campanas', 'ver'));
+    $group->post('/campanas', [CampanaController::class, 'create'])
+      ->add($setPermisoModulo('campanas', 'crear'));
+    $group->get('/campanas/{empresa}/{campana}', [CampanaController::class, 'get'])
+      ->add($setPermisoModulo('campanas', 'ver'));
+    $group->put('/campanas/{empresa}/{campana}', [CampanaController::class, 'update'])
+      ->add($setPermisoModulo('campanas', 'editar'));
+    $group->delete('/campanas/{empresa}/{campana}', [CampanaController::class, 'delete'])
+      ->add($setPermisoModulo('campanas', 'eliminar'));
+
     $group->get('/oferta-clientes', [OfertaClienteController::class, 'list'])
       ->add($setPermisoModulo('oferta-clientes', 'ver'));
     $group->post('/oferta-clientes', [OfertaClienteController::class, 'create'])
@@ -142,6 +159,20 @@ return function (App $app): void {
       ->add($setPermisoModulo('puestos-parametros', 'ver'));
     $group->put('/config-equipo/{equipoId}', [ConfigEquipoController::class, 'put'])
       ->add($setPermisoModulo('puestos-parametros', 'ver'));
+
+    $group->get('/documento-plantillas', [DocumentoPlantillasController::class, 'list']);
+    // Lectura autenticada (puestos y configuración); escritura sigue con facturación
+    $group->get('/documento-plantillas/{id}', [DocumentoPlantillasController::class, 'get']);
+    $group->post('/documento-plantillas', [DocumentoPlantillasController::class, 'create'])
+      ->add($setPermisoModulo('facturacion', 'editar'));
+    $group->post('/documento-plantillas/sembrar', [DocumentoPlantillasController::class, 'sembrar'])
+      ->add($setPermisoModulo('facturacion', 'editar'));
+    $group->put('/documento-plantillas/{id}', [DocumentoPlantillasController::class, 'update'])
+      ->add($setPermisoModulo('facturacion', 'editar'));
+    $group->delete('/documento-plantillas/{id}', [DocumentoPlantillasController::class, 'delete'])
+      ->add($setPermisoModulo('facturacion', 'editar'));
+    $group->post('/documento-plantillas/{id}/activar', [DocumentoPlantillasController::class, 'activar'])
+      ->add($setPermisoModulo('facturacion', 'editar'));
 
     $group->get('/{entidad}', [MantenimientoController::class, 'list'])->add($setPermiso('ver'));
     $group->get('/{entidad}/{codigo}', [MantenimientoController::class, 'get'])->add($setPermiso('ver'));

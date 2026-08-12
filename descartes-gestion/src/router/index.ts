@@ -13,6 +13,7 @@ import AgrupacionesView from '@/views/mantenimiento/AgrupacionesView.vue'
 import ActividadesView from '@/views/mantenimiento/ActividadesView.vue'
 import InteresesComercialesView from '@/views/mantenimiento/InteresesComercialesView.vue'
 import OfertaClientesView from '@/views/mantenimiento/OfertaClientesView.vue'
+import CampanasView from '@/views/mantenimiento/CampanasView.vue'
 import ParametrosPuestoView from '@/views/mantenimiento/ParametrosPuestoView.vue'
 import PuestosView from '@/views/mantenimiento/PuestosView.vue'
 import ImpuestosView from '@/views/mantenimiento/ImpuestosView.vue'
@@ -21,6 +22,12 @@ import ProveedoresView from '@/views/mantenimiento/ProveedoresView.vue'
 import OfertaProveedoresView from '@/views/mantenimiento/OfertaProveedoresView.vue'
 import HomeView from '@/views/HomeView.vue'
 import ModuloPlaceholderView from '@/views/ModuloPlaceholderView.vue'
+import ComprasAlbaranesListView from '@/views/compras/ComprasAlbaranesListView.vue'
+import CompraAlbaranDetalleView from '@/views/compras/CompraAlbaranDetalleView.vue'
+import ComprasPedidosListView from '@/views/compras/ComprasPedidosListView.vue'
+import CompraPedidoDetalleView from '@/views/compras/CompraPedidoDetalleView.vue'
+import ComprasFacturasListView from '@/views/compras/ComprasFacturasListView.vue'
+import CompraFacturaDetalleView from '@/views/compras/CompraFacturaDetalleView.vue'
 import VentasListView from '@/views/ventas/VentasListView.vue'
 import VentaDetalleView from '@/views/ventas/VentaDetalleView.vue'
 import ArqueoView from '@/views/ventas/ArqueoView.vue'
@@ -37,18 +44,15 @@ import ImpresionFacturasView from '@/views/facturacion/ImpresionFacturasView.vue
 import DiarioFacturacionView from '@/views/facturacion/DiarioFacturacionView.vue'
 import AlbaranesPendientesView from '@/views/facturacion/AlbaranesPendientesView.vue'
 import RetrocesoFacturaView from '@/views/facturacion/RetrocesoFacturaView.vue'
+import ConfiguracionHubView from '@/views/configuracion/ConfiguracionHubView.vue'
+import DocumentosPlantillasView from '@/views/configuracion/DocumentosPlantillasView.vue'
 
 const articulosSeccionesPendientes = [
   { path: 'mantenimiento/secciones', name: 'secciones', titulo: 'Secciones' },
   { path: 'mantenimiento/subsecciones', name: 'subsecciones', titulo: 'Subsecciones' },
 ] as const
 
-const clientesSeccionesPendientes = [
-  { path: 'mantenimiento/campanas', name: 'campanas', titulo: 'Campanas' },
-] as const
-
 const modulosPlaceholder = [
-  { path: 'compras', name: 'compras', titulo: 'Compras' },
   { path: 'inventario', name: 'inventario', titulo: 'Inventario' },
   { path: 'listados', name: 'listados', titulo: 'Listados' },
   { path: 'tpv', name: 'tpv', titulo: 'TPV' },
@@ -63,6 +67,18 @@ const router = createRouter({
       component: AppLayout,
       children: [
         { path: '', name: 'home', component: HomeView },
+        {
+          path: 'configuracion',
+          name: 'configuracion',
+          component: ConfiguracionHubView,
+          meta: { titulo: 'Configuración' },
+        },
+        {
+          path: 'configuracion/documentos',
+          name: 'configuracion-documentos',
+          component: DocumentosPlantillasView,
+          meta: { titulo: 'Confeccionar documentos' },
+        },
         ...modulosPlaceholder.map((m) => ({
           path: m.path,
           name: m.name,
@@ -70,6 +86,59 @@ const router = createRouter({
           props: { titulo: m.titulo },
           meta: { titulo: m.titulo },
         })),
+        {
+          path: 'compras',
+          redirect: '/compras/albaranes',
+        },
+        {
+          path: 'compras/albaranes',
+          name: 'compras-albaranes',
+          component: ComprasAlbaranesListView,
+          meta: { titulo: 'Albaranes de compra', modulo: 'compras', accion: 'ver' },
+        },
+        {
+          path: 'compras/albaranes/nuevo',
+          name: 'compras-albaran-nuevo',
+          component: CompraAlbaranDetalleView,
+          meta: { titulo: 'Nuevo albarán de compra', modulo: 'compras', accion: 'crear' },
+        },
+        {
+          path: 'compras/albaranes/:empresa/:albaran',
+          name: 'compras-albaran-detalle',
+          component: CompraAlbaranDetalleView,
+          meta: { titulo: 'Albarán de compra', modulo: 'compras', accion: 'ver' },
+        },
+        // Pedidos a proveedor (US3); facturas: shell hasta US5
+        {
+          path: 'compras/pedidos',
+          name: 'compras-pedidos',
+          component: ComprasPedidosListView,
+          meta: { titulo: 'Pedidos a proveedor', modulo: 'compras', accion: 'ver' },
+        },
+        {
+          path: 'compras/pedidos/nuevo',
+          name: 'compras-pedido-nuevo',
+          component: CompraPedidoDetalleView,
+          meta: { titulo: 'Nuevo pedido a proveedor', modulo: 'compras', accion: 'crear' },
+        },
+        {
+          path: 'compras/pedidos/:empresa/:pedido',
+          name: 'compras-pedido-detalle',
+          component: CompraPedidoDetalleView,
+          meta: { titulo: 'Pedido a proveedor', modulo: 'compras', accion: 'ver' },
+        },
+        {
+          path: 'compras/facturas',
+          name: 'compras-facturas',
+          component: ComprasFacturasListView,
+          meta: { titulo: 'Facturas de proveedor', modulo: 'compras', accion: 'ver' },
+        },
+        {
+          path: 'compras/facturas/:factura',
+          name: 'compras-factura-detalle',
+          component: CompraFacturaDetalleView,
+          meta: { titulo: 'Factura de proveedor', modulo: 'compras', accion: 'ver' },
+        },
         {
           path: 'ventas',
           name: 'ventas',
@@ -223,6 +292,11 @@ const router = createRouter({
           component: OfertaClientesView,
         },
         {
+          path: 'mantenimiento/campanas',
+          name: 'campanas',
+          component: CampanasView,
+        },
+        {
           path: 'mantenimiento/puestos/parametros',
           name: 'puestos-parametros',
           component: ParametrosPuestoView,
@@ -238,12 +312,6 @@ const router = createRouter({
           meta: { titulo: 'Ofertas proveedores' },
         },
         ...articulosSeccionesPendientes.map((seccion) => ({
-          path: seccion.path,
-          name: seccion.name,
-          component: ArticuloSeccionPlaceholder,
-          meta: { titulo: seccion.titulo },
-        })),
-        ...clientesSeccionesPendientes.map((seccion) => ({
           path: seccion.path,
           name: seccion.name,
           component: ArticuloSeccionPlaceholder,

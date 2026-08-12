@@ -53,7 +53,7 @@ export const clienteTabs: ClienteTab[] = [
           inline('codigo', 'Codigo', { required: true, maxLength: 9 }),
           inline('nombre', 'Razon social', { span: 3, required: true, maxLength: 50 }),
           inline('razonSocial2', 'Razon social 2', { span: 4, maxLength: 60 }),
-          inline('nif', 'N.I.F.', { maxLength: 16 }),
+          inline('nif', 'N.I.F.', { required: true, maxLength: 16 }),
           inline('swift', 'Swift', { maxLength: 20 }),
           inline('iban', 'IBAN', { span: 2, maxLength: 34 }),
           inline('referenciaMandato', 'Referencia mandato', { maxLength: 35 }),
@@ -291,6 +291,7 @@ export function clienteVacio(): Record<string, unknown> {
     razonSocial2: '',
     nif: '',
     tiendaCodigo: '',
+    actividad: '000',
     activo: true,
     swIva: true,
     swRec: false,
@@ -314,10 +315,24 @@ export function clienteVacio(): Record<string, unknown> {
     profesional: false,
     tratamientoFiscal: 'N',
     formaPago: '',
-    pais: 'Espana',
-    paisEnvio: 'Espana',
-    portes: '',
+    // Legacy mayoritario: Espana (no catalan ESPANYA)
+    pais: 'España',
+    paisEnvio: 'España',
+    portes: 'D',
     interesesComerciales: '',
+    personaContacto: '',
+    direccion: '',
+    poblacion: '',
+    provincia: '',
+    codigoPostal: '',
+    direccionEnvio: '',
+    poblacionEnvio: '',
+    provinciaEnvio: '',
+    codigoPostalEnvio: '',
+    telefono1: '',
+    telefono2: '',
+    fax: '',
+    email: '',
     dto1: 0,
     dto2: 0,
     diaPago1: 0,
@@ -330,11 +345,38 @@ export function clienteVacio(): Record<string, unknown> {
   }
 }
 
+export const CLIENTE_CAMPOS_OBLIGATORIOS: { key: string; label: string; mensaje: string }[] = [
+  { key: 'codigo', label: 'Codigo', mensaje: 'El codigo de cliente es obligatorio.' },
+  { key: 'nombre', label: 'Razon social', mensaje: 'La razon social es obligatoria.' },
+  { key: 'nif', label: 'N.I.F.', mensaje: 'El NIF es obligatorio.' },
+  {
+    key: 'formaPago',
+    label: 'Forma pago',
+    mensaje: 'Debe asignar una forma de pago al cliente.',
+  },
+]
+
+export function camposClienteObligatoriosVacios(ficha: Record<string, unknown>): string[] {
+  const vacios: string[] = []
+  if (!String(ficha.codigo ?? '').trim()) vacios.push('codigo')
+  if (!String(ficha.nombre ?? '').trim()) vacios.push('nombre')
+  if (!String(ficha.nif ?? '').trim()) vacios.push('nif')
+  if (!String(ficha.formaPago ?? '').trim()) vacios.push('formaPago')
+  return vacios
+}
+
 export function validarClienteObligatorios(ficha: Record<string, unknown>): string | null {
-  if (!String(ficha.codigo ?? '').trim()) return 'El codigo es obligatorio'
-  if (!String(ficha.nombre ?? '').trim()) return 'La razon social es obligatoria'
-  if (!String(ficha.formaPago ?? '').trim()) return 'Debe asignar una forma de pago al cliente'
-  return null
+  const key = camposClienteObligatoriosVacios(ficha)[0]
+  if (!key) return null
+  return (
+    CLIENTE_CAMPOS_OBLIGATORIOS.find((c) => c.key === key)?.mensaje ??
+    `El campo "${key}" es obligatorio.`
+  )
+}
+
+export function tabDeCampoCliente(key: string): string {
+  if (key === 'formaPago') return 'facturacion'
+  return 'generales'
 }
 
 /** Parsea InteresesComerciales (codigos de 2 chars concatenados o separados por coma). */

@@ -1,5 +1,6 @@
 # Copia la API PHP al despliegue XAMPP en UTF-8 sin BOM.
-# Sincroniza todo src\ y public\ (ventas, facturacion, mantenimiento, etc.).
+# Sincroniza todo src\ y public\ (ventas, facturacion, compras, mantenimiento, etc.).
+# Doc: ../SYNC-XAMPP.md (feature 004-compras-gestion T011).
 $utf8 = New-Object System.Text.UTF8Encoding $false
 $apiRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $xamppRoot = 'C:\xampp\htdocs\descartes-api'

@@ -39,14 +39,40 @@ function sendJson(res, status, body) {
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(raw),
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Accept',
   })
   res.end(raw)
 }
 
 async function handle(req, res) {
   const url = String(req.url || '').split('?')[0]
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Accept',
+    })
+    res.end()
+    return
+  }
+
   if (req.method === 'GET' && (url === '/health' || url === '/')) {
-    sendJson(res, 200, { ok: true, service: 'descartes-dispositivo-agente', stub: true })
+    sendJson(res, 200, { ok: true, service: 'descartes-dispositivo-agente', stub: false })
+    return
+  }
+
+  if (req.method === 'GET' && url === '/impresoras') {
+    const result = await peripherals.listPrinters()
+    sendJson(res, result.ok ? 200 : 503, {
+      ok: !!result.ok,
+      stub: !!result.stub,
+      agenteOnline: true,
+      printers: result.printers || [],
+      message: result.message || '',
+    })
     return
   }
 
@@ -64,6 +90,7 @@ async function handle(req, res) {
       ok: !!result.ok,
       stub: !!result.stub,
       message: result.message || '',
+      impresora: result.impresora || null,
     })
     return
   }

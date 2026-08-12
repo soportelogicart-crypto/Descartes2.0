@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { api } from '@/api/client'
 import type { ArticuloField, ArticuloSection } from '@/config/articulos-tabs'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 const props = defineProps<{
   sections: ArticuloSection[]
@@ -254,14 +255,13 @@ function sectionZoneClass(section: ArticuloSection) {
             @input="updateField(field.key, ($event.target as HTMLInputElement).value || null)"
           />
 
-          <input
+          <DecimalInput
             v-else-if="field.type === 'number'"
-            type="number"
-            :data-field-key="field.key"
-            :value="displayNumber(field.key) as number"
+            :field-key="field.key"
+            :model-value="(modelValue[field.key] as number | null) ?? null"
+            :empty-as-null="true"
             :readonly="isReadOnly(field)"
-            step="any"
-            @input="updateField(field.key, ($event.target as HTMLInputElement).value === '' ? null : Number(($event.target as HTMLInputElement).value))"
+            @update:model-value="updateField(field.key, $event)"
           />
 
           <input

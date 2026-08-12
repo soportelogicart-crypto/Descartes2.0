@@ -209,7 +209,16 @@ export type ImprimirDispositivoResponse = {
 
 export async function imprimirTermicaDispositivo(
   puesto: string,
-  payload: { texto: string; tipo?: string; empresa?: string; sesion?: number }
+  payload: {
+    texto: string
+    tipo?: string
+    empresa?: string
+    sesion?: number
+    impresora?: string
+    abrirCajon?: boolean
+    cortar?: boolean
+    ancho?: number
+  }
 ) {
   const { data } = await api.post<ImprimirDispositivoResponse>(
     `/api/ventas/puestos/${encodeURIComponent(puesto)}/dispositivo/imprimir`,

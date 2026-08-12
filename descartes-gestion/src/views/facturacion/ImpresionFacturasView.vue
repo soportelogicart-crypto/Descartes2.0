@@ -16,6 +16,7 @@ import EntidadBuscarModal, {
 } from '@/components/common/EntidadBuscarModal.vue'
 import PdfPreviewModal from '@/components/common/PdfPreviewModal.vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 type Opt = { value: string; label: string }
 type CampoCliente = 'desde' | 'hasta'
@@ -413,8 +414,18 @@ onMounted(async () => {
             </div>
             <div class="rango-row">
               <span class="rango-label">Factura</span>
-              <input v-model="form.facturaDesde" type="number" min="0" />
-              <input v-model="form.facturaHasta" type="number" min="0" />
+              <DecimalInput
+                :model-value="form.facturaDesde === '' || form.facturaDesde == null ? null : Number(form.facturaDesde)"
+                :empty-as-null="true"
+                :integer="true"
+                @update:model-value="form.facturaDesde = $event ?? ''"
+              />
+              <DecimalInput
+                :model-value="form.facturaHasta === '' || form.facturaHasta == null ? null : Number(form.facturaHasta)"
+                :empty-as-null="true"
+                :integer="true"
+                @update:model-value="form.facturaHasta = $event ?? ''"
+              />
             </div>
             <div class="rango-row">
               <span class="rango-label">Actividad</span>

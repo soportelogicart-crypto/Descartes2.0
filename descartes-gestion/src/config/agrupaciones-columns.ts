@@ -40,9 +40,28 @@ export function validarAgrupacion(fila: AgrupacionFila): string | null {
   return null
 }
 
-export function payloadAgrupacion(fila: AgrupacionFila): Record<string, unknown> {
+export function payloadAgrupacion(fila: Record<string, unknown>): Record<string, unknown> {
   return {
     codigo: String(fila.codigo ?? '').trim(),
     descripcion: String(fila.descripcion ?? '').trim(),
   }
+}
+
+export const AGRUPACION_CAMPOS_OBLIGATORIOS: { key: string; label: string }[] = [
+  { key: 'codigo', label: 'Codigo' },
+  { key: 'descripcion', label: 'Descripcion' },
+]
+
+export function camposAgrupacionObligatoriosVacios(ficha: Record<string, unknown>): string[] {
+  const vacios: string[] = []
+  if (!String(ficha.codigo ?? '').trim()) vacios.push('codigo')
+  if (!String(ficha.descripcion ?? '').trim()) vacios.push('descripcion')
+  return vacios
+}
+
+export function validarAgrupacionObligatorios(ficha: Record<string, unknown>): string | null {
+  const key = camposAgrupacionObligatoriosVacios(ficha)[0]
+  if (!key) return null
+  const label = AGRUPACION_CAMPOS_OBLIGATORIOS.find((c) => c.key === key)?.label ?? key
+  return `El campo "${label}" es obligatorio.`
 }

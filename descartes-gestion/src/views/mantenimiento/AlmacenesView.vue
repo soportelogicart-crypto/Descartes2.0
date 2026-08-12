@@ -26,6 +26,7 @@ import AlmacenTabForm from '@/components/almacenes/AlmacenTabForm.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import ListPagination from '@/components/common/ListPagination.vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 const FILTER_KEYS = ['codigo', 'descripcion']
 
@@ -33,7 +34,6 @@ const { puede } = usePermisos()
 const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(
   () => 'almacenes'
 )
-pageSize.value = 50
 
 const puedeCrear = computed(() => puede('almacenes', 'crear'))
 const puedeEditar = computed(() => puede('almacenes', 'editar'))
@@ -62,7 +62,6 @@ const avisoModalOpen = ref(false)
 const avisoModalTitulo = ref('Campo obligatorio')
 const avisoModalMensaje = ref('')
 const campoAvisoActual = ref<string | null>(null)
-const codigoInput = ref<HTMLInputElement | null>(null)
 const descripcionInput = ref<HTMLInputElement | null>(null)
 
 onBeforeUnmount(() => {
@@ -91,8 +90,9 @@ async function cerrarAvisoModal() {
   await nextTick()
   await nextTick()
   if (key === 'codigo') {
-    codigoInput.value?.focus()
-    codigoInput.value?.select()
+    const el = document.querySelector<HTMLInputElement>('[data-field-key="codigo"]')
+    el?.focus()
+    el?.select()
     return
   }
   if (key === 'descripcion') {
@@ -317,7 +317,7 @@ async function onNuevo() {
   camposInvalidos.value = []
   await nextTick()
   await nextTick()
-  codigoInput.value?.focus()
+  document.querySelector<HTMLInputElement>('[data-field-key="codigo"]')?.focus()
 }
 
 function onModificar() {
@@ -613,17 +613,15 @@ async function onUltimo() {
         <div class="ficha-header">
           <label :class="{ 'campo-invalido': esCampoInvalido('codigo') }">
             Codigo *
-            <input
-              ref="codigoInput"
-              v-model.number="ficha.codigo"
-              data-field-key="codigo"
-              type="number"
-              min="1"
-              step="1"
+            <DecimalInput
+              :model-value="(ficha.codigo as number | null) ?? null"
+              field-key="codigo"
+              :empty-as-null="true"
+              :integer="true"
               :readonly="!esNuevo"
               class="codigo-input"
-              required
-              @input="limpiarCampoInvalido('codigo')"
+              :required="true"
+              @update:model-value="(v) => { ficha.codigo = v; limpiarCampoInvalido('codigo') }"
             />
           </label>
           <label class="descripcion-input" :class="{ 'campo-invalido': esCampoInvalido('descripcion') }">

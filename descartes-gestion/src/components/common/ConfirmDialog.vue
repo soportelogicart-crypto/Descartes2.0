@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { nextTick, ref, watch } from 'vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     open: boolean
     title?: string
@@ -21,10 +22,35 @@ withDefaults(
   }
 )
 
-defineEmits<{
+const emit = defineEmits<{
   confirm: []
   cancel: []
 }>()
+
+/** Evita que el click que abrio el dialogo cierre el overlay al soltar el raton. */
+const ignoreOverlayClick = ref(false)
+
+watch(
+  () => props.open,
+  async (abierto) => {
+    if (!abierto) {
+      ignoreOverlayClick.value = false
+      return
+    }
+    ignoreOverlayClick.value = true
+    await nextTick()
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        ignoreOverlayClick.value = false
+      })
+    })
+  }
+)
+
+function onOverlayClick() {
+  if (ignoreOverlayClick.value) return
+  emit('cancel')
+}
 </script>
 
 <template>
@@ -34,7 +60,7 @@ defineEmits<{
       class="overlay"
       role="dialog"
       aria-modal="true"
-      @click.self="$emit('cancel')"
+      @click.self="onOverlayClick"
     >
       <div class="modal">
         <header class="modal-header">
@@ -45,10 +71,10 @@ defineEmits<{
         </header>
         <p class="message">{{ message }}</p>
         <footer class="modal-footer">
-          <button v-if="!hideCancel" type="button" class="btn-cancel" @click="$emit('cancel')">
+          <button v-if="!hideCancel" type="button" class="btn-cancel" @click="emit('cancel')">
             {{ cancelLabel }}
           </button>
-          <button type="button" class="btn-confirm" :class="{ danger }" @click="$emit('confirm')">
+          <button type="button" class="btn-confirm" :class="{ danger }" @click="emit('confirm')">
             {{ confirmLabel }}
           </button>
         </footer>

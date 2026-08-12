@@ -1,8 +1,7 @@
-﻿<script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+<script setup lang="ts">
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import {
   clonarFilaGrid,
-  esGridEstrecho,
   filaVaciaDesdeColumnas,
   getGridColumns,
   payloadFilaGrid,
@@ -32,12 +31,10 @@ const MODULO = 'proveedores'
 const FILTER_KEYS = ['codigo', 'nombre', 'nif']
 const SERVER_SEARCH_KEYS = ['nombre', 'codigo', 'nif']
 const columns = getGridColumns('proveedores')
-const esEstrecho = esGridEstrecho(columns)
 
 const { puede } = usePermisos()
 const puestoContexto = usePuestoContextoStore()
 const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(() => MODULO)
-pageSize.value = 50
 
 const puedeCrear = computed(() => puede(MODULO, 'crear'))
 const puedeEditar = computed(() => puede(MODULO, 'editar'))
@@ -63,11 +60,24 @@ const codigoAutomatico = ref(false)
 const avisoOpen = ref(false)
 const avisoTitulo = ref('Aviso')
 const avisoMensaje = ref('')
+const campoAviso = ref<string | null>(null)
+const camposInvalidos = ref<string[]>([])
 
-function mostrarAviso(titulo: string, message: string) {
+async function mostrarAviso(titulo: string, message: string, campo: string | null = null) {
   avisoTitulo.value = titulo
   avisoMensaje.value = message
+  campoAviso.value = campo
   avisoOpen.value = true
+}
+
+async function cerrarAviso() {
+  const key = campoAviso.value
+  avisoOpen.value = false
+  avisoMensaje.value = ''
+  campoAviso.value = null
+  if (!key) return
+  await nextTick()
+  document.querySelector<HTMLElement>(`[data-field-key="${key}"]`)?.focus()
 }
 
 const filas = computed<GridFila[]>(() => {
@@ -228,13 +238,30 @@ async function onGuardarGrid() {
   }
 }
 
+function normalizarFichaProveedor(data: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...data }
+  const banco = next.cuentaBanco
+  if (banco == null || banco === '' || banco === 0 || banco === '0' || banco === '0.0') {
+    next.cuentaBanco = ''
+  } else {
+    const s = String(banco).trim()
+    next.cuentaBanco = /^\d+\.0+$/.test(s) ? s.replace(/\.0+$/, '') : s
+  }
+  const tf = String(next.tratamientoFiscal ?? '').trim().toUpperCase()
+  next.tratamientoFiscal = tf || 'N'
+  const sii = String(next.codigoTransaccionSII ?? '').trim()
+  next.codigoTransaccionSII = sii || '1'
+  return next
+}
+
 async function abrirFichaPorCodigo(codigo: string) {
   try {
-    ficha.value = await obtener(codigo)
+    ficha.value = normalizarFichaProveedor((await obtener(codigo)) as Record<string, unknown>)
     indiceFicha.value = filasTodas.value.findIndex((f) => String(f.codigo) === codigo)
     modoEdicion.value = false
     esNuevo.value = false
     codigoAutomatico.value = false
+    camposInvalidos.value = []
     tabActiva.value = 'generales'
     vista.value = 'ficha'
     mensaje.value = null
@@ -273,6 +300,7 @@ async function onNuevo() {
   esNuevo.value = true
   modoEdicion.value = true
   indiceFicha.value = -1
+  camposInvalidos.value = []
   tabActiva.value = 'generales'
   vista.value = 'ficha'
 }
@@ -282,21 +310,30 @@ function onModificar() {
   modoEdicion.value = true
 }
 
+function payloadProveedor(): Record<string, unknown> {
+  const payload: Record<string, unknown> = { ...ficha.value }
+  const banco = String(payload.cuentaBanco ?? '').trim()
+  if (!banco || banco === '0') {
+    payload.cuentaBanco = 0
+  } else if (/^-?\d+(\.\d+)?$/.test(banco)) {
+    payload.cuentaBanco = Number(banco)
+  }
+  return payload
+}
+
 async function onGuardarFicha() {
   const errorValidacion = validarProveedorObligatorios(ficha.value)
   if (errorValidacion) {
-    if (!String(ficha.value.formaPago ?? '').trim()) {
-      mostrarAviso('Forma de pago obligatoria', errorValidacion)
-      tabActiva.value = 'parametros'
-    } else {
-      mensaje.value = errorValidacion
-    }
+    camposInvalidos.value = [errorValidacion.campo]
+    tabActiva.value = errorValidacion.tab
+    await mostrarAviso('Campo obligatorio', errorValidacion.mensaje, errorValidacion.campo)
     return
   }
+  camposInvalidos.value = []
   try {
     if (esNuevo.value) {
       const payload = {
-        ...ficha.value,
+        ...payloadProveedor(),
         empresaCodigo: puestoContexto.empresaCodigo || undefined,
       }
       const creado = await crear(payload)
@@ -306,7 +343,7 @@ async function onGuardarFicha() {
       if (idx >= 0) await abrirFicha(idx)
       else volverAlGrid()
     } else {
-      await actualizar(String(ficha.value.codigo), ficha.value)
+      await actualizar(String(ficha.value.codigo), payloadProveedor())
       mensaje.value = 'Proveedor actualizado'
       await cargar()
       await abrirFichaPorCodigo(String(ficha.value.codigo))
@@ -356,6 +393,10 @@ function volverAlGrid() {
   mostrarIntereses.value = false
   mostrarContactos.value = false
   codigoAutomatico.value = false
+}
+
+function actualizarFicha(value: Record<string, unknown>) {
+  ficha.value = value
 }
 
 function onAccionPendiente(nombre: string) {
@@ -422,74 +463,77 @@ async function onUltimo() {
       <p v-if="error" class="error">{{ error }}</p>
 
       <template v-if="vista === 'grid'">
-        <div class="toolbar" :class="{ 'toolbar--half': esEstrecho }">
-          <button type="button" class="tool-btn" @click="onListado">Listado</button>
-          <button v-if="puedeCrear" type="button" class="tool-btn" :disabled="loading" @click="onNuevo">
-            Nuevo
-          </button>
-          <button
-            type="button"
-            class="tool-btn"
-            :disabled="!filaSeleccionada || filaSeleccionada._nuevo"
-            @click="abrirFicha()"
-          >
-            Ficha
-          </button>
-          <div class="toolbar-spacer"></div>
-          <button
-            v-if="puedeMostrarGuardar"
-            type="button"
-            class="tool-btn primary"
-            :disabled="loading || !puedeGuardarGrid"
-            @click="onGuardarGrid"
-          >
-            Guardar
-          </button>
-          <button
-            v-if="puedeMostrarEliminar"
-            type="button"
-            class="tool-btn danger"
-            :disabled="loading"
-            @click="solicitarEliminar"
-          >
-            Eliminar
-          </button>
+        <div class="listado-panel">
+          <div class="toolbar">
+            <button type="button" class="tool-btn" @click="onListado">Listado</button>
+            <button v-if="puedeCrear" type="button" class="tool-btn" :disabled="loading" @click="onNuevo">
+              Nuevo
+            </button>
+            <button
+              type="button"
+              class="tool-btn"
+              :disabled="!filaSeleccionada || filaSeleccionada._nuevo"
+              @click="abrirFicha()"
+            >
+              Ficha
+            </button>
+            <div class="toolbar-spacer"></div>
+            <button
+              v-if="puedeMostrarGuardar"
+              type="button"
+              class="tool-btn primary"
+              :disabled="loading || !puedeGuardarGrid"
+              @click="onGuardarGrid"
+            >
+              Guardar
+            </button>
+            <button
+              v-if="puedeMostrarEliminar"
+              type="button"
+              class="tool-btn danger"
+              :disabled="loading"
+              @click="solicitarEliminar"
+            >
+              Eliminar
+            </button>
+          </div>
+
+          <EntidadGrid
+            :columns="columns"
+            :filas="filas"
+            :indice-seleccionado="indiceSeleccionado"
+            :filterable-keys="FILTER_KEYS"
+            v-model:filters="filtros"
+            :readonly="soloLecturaGrid"
+            :loading="loading"
+            @seleccionar="seleccionar"
+            @actualizar="actualizarFila"
+            @abrir="abrirFicha"
+            @nuevo="onNuevo"
+            @search="buscarServidorAhora"
+          />
+
+          <ListPagination
+            class="paginacion"
+            :page="page"
+            :page-size="pageSize"
+            :total="total"
+            :loading="loading"
+            @update:page="onPage"
+            @update:page-size="onPageSize"
+          />
+
+          <p class="hint">
+            Filtra por <strong>Codigo</strong>, <strong>Razon social</strong> y <strong>NIF</strong> con el embudo.
+            Doble clic o <strong>Ficha</strong> abre el detalle.
+          </p>
         </div>
-
-        <EntidadGrid
-          :columns="columns"
-          :filas="filas"
-          :indice-seleccionado="indiceSeleccionado"
-          :filterable-keys="FILTER_KEYS"
-          v-model:filters="filtros"
-          :readonly="soloLecturaGrid"
-          :loading="loading"
-          @seleccionar="seleccionar"
-          @actualizar="actualizarFila"
-          @abrir="abrirFicha"
-          @nuevo="onNuevo"
-          @search="buscarServidorAhora"
-        />
-
-        <ListPagination
-          :page="page"
-          :page-size="pageSize"
-          :total="total"
-          :loading="loading"
-          @update:page="onPage"
-          @update:page-size="onPageSize"
-        />
-
-        <p class="hint">
-          Filtra por <strong>Codigo</strong>, <strong>Razon social</strong> y <strong>NIF</strong> con el embudo.
-          Doble clic o <strong>Ficha</strong> abre el detalle.
-        </p>
       </template>
 
       <template v-else>
-        <div class="sticky-chrome">
-          <button type="button" class="btn-volver" @click="volverAlGrid">← Volver a la rejilla</button>
+        <button type="button" class="btn-volver" @click="volverAlGrid">← Volver a la rejilla</button>
 
+        <div class="ficha-panel">
           <ProveedorToolbar
             :puede-crear="puedeCrear"
             :puede-editar="puedeEditar"
@@ -515,46 +559,51 @@ async function onUltimo() {
             @contactos="onContactos"
             @intereses="onIntereses"
           />
-        </div>
 
-        <div class="ficha-header">
-          <label>
-            Codigo *
-            <input
-              v-model="ficha.codigo"
-              :readonly="codigoReadOnlyFicha"
-              maxlength="6"
-              class="codigo-input"
-              required
-            />
-          </label>
-          <label class="nombre-input">
-            Razon social *
-            <input v-model="ficha.nombre" :readonly="soloLecturaFicha" maxlength="50" required />
-          </label>
-        </div>
+          <div class="ficha-header">
+            <label class="hdr-codigo" :class="{ 'campo-invalido': camposInvalidos.includes('codigo') }">
+              <span>Codigo *</span>
+              <input
+                v-model="ficha.codigo"
+                data-field-key="codigo"
+                :readonly="codigoReadOnlyFicha"
+                maxlength="6"
+              />
+            </label>
+            <label class="hdr-nombre" :class="{ 'campo-invalido': camposInvalidos.includes('nombre') }">
+              <span>Razon social *</span>
+              <input
+                v-model="ficha.nombre"
+                data-field-key="nombre"
+                :readonly="soloLecturaFicha"
+                maxlength="50"
+              />
+            </label>
+          </div>
 
-        <div class="tabs">
-          <button
-            v-for="tab in proveedorTabs"
-            :key="tab.id"
-            type="button"
-            class="tab"
-            :class="{ active: tabActiva === tab.id }"
-            @click="tabActiva = tab.id"
-          >
-            {{ tab.label }}
-          </button>
-        </div>
+          <div class="tabs">
+            <button
+              v-for="tab in proveedorTabs"
+              :key="tab.id"
+              type="button"
+              class="tab"
+              :class="{ active: tabActiva === tab.id }"
+              @click="tabActiva = tab.id"
+            >
+              {{ tab.label }}
+            </button>
+          </div>
 
-        <ProveedorTabForm
-          :sections="tabSeleccionada.sections"
-          :model-value="ficha"
-          :readonly="soloLecturaFicha"
-          :codigo-read-only="codigoReadOnlyFicha"
-          :ocultar-cabecera="true"
-          @update:model-value="ficha = $event"
-        />
+          <ProveedorTabForm
+            :sections="tabSeleccionada.sections"
+            :model-value="ficha"
+            :readonly="soloLecturaFicha"
+            :codigo-read-only="codigoReadOnlyFicha"
+            :ocultar-cabecera="true"
+            :campos-invalidos="camposInvalidos"
+            @update:model-value="actualizarFicha"
+          />
+        </div>
 
         <ProveedorInteresesModal
           :open="mostrarIntereses"
@@ -592,10 +641,10 @@ async function onUltimo() {
         :title="avisoTitulo"
         :message="avisoMensaje"
         confirm-label="Aceptar"
-        cancel-label="Cerrar"
         :danger="false"
-        @confirm="avisoOpen = false"
-        @cancel="avisoOpen = false"
+        hide-cancel
+        @confirm="cerrarAviso"
+        @cancel="cerrarAviso"
       />
     </template>
   </section>
@@ -604,6 +653,20 @@ async function onUltimo() {
 <style scoped>
 .proveedores-view h2 {
   margin: 0 0 0.75rem;
+}
+
+.listado-panel {
+  width: fit-content;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.listado-panel > .toolbar,
+.listado-panel :deep(.grid-wrap),
+.listado-panel .paginacion {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .toolbar {
@@ -616,10 +679,6 @@ async function onUltimo() {
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   margin-bottom: 0.5rem;
-}
-
-.toolbar--half {
-  width: 50%;
 }
 
 .toolbar-spacer {
@@ -652,7 +711,7 @@ async function onUltimo() {
 }
 
 .btn-volver {
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.45rem;
   padding: 0.3rem 0.65rem;
   border: 1px solid #94a3b8;
   border-radius: 6px;
@@ -661,65 +720,112 @@ async function onUltimo() {
   font-size: 0.8rem;
 }
 
+.ficha-panel {
+  width: 52rem;
+  max-width: 100%;
+  box-sizing: border-box;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+}
+
+.ficha-panel :deep(.toolbar) {
+  width: 100%;
+  border-radius: 8px 8px 0 0;
+}
+
 .ficha-header {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem 0.75rem;
-  align-items: end;
-  padding: 0.45rem 0.65rem;
-  background: #fff;
-  border: 1px solid #c5cdd8;
-  border-bottom: none;
-  border-radius: 8px 8px 0 0;
-  max-width: 1100px;
+  gap: 0.55rem 1rem;
+  align-items: center;
+  padding: 0.55rem 0.75rem;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  border-left: 1px solid #c5cdd8;
+  border-right: 1px solid #c5cdd8;
 }
 
 .ficha-header label {
-  display: grid;
-  gap: 0.15rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   font-size: 0.78rem;
+  color: #475569;
 }
 
-.codigo-input {
+.ficha-header label span {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.hdr-codigo input {
   width: 5rem;
 }
 
-.nombre-input {
+.hdr-nombre {
   flex: 1;
-  min-width: 220px;
+  min-width: 12rem;
+}
+
+.hdr-nombre input {
+  flex: 1;
+  min-width: 0;
+  max-width: 22rem;
 }
 
 .ficha-header input {
-  padding: 0.2rem 0.35rem;
+  padding: 0.25rem 0.4rem;
   border: 1px solid #94a3b8;
   border-radius: 3px;
-  font-size: 0.8rem;
+  font-size: 0.82rem;
+  background: #fff;
+}
+
+.ficha-header input:focus {
+  outline: none;
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+}
+
+.campo-invalido {
+  color: #b91c1c;
+}
+
+.campo-invalido input {
+  border-color: #ef4444;
+  background: #fef2f2;
 }
 
 .tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.15rem;
-  padding: 0.25rem 0.35rem 0;
-  background: #fff;
+  gap: 0.2rem;
+  padding: 0.35rem 0.55rem 0;
+  background: #f8fafc;
   border-left: 1px solid #c5cdd8;
   border-right: 1px solid #c5cdd8;
-  max-width: 1100px;
 }
 
 .tab {
   border: 1px solid #94a3b8;
   border-bottom: none;
-  border-radius: 4px 4px 0 0;
-  background: #e8edf2;
-  padding: 0.3rem 0.6rem;
+  border-radius: 6px 6px 0 0;
+  background: #e2e8f0;
+  padding: 0.35rem 0.75rem;
   font-size: 0.78rem;
+  color: #475569;
   cursor: pointer;
 }
 
+.tab:hover {
+  background: #f1f5f9;
+}
+
 .tab.active {
-  background: #f8fafc;
-  font-weight: 600;
+  background: #eef2f6;
+  color: #0f172a;
+  font-weight: 700;
+  border-bottom: 1px solid #eef2f6;
+  margin-bottom: -1px;
 }
 
 .msg {

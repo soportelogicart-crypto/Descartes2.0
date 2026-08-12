@@ -6,6 +6,7 @@ import type { FacturaManualGenerada, FacturasGeneracionPreviewResponse } from '@
 import { extractApiError } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 type Opt = { value: string; label: string }
 
@@ -288,7 +289,12 @@ onMounted(async () => {
             </label>
             <label>
               <span>Imp. mínimo</span>
-              <input v-model="form.importeMinimo" type="number" step="0.01" placeholder="0" />
+              <DecimalInput
+                :model-value="form.importeMinimo === '' || form.importeMinimo == null ? null : Number(form.importeMinimo)"
+                :empty-as-null="true"
+                placeholder="0"
+                @update:model-value="form.importeMinimo = $event ?? ''"
+              />
             </label>
           </fieldset>
 
@@ -338,8 +344,18 @@ onMounted(async () => {
             </div>
             <div class="rango-row">
               <span class="rango-label">Albarán</span>
-              <input v-model="form.albaranDesde" type="number" min="0" />
-              <input v-model="form.albaranHasta" type="number" min="0" />
+              <DecimalInput
+                :model-value="form.albaranDesde === '' || form.albaranDesde == null ? null : Number(form.albaranDesde)"
+                :empty-as-null="true"
+                :integer="true"
+                @update:model-value="form.albaranDesde = $event ?? ''"
+              />
+              <DecimalInput
+                :model-value="form.albaranHasta === '' || form.albaranHasta == null ? null : Number(form.albaranHasta)"
+                :empty-as-null="true"
+                :integer="true"
+                @update:model-value="form.albaranHasta = $event ?? ''"
+              />
             </div>
             <div class="rango-row">
               <span class="rango-label">F.Pago</span>

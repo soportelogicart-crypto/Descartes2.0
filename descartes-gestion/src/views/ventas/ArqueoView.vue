@@ -17,6 +17,7 @@ import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { api } from '@/api/client'
 import PdfPreviewModal from '@/components/common/PdfPreviewModal.vue'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 type Opt = { value: string; label: string }
 type PuestoOpt = Opt & { tiendaCodigo: string; ultSesion: number }
@@ -699,7 +700,7 @@ onMounted(async () => {
       </label>
       <label>
         Sesion
-        <input v-model.number="form.sesion" type="number" min="1" required :disabled="editando" />
+        <DecimalInput v-model="form.sesion" :empty-as-null="false" :integer="true" :required="true" :disabled="editando" />
       </label>
       <button type="submit" :disabled="loading || loadingOpts || editando">Consultar</button>
     </form>
@@ -835,11 +836,10 @@ onMounted(async () => {
               <td>{{ l.descripcion }}</td>
               <td class="num">{{ l.acumulado.toFixed(2) }}</td>
               <td class="num">
-                <input
+                <DecimalInput
                   v-if="editando && l.cuentaParaArqueo"
-                  v-model.number="entrados[l.formaPago]"
-                  type="number"
-                  step="0.01"
+                  v-model="entrados[l.formaPago]"
+                  :empty-as-null="false"
                   class="inp-ent"
                 />
                 <template v-else>{{ l.entrado.toFixed(2) }}</template>
@@ -911,11 +911,11 @@ onMounted(async () => {
         </label>
         <label>
           Salida a banco
-          <input v-model.number="cierreForm.salidaBanco" type="number" step="0.01" min="0" />
+          <DecimalInput v-model="cierreForm.salidaBanco" :empty-as-null="false" />
         </label>
         <label>
           Salida a siguiente sesión (fondo inicial)
-          <input v-model.number="cierreForm.salidaSiguienteSesion" type="number" step="0.01" min="0" />
+          <DecimalInput v-model="cierreForm.salidaSiguienteSesion" :empty-as-null="false" />
         </label>
         <label class="check">
           <input v-model="cierreForm.aplicarDescuadre" type="checkbox" />
@@ -958,7 +958,7 @@ onMounted(async () => {
         </label>
         <label>
           Importe
-          <input v-model.number="movForm.importe" type="number" step="0.01" min="0.01" required />
+          <DecimalInput v-model="movForm.importe" :empty-as-null="false" :required="true" />
         </label>
         <label>
           Concepto

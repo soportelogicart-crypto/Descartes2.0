@@ -95,32 +95,33 @@ defineEmits<{
 
 <style scoped>
 .toolbar {
-  position: relative;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: 0.4rem;
   align-items: center;
-  padding: 0.75rem;
+  width: 100%;
+  max-width: 920px;
+  box-sizing: border-box;
+  padding: 0.35rem 0.45rem;
   background: linear-gradient(180deg, #f8fafc 0%, #e5e7eb 100%);
   border: 1px solid #cbd5e1;
-  border-radius: 10px;
-  margin-bottom: 0.75rem;
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
 }
 
 .toolbar-group {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
+  gap: 0.25rem;
   align-items: center;
 }
 
 .toolbar-group.nav {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
+  margin-left: auto;
+  margin-right: auto;
 }
 
-.toolbar > .toolbar-group:last-child {
+.toolbar > .toolbar-group:last-child:not(.nav) {
   margin-left: auto;
 }
 
@@ -128,13 +129,13 @@ defineEmits<{
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.15rem;
-  min-width: 4.5rem;
-  padding: 0.35rem 0.5rem;
+  gap: 0.1rem;
+  min-width: 3.4rem;
+  padding: 0.25rem 0.35rem;
   border: 1px solid #94a3b8;
-  border-radius: 8px;
+  border-radius: 6px;
   background: #fff;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   cursor: pointer;
   color: #1e293b;
 }
@@ -153,17 +154,18 @@ defineEmits<{
 .nav {
   background: #fff;
   border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  padding: 0.15rem 0.35rem;
 }
 
 .nav-btn {
   border: 1px solid #86efac;
   background: #dcfce7;
   color: #166534;
-  border-radius: 6px;
-  padding: 0.2rem 0.45rem;
+  border-radius: 5px;
+  padding: 0.15rem 0.35rem;
   cursor: pointer;
+  font-size: 0.75rem;
 }
 
 .nav-btn:disabled {
@@ -172,9 +174,9 @@ defineEmits<{
 }
 
 .nav-counter {
-  min-width: 3rem;
+  min-width: 2.5rem;
   text-align: center;
-  font-size: 0.85rem;
+  font-size: 0.78rem;
   font-weight: 600;
 }
 </style>

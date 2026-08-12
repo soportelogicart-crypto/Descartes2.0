@@ -38,7 +38,6 @@ const columns = getGridColumns('tiendas')
 
 const { puede } = usePermisos()
 const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(() => MODULO)
-pageSize.value = 50
 
 const puedeCrear = computed(() => puede(MODULO, 'crear'))
 const puedeEditar = computed(() => puede(MODULO, 'editar'))
@@ -468,7 +467,9 @@ function volverAlGrid() {
   camposInvalidos.value = []
 }
 
-const contadorKeys = [...contadoresFieldsIzq, ...contadoresFieldsDer].map((f) => f.key)
+const contadorKeys = [...contadoresFieldsIzq, ...contadoresFieldsDer]
+  .filter((f) => !f.readOnly)
+  .map((f) => f.key)
 const guardandoContadores = ref(false)
 
 async function abrirContadores() {

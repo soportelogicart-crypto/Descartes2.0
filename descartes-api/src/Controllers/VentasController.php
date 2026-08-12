@@ -455,6 +455,16 @@ final class VentasController
     }
   }
 
+  public function listarImpresorasDispositivo(Request $request, Response $response): Response
+  {
+    try {
+      $item = $this->dispositivos->listarImpresoras();
+      return $this->json($response, 200, $item);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
   public function leerCajonDispositivo(Request $request, Response $response, array $args): Response
   {
     $body = (array) ($request->getParsedBody() ?? []);

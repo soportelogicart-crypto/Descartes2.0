@@ -132,12 +132,21 @@ final class DispositivoPuestoService
       throw new \InvalidArgumentException('texto es obligatorio');
     }
 
+    $impresora = trim((string) ($body['impresora'] ?? ''));
+    if ($impresora === '') {
+      $impresora = $this->impresoraTicketsPuesto($puesto);
+    }
+
     $payload = [
       'puesto' => $puesto,
       'texto' => $texto,
-      'tipo' => (string) ($body['tipo'] ?? 'arqueo'),
+      'tipo' => (string) ($body['tipo'] ?? 'ticket'),
       'empresa' => (string) ($body['empresa'] ?? ''),
       'sesion' => (int) ($body['sesion'] ?? 0),
+      'impresora' => $impresora,
+      'abrirCajon' => !empty($body['abrirCajon']),
+      'cortar' => !array_key_exists('cortar', $body) || !empty($body['cortar']),
+      'ancho' => isset($body['ancho']) ? (int) $body['ancho'] : 42,
     ];
 
     $agent = $this->llamarAgente('POST', '/imprimir', $payload);
@@ -147,7 +156,7 @@ final class DispositivoPuestoService
         'stub' => true,
         'agenteOnline' => false,
         'puesto' => $puesto,
-        'message' => 'Agente local no disponible para impresion termica.',
+        'message' => 'Agente local no disponible para impresion termica. Ejecute Descartes Electron.',
         'dispositivo' => $meta,
       ];
     }
@@ -157,15 +166,73 @@ final class DispositivoPuestoService
       'stub' => !empty($agent['stub']),
       'agenteOnline' => true,
       'puesto' => $puesto,
+      'impresora' => $agent['impresora'] ?? $impresora,
       'message' => (string) ($agent['message'] ?? 'Impresion enviada'),
       'dispositivo' => $meta,
+    ];
+  }
+
+  private function impresoraTicketsPuesto(string $puesto): string
+  {
+    try {
+      $st = $this->pdo->prepare(
+        'SELECT ImpresoraTickets FROM Puestos WHERE Puesto = :p'
+      );
+      $st->execute(['p' => $puesto]);
+      $v = $st->fetchColumn();
+      return $v !== false ? trim((string) $v) : '';
+    } catch (\Throwable $e) {
+      return '';
+    }
+  }
+
+  /**
+   * Lista impresoras del equipo via agente Electron.
+   *
+   * @return array{ok: bool, stub: bool, agenteOnline: bool, printers: list<array<string, mixed>>, message: string}
+   */
+  public function listarImpresoras(): array
+  {
+    $agent = $this->llamarAgente('GET', '/impresoras', []);
+    if ($agent === null) {
+      return [
+        'ok' => false,
+        'stub' => true,
+        'agenteOnline' => false,
+        'printers' => [],
+        'message' => 'Agente local no disponible. Ejecute Descartes Electron en este equipo o configure DISPOSITIVO_AGENTE_URL.',
+      ];
+    }
+
+    $printers = [];
+    if (isset($agent['printers']) && is_array($agent['printers'])) {
+      foreach ($agent['printers'] as $p) {
+        if (!is_array($p)) {
+          continue;
+        }
+        $printers[] = [
+          'id' => (int) ($p['id'] ?? 0),
+          'name' => trim((string) ($p['name'] ?? '')),
+          'displayName' => trim((string) ($p['displayName'] ?? $p['name'] ?? '')),
+          'description' => trim((string) ($p['description'] ?? '')),
+          'isDefault' => !empty($p['isDefault']),
+        ];
+      }
+    }
+
+    return [
+      'ok' => !empty($agent['ok']),
+      'stub' => !empty($agent['stub']),
+      'agenteOnline' => true,
+      'printers' => $printers,
+      'message' => (string) ($agent['message'] ?? ''),
     ];
   }
 
   private function agenteUrl(): ?string
   {
     $url = trim((string) ($_ENV['DISPOSITIVO_AGENTE_URL'] ?? getenv('DISPOSITIVO_AGENTE_URL') ?: ''));
-    return $url !== '' ? rtrim($url, '/') : null;
+    return $url !== '' ? rtrim($url, '/') : 'http://127.0.0.1:17321';
   }
 
   /**
@@ -179,8 +246,9 @@ final class DispositivoPuestoService
       return null;
     }
     $url = $base . $path;
-    $json = json_encode($payload, JSON_UNESCAPED_UNICODE);
-    if ($json === false) {
+    $method = strtoupper($method);
+    $json = $method === 'GET' || $method === 'HEAD' ? null : json_encode($payload, JSON_UNESCAPED_UNICODE);
+    if ($method !== 'GET' && $method !== 'HEAD' && $json === false) {
       return null;
     }
 
@@ -189,14 +257,20 @@ final class DispositivoPuestoService
       if ($ch === false) {
         return null;
       }
-      curl_setopt_array($ch, [
+      $headers = ['Accept: application/json'];
+      $opts = [
         CURLOPT_CUSTOMREQUEST => $method,
-        CURLOPT_POSTFIELDS => $json,
-        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json'],
+        CURLOPT_HTTPHEADER => $headers,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_CONNECTTIMEOUT => 2,
-        CURLOPT_TIMEOUT => 8,
-      ]);
+        CURLOPT_TIMEOUT => 25,
+      ];
+      if ($json !== null) {
+        $headers[] = 'Content-Type: application/json';
+        $opts[CURLOPT_HTTPHEADER] = $headers;
+        $opts[CURLOPT_POSTFIELDS] = $json;
+      }
+      curl_setopt_array($ch, $opts);
       $raw = curl_exec($ch);
       $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
       curl_close($ch);
@@ -207,15 +281,17 @@ final class DispositivoPuestoService
       return is_array($decoded) ? $decoded : null;
     }
 
-    $ctx = stream_context_create([
-      'http' => [
-        'method' => $method,
-        'header' => "Content-Type: application/json\r\nAccept: application/json\r\n",
-        'content' => $json,
-        'timeout' => 8,
-        'ignore_errors' => true,
-      ],
-    ]);
+    $http = [
+      'method' => $method,
+      'header' => "Accept: application/json\r\n",
+      'timeout' => 8,
+      'ignore_errors' => true,
+    ];
+    if ($json !== null) {
+      $http['header'] .= "Content-Type: application/json\r\n";
+      $http['content'] = $json;
+    }
+    $ctx = stream_context_create(['http' => $http]);
     $raw = @file_get_contents($url, false, $ctx);
     if ($raw === false) {
       return null;

@@ -33,12 +33,11 @@ export function useEliminarFilaGrid(options: {
     const fila = toValue(options.filaSeleccionada)
     if (!fila) return
 
-    if (fila._nuevo) {
-      options.quitarFilaNueva()
-      return
-    }
+    // Fila "*" de alta: no es un borrado; no abrir dialogo ni hacer ruido.
+    if (fila._nuevo) return
 
-    if (!fila.codigo) return
+    const codigo = String(fila.codigo ?? '').trim()
+    if (!codigo) return
 
     confirmMessage.value = mensajeConfirmacion(fila)
     confirmOpen.value = true
@@ -46,11 +45,9 @@ export function useEliminarFilaGrid(options: {
 
   async function confirmarEliminar() {
     const fila = toValue(options.filaSeleccionada)
+    const codigo = String(fila?.codigo ?? '').trim()
     confirmOpen.value = false
-    if (!fila?.codigo) return
-
-    const codigo = String(fila.codigo).trim()
-    if (!codigo) return
+    if (!codigo || fila?._nuevo) return
 
     try {
       await options.eliminarApi(codigo)

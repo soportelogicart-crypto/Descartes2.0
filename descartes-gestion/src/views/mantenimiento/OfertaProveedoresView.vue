@@ -6,6 +6,7 @@ import {
   getGridColumns,
   type GridFila,
 } from '@/config/entidad-grid-columns'
+import { leerGridPageSize } from '@/composables/useGridPageSize'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
 import {
@@ -21,6 +22,7 @@ import EntidadBuscarModal, {
 } from '@/components/common/EntidadBuscarModal.vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
 import EntidadGrid from '@/components/mantenimiento/EntidadGrid.vue'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 const MODULO = 'oferta-proveedores'
 const columns = getGridColumns('oferta-proveedores')
@@ -68,7 +70,7 @@ const filasTodas = ref<GridFila[]>([])
 const filtros = ref<Record<string, ColumnFilter>>(filtrosIniciales(FILTER_KEYS))
 const total = ref(0)
 const page = ref(1)
-const pageSize = ref(50)
+const pageSize = ref(leerGridPageSize())
 const loading = ref(false)
 const saving = ref(false)
 const error = ref<string | null>(null)
@@ -384,10 +386,6 @@ function numModel(key: keyof typeof form): number {
   const v = form[key]
   return typeof v === 'number' ? v : Number(v) || 0
 }
-
-function setNum(key: keyof typeof form, raw: string) {
-  ;(form as Record<string, unknown>)[key] = raw === '' ? 0 : Number(raw.replace(',', '.'))
-}
 </script>
 
 <template>
@@ -401,253 +399,248 @@ function setNum(key: keyof typeof form, raw: string) {
       <p v-if="error" class="error">{{ error }}</p>
 
       <template v-if="vista === 'grid'">
-        <div class="toolbar">
-          <button type="button" class="tool-btn" @click="onListado">Listado</button>
-          <button v-if="puedeCrear" type="button" class="tool-btn" :disabled="loading" @click="onNuevo">
-            Nuevo
-          </button>
-          <button type="button" class="tool-btn" :disabled="!puedeAbrirFicha" @click="abrirFicha()">
-            Ficha
-          </button>
-          <div class="toolbar-spacer"></div>
-          <button
-            v-if="puedeEliminar"
-            type="button"
-            class="tool-btn danger"
-            :disabled="!puedeMostrarEliminar || loading"
-            @click="solicitarEliminar"
-          >
-            Borrar
-          </button>
-        </div>
-
-        <EntidadGrid
-          :columns="columns"
-          :filas="filas"
-          :indice-seleccionado="indiceSeleccionado"
-          :readonly="true"
-          :loading="loading"
-          :filterable-keys="FILTER_KEYS"
-          :date-keys="DATE_KEYS"
-          v-model:filters="filtros"
-          @seleccionar="seleccionar"
-          @abrir="abrirFicha"
-          @nuevo="onNuevo"
-        />
-
-        <ListPagination
-          :page="page"
-          :page-size="pageSize"
-          :total="total"
-          :loading="loading"
-          @update:page="onPage"
-          @update:page-size="onPageSize"
-        />
-
-        <p class="hint">
-          Doble clic o <strong>Ficha</strong> abre el detalle. La fila
-          <strong>*</strong> crea con Nuevo.
-        </p>
-      </template>
-
-      <template v-else>
-        <div class="sticky-chrome">
-          <button type="button" class="btn-volver" @click="volverAlGrid">← Volver a la rejilla</button>
+        <div class="listado-panel">
           <div class="toolbar">
-            <button v-if="puedeCrear" type="button" class="tool-btn" @click="onNuevo">Nuevo</button>
-            <button
-              v-if="puedeEditar"
-              type="button"
-              class="tool-btn"
-              :disabled="esNuevo || modoEdicion"
-              @click="onModificar"
-            >
-              Modificar
+            <button type="button" class="tool-btn" @click="onListado">Listado</button>
+            <button v-if="puedeCrear" type="button" class="tool-btn" :disabled="loading" @click="onNuevo">
+              Nuevo
             </button>
+            <button type="button" class="tool-btn" :disabled="!puedeAbrirFicha" @click="abrirFicha()">
+              Ficha
+            </button>
+            <div class="toolbar-spacer"></div>
             <button
               v-if="puedeEliminar"
               type="button"
               class="tool-btn danger"
-              :disabled="esNuevo"
+              :disabled="!puedeMostrarEliminar || loading"
               @click="solicitarEliminar"
             >
               Borrar
             </button>
-            <div class="toolbar-spacer"></div>
-            <button
-              v-if="puedeGuardar"
-              type="button"
-              class="tool-btn primary"
-              :disabled="saving"
-              @click="onGuardar"
-            >
-              Guardar
-            </button>
-            <button v-if="modoEdicion || esNuevo" type="button" class="tool-btn" @click="onCancelar">
-              Cancelar
-            </button>
           </div>
+
+          <EntidadGrid
+            :columns="columns"
+            :filas="filas"
+            :indice-seleccionado="indiceSeleccionado"
+            :readonly="true"
+            :loading="loading"
+            :filterable-keys="FILTER_KEYS"
+            :date-keys="DATE_KEYS"
+            v-model:filters="filtros"
+            @seleccionar="seleccionar"
+            @abrir="abrirFicha"
+            @nuevo="onNuevo"
+          />
+
+          <ListPagination
+            class="paginacion"
+            :page="page"
+            :page-size="pageSize"
+            :total="total"
+            :loading="loading"
+            @update:page="onPage"
+            @update:page-size="onPageSize"
+          />
+
+          <p class="hint">
+            Doble clic o <strong>Ficha</strong> abre el detalle. La fila
+            <strong>*</strong> crea con Nuevo.
+          </p>
         </div>
+      </template>
 
-        <div class="ficha">
-          <div class="cabecera">
-            <label>
-              Articulo
-              <div class="con-desc">
-                <div class="codigo-buscar">
-                  <input
-                    v-model="form.articulo"
-                    maxlength="18"
-                    :readonly="soloLectura || !esNuevo"
-                    @blur="resolverArticulo"
-                  />
-                  <button
-                    v-if="esNuevo"
-                    type="button"
-                    class="btn-lupa"
-                    title="Buscar articulo"
-                    @click="buscarArticuloOpen = true"
-                  >
-                    <ToolIcon name="buscar" />
-                  </button>
-                </div>
-                <span class="desc">{{ articuloDescripcion }}</span>
-              </div>
-            </label>
-            <label>
-              Proveedor
-              <div class="con-desc">
-                <div class="codigo-buscar">
-                  <input
-                    v-model="form.proveedor"
-                    maxlength="6"
-                    :readonly="soloLectura || !esNuevo"
-                    @blur="resolverProveedor"
-                  />
-                  <button
-                    v-if="esNuevo"
-                    type="button"
-                    class="btn-lupa"
-                    title="Buscar proveedor"
-                    @click="buscarProveedorOpen = true"
-                  >
-                    <ToolIcon name="buscar" />
-                  </button>
-                </div>
-                <span class="desc">{{ proveedorNombre }}</span>
-              </div>
-            </label>
+      <template v-else>
+        <div class="ficha-panel">
+          <div class="sticky-chrome">
+            <button type="button" class="btn-volver" @click="volverAlGrid">← Volver a la rejilla</button>
+            <div class="toolbar">
+              <button v-if="puedeCrear" type="button" class="tool-btn" @click="onNuevo">Nuevo</button>
+              <button
+                v-if="puedeEditar"
+                type="button"
+                class="tool-btn"
+                :disabled="esNuevo || modoEdicion"
+                @click="onModificar"
+              >
+                Modificar
+              </button>
+              <button
+                v-if="puedeEliminar"
+                type="button"
+                class="tool-btn danger"
+                :disabled="esNuevo"
+                @click="solicitarEliminar"
+              >
+                Borrar
+              </button>
+              <div class="toolbar-spacer"></div>
+              <button
+                v-if="puedeGuardar"
+                type="button"
+                class="tool-btn primary"
+                :disabled="saving"
+                @click="onGuardar"
+              >
+                Guardar
+              </button>
+              <button v-if="modoEdicion || esNuevo" type="button" class="tool-btn" @click="onCancelar">
+                Cancelar
+              </button>
+            </div>
           </div>
 
-          <div class="bloques">
-            <div class="col-izquierda">
-              <fieldset class="bloque bloque-compacto">
-                <legend>Periodo oferta</legend>
-                <div class="fila-campo">
-                  <span>Fecha inicio</span>
-                  <input
-                    class="input-fecha"
-                    :value="form.fechaInicio ?? ''"
-                    type="date"
-                    :readonly="soloLectura"
-                    @input="form.fechaInicio = ($event.target as HTMLInputElement).value || null"
-                  />
+          <div class="ficha">
+            <div class="cabecera">
+              <label>
+                Articulo
+                <div class="con-desc">
+                  <div class="codigo-buscar">
+                    <input
+                      v-model="form.articulo"
+                      maxlength="18"
+                      :readonly="soloLectura || !esNuevo"
+                      @blur="resolverArticulo"
+                    />
+                    <button
+                      v-if="esNuevo"
+                      type="button"
+                      class="btn-lupa"
+                      title="Buscar articulo"
+                      @click="buscarArticuloOpen = true"
+                    >
+                      <ToolIcon name="buscar" />
+                    </button>
+                  </div>
+                  <span class="desc">{{ articuloDescripcion }}</span>
                 </div>
-                <div class="fila-campo">
-                  <span>Fecha final</span>
-                  <input
-                    class="input-fecha"
-                    :value="form.fechaFin ?? ''"
-                    type="date"
-                    :readonly="soloLectura"
-                    @input="form.fechaFin = ($event.target as HTMLInputElement).value || null"
-                  />
+              </label>
+              <label>
+                Proveedor
+                <div class="con-desc">
+                  <div class="codigo-buscar">
+                    <input
+                      v-model="form.proveedor"
+                      maxlength="6"
+                      :readonly="soloLectura || !esNuevo"
+                      @blur="resolverProveedor"
+                    />
+                    <button
+                      v-if="esNuevo"
+                      type="button"
+                      class="btn-lupa"
+                      title="Buscar proveedor"
+                      @click="buscarProveedorOpen = true"
+                    >
+                      <ToolIcon name="buscar" />
+                    </button>
+                  </div>
+                  <span class="desc">{{ proveedorNombre }}</span>
                 </div>
-              </fieldset>
-
-              <fieldset class="bloque bloque-compacto">
-                <legend>Descuento</legend>
-                <div class="fila-campo">
-                  <span>Descuento</span>
-                  <input
-                    class="input-dto"
-                    :value="form.pjeDto"
-                    type="number"
-                    step="0.01"
-                    :readonly="soloLectura"
-                    @input="setNum('pjeDto', ($event.target as HTMLInputElement).value)"
-                  />
-                </div>
-                <div class="fila-campo">
-                  <span>Dto 2</span>
-                  <input
-                    class="input-dto"
-                    :value="form.pjeDto2"
-                    type="number"
-                    step="0.01"
-                    :readonly="soloLectura"
-                    @input="setNum('pjeDto2', ($event.target as HTMLInputElement).value)"
-                  />
-                </div>
-                <div class="fila-campo">
-                  <span>Dto 3</span>
-                  <input
-                    class="input-dto"
-                    :value="form.pjeDto3"
-                    type="number"
-                    step="0.01"
-                    :readonly="soloLectura"
-                    @input="setNum('pjeDto3', ($event.target as HTMLInputElement).value)"
-                  />
-                </div>
-              </fieldset>
+              </label>
             </div>
 
-            <fieldset class="bloque escalados-box">
-              <legend>Escalados</legend>
-              <table class="escalados">
-                <thead>
-                  <tr>
-                    <th>Unidades</th>
-                    <th>Precio</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td class="vacio"></td>
-                    <td>
-                      <input
-                        :value="form.precioEsp"
-                        type="number"
-                        step="0.0001"
-                        :readonly="soloLectura"
-                        @input="setNum('precioEsp', ($event.target as HTMLInputElement).value)"
-                      />
-                    </td>
-                  </tr>
-                  <tr v-for="row in escalados" :key="row.i">
-                    <td>
-                      <input
-                        :value="numModel(row.cantidadKey)"
-                        type="number"
-                        step="any"
-                        :readonly="soloLectura"
-                        @input="setNum(row.cantidadKey, ($event.target as HTMLInputElement).value)"
-                      />
-                    </td>
-                    <td>
-                      <input
-                        :value="numModel(row.precioKey)"
-                        type="number"
-                        step="0.0001"
-                        :readonly="soloLectura"
-                        @input="setNum(row.precioKey, ($event.target as HTMLInputElement).value)"
-                      />
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </fieldset>
+            <div class="bloques">
+              <div class="col-izquierda">
+                <fieldset class="bloque bloque-compacto">
+                  <legend>Periodo oferta</legend>
+                  <div class="fila-campo">
+                    <span>Fecha inicio</span>
+                    <input
+                      class="input-fecha"
+                      :value="form.fechaInicio ?? ''"
+                      type="date"
+                      :readonly="soloLectura"
+                      @input="form.fechaInicio = ($event.target as HTMLInputElement).value || null"
+                    />
+                  </div>
+                  <div class="fila-campo">
+                    <span>Fecha final</span>
+                    <input
+                      class="input-fecha"
+                      :value="form.fechaFin ?? ''"
+                      type="date"
+                      :readonly="soloLectura"
+                      @input="form.fechaFin = ($event.target as HTMLInputElement).value || null"
+                    />
+                  </div>
+                </fieldset>
+
+                <fieldset class="bloque bloque-compacto">
+                  <legend>Descuento</legend>
+                  <div class="fila-campo">
+                    <span>Descuento</span>
+                    <DecimalInput
+                      class="input-dto"
+                      v-model="form.pjeDto"
+                      :empty-as-null="false"
+                      :readonly="soloLectura"
+                    />
+                  </div>
+                  <div class="fila-campo">
+                    <span>Dto 2</span>
+                    <DecimalInput
+                      class="input-dto"
+                      v-model="form.pjeDto2"
+                      :empty-as-null="false"
+                      :readonly="soloLectura"
+                    />
+                  </div>
+                  <div class="fila-campo">
+                    <span>Dto 3</span>
+                    <DecimalInput
+                      class="input-dto"
+                      v-model="form.pjeDto3"
+                      :empty-as-null="false"
+                      :readonly="soloLectura"
+                    />
+                  </div>
+                </fieldset>
+              </div>
+
+              <fieldset class="bloque escalados-box">
+                <legend>Escalados</legend>
+                <table class="escalados">
+                  <thead>
+                    <tr>
+                      <th>Unidades</th>
+                      <th>Precio</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td class="vacio"></td>
+                      <td>
+                        <DecimalInput
+                          v-model="form.precioEsp"
+                          :empty-as-null="false"
+                          :readonly="soloLectura"
+                        />
+                      </td>
+                    </tr>
+                    <tr v-for="row in escalados" :key="row.i">
+                      <td>
+                        <DecimalInput
+                          :model-value="numModel(row.cantidadKey)"
+                          :empty-as-null="false"
+                          :readonly="soloLectura"
+                          @update:model-value="(form as Record<string, unknown>)[row.cantidadKey] = $event ?? 0"
+                        />
+                      </td>
+                      <td>
+                        <DecimalInput
+                          :model-value="numModel(row.precioKey)"
+                          :empty-as-null="false"
+                          :readonly="soloLectura"
+                          @update:model-value="(form as Record<string, unknown>)[row.precioKey] = $event ?? 0"
+                        />
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </fieldset>
+            </div>
           </div>
         </div>
       </template>
@@ -683,11 +676,38 @@ function setNum(key: keyof typeof form, raw: string) {
   margin: 0 0 0.75rem;
 }
 
+.listado-panel {
+  width: fit-content;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.listado-panel > .toolbar,
+.listado-panel :deep(.grid-wrap),
+.listado-panel .paginacion {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.ficha-panel {
+  width: fit-content;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.sticky-chrome {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .toolbar {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 0.35rem;
   align-items: center;
+  width: 100%;
+  box-sizing: border-box;
   padding: 0.5rem;
   background: linear-gradient(180deg, #f8fafc 0%, #e5e7eb 100%);
   border: 1px solid #cbd5e1;
@@ -740,11 +760,12 @@ function setNum(key: keyof typeof form, raw: string) {
 }
 
 .ficha {
-  max-width: 960px;
+  width: 100%;
   background: #f0f4f8;
   border: 1px solid #c5cdd8;
   border-radius: 8px;
   padding: 0.65rem;
+  box-sizing: border-box;
 }
 
 .cabecera {
@@ -769,12 +790,13 @@ function setNum(key: keyof typeof form, raw: string) {
 .codigo-buscar {
   display: flex;
   gap: 0.25rem;
-  align-items: center;
+  align-items: stretch;
 }
 
 .codigo-buscar input {
   flex: 1;
   min-width: 0;
+  box-sizing: border-box;
 }
 
 .btn-lupa {
@@ -782,7 +804,8 @@ function setNum(key: keyof typeof form, raw: string) {
   align-items: center;
   justify-content: center;
   width: 1.85rem;
-  height: 1.85rem;
+  height: auto;
+  align-self: stretch;
   padding: 0;
   border: 1px solid #94a3b8;
   border-radius: 3px;
@@ -790,6 +813,7 @@ function setNum(key: keyof typeof form, raw: string) {
   cursor: pointer;
   color: #334155;
   flex-shrink: 0;
+  box-sizing: border-box;
 }
 
 .btn-lupa:hover {
@@ -799,7 +823,11 @@ function setNum(key: keyof typeof form, raw: string) {
 
 .desc {
   font-size: 0.85rem;
-  color: #334155;
+  font-weight: 600;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .bloques {
@@ -833,9 +861,8 @@ function setNum(key: keyof typeof form, raw: string) {
 }
 
 .escalados-box {
-  flex: 1 1 14rem;
-  min-width: 12rem;
-  max-width: 18rem;
+  flex: 0 0 auto;
+  width: 14rem;
 }
 
 .bloque legend {
@@ -920,7 +947,6 @@ function setNum(key: keyof typeof form, raw: string) {
   }
 
   .escalados-box {
-    max-width: none;
     width: 100%;
   }
 

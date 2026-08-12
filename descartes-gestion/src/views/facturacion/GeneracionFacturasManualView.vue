@@ -15,6 +15,7 @@ import EntidadBuscarModal, {
   type EntidadBuscarResultado,
 } from '@/components/common/EntidadBuscarModal.vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 type Opt = { value: string; label: string }
 
@@ -400,13 +401,13 @@ onMounted(async () => {
             </label>
             <label>
               <span>Factura</span>
-              <input
-                v-model="form.numFactura"
-                type="number"
-                min="0"
+              <DecimalInput
+                :model-value="form.numFactura === '' || form.numFactura == null ? null : Number(form.numFactura)"
+                :empty-as-null="true"
+                :integer="true"
                 placeholder="Auto"
                 :disabled="form.tipo === 'prefacturas'"
-                :title="form.tipo === 'prefacturas' ? 'No disponible en pre-facturas' : ''"
+                @update:model-value="form.numFactura = $event ?? ''"
               />
             </label>
             <label>
@@ -432,8 +433,18 @@ onMounted(async () => {
             </div>
             <div class="rango-row">
               <span class="rango-label">Albarán</span>
-              <input v-model="form.albaranDesde" type="number" min="0" />
-              <input v-model="form.albaranHasta" type="number" min="0" />
+              <DecimalInput
+                :model-value="form.albaranDesde === '' || form.albaranDesde == null ? null : Number(form.albaranDesde)"
+                :empty-as-null="true"
+                :integer="true"
+                @update:model-value="form.albaranDesde = $event ?? ''"
+              />
+              <DecimalInput
+                :model-value="form.albaranHasta === '' || form.albaranHasta == null ? null : Number(form.albaranHasta)"
+                :empty-as-null="true"
+                :integer="true"
+                @update:model-value="form.albaranHasta = $event ?? ''"
+              />
             </div>
             <div class="rango-row">
               <span class="rango-label">Cliente</span>

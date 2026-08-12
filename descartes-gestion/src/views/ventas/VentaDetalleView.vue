@@ -7,7 +7,6 @@ import {
   crearVenta,
   eliminarVenta,
   finalizarVenta,
-  marcarVentaImpresa,
   obtenerVenta,
   reservarAlbaran,
 } from '@/api/ventas'
@@ -17,10 +16,18 @@ import { extractApiError } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { useVentasBusquedaStore } from '@/stores/ventasBusqueda'
+import {
+  imprimirA4Preparado,
+  prepararOImprimirVenta,
+  puestoTicketAutomatico,
+  type PrepImpresionA4,
+} from '@/composables/useImpresionVentaDocumento'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EntidadBuscarModal from '@/components/common/EntidadBuscarModal.vue'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 import VentaToolbar from '@/components/ventas/VentaToolbar.vue'
 import VentaCabeceraForm from '@/components/ventas/VentaCabeceraForm.vue'
+import VentaImpresionA4Modal from '@/components/ventas/VentaImpresionA4Modal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -55,6 +62,10 @@ const abonoOpen = ref(false)
 const abonoNroLins = ref<number[]>([])
 const abonoObservacion = ref('')
 const tipoFinal = ref('A')
+const a4Open = ref(false)
+const a4Prep = ref<PrepImpresionA4 | null>(null)
+const a4Imprimiendo = ref(false)
+const a4ModalRef = ref<{ capturarHtmlFolio: () => Promise<string> } | null>(null)
 /** Flujo legacy: tienda → reservar albaran → buscar cliente → grabar cabecera */
 const pasoAlta = ref<'tienda' | 'cliente' | 'listo'>('listo')
 const buscarClienteOpen = ref(false)
@@ -333,7 +344,20 @@ const puedeGuardar = computed(
 )
 /** Albaran listo: cabecera creada + al menos una linea de articulo. */
 const albaranCompleto = computed(() => Boolean(ficha.value) && !esNuevo.value && tieneLineas.value)
-const puedeImprimir = computed(() => albaranCompleto.value && !modoEdicion.value)
+/** Documento tipificado / cerrado (Finalizar): ticket, albarán con sesión, factura o presupuesto. */
+const documentoFinalizado = computed(() => {
+  const f = ficha.value
+  if (!f || esNuevo.value || modoEdicion.value) return false
+  if (esTicketCerrado.value) return true
+  if (albaranFinalizado.value) return true
+  const ft = String(f.facturaTipo ?? '').trim().toUpperCase()
+  if (ft === 'R') return true
+  if (ft === 'F' && (Number(f.factura) || 0) > 0) return true
+  if (ft === 'A' && (Number(f.factura) || 0) > 0) return true
+  return false
+})
+/** Imprimir solo tras Finalizar (no en borrador abierto). */
+const puedeImprimir = computed(() => documentoFinalizado.value && !modoEdicion.value)
 const puedePasarAFactura = computed(() => {
   if (!esTicketCerrado.value || !puedeEditar.value || modoEdicion.value) return false
   return tieneDatosFactura.value
@@ -1168,19 +1192,72 @@ async function onFinalizar() {
 }
 
 async function onImprimir() {
-  if (!ficha.value || esNuevo.value) return
+  if (!ficha.value || esNuevo.value || !documentoFinalizado.value) return
+  error.value = null
+  mensaje.value = null
+  loading.value = true
+  try {
+    const res = await prepararOImprimirVenta(ficha.value, {
+      puestoCodigo: String(puesto.puestoCodigo || ficha.value.puesto || ''),
+    })
+    if (res.kind === 'ticket') {
+      const updated = await obtenerVenta(ficha.value.empresa, ficha.value.tipo, ficha.value.albaran)
+      aplicarDetalle(updated)
+      mensaje.value = res.message
+      return
+    }
+    a4Prep.value = res.prep
+    a4Open.value = true
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo imprimir')
+  } finally {
+    loading.value = false
+  }
+}
+
+async function onImprimirA4Confirmado() {
+  if (!ficha.value || !a4Prep.value) return
+  a4Imprimiendo.value = true
   error.value = null
   try {
-    const updated = await marcarVentaImpresa(
-      ficha.value.empresa,
-      ficha.value.tipo,
-      ficha.value.albaran
-    )
+    const html = (await a4ModalRef.value?.capturarHtmlFolio()) || ''
+    const msg = await imprimirA4Preparado(a4Prep.value, html, ficha.value)
+    const updated = await obtenerVenta(ficha.value.empresa, ficha.value.tipo, ficha.value.albaran)
     aplicarDetalle(updated)
-    mensaje.value = 'Documento marcado como impreso'
-    window.print()
+    mensaje.value = msg
+    a4Open.value = false
   } catch (e: unknown) {
-    error.value = extractApiError(e, 'No se pudo marcar como impreso')
+    error.value = extractApiError(e, 'No se pudo imprimir el documento A4')
+  } finally {
+    a4Imprimiendo.value = false
+  }
+}
+
+async function imprimirTrasFinalizar(venta: VentaDetalle, opcionElegida: string) {
+  const op = String(opcionElegida).toUpperCase()
+  const pue = String(puesto.puestoCodigo || venta.puesto || '').trim()
+  if (op === 'T') {
+    const auto = await puestoTicketAutomatico(pue)
+    if (!auto) return
+    try {
+      const res = await prepararOImprimirVenta(venta, { puestoCodigo: pue })
+      if (res.kind === 'ticket') {
+        mensaje.value = `${mensaje.value ? mensaje.value + ' · ' : ''}${res.message}`
+      }
+    } catch (e: unknown) {
+      error.value = extractApiError(e, 'Documento finalizado, pero no se pudo imprimir el ticket')
+    }
+    return
+  }
+  // Albarán / Factura / Presupuesto → previsualización A4 (impresora del puesto).
+  try {
+    const res = await prepararOImprimirVenta(venta, { puestoCodigo: pue })
+    if (res.kind === 'a4') {
+      a4Prep.value = res.prep
+      a4Open.value = true
+    }
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'Documento finalizado, pero no se pudo preparar la impresión A4')
   }
 }
 
@@ -1190,6 +1267,7 @@ async function confirmarFinalizar() {
     error.value = 'Seleccione la forma de pago (cobro de arqueo / abrir cajon)'
     return
   }
+  const opcion = tipoFinal.value
   finalizarOpen.value = false
   loading.value = true
   error.value = null
@@ -1217,18 +1295,18 @@ async function confirmarFinalizar() {
       ficha.value.empresa,
       ficha.value.tipo,
       ficha.value.albaran,
-      tipoFinal.value,
+      opcion,
       mostrarSelectorFpago.value ? fpagoFinal.value : undefined
     )
     aplicarDetalle(done)
     modoEdicion.value = false
-    if (String(done.facturaTipo ?? '').toUpperCase() === 'F' && tipoFinal.value === 'F') {
+    if (String(done.facturaTipo ?? '').toUpperCase() === 'F' && opcion === 'F') {
       mensaje.value = `Ticket pasado a factura ${done.factura ?? ''}`
     } else {
       mensaje.value = `Documento tipificado como ${
-        TIPOS_FINAL.find((t) => t.codigo === (done.facturaTipo || tipoFinal.value))?.label ??
+        TIPOS_FINAL.find((t) => t.codigo === (done.facturaTipo || opcion))?.label ??
         done.facturaTipo ??
-        tipoFinal.value
+        opcion
       }`
     }
     if (prev.empresa !== done.empresa || prev.tipo !== done.tipo || prev.albaran !== done.albaran) {
@@ -1238,6 +1316,7 @@ async function confirmarFinalizar() {
     router.replace(
       `/ventas/${encodeURIComponent(done.empresa)}/${encodeURIComponent(done.tipo)}/${done.albaran}`
     )
+    await imprimirTrasFinalizar(done, opcion)
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudo finalizar')
   } finally {
@@ -1517,28 +1596,25 @@ onMounted(() => {
                   />
                 </td>
                 <td class="num">
-                  <input
-                    v-model.number="l.cantidad"
-                    type="number"
-                    step="0.01"
+                  <DecimalInput
+                    v-model="l.cantidad"
+                    :empty-as-null="false"
                     :readonly="!puedeEditarLineas || esLineaComentario(l)"
                     @blur="redondearCampoLinea(l, 'cantidad')"
                   />
                 </td>
                 <td class="num">
-                  <input
-                    v-model.number="l.precio"
-                    type="number"
-                    step="0.01"
+                  <DecimalInput
+                    v-model="l.precio"
+                    :empty-as-null="false"
                     :readonly="!puedeEditarLineas || esLineaComentario(l)"
                     @blur="redondearCampoLinea(l, 'precio')"
                   />
                 </td>
                 <td class="num">
-                  <input
-                    v-model.number="l.pjeDto"
-                    type="number"
-                    step="0.01"
+                  <DecimalInput
+                    v-model="l.pjeDto"
+                    :empty-as-null="false"
                     :readonly="!puedeEditarLineas || esLineaComentario(l)"
                     @blur="redondearCampoLinea(l, 'pjeDto')"
                   />
@@ -1636,6 +1712,12 @@ onMounted(() => {
             </p>
           </div>
           <p v-if="tipoFinal === 'F'" class="warn">Factura: el documento quedara bloqueado.</p>
+          <p v-if="tipoFinal === 'T'" class="ok">
+            Ticket: se imprimirá automáticamente en la térmica del puesto (sin elegir impresora).
+          </p>
+          <p v-else-if="!esTicketCerrado" class="ok">
+            Se abrirá una previsualización A4 con la impresora asignada a este documento en el puesto.
+          </p>
           <footer>
             <button type="button" @click="finalizarOpen = false">Cancelar</button>
             <button
@@ -1650,6 +1732,18 @@ onMounted(() => {
         </div>
       </div>
     </Teleport>
+
+    <VentaImpresionA4Modal
+      ref="a4ModalRef"
+      :open="a4Open"
+      :titulo="a4Prep?.titulo || 'Documento'"
+      :plantilla="a4Prep?.plantilla ?? null"
+      :datos="a4Prep?.datos ?? null"
+      :impresora-nombre="a4Prep?.impresoraNombre || ''"
+      :imprimiendo="a4Imprimiendo"
+      @cerrar="a4Open = false"
+      @imprimir="onImprimirA4Confirmado"
+    />
 
     <Teleport to="body">
       <div v-if="abonoOpen" class="overlay" @click.self="abonoOpen = false">

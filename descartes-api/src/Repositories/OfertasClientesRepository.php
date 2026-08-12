@@ -195,7 +195,7 @@ final class OfertasClientesRepository
       $payload['precioEsp' . $i] = $this->float($data['precioEsp' . $i] ?? null) ?? 0.0;
     }
     for ($i = 1; $i <= 10; $i++) {
-      $payload['emp' . $i] = $this->str($data['bloquearOfeEmpresa' . $i] ?? null, 3);
+      $payload['emp' . $i] = $this->strOrEmpty($data['bloquearOfeEmpresa' . $i] ?? null, 3);
     }
     return $payload;
   }
@@ -227,9 +227,7 @@ final class OfertasClientesRepository
     }
     for ($i = 1; $i <= 10; $i++) {
       $val = $row['BloquearOfeEmpresa' . $i] ?? null;
-      $mapped['bloquearOfeEmpresa' . $i] = $val === null || trim((string) $val) === ''
-        ? null
-        : rtrim((string) $val);
+      $mapped['bloquearOfeEmpresa' . $i] = $val === null ? '' : rtrim((string) $val);
     }
     return $mapped;
   }
@@ -253,6 +251,18 @@ final class OfertasClientesRepository
     $s = trim((string) $value);
     if ($s === '') {
       return null;
+    }
+    return mb_substr($s, 0, $maxLen);
+  }
+
+  private function strOrEmpty(mixed $value, int $maxLen): string
+  {
+    if ($value === null) {
+      return '';
+    }
+    $s = trim((string) $value);
+    if ($s === '') {
+      return '';
     }
     return mb_substr($s, 0, $maxLen);
   }

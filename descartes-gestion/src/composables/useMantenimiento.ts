@@ -1,29 +1,14 @@
 import { type MaybeRefOrGetter, ref, toValue } from 'vue'
 import { api } from '@/api/client'
-
-export type ApiErrorBody = {
-  error?: string
-  codigo?: string
-  dependencias?: string[]
-}
-
-export function extractApiError(e: unknown, fallback: string): string {
-  const err = e as { response?: { data?: ApiErrorBody } }
-  const data = err.response?.data
-  if (!data?.error) {
-    return e instanceof Error ? e.message : fallback
-  }
-  if (data.dependencias && data.dependencias.length > 0) {
-    return `${data.error} (${data.dependencias.join(', ')})`
-  }
-  return data.error
-}
+import { leerGridPageSize } from '@/composables/useGridPageSize'
+import { extractApiError } from '@/composables/extractApiError'
+export { extractApiError, type ApiErrorBody } from '@/composables/extractApiError'
 
 export function useMantenimiento(entidad: MaybeRefOrGetter<string>) {
   const items = ref<Record<string, unknown>[]>([])
   const total = ref(0)
   const page = ref(1)
-  const pageSize = ref(25)
+  const pageSize = ref(leerGridPageSize())
   const loading = ref(false)
   const error = ref<string | null>(null)
 

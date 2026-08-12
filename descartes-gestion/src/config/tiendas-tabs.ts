@@ -85,7 +85,10 @@ export const tiendaTabs: TiendaTab[] = [
           area('literalFacturaContado', 'Pie Fra. contado'),
           area('literalPresupuesto', 'Pie presupuesto'),
           inline('literalVale', 'Pie vale', { span: 2 }),
-          inline('literalTicket', 'Literales ticket', { type: 'number' }),
+          inline('literalTicket', 'Literales ticket (nº líneas del puesto)', {
+            type: 'number',
+            span: 2,
+          }),
         ],
       },
     ],
@@ -291,9 +294,17 @@ export const tiendaTabs: TiendaTab[] = [
   },
 ]
 
-export const contadoresFieldsIzq: { key: string; label: string }[] = [
+export type ContadorField = {
+  key: string
+  label: string
+  /** Visible pero no editable en modal (p. ej. serie gestionada solo por dominio). */
+  readOnly?: boolean
+}
+
+export const contadoresFieldsIzq: ContadorField[] = [
   { key: 'ultPedidoCom', label: 'Pedidos' },
   { key: 'ultAlbaranCom', label: 'Albaran Compra' },
+  { key: 'ultAlbaranDevCom', label: 'Albaran Dev. Compra', readOnly: true },
   { key: 'ultAlbaranVen', label: 'Albaran Ventas' },
   { key: 'ultAlbaranTra', label: 'Traspasos' },
   { key: 'ultTicket', label: 'Tickets' },
@@ -307,7 +318,7 @@ export const contadoresFieldsIzq: { key: string; label: string }[] = [
   { key: 'ultAbonoDiferido', label: 'Fact. Rectificativas Dif.' },
 ]
 
-export const contadoresFieldsDer: { key: string; label: string }[] = [
+export const contadoresFieldsDer: ContadorField[] = [
   { key: 'ultFicheroRecepcion', label: 'Com. Central' },
   { key: 'ultFicheroRecepcionC', label: 'Com. Tienda' },
   { key: 'ultProveedor', label: 'Proveedores' },
@@ -325,6 +336,7 @@ export const contadoresSections: TiendaSection[] = [
       label: f.label,
       type: 'number' as const,
       layout: 'inline' as const,
+      readOnly: f.readOnly,
     })),
   },
 ]

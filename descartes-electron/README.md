@@ -73,13 +73,22 @@ Contiene `equipoId` (hostname del PC), `empresaCodigo` y `puestoCodigo`.
 |--------|-----|
 | `getEquipoConfig` / `setEquipoConfig` | Leer/guardar puesto del PC |
 | `getHostname` | Nombre Windows del equipo |
-| `printTicket` | Impresora tickets (stub) |
+| `listPrinters` | Impresoras del sistema (Windows/macOS) |
+| `printTicket` | Ticket ESC/POS RAW (Windows) |
 | `printLabel` | Impresora etiquetas (stub) |
 | `openCashDrawer` | Cajon (stub) |
 | `readScale` | Balanza (stub) |
 | `displayPrice` | Visor cliente (stub) |
 
-Los stubs estan en `electron/peripherals.js`. Ahi se implementaran los drivers reales.
+### Impresión de tickets
+
+1. Arranque **Descartes Electron** (agente en `127.0.0.1:17321`).
+2. En el puesto, configure **Tickets** (`ImpresoraTickets`) con el nombre (o parte) de la impresora Windows.
+3. En Configuración → Confeccionar documentos → plantilla **Ticket 80 mm** → **Probar ticket**.
+
+El flujo es: Gestión/API → agente Electron → bytes ESC/POS → cola Windows (RAW).
+
+Los stubs restantes estan en `electron/peripherals.js`.
 
 ## Actualizaciones
 

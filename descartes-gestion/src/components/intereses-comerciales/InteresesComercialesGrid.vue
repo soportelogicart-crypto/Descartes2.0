@@ -9,7 +9,6 @@ const FILTER_COLUMNS = [{ key: 'codigo' }, { key: 'descripcion' }]
 const props = defineProps<{
   filas: InteresComercialFila[]
   indiceSeleccionado: number
-  readonly?: boolean
   loading?: boolean
   filterableKeys?: string[]
   filters?: Record<string, ColumnFilter>
@@ -17,21 +16,25 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   seleccionar: [index: number]
-  actualizar: [index: number, fila: InteresComercialFila]
+  abrir: [index: number]
+  nuevo: []
   'update:filters': [filters: Record<string, ColumnFilter>]
 }>()
 
 const filterMenuOpen = ref(false)
 
-function onCellChange(index: number, key: 'codigo' | 'descripcion', value: string) {
-  const fila = { ...props.filas[index], [key]: value, _dirty: true }
-  emit('actualizar', index, fila)
-}
-
 function indicadorFila(index: number, fila: InteresComercialFila) {
   if (fila._nuevo) return '*'
   if (index === props.indiceSeleccionado) return '>'
   return ''
+}
+
+function onRowDblClick(index: number, fila: InteresComercialFila) {
+  if (fila._nuevo) {
+    emit('nuevo')
+    return
+  }
+  emit('abrir', index)
 }
 </script>
 
@@ -60,28 +63,17 @@ function indicadorFila(index: number, fila: InteresComercialFila) {
           :key="fila._nuevo ? 'nuevo' : fila.codigo"
           :class="{ selected: index === indiceSeleccionado, nuevo: fila._nuevo }"
           @click="emit('seleccionar', index)"
+          @dblclick="onRowDblClick(index, fila)"
         >
           <td class="col-ind">{{ indicadorFila(index, fila) }}</td>
-          <td @click.stop>
-            <input
-              type="text"
-              class="cell-input"
-              :value="fila.codigo ?? ''"
-              :readonly="readonly || !fila._nuevo"
-              maxlength="2"
-              @input="onCellChange(index, 'codigo', ($event.target as HTMLInputElement).value)"
-            />
-          </td>
-          <td @click.stop>
-            <input
-              type="text"
-              class="cell-input"
-              :value="fila.descripcion ?? ''"
-              :readonly="readonly"
-              maxlength="50"
-              @input="onCellChange(index, 'descripcion', ($event.target as HTMLInputElement).value)"
-            />
-          </td>
+          <template v-if="fila._nuevo">
+            <td class="celda-vacia">&nbsp;</td>
+            <td class="celda-vacia">&nbsp;</td>
+          </template>
+          <template v-else>
+            <td>{{ fila.codigo }}</td>
+            <td>{{ fila.descripcion }}</td>
+          </template>
         </tr>
       </tbody>
     </table>
@@ -92,8 +84,8 @@ function indicadorFila(index: number, fila: InteresComercialFila) {
 .grid-wrap {
   width: 50%;
   overflow: auto;
-  border: 1px solid #94a3b8;
-  border-radius: 4px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
   background: #fff;
 }
 
@@ -102,43 +94,36 @@ function indicadorFila(index: number, fila: InteresComercialFila) {
 }
 
 .loading {
-  padding: 1rem;
   margin: 0;
+  padding: 0.75rem;
+  color: #64748b;
 }
 
 .intereses-grid {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
 }
 
 .intereses-grid th,
 .intereses-grid td {
-  border: 1px solid #cbd5e1;
-  padding: 0.15rem 0.25rem;
-  vertical-align: middle;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 0.28rem 0.4rem;
+  text-align: left;
 }
 
 .intereses-grid th {
-  background: linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%);
+  background: #f1f5f9;
   font-weight: 600;
-  text-align: center;
 }
 
 .col-ind {
   width: 1.5rem;
   text-align: center;
-  color: #1e40af;
-  font-weight: 700;
-  background: #f8fafc;
 }
 
 .col-codigo {
-  width: 5rem;
-}
-
-.col-descripcion {
-  min-width: 18rem;
+  width: 4rem;
 }
 
 .intereses-grid tbody tr {
@@ -150,19 +135,10 @@ function indicadorFila(index: number, fila: InteresComercialFila) {
 }
 
 .intereses-grid tbody tr.nuevo {
-  background: #fefce8;
+  background: #f8fafc;
 }
 
-.cell-input {
-  width: 100%;
-  border: none;
-  background: transparent;
-  padding: 0.2rem 0.35rem;
-  font: inherit;
-}
-
-.cell-input:focus {
-  outline: 2px solid #2563eb;
-  background: #fff;
+.celda-vacia {
+  color: transparent;
 }
 </style>

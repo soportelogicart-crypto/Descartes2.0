@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { listarAnulaciones } from '@/api/ventas'
 import type { Anulacion } from '@/types/ventas'
+import { leerGridPageSize } from '@/composables/useGridPageSize'
 import { extractApiError } from '@/composables/useMantenimiento'
 import ListPagination from '@/components/common/ListPagination.vue'
 
@@ -11,7 +12,7 @@ const error = ref<string | null>(null)
 const items = ref<Anulacion[]>([])
 const total = ref(0)
 const page = ref(1)
-const pageSize = ref(50)
+const pageSize = ref(leerGridPageSize())
 const filtros = ref({ fechaDesde: hoy, fechaHasta: hoy, cajero: '', motivo: '' })
 
 async function cargar() {

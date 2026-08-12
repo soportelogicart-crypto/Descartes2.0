@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue'
 import { api } from '@/api/client'
 import { extractApiError } from '@/composables/useMantenimiento'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 type EscFila = { ingrediente: string; descripcion: string; cantidad: number }
 
@@ -144,7 +145,7 @@ async function guardar() {
                 <input :value="fila.descripcion" type="text" readonly />
               </td>
               <td>
-                <input v-model.number="fila.cantidad" type="number" step="any" :readonly="readonly" />
+                <DecimalInput v-model="fila.cantidad" :empty-as-null="false" :readonly="readonly" />
               </td>
               <td v-if="!readonly">
                 <button type="button" class="btn-link" @click="quitar(index)">Quitar</button>

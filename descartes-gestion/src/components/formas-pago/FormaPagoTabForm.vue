@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { FormaPagoField, FormaPagoFieldOption, FormaPagoSection } from '@/config/formas-pago-tabs'
+import DecimalInput from '@/components/common/DecimalInput.vue'
 
 const props = defineProps<{
   sections: FormaPagoSection[]
@@ -128,20 +129,12 @@ function sectionClass(section: FormaPagoSection) {
                 </option>
               </select>
 
-              <input
+              <DecimalInput
                 v-else-if="field.type === 'number'"
-                type="number"
-                :value="displayNumber(field.key) as string | number"
+                :model-value="(modelValue[field.key] as number | null) ?? null"
+                :empty-as-null="true"
                 :readonly="isReadOnly(field)"
-                :step="field.step ?? 'any'"
-                @input="
-                  updateField(
-                    field.key,
-                    ($event.target as HTMLInputElement).value === ''
-                      ? null
-                      : Number(($event.target as HTMLInputElement).value)
-                  )
-                "
+                @update:model-value="updateField(field.key, $event)"
               />
 
               <input
@@ -274,7 +267,6 @@ function sectionClass(section: FormaPagoSection) {
 }
 
 .field input[type='text'],
-.field input[type='number'],
 .field select {
   width: 100%;
   min-width: 0;

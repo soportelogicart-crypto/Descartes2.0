@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import {
   clonarFilaGrid,
@@ -27,21 +27,35 @@ const MODULO = 'usuarios'
 const FILTER_KEYS = ['codigo', 'nombre', 'rolCodigo']
 const columns = getGridColumns(ENTIDAD)
 
+const USUARIO_CAMPOS_OBLIGATORIOS: { key: string; label: string }[] = [
+  { key: 'codigo', label: 'Codigo' },
+  { key: 'nombre', label: 'Nombre' },
+  { key: 'rolCodigo', label: 'Rol' },
+  { key: 'password', label: 'Contrasena' },
+]
+
 function usuarioVacio(): Record<string, unknown> {
   return { codigo: '', nombre: '', rolCodigo: '', password: '', activo: true }
 }
 
-function validarUsuario(ficha: Record<string, unknown>, esNuevo: boolean): string | null {
-  if (!String(ficha.codigo ?? '').trim()) return 'El codigo es obligatorio'
-  if (!String(ficha.nombre ?? '').trim()) return 'El nombre es obligatorio'
-  if (!String(ficha.rolCodigo ?? '').trim()) return 'El rol es obligatorio'
-  if (esNuevo && !String(ficha.password ?? '').trim()) return 'La contrasena es obligatoria'
-  return null
+function camposUsuarioObligatoriosVacios(ficha: Record<string, unknown>): string[] {
+  const vacios: string[] = []
+  if (!String(ficha.codigo ?? '').trim()) vacios.push('codigo')
+  if (!String(ficha.nombre ?? '').trim()) vacios.push('nombre')
+  if (!String(ficha.rolCodigo ?? '').trim()) vacios.push('rolCodigo')
+  if (!String(ficha.password ?? '').trim()) vacios.push('password')
+  return vacios
+}
+
+function validarUsuario(ficha: Record<string, unknown>): string | null {
+  const key = camposUsuarioObligatoriosVacios(ficha)[0]
+  if (!key) return null
+  const label = USUARIO_CAMPOS_OBLIGATORIOS.find((c) => c.key === key)?.label ?? key
+  return `El campo "${label}" es obligatorio.`
 }
 
 const { puede } = usePermisos()
 const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(() => ENTIDAD)
-pageSize.value = 50
 
 const puedeCrear = computed(() => puede(MODULO, 'crear'))
 const puedeEditar = computed(() => puede(MODULO, 'editar'))
@@ -55,6 +69,12 @@ const filtros = ref<Record<string, ColumnFilter>>(filtrosIniciales(FILTER_KEYS))
 const indiceSeleccionado = ref(0)
 const mensaje = ref<string | null>(null)
 const confirmBorrarFichaOpen = ref(false)
+const avisoModalOpen = ref(false)
+const avisoModalTitulo = ref('Campo obligatorio')
+const avisoModalMensaje = ref('')
+const campoAvisoActual = ref<string | null>(null)
+const camposInvalidos = ref<string[]>([])
+const codigoInput = ref<HTMLInputElement | null>(null)
 const optionsMap = ref<GridOptionsMap>({})
 const rolesOpciones = ref<{ value: string; label: string }[]>([])
 
@@ -62,6 +82,30 @@ const modoEdicion = ref(false)
 const esNuevo = ref(false)
 const ficha = ref<Record<string, unknown>>({})
 const indiceFicha = ref(-1)
+
+function mostrarAvisoModal(titulo: string, message: string, campo?: string | null) {
+  campoAvisoActual.value = campo ?? null
+  if (campo) camposInvalidos.value = [campo]
+  avisoModalTitulo.value = titulo
+  avisoModalMensaje.value = message
+  avisoModalOpen.value = true
+}
+
+async function cerrarAvisoModal() {
+  const key = campoAvisoActual.value
+  avisoModalOpen.value = false
+  avisoModalMensaje.value = ''
+  campoAvisoActual.value = null
+  if (!key) return
+  await nextTick()
+  await nextTick()
+  if (key === 'codigo') {
+    codigoInput.value?.focus()
+    codigoInput.value?.select()
+    return
+  }
+  document.querySelector<HTMLElement>(`[data-field-key="${key}"]`)?.focus()
+}
 
 const filas = computed<GridFila[]>(() => {
   const datos = filasTodas.value.filter((f) => !f._nuevo)
@@ -197,12 +241,17 @@ async function onGuardarGrid() {
 async function abrirFichaPorCodigo(codigo: string) {
   try {
     const data = await obtener(codigo)
-    ficha.value = { ...data, password: '' }
+    ficha.value = {
+      ...data,
+      password: String(data.password ?? ''),
+      activo: data.activo !== false && data.activo !== 0,
+    }
     indiceFicha.value = filasTodas.value.findIndex((f) => String(f.codigo) === codigo)
     modoEdicion.value = false
     esNuevo.value = false
     vista.value = 'ficha'
     mensaje.value = null
+    camposInvalidos.value = []
   } catch (e: unknown) {
     mensaje.value = extractApiError(e, 'No se pudo cargar la ficha')
   }
@@ -218,7 +267,7 @@ async function abrirFicha(index?: number) {
   await abrirFichaPorCodigo(String(fila.codigo))
 }
 
-function onNuevo() {
+async function onNuevo() {
   if (!puedeCrear.value) return
   ficha.value = usuarioVacio()
   esNuevo.value = true
@@ -226,6 +275,11 @@ function onNuevo() {
   indiceFicha.value = -1
   vista.value = 'ficha'
   mensaje.value = null
+  camposInvalidos.value = []
+  await nextTick()
+  await nextTick()
+  codigoInput.value?.focus()
+  codigoInput.value?.select()
 }
 
 function onModificar() {
@@ -234,21 +288,23 @@ function onModificar() {
 }
 
 async function onGuardarFicha() {
-  const errorValidacion = validarUsuario(ficha.value, esNuevo.value)
-  if (errorValidacion) {
-    mensaje.value = errorValidacion
+  const vacios = camposUsuarioObligatoriosVacios(ficha.value)
+  if (vacios.length > 0) {
+    const key = vacios[0]
+    const label = USUARIO_CAMPOS_OBLIGATORIOS.find((c) => c.key === key)?.label ?? key
+    const msg = validarUsuario(ficha.value) ?? `El campo "${label}" es obligatorio.`
+    mensaje.value = msg
+    mostrarAvisoModal('Campo obligatorio', msg, key)
     return
   }
+  camposInvalidos.value = []
   try {
     const payload: Record<string, unknown> = {
       codigo: ficha.value.codigo,
       nombre: ficha.value.nombre,
       rolCodigo: ficha.value.rolCodigo,
+      password: String(ficha.value.password ?? '').trim(),
       activo: ficha.value.activo,
-    }
-    const password = String(ficha.value.password ?? '').trim()
-    if (password !== '') {
-      payload.password = password
     }
 
     if (esNuevo.value) {
@@ -268,7 +324,13 @@ async function onGuardarFicha() {
     modoEdicion.value = false
     esNuevo.value = false
   } catch (e: unknown) {
-    mensaje.value = extractApiError(e, 'No se pudo guardar el usuario')
+    const msg = extractApiError(e, 'No se pudo guardar el usuario')
+    mensaje.value = msg
+    if (/ya existe|duplicad|codigo/i.test(msg)) {
+      mostrarAvisoModal('Codigo duplicado', msg, 'codigo')
+    } else {
+      mostrarAvisoModal('Error al guardar', msg)
+    }
   }
 }
 
@@ -306,6 +368,7 @@ function volverAlGrid() {
   modoEdicion.value = false
   esNuevo.value = false
   ficha.value = {}
+  camposInvalidos.value = []
 }
 
 async function onPrimero() {
@@ -494,38 +557,53 @@ async function onUltimo() {
           <fieldset class="form-section">
             <legend>Datos del usuario</legend>
             <div class="ficha-campos">
-              <label>
+              <label :class="{ 'campo-invalido': camposInvalidos.includes('codigo') }">
                 Codigo *
                 <input
+                  ref="codigoInput"
                   v-model="ficha.codigo"
+                  data-field-key="codigo"
                   :readonly="!esNuevo"
                   maxlength="20"
                   class="codigo-input"
-                  required
                 />
               </label>
-              <label class="nombre-input">
+              <label
+                class="nombre-input"
+                :class="{ 'campo-invalido': camposInvalidos.includes('nombre') }"
+              >
                 Nombre *
-                <input v-model="ficha.nombre" :readonly="soloLecturaFicha" maxlength="50" required />
+                <input
+                  v-model="ficha.nombre"
+                  data-field-key="nombre"
+                  :readonly="soloLecturaFicha"
+                  maxlength="50"
+                />
               </label>
-              <label>
+              <label :class="{ 'campo-invalido': camposInvalidos.includes('rolCodigo') }">
                 Rol *
-                <select v-model="ficha.rolCodigo" :disabled="soloLecturaFicha" required>
+                <select
+                  v-model="ficha.rolCodigo"
+                  data-field-key="rolCodigo"
+                  :disabled="soloLecturaFicha"
+                >
                   <option value="">-- Seleccionar --</option>
                   <option v-for="opt in rolesOpciones" :key="opt.value" :value="opt.value">
                     {{ opt.label }}
                   </option>
                 </select>
               </label>
-              <label class="password-input">
-                Contrasena<span v-if="esNuevo"> *</span>
+              <label
+                class="password-input"
+                :class="{ 'campo-invalido': camposInvalidos.includes('password') }"
+              >
+                Contrasena *
                 <input
                   v-model="ficha.password"
-                  type="password"
+                  data-field-key="password"
+                  type="text"
                   :readonly="soloLecturaFicha"
-                  :required="esNuevo"
-                  :placeholder="esNuevo ? '' : 'Dejar vacio para no cambiar'"
-                  autocomplete="new-password"
+                  autocomplete="off"
                 />
               </label>
               <label class="activo-field">
@@ -550,6 +628,16 @@ async function onUltimo() {
         message="Va a eliminar este usuario. Esta accion no se puede deshacer."
         @confirm="confirmarBorrarFicha"
         @cancel="confirmBorrarFichaOpen = false"
+      />
+      <ConfirmDialog
+        :open="avisoModalOpen"
+        :title="avisoModalTitulo"
+        :message="avisoModalMensaje"
+        confirm-label="Aceptar"
+        :danger="false"
+        hide-cancel
+        @confirm="cerrarAvisoModal"
+        @cancel="cerrarAvisoModal"
       />
     </template>
   </section>
@@ -710,6 +798,17 @@ async function onUltimo() {
   min-width: 160px;
 }
 
+.campo-invalido {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.campo-invalido input,
+.campo-invalido select {
+  border-color: #ef4444;
+  background: #fef2f2;
+}
+
 .activo-field {
   display: flex !important;
   flex-direction: row !important;
@@ -719,7 +818,6 @@ async function onUltimo() {
 }
 
 .ficha-campos input[type='text'],
-.ficha-campos input[type='password'],
 .ficha-campos input:not([type]),
 .ficha-campos select {
   padding: 0.2rem 0.35rem;

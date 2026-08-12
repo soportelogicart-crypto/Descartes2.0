@@ -33,7 +33,6 @@ const esEstrecho = esGridEstrecho(columns)
 
 const { puede } = usePermisos()
 const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(() => ENTIDAD)
-pageSize.value = 50
 
 const puedeCrear = computed(() => puede(MODULO, 'crear'))
 const puedeEditar = computed(() => puede(MODULO, 'editar'))
@@ -516,36 +515,46 @@ async function onUltimo() {
 .ficha-header {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem 0.75rem;
+  gap: 0.4rem 0.65rem;
   align-items: end;
-  padding: 0.45rem 0.65rem;
+  width: 100%;
+  max-width: 920px;
+  box-sizing: border-box;
+  padding: 0.35rem 0.5rem;
   background: #fff;
   border: 1px solid #c5cdd8;
   border-bottom: none;
   border-radius: 8px 8px 0 0;
-  max-width: 1100px;
 }
 
 .ficha-header label {
   display: grid;
-  gap: 0.15rem;
-  font-size: 0.78rem;
+  gap: 0.1rem;
+  font-size: 0.75rem;
 }
 
 .codigo-input {
-  width: 4rem;
+  width: 3.5rem;
 }
 
 .descripcion-input {
   flex: 1;
-  min-width: 220px;
+  min-width: 12rem;
+  max-width: 28rem;
+}
+
+.descripcion-input input {
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .ficha-header input {
-  padding: 0.2rem 0.35rem;
-  border: 1px solid #94a3b8;
+  padding: 0.15rem 0.35rem;
+  border: 1px solid #c5cdd8;
   border-radius: 3px;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
+  height: 1.65rem;
+  box-sizing: border-box;
 }
 
 .tabs {
@@ -556,7 +565,9 @@ async function onUltimo() {
   background: #fff;
   border-left: 1px solid #c5cdd8;
   border-right: 1px solid #c5cdd8;
-  max-width: 1100px;
+  width: 100%;
+  max-width: 920px;
+  box-sizing: border-box;
 }
 
 .tab {

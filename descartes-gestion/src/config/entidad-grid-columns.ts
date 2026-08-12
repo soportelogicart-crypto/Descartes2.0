@@ -75,10 +75,11 @@ export const entidadGridColumns: Record<string, GridColumn[]> = {
     { key: 'activo', label: 'Activo', type: 'checkbox', width: '4rem' },
   ],
   proveedores: [
-    { key: 'codigo', label: 'Codigo', type: 'text', width: '5rem', maxLength: 6, required: true },
+    { key: 'codigo', label: 'Codigo', type: 'text', width: '3.75rem', maxLength: 6, required: true },
     { key: 'nombre', label: 'Razon social', type: 'text', width: '16rem', maxLength: 50, required: true },
-    { key: 'nif', label: 'NIF', type: 'text', width: '7rem', maxLength: 16 },
+    { key: 'nif', label: 'NIF', type: 'text', width: '5rem', maxLength: 16 },
   ],
+
   tiendas: [
     { key: 'codigo', label: 'Codigo', type: 'text', width: '4rem', maxLength: 3, required: true },
     { key: 'nombre', label: 'Nombre', type: 'text', width: '12rem', maxLength: 50, required: true },
@@ -106,10 +107,23 @@ export const entidadGridColumns: Record<string, GridColumn[]> = {
     },
   ],
   'oferta-proveedores': [
+    { key: 'articulo', label: 'Articulo', type: 'text', width: '6rem', readOnly: true },
+    { key: 'proveedor', label: 'Proveedor', type: 'text', width: '5rem', readOnly: true },
+    { key: 'fechaInicio', label: 'Fecha inicio', type: 'text', width: '6.5rem', readOnly: true },
+    { key: 'fechaFin', label: 'Fecha fin', type: 'text', width: '6.5rem', readOnly: true },
+  ],
+  'oferta-clientes': [
     { key: 'articulo', label: 'Articulo', type: 'text', width: '8rem', readOnly: true },
-    { key: 'proveedor', label: 'Proveedor', type: 'text', width: '6rem', readOnly: true },
-    { key: 'fechaInicio', label: 'Fecha inicio', type: 'text', width: '7rem', readOnly: true },
-    { key: 'fechaFin', label: 'Fecha fin', type: 'text', width: '7rem', readOnly: true },
+    { key: 'articuloDescripcion', label: 'Descripcion', type: 'text', width: '14rem', readOnly: true },
+    { key: 'cliente', label: 'Cliente', type: 'text', width: '6rem', readOnly: true },
+    { key: 'clienteNombre', label: 'Cliente nombre', type: 'text', width: '14rem', readOnly: true },
+    { key: 'precio', label: 'Precio', type: 'number', width: '6rem', readOnly: true },
+  ],
+  campanas: [
+    { key: 'campana', label: 'Campaña', type: 'text', width: '5rem', readOnly: true },
+    { key: 'descripcion', label: 'Descripción', type: 'text', width: '16rem', readOnly: true },
+    { key: 'fecha', label: 'Fecha', type: 'text', width: '7rem', readOnly: true },
+    { key: 'fechaFinalizacion', label: 'Fecha final', type: 'text', width: '7rem', readOnly: true },
   ],
 }
 
