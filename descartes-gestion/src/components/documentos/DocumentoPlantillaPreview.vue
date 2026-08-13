@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import type { DocumentoPlantilla, PlantillaBloque } from '@/config/documentos-plantillas'
+import { esPlantillaEtiqueta, pageSizeMm } from '@/config/documentos-plantillas'
 import {
   datosPreviewPorTipo,
   formatImporte,
   getByPath,
   type DocumentoPreviewDatos,
 } from '@/config/documentos-plantillas/preview-datos'
+import { svgCodigoBarrasBloque } from '@/config/documentos-plantillas/etiqueta-html'
 
 const props = defineProps<{
   plantilla: DocumentoPlantilla
@@ -14,20 +16,23 @@ const props = defineProps<{
   datos?: DocumentoPreviewDatos | null
 }>()
 
-const PAGE_W = 210
-const PAGE_H = 297
 /** ~1 mm en pantalla a 96 dpi (proporción real de un A4 en CSS). */
 const FOLIO_PX_PER_MM = 96 / 25.4
 const wrapRef = ref<HTMLElement | null>(null)
 const pxPerMm = ref(FOLIO_PX_PER_MM)
+
+const esEtiqueta = computed(() => esPlantillaEtiqueta(props.plantilla))
+const pageDims = computed(() => pageSizeMm(props.plantilla))
+const PAGE_W = computed(() => pageDims.value.widthMm)
+const PAGE_H = computed(() => pageDims.value.heightMm)
 
 const datos = computed<DocumentoPreviewDatos>(
   () => props.datos ?? datosPreviewPorTipo(props.plantilla.tipo)
 )
 
 const pageStyle = computed(() => ({
-  width: `${PAGE_W * pxPerMm.value}px`,
-  height: `${PAGE_H * pxPerMm.value}px`,
+  width: `${PAGE_W.value * pxPerMm.value}px`,
+  height: `${PAGE_H.value * pxPerMm.value}px`,
 }))
 
 function blockStyle(b: PlantillaBloque) {
@@ -37,6 +42,23 @@ function blockStyle(b: PlantillaBloque) {
     width: `${b.w * pxPerMm.value}px`,
     height: `${b.h * pxPerMm.value}px`,
   }
+}
+
+/** Tamaño de fuente en px de pantalla a partir de fontSizeMm (impresión real en mm). */
+function textStyle(b: PlantillaBloque): Record<string, string> {
+  if (b.type !== 'campo' && b.type !== 'texto' && b.type !== 'titulo-documento') return {}
+  const mm = Number(b.props?.fontSizeMm)
+  const hasMm = Number.isFinite(mm) && mm > 0
+  if (!hasMm && !esEtiqueta.value) return {}
+  const sizeMm = hasMm ? mm : 3
+  const style: Record<string, string> = {
+    fontSize: `${Math.max(8, sizeMm * pxPerMm.value)}px`,
+    lineHeight: '1.15',
+  }
+  if (b.props?.fontWeight === 'bold') style.fontWeight = '700'
+  if (b.props?.align === 'right') style.textAlign = 'right'
+  else if (b.props?.centrado) style.textAlign = 'center'
+  return style
 }
 
 function str(path: string): string {
@@ -75,10 +97,18 @@ function qrSvgUrl(payload: string): string {
 function fitScale() {
   const el = wrapRef.value
   if (!el) return
-  // Ancho disponible menos márgenes del “escritorio”; no ensanchar más que un A4 real.
-  const available = Math.max(280, el.clientWidth - 48)
-  const porContenedor = available / PAGE_W
-  pxPerMm.value = Math.min(FOLIO_PX_PER_MM, Math.max(1.8, porContenedor))
+  const available = Math.max(200, el.clientWidth - 48)
+  const availableH = Math.max(120, el.clientHeight - 24)
+  const w = PAGE_W.value || 210
+  const h = PAGE_H.value || 30
+  if (esEtiqueta.value) {
+    // Escala real CSS (~96 dpi): 1 mm ≈ 3.78 px. Solo reducir si no cabe.
+    const real = FOLIO_PX_PER_MM
+    const fit = Math.min(available / w, availableH / h)
+    pxPerMm.value = Math.min(real, Math.max(1.2, fit))
+  } else {
+    pxPerMm.value = Math.min(FOLIO_PX_PER_MM, Math.max(1.8, available / w))
+  }
 }
 
 onMounted(() => {
@@ -96,6 +126,13 @@ onBeforeUnmount(() => {
 watch(
   () => props.plantilla.id,
   () => fitScale()
+)
+
+watch(
+  () => [PAGE_W.value, PAGE_H.value, props.plantilla.tipo],
+  () => {
+    void nextTick(() => fitScale())
+  }
 )
 
 const columnasLineas = computed(() => {
@@ -118,11 +155,24 @@ function etiquetaTotal(b: PlantillaBloque): string {
 function etiquetaModo(b: PlantillaBloque): string {
   return String(b.props?.etiquetaModo ?? '')
 }
+
+function barcodeHtml(b: PlantillaBloque): string {
+  const path = (b.bind && b.bind[0]) || (esEtiqueta.value ? 'articulo.ean' : 'documento.codigoBarras')
+  const code = str(path) || str('documento.codigoBarras') || str('articulo.ean')
+  return svgCodigoBarrasBloque(code, b)
+}
 </script>
 
 <template>
   <div class="preview">
-    <p class="hint">Vista previa a tamaño de folio A4 (proporción de impresión). Datos de ejemplo.</p>
+    <p class="hint">
+      <template v-if="esEtiqueta">
+        Vista previa etiqueta {{ PAGE_W }}×{{ PAGE_H }} mm a tamaño real en pantalla (~1:1). Datos de ejemplo (artículo).
+      </template>
+      <template v-else>
+        Vista previa a tamaño de folio A4 (proporción de impresión). Datos de ejemplo.
+      </template>
+    </p>
     <div ref="wrapRef" class="canvas-wrap">
       <div class="folio">
         <div class="page" :style="pageStyle">
@@ -152,7 +202,7 @@ function etiquetaModo(b: PlantillaBloque): string {
 
           <!-- Título -->
           <template v-else-if="b.type === 'titulo-documento'">
-            <div class="titulo">
+            <div class="titulo" :class="{ 'fs-mm': !!textStyle(b).fontSize }" :style="textStyle(b)">
               <strong>{{ b.label || 'DOCUMENTO' }}</strong>
               <span>{{ str('documento.numero') }}</span>
               <em v-if="etiquetaModo(b)">{{ etiquetaModo(b) }}</em>
@@ -184,20 +234,31 @@ function etiquetaModo(b: PlantillaBloque): string {
 
           <!-- Texto fijo -->
           <template v-else-if="b.type === 'texto'">
-            <div class="campo">{{ b.label || 'Texto' }}</div>
+            <div class="campo" :class="{ 'fs-mm': !!textStyle(b).fontSize }" :style="textStyle(b)">
+              {{ b.label || 'Texto' }}
+            </div>
           </template>
 
           <!-- Campo genérico -->
           <template v-else-if="b.type === 'campo'">
-            <div class="campo">
-              <span class="campo-label">{{ b.label }}</span>
-              <span v-for="path in b.bind ?? []" :key="path">{{ str(path) }}</span>
+            <div
+              class="campo"
+              :class="{
+                'campo-right': b.props?.align === 'right',
+                'fs-mm': !!textStyle(b).fontSize,
+              }"
+              :style="textStyle(b)"
+            >
+              <span v-if="b.label" class="campo-label">{{ b.label }}</span>
+              <span v-for="path in b.bind ?? []" :key="path">{{
+                b.props?.format === 'importe' ? formatImporte(Number(str(path) || 0)) : str(path)
+              }}</span>
             </div>
           </template>
 
-          <!-- Código barras (texto) -->
+          <!-- Código barras: bind[0] o documento.codigoBarras -->
           <template v-else-if="b.type === 'codigo-barras'">
-            <div class="barcode">{{ str('documento.codigoBarras') }}</div>
+            <div class="barcode" v-html="barcodeHtml(b)" />
           </template>
 
           <!-- Tabla líneas -->
@@ -369,6 +430,11 @@ function etiquetaModo(b: PlantillaBloque): string {
   height: 100%;
 }
 
+.campo-right {
+  align-items: flex-end;
+  text-align: right;
+}
+
 .empresa strong,
 .cliente strong,
 .titulo strong {
@@ -395,6 +461,14 @@ function etiquetaModo(b: PlantillaBloque): string {
   font-size: 0.58rem;
 }
 
+.fs-mm,
+.fs-mm strong,
+.fs-mm span,
+.fs-mm em,
+.fs-mm .campo-label {
+  font-size: inherit;
+}
+
 .meta div {
   display: flex;
   gap: 0.35rem;
@@ -408,12 +482,19 @@ function etiquetaModo(b: PlantillaBloque): string {
 }
 
 .barcode {
-  font-family: 'Courier New', monospace;
-  font-size: 0.7rem;
-  letter-spacing: 0.04em;
   display: flex;
   align-items: center;
+  justify-content: center;
+  width: 100%;
   height: 100%;
+  overflow: hidden;
+}
+
+.barcode :deep(svg) {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
 }
 
 .lineas {

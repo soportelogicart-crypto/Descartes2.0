@@ -121,6 +121,10 @@ return function (App $app): void {
     $c->get(\Descartes\Api\Services\Compras\AlbaranCompraEscrituraService::class)
   ));
   $container->set(\Descartes\Api\Services\Compras\FacturaCompraConsultaService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Compras\FacturaCompraConsultaService($c->get(PDO::class)));
+  $container->set(\Descartes\Api\Services\Etiquetas\EtiquetaColaService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Etiquetas\EtiquetaColaService(
+    $c->get(PDO::class),
+    $c->get(\Descartes\Api\Services\Compras\AlbaranCompraConsultaService::class)
+  ));
   $container->set(\Descartes\Api\Services\Ventas\ArqueoService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\ArqueoService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Ventas\DesgloseArqueoVentasService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\DesgloseArqueoVentasService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Ventas\DispositivoPuestoService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\DispositivoPuestoService($c->get(PDO::class)));

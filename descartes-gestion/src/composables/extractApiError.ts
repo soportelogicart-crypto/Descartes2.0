@@ -6,7 +6,7 @@ export type ApiErrorBody = {
 
 /**
  * Mensaje de usuario a partir de errores Axios / API (`{ error, codigo, dependencias? }`).
- * Usado en mantenimiento, ventas, facturación y compras.
+ * Usado en mantenimiento, ventas, facturación, compras y etiquetas (005).
  */
 export function extractApiError(e: unknown, fallback: string): string {
   const err = e as {

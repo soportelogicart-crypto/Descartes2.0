@@ -75,7 +75,8 @@ Contiene `equipoId` (hostname del PC), `empresaCodigo` y `puestoCodigo`.
 | `getHostname` | Nombre Windows del equipo |
 | `listPrinters` | Impresoras del sistema (Windows/macOS) |
 | `printTicket` | Ticket ESC/POS RAW (Windows) |
-| `printLabel` | Impresora etiquetas (stub) |
+| `printHtml` | Documento A4 (HTML → cola Windows) |
+| `printLabel` | Etiqueta HTML: `pageWidthMm`/`pageHeightMm` (+ `copies`) → misma ruta que `printHtml` |
 | `openCashDrawer` | Cajon (stub) |
 | `readScale` | Balanza (stub) |
 | `displayPrice` | Visor cliente (stub) |
@@ -84,11 +85,29 @@ Contiene `equipoId` (hostname del PC), `empresaCodigo` y `puestoCodigo`.
 
 1. Arranque **Descartes Electron** (agente en `127.0.0.1:17321`).
 2. En el puesto, configure **Tickets** (`ImpresoraTickets`) con el nombre (o parte) de la impresora Windows.
-3. En Configuración → Confeccionar documentos → plantilla **Ticket 80 mm** → **Probar ticket**.
+3. En Configuración → Tickets → plantilla **Ticket 80 mm** → **Probar ticket**.
 
 El flujo es: Gestión/API → agente Electron → bytes ESC/POS → cola Windows (RAW).
 
-Los stubs restantes estan en `electron/peripherals.js`.
+Los stubs restantes (cajón, balanza, visor) estan en `electron/peripherals.js`.
+
+### Impresión de etiquetas
+
+1. Arranque **Descartes Electron**.
+2. Puesto: **ImpresoraEtiquetas** + plantilla en Generales II (formato).
+3. Bridge: `printLabel({ html, impresora, pageWidthMm, pageHeightMm, copies?, silent? })`.
+   El tamaño debe coincidir con `plantilla.page.widthMm/heightMm`.
+
+```js
+await window.descartes.printLabel({
+  html: '<html>…</html>',
+  impresora: 'Zebra',
+  pageWidthMm: 50,
+  pageHeightMm: 30,
+  copies: 2,
+  silent: true,
+})
+```
 
 ## Actualizaciones
 

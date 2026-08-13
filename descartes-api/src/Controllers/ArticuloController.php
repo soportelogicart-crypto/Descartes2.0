@@ -54,6 +54,35 @@ final class ArticuloController
     }
   }
 
+  /**
+   * Resuelve referencia de teclado/escáner: código, Alternativo o EAN (ArtBarras).
+   * GET /api/mantenimiento/articulos/resolver?q=...
+   */
+  public function resolver(Request $request, Response $response): Response
+  {
+    $q = trim((string) ($request->getQueryParams()['q'] ?? ''));
+    if ($q === '') {
+      return ErrorResponse::json($response, 400, 'Parámetro q obligatorio', 'VALIDACION');
+    }
+
+    try {
+      $hit = $this->artBarrasRepository->resolverReferencia($q);
+      if ($hit === null) {
+        return ErrorResponse::json($response, 404, 'Artículo no encontrado', 'NO_ENCONTRADO');
+      }
+      $item = $this->mantenimientoService->get('articulos', $hit['codigo']);
+      if ($item === null) {
+        return ErrorResponse::json($response, 404, 'Artículo no encontrado', 'NO_ENCONTRADO');
+      }
+      $item['matchPor'] = $hit['matchPor'];
+      $item['unidadesPaquete'] = $hit['unidadesPaquete'];
+      $item['query'] = $q;
+      return $this->json($response, 200, $item);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
   public function getStock(Request $request, Response $response, array $args): Response
   {
     $codigo = trim((string) ($args['codigo'] ?? ''));
@@ -79,10 +108,10 @@ final class ArticuloController
   {
     $codigo = trim((string) ($args['codigo'] ?? ''));
     if ($codigo === '') {
-      return ErrorResponse::json($response, 400, 'Codigo de articulo obligatorio', 'VALIDACION');
+      return ErrorResponse::json($response, 400, 'Código de artículo obligatorio', 'VALIDACION');
     }
     if (!$this->artBarrasRepository->articuloExiste($codigo)) {
-      return ErrorResponse::json($response, 404, 'Articulo no encontrado', 'NO_ENCONTRADO');
+      return ErrorResponse::json($response, 404, 'Artículo no encontrado', 'NO_ENCONTRADO');
     }
 
     $body = (array) ($request->getParsedBody() ?? []);
@@ -99,6 +128,33 @@ final class ArticuloController
     } catch (\Throwable $e) {
       return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
     }
+  }
+
+  /**
+   * Comprueba si un EAN está libre o ya asignado a un artículo.
+   * GET /api/mantenimiento/articulos/ean-lookup?ean=...
+   */
+  public function eanLookup(Request $request, Response $response): Response
+  {
+    $ean = trim((string) ($request->getQueryParams()['ean'] ?? ''));
+    if ($ean === '') {
+      return ErrorResponse::json($response, 400, 'Parámetro ean obligatorio', 'VALIDACION');
+    }
+
+    $digits = $ean;
+    if (preg_match('/^\d+\.0+$/', $ean)) {
+      $digits = explode('.', $ean, 2)[0];
+    }
+    if (!preg_match('/^\d{4,18}$/', $digits)) {
+      return ErrorResponse::json($response, 400, "EAN inválido: {$ean} (solo dígitos, 4–18)", 'VALIDACION');
+    }
+
+    $codigo = $this->artBarrasRepository->codigoPorEan($digits);
+    return $this->json($response, 200, [
+      'ean' => $digits,
+      'disponible' => $codigo === null,
+      'codigoArticulo' => $codigo,
+    ]);
   }
 
   public function listEscandallo(Request $request, Response $response, array $args): Response

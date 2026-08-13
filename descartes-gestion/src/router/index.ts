@@ -28,6 +28,7 @@ import ComprasPedidosListView from '@/views/compras/ComprasPedidosListView.vue'
 import CompraPedidoDetalleView from '@/views/compras/CompraPedidoDetalleView.vue'
 import ComprasFacturasListView from '@/views/compras/ComprasFacturasListView.vue'
 import CompraFacturaDetalleView from '@/views/compras/CompraFacturaDetalleView.vue'
+import EtiquetasColaView from '@/views/etiquetas/EtiquetasColaView.vue'
 import VentasListView from '@/views/ventas/VentasListView.vue'
 import VentaDetalleView from '@/views/ventas/VentaDetalleView.vue'
 import ArqueoView from '@/views/ventas/ArqueoView.vue'
@@ -75,9 +76,25 @@ const router = createRouter({
         },
         {
           path: 'configuracion/documentos',
-          name: 'configuracion-documentos',
+          redirect: '/configuracion/albaranes',
+        },
+        {
+          path: 'configuracion/albaranes',
+          name: 'configuracion-albaranes',
           component: DocumentosPlantillasView,
-          meta: { titulo: 'Confeccionar documentos' },
+          meta: { titulo: 'Albaranes y facturas', plantillasScope: 'albaranes' },
+        },
+        {
+          path: 'configuracion/tickets',
+          name: 'configuracion-tickets',
+          component: DocumentosPlantillasView,
+          meta: { titulo: 'Tickets', plantillasScope: 'tickets' },
+        },
+        {
+          path: 'configuracion/etiquetas',
+          name: 'configuracion-etiquetas',
+          component: DocumentosPlantillasView,
+          meta: { titulo: 'Etiquetas', plantillasScope: 'etiquetas' },
         },
         ...modulosPlaceholder.map((m) => ({
           path: m.path,
@@ -138,6 +155,12 @@ const router = createRouter({
           name: 'compras-factura-detalle',
           component: CompraFacturaDetalleView,
           meta: { titulo: 'Factura de proveedor', modulo: 'compras', accion: 'ver' },
+        },
+        {
+          path: 'etiquetas',
+          name: 'etiquetas-cola',
+          component: EtiquetasColaView,
+          meta: { titulo: 'Etiquetas', modulo: 'etiquetas', accion: 'ver' },
         },
         {
           path: 'ventas',

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { api } from '@/api/client'
+import { resolverArticulo as resolverArticuloApi } from '@/api/articulos'
 import {
   filaVaciaDesdeColumnas,
   getGridColumns,
@@ -426,7 +427,8 @@ async function cargarPreciosArticulo(codigo: string) {
     return
   }
   try {
-    const { data } = await api.get(`/api/mantenimiento/articulos/${encodeURIComponent(codigo)}`)
+    const data = await resolverArticuloApi(codigo)
+    form.articulo = data.codigo
     articuloDescripcion.value = String(data.descripcion ?? data.nombre ?? articuloDescripcion.value)
     preciosArticulo.value = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => {
       const v = data[`precioVen${i}`] ?? (i === 1 ? data.precioVenta : 0)

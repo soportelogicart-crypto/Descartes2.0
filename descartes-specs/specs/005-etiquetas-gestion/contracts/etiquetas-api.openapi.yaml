@@ -1,0 +1,377 @@
+openapi: 3.0.3
+info:
+  title: Descartes API — Etiquetas (Gestión)
+  version: 1.0.0
+  description: |
+    API del módulo Etiquetas (005-etiquetas-gestion).
+    Auth: cookie sesión + PermissionMiddleware (módulo `etiquetas`:
+    ver / crear / editar / eliminar).
+    Impresión física: cliente Electron `printLabel`; este API confirma DELETE
+    tras OK (`POST /etiquetas/imprimir`).
+servers:
+  - url: /api
+tags:
+  - name: etiquetas-cola
+    description: Cola `EtiquetasArticulo` (CRUD)
+  - name: etiquetas-imprimir
+    description: Confirmar impresión / preview datos
+  - name: etiquetas-origen
+    description: Generar cola desde documentos (albarán compra)
+
+paths:
+  /etiquetas/ping:
+    get:
+      tags: [etiquetas-cola]
+      summary: Health del módulo
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  modulo: { type: string, example: etiquetas }
+                  message: { type: string }
+
+  /etiquetas:
+    get:
+      tags: [etiquetas-cola]
+      summary: Listar cola EtiquetasArticulo
+      parameters:
+        - in: query
+          name: puesto
+          schema: { type: string }
+        - in: query
+          name: empresa
+          schema: { type: string }
+        - in: query
+          name: page
+          schema: { type: integer, default: 1, minimum: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, default: 100, minimum: 1, maximum: 500 }
+      responses:
+        '200':
+          description: Listado paginado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EtiquetaColaPaged'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [etiquetas-cola]
+      summary: Añadir línea a la cola
+      description: |
+        Requiere `articulo` o `ean` y `cantidad` ≥ 1 (copias = SQL `Etiquetas`).
+        Descripción/precio/EAN se rellenan desde artículo si faltan.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EtiquetaColaPayload'
+      responses:
+        '201':
+          description: Creada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EtiquetaColaLinea'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /etiquetas/{articulo}/{nroLin}:
+    parameters:
+      - $ref: '#/components/parameters/articulo'
+      - $ref: '#/components/parameters/nroLin'
+    put:
+      tags: [etiquetas-cola]
+      summary: Actualizar línea (cantidad, ean, precio…)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EtiquetaColaUpdatePayload'
+      responses:
+        '200':
+          description: Actualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EtiquetaColaLinea'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [etiquetas-cola]
+      summary: Quitar línea de la cola
+      responses:
+        '204':
+          description: Eliminada
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /etiquetas/imprimir:
+    post:
+      tags: [etiquetas-imprimir]
+      summary: Confirmar impresión y vaciar líneas OK
+      description: |
+        Tras imprimir en cliente (Electron `printLabel`), el front llama este
+        endpoint con las líneas impresas correctamente para DELETE en cola.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EtiquetaImprimirPayload'
+      responses:
+        '200':
+          description: Líneas eliminadas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EtiquetaImprimirResultado'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /etiquetas/desde-albaran-compra:
+    post:
+      tags: [etiquetas-origen]
+      summary: Encolar líneas desde albarán de compra
+      description: |
+        Una fila por línea con artículo. Copias = CEIL(ABS(cantidad)).
+        Omite sin EAN según flags tienda `ImpEtiquetasSinEans` /
+        `ImpEtiquetasSoloEansPropios`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EtiquetaDesdeAlbaranPayload'
+      responses:
+        '201':
+          description: Líneas creadas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EtiquetaDesdeAlbaranResultado'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /etiquetas/preview-datos:
+    get:
+      tags: [etiquetas-imprimir]
+      summary: Datos para render de plantilla (opcional)
+      description: |
+        El cliente v1 renderiza desde cola/artículo sin este endpoint.
+        Reservado para preview server-side.
+      parameters:
+        - in: query
+          name: articulo
+          required: true
+          schema: { type: string }
+        - in: query
+          name: ean
+          schema: { type: string }
+        - in: query
+          name: nroLin
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Payload preview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EtiquetaPreviewDatos'
+        '501':
+          description: No implementado en v1 (render en cliente)
+
+components:
+  parameters:
+    articulo:
+      in: path
+      name: articulo
+      required: true
+      schema: { type: string }
+    nroLin:
+      in: path
+      name: nroLin
+      required: true
+      schema: { type: integer, minimum: 1 }
+
+  responses:
+    BadRequest:
+      description: Validación
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    Unauthorized:
+      description: Sin sesión
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    Forbidden:
+      description: Sin permiso
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    NotFound:
+      description: No encontrado
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+
+  schemas:
+    ApiError:
+      type: object
+      required: [error, codigo]
+      properties:
+        error: { type: string }
+        codigo:
+          type: string
+          enum: [VALIDACION, NO_ENCONTRADO, CONFLICTO, ERROR, NO_IMPLEMENTADO]
+        dependencias:
+          type: array
+          items: { type: string }
+
+    EtiquetaColaLinea:
+      type: object
+      required: [articulo, nroLin, cantidad, precio]
+      properties:
+        articulo: { type: string }
+        nroLin: { type: integer }
+        ean: { type: string, nullable: true, description: Dígitos (SQL float legacy) }
+        cantidad:
+          type: integer
+          minimum: 1
+          description: Copias a imprimir (SQL Etiquetas)
+        cantidadStock:
+          type: number
+          nullable: true
+          description: Stock legado (SQL Cantidad)
+        precio: { type: number }
+        precioVentaTeorico: { type: number, nullable: true }
+        descripcion: { type: string, nullable: true }
+        lote: { type: string, nullable: true }
+        puesto: { type: string, nullable: true }
+        tipoDocumento: { type: string, nullable: true }
+        empresa: { type: string, nullable: true }
+        albaran: { type: integer, nullable: true }
+        fechaDocumento: { type: string, nullable: true, format: date-time }
+        proveedor: { type: string, nullable: true }
+        fechaOferta: { type: string, nullable: true, format: date-time }
+        genStock: { type: string, nullable: true }
+        numEti: { type: integer, nullable: true }
+        numEtiEnHoja: { type: integer, nullable: true }
+
+    EtiquetaColaPaged:
+      type: object
+      required: [items, total, page, pageSize]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EtiquetaColaLinea'
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+
+    EtiquetaColaPayload:
+      type: object
+      required: [cantidad]
+      description: Alta; requiere articulo o ean
+      properties:
+        articulo: { type: string }
+        ean: { type: string, nullable: true }
+        cantidad: { type: integer, minimum: 1, description: Copias (SQL Etiquetas) }
+        precio: { type: number }
+        descripcion: { type: string, nullable: true }
+        lote: { type: string, nullable: true }
+        puesto: { type: string, nullable: true }
+        empresa: { type: string, nullable: true }
+        albaran: { type: integer, nullable: true }
+        tipoDocumento: { type: string, nullable: true }
+        proveedor: { type: string, nullable: true }
+        fechaDocumento: { type: string, nullable: true }
+
+    EtiquetaColaUpdatePayload:
+      type: object
+      description: Actualización parcial (articulo/nroLin en URL)
+      properties:
+        ean: { type: string, nullable: true }
+        cantidad: { type: integer, minimum: 1 }
+        precio: { type: number }
+        descripcion: { type: string, nullable: true }
+        lote: { type: string, nullable: true }
+        puesto: { type: string, nullable: true }
+        empresa: { type: string, nullable: true }
+        albaran: { type: integer, nullable: true }
+
+    EtiquetaImprimirLineaRef:
+      type: object
+      required: [articulo, nroLin]
+      properties:
+        articulo: { type: string }
+        nroLin: { type: integer, minimum: 1 }
+
+    EtiquetaImprimirPayload:
+      type: object
+      required: [lineas]
+      properties:
+        lineas:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/EtiquetaImprimirLineaRef'
+
+    EtiquetaImprimirResultado:
+      type: object
+      required: [eliminadas]
+      properties:
+        eliminadas: { type: integer, minimum: 0 }
+
+    EtiquetaDesdeAlbaranPayload:
+      type: object
+      required: [empresa, albaran]
+      properties:
+        empresa: { type: string }
+        albaran: { type: integer, minimum: 1 }
+        puesto: { type: string }
+
+    EtiquetaDesdeAlbaranResultado:
+      type: object
+      required: [items, omitidas]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EtiquetaColaLinea'
+        omitidas:
+          type: integer
+          minimum: 0
+          description: Líneas omitidas (sin artículo / sin EAN por flags)
+
+    EtiquetaPreviewDatos:
+      type: object
+      required: [codigo, precio]
+      properties:
+        codigo: { type: string }
+        descripcion: { type: string, nullable: true }
+        ean: { type: string, nullable: true }
+        precio: { type: number }
+        lote: { type: string, nullable: true }
+        cantidad: { type: number }
+        puesto: { type: string, nullable: true }

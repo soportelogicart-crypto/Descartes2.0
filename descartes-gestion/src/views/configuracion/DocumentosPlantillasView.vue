@@ -1,8 +1,17 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
-import { RouterLink } from 'vue-router'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { RouterLink, useRoute } from 'vue-router'
 import type { DocumentoPlantilla, DocumentoTipo } from '@/config/documentos-plantillas'
-import { esPlantillaTicket } from '@/config/documentos-plantillas'
+import {
+  DOCUMENTOS_PLANTILLAS_SCOPES,
+  ETIQUETA_TAMANOS_MM,
+  conTamanoEtiqueta,
+  esPlantillaTicket,
+  parseClaveTamanoEtiqueta,
+  perteneceAlScope,
+  scopeDesdeRuta,
+  type DocumentosPlantillasScope,
+} from '@/config/documentos-plantillas'
 import {
   useDocumentoPlantillasEditables,
   type DocumentoPlantillaServidor,
@@ -18,13 +27,27 @@ import { imprimirTermicaDispositivo } from '@/api/ventas'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { listarImpresorasSistema } from '@/composables/useImpresorasSistema'
 
-const TIPOS: { value: DocumentoTipo; label: string }[] = [
+const TIPOS_TODOS: { value: DocumentoTipo; label: string }[] = [
   { value: 'albaran', label: 'Albarán' },
   { value: 'factura-contado', label: 'Factura contado' },
   { value: 'factura-credito', label: 'Factura crédito' },
   { value: 'factura-rectificativa', label: 'Rectificativa' },
   { value: 'ticket', label: 'Ticket 80 mm' },
+  { value: 'etiqueta', label: 'Etiqueta' },
 ]
+
+const route = useRoute()
+const scope = computed<DocumentosPlantillasScope>(() => {
+  const meta = route.meta.plantillasScope
+  if (meta === 'albaranes' || meta === 'tickets' || meta === 'etiquetas') return meta
+  return scopeDesdeRuta(route.path)
+})
+const scopeMeta = computed(() => DOCUMENTOS_PLANTILLAS_SCOPES[scope.value])
+const TIPOS = computed(() =>
+  TIPOS_TODOS.filter((t) => perteneceAlScope(t.value, scope.value))
+)
+const scopeUnicoTipo = computed(() => TIPOS.value.length === 1)
+
 
 const puestoContexto = usePuestoContextoStore()
 const {
@@ -72,6 +95,8 @@ const modalCrear = ref(false)
 const modalModo = ref<'nueva' | 'como'>('nueva')
 const modalTipo = ref<DocumentoTipo>('albaran')
 const modalNombre = ref('')
+/** Clave `WxH` del tamaño al crear plantilla etiqueta. */
+const modalTamanoEtiqueta = ref('50x30')
 const modalError = ref<string | null>(null)
 
 const confirmEliminar = ref(false)
@@ -80,7 +105,11 @@ const pendienteTrasDescartar = ref<'nueva' | 'seleccionar' | null>(null)
 const pendienteSeleccionarId = ref<number | null>(null)
 
 const actual = computed(() =>
-  plantillaId.value != null ? items.value.find((p) => p.id === plantillaId.value) : undefined
+  plantillaId.value != null ? itemsFiltrados.value.find((p) => p.id === plantillaId.value) : undefined
+)
+
+const itemsFiltrados = computed(() =>
+  items.value.filter((p) => perteneceAlScope(p.tipo, scope.value))
 )
 
 const empresaCodigo = computed(() => String(puestoContexto.empresaCodigo ?? '').trim().toUpperCase())
@@ -90,7 +119,7 @@ const modalTitulo = computed(() =>
 )
 
 function etiquetaTipo(tipo: string) {
-  return TIPOS.find((t) => t.value === tipo)?.label ?? tipo
+  return TIPOS_TODOS.find((t) => t.value === tipo)?.label ?? tipo
 }
 
 function aplicarItem(item: DocumentoPlantillaServidor) {
@@ -130,13 +159,23 @@ async function init() {
     return
   }
   mensaje.value = res.message
-  const primera = items.value[0]
+  const primera = itemsFiltrados.value[0]
   if (primera) cargar(primera.id)
 }
 
 onMounted(() => {
   void init()
   void cargarImpresorasPrueba()
+})
+
+watch(scope, () => {
+  plantillaId.value = null
+  draft.value = null
+  dirty.value = false
+  mensaje.value = null
+  errorMsg.value = null
+  const primera = itemsFiltrados.value[0]
+  if (primera) cargar(primera.id)
 })
 
 const jsonVista = computed(() => (draft.value ? JSON.stringify(draft.value, null, 2) : ''))
@@ -185,9 +224,20 @@ function abrirModalNueva() {
     return
   }
   modalModo.value = 'nueva'
-  modalTipo.value = draft.value?.tipo ?? 'albaran'
+  const tipoActual =
+    draft.value && perteneceAlScope(draft.value.tipo, scope.value)
+      ? draft.value.tipo
+      : scopeMeta.value.tipoDefault
+  modalTipo.value = tipoActual
   const base = esqueletoPorTipo(modalTipo.value)
   modalNombre.value = base?.nombre ?? 'Nueva plantilla'
+  modalTamanoEtiqueta.value = '50x30'
+  if (modalTipo.value === 'etiqueta' && base) {
+    const w = base.page.widthMm ?? 50
+    const h = base.page.heightMm ?? 30
+    modalTamanoEtiqueta.value = `${w}x${h}`
+    modalNombre.value = `Etiqueta ${w}×${h}`
+  }
   modalError.value = null
   modalCrear.value = true
 }
@@ -208,8 +258,23 @@ function abrirModalGuardarComo() {
 function onTipoModalChange() {
   if (modalModo.value !== 'nueva') return
   const base = esqueletoPorTipo(modalTipo.value)
-  if (base && (!modalNombre.value.trim() || modalNombre.value === 'Nueva plantilla')) {
+  if (modalTipo.value === 'etiqueta') {
+    const parsed = parseClaveTamanoEtiqueta(modalTamanoEtiqueta.value) ?? { widthMm: 50, heightMm: 30 }
+    modalNombre.value = `Etiqueta ${parsed.widthMm}×${parsed.heightMm}`
+    return
+  }
+  if (base && (!modalNombre.value.trim() || modalNombre.value.startsWith('Etiqueta ') || modalNombre.value === 'Nueva plantilla')) {
     modalNombre.value = base.nombre
+  }
+}
+
+function onTamanoEtiquetaModalChange() {
+  if (modalModo.value !== 'nueva' || modalTipo.value !== 'etiqueta') return
+  const parsed = parseClaveTamanoEtiqueta(modalTamanoEtiqueta.value)
+  if (!parsed) return
+  const nombreGen = /^Etiqueta \d+×\d+$/
+  if (!modalNombre.value.trim() || nombreGen.test(modalNombre.value)) {
+    modalNombre.value = `Etiqueta ${parsed.widthMm}×${parsed.heightMm}`
   }
 }
 
@@ -231,15 +296,34 @@ async function confirmarModalCrear() {
 
   let plantilla: DocumentoPlantilla
   if (modalModo.value === 'nueva') {
+    if (!perteneceAlScope(modalTipo.value, scope.value)) {
+      modalTipo.value = scopeMeta.value.tipoDefault
+    }
     const base = esqueletoPorTipo(modalTipo.value)
     if (!base) {
       modalError.value = 'Tipo no válido.'
       return
     }
     plantilla = { ...base, nombre }
+    if (modalTipo.value === 'etiqueta') {
+      const parsed = parseClaveTamanoEtiqueta(modalTamanoEtiqueta.value)
+      if (!parsed) {
+        modalError.value = 'Seleccione un tamaño de etiqueta.'
+        return
+      }
+      plantilla = conTamanoEtiqueta({ ...plantilla, nombre }, parsed.widthMm, parsed.heightMm)
+      plantilla = {
+        ...plantilla,
+        nombre,
+        descripcion: `Etiqueta de artículo ${parsed.widthMm}×${parsed.heightMm} mm.`,
+      }
+    }
   } else {
     if (!draft.value) return
-    plantilla = { ...draft.value, nombre, tipo: modalTipo.value }
+    const tipoDestino = perteneceAlScope(modalTipo.value, scope.value)
+      ? modalTipo.value
+      : scopeMeta.value.tipoDefault
+    plantilla = { ...draft.value, nombre, tipo: tipoDestino }
   }
 
   modalError.value = null
@@ -294,7 +378,7 @@ async function confirmarEliminar() {
     return
   }
   mensaje.value = res.message
-  const siguiente = items.value[0]
+  const siguiente = itemsFiltrados.value[0]
   if (siguiente) cargar(siguiente.id)
   else {
     plantillaId.value = null
@@ -390,11 +474,10 @@ function marcarDirty() {
       <RouterLink to="/configuracion" class="volver">← Configuración</RouterLink>
       <div class="cab-row">
         <div>
-          <h2>Confeccionar documentos</h2>
+          <h2>{{ scopeMeta.titulo }}</h2>
           <p class="intro">
-            Diseñador A4 por empresa{{ empresaCodigo ? ` (${empresaCodigo})` : '' }}.
-            <strong>Guardar</strong> actualiza la seleccionada;
-            <strong>Nueva</strong> / <strong>Guardar como…</strong> crean otra sin sobrescribir.
+            {{ scopeMeta.intro }}
+            <template v-if="empresaCodigo"> Empresa {{ empresaCodigo }}.</template>
           </p>
         </div>
         <div class="acciones">
@@ -410,6 +493,7 @@ function marcarDirty() {
             Guardar como…
           </button>
           <button
+            v-if="scope === 'tickets'"
             type="button"
             class="btn"
             :disabled="!draft || !esPlantillaTicket(draft) || imprimiendo || guardando"
@@ -417,7 +501,7 @@ function marcarDirty() {
           >
             {{ imprimiendo ? 'Imprimiendo…' : 'Probar ticket' }}
           </button>
-          <label v-if="draft && esPlantillaTicket(draft)" class="imp-prueba">
+          <label v-if="scope === 'tickets' && draft && esPlantillaTicket(draft)" class="imp-prueba">
             Impresora
             <select v-model="impresoraPrueba">
               <option disabled value="">— Elegir —</option>
@@ -455,7 +539,7 @@ function marcarDirty() {
           ＋ Nueva plantilla
         </button>
         <button
-          v-for="p in items"
+          v-for="p in itemsFiltrados"
           :key="p.id"
           type="button"
           class="item"
@@ -469,7 +553,9 @@ function marcarDirty() {
           <strong>{{ p.nombre }}</strong>
           <span class="meta">{{ p.definicion.blocks.length }} bloques · v{{ p.version }}</span>
         </button>
-        <p v-if="!cargando && items.length === 0" class="vacio">No hay plantillas para esta empresa.</p>
+        <p v-if="!cargando && itemsFiltrados.length === 0" class="vacio">
+          No hay plantillas de {{ scopeMeta.titulo.toLowerCase() }} para esta empresa.
+        </p>
       </aside>
 
       <div v-if="draft" class="panel">
@@ -501,6 +587,13 @@ function marcarDirty() {
             <button type="button" :class="{ active: tab === 'json' }" @click="tab = 'json'">JSON</button>
           </div>
         </header>
+
+        <p v-if="draft?.tipo === 'etiqueta'" class="hint-etiq">
+          Al crear una plantilla Etiqueta elija el tamaño en el desplegable (30×20 … 100×70). Puede
+          tener varias. «Activar» marca el default de la empresa; en Puestos → Generales II →
+          Etiquetas artículo elija la plantilla por defecto del puesto. Al imprimir se podrá elegir el
+          formato.
+        </p>
 
         <DocumentoPlantillaDesigner
           v-if="tab === 'diseno' && draft && !esPlantillaTicket(draft)"
@@ -540,10 +633,25 @@ function marcarDirty() {
       >
         <div class="modal-crear">
           <h3>{{ modalTitulo }}</h3>
-          <label v-if="modalModo === 'nueva'" class="campo">
+          <label v-if="modalModo === 'nueva' && !scopeUnicoTipo" class="campo">
             <span>Tipo</span>
             <select v-model="modalTipo" @change="onTipoModalChange">
               <option v-for="t in TIPOS" :key="t.value" :value="t.value">{{ t.label }}</option>
+            </select>
+          </label>
+          <p v-else-if="modalModo === 'nueva' && scopeUnicoTipo" class="campo-fijo">
+            Tipo: <strong>{{ etiquetaTipo(modalTipo) }}</strong>
+          </p>
+          <label v-if="modalModo === 'nueva' && modalTipo === 'etiqueta'" class="campo">
+            <span>Tamaño</span>
+            <select v-model="modalTamanoEtiqueta" @change="onTamanoEtiquetaModalChange">
+              <option
+                v-for="t in ETIQUETA_TAMANOS_MM"
+                :key="t.label"
+                :value="`${t.widthMm}x${t.heightMm}`"
+              >
+                {{ t.label }}
+              </option>
             </select>
           </label>
           <label class="campo">
@@ -702,6 +810,16 @@ function marcarDirty() {
   margin: 0.25rem 0 0;
   font-size: 0.78rem;
   color: #b45309;
+}
+
+.hint-etiq {
+  margin: 0 0 0.65rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #1e40af;
+  font-size: 0.8rem;
+  line-height: 1.35;
 }
 
 .lista {
@@ -924,6 +1042,12 @@ function marcarDirty() {
   font-size: 0.75rem;
   font-weight: 600;
   color: #64748b;
+}
+
+.modal-crear .campo-fijo {
+  margin: 0 0 0.65rem;
+  font-size: 0.82rem;
+  color: #475569;
 }
 
 .modal-crear .campo input,

@@ -14,6 +14,7 @@ export type MenuPrincipalSeccion = {
 export const menuPrincipalSecciones: MenuPrincipalSeccion[] = [
   { id: 'mantenimiento', titulo: 'Mantenimiento', modulo: 'mantenimiento', ruta: '/' },
   { id: 'compras', titulo: 'Compras', modulo: 'compras', ruta: '/compras' },
+  { id: 'etiquetas', titulo: 'Etiquetas', modulo: 'etiquetas', ruta: '/etiquetas' },
   { id: 'ventas', titulo: 'Ventas', modulo: 'ventas', ruta: '/ventas' },
   { id: 'facturacion', titulo: 'Facturacion', modulo: 'facturacion', ruta: '/facturacion' },
   { id: 'inventario', titulo: 'Inventario', modulo: 'inventario', ruta: '/inventario' },

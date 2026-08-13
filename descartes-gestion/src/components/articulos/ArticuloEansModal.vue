@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { api } from '@/api/client'
-import { extractApiError } from '@/composables/useMantenimiento'
+import { extractApiError } from '@/composables/extractApiError'
+import { eanCheckDigit } from '@/config/documentos-plantillas/barcode-ean'
 
 type EanFila = { ean: string; tipo: string; unidades: number }
 
@@ -19,109 +20,265 @@ const emit = defineEmits<{
 const filas = ref<EanFila[]>([])
 const loading = ref(false)
 const saving = ref(false)
+const loaded = ref(false)
+const dirty = ref(false)
 const error = ref<string | null>(null)
 const mensaje = ref<string | null>(null)
 const filtro = ref('')
 const mostrarBuscar = ref(false)
+const asignarEan = ref('')
 
 watch(
   () => [props.open, props.codigo] as const,
   async ([open, codigo]) => {
-    if (open && codigo) await cargar()
-  }
+    if (open && codigo) {
+      asignarEan.value = ''
+      filtro.value = ''
+      await cargar()
+    } else if (!open) {
+      loaded.value = false
+      dirty.value = false
+    }
+  },
+  { immediate: true }
 )
 
 async function cargar() {
   loading.value = true
+  loaded.value = false
+  dirty.value = false
   error.value = null
   mensaje.value = null
   try {
-    const { data } = await api.get(`/api/mantenimiento/articulos/${encodeURIComponent(props.codigo)}/eans`)
+    const { data } = await api.get(
+      `/api/mantenimiento/articulos/${encodeURIComponent(props.codigo.trim())}/eans`
+    )
     filas.value = (data.items ?? []).map((i: EanFila) => ({
-      ean: String(i.ean ?? ''),
+      ean: normalizarEanVista(i.ean),
       tipo: String(i.tipo ?? ''),
       unidades: Number(i.unidades ?? 0),
     }))
     if (!filas.value.length) filas.value.push({ ean: '', tipo: '', unidades: 0 })
+    loaded.value = true
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudieron cargar los EAN')
     filas.value = [{ ean: '', tipo: '', unidades: 0 }]
+    loaded.value = false
   } finally {
     loading.value = false
   }
 }
 
-function filasVisibles() {
-  const q = filtro.value.trim()
-  if (!q) return filas.value
-  return filas.value.filter((f) => f.ean.includes(q))
+/** Evita notación científica / floats en UI. */
+function normalizarEanVista(raw: unknown): string {
+  if (raw == null) return ''
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return Math.trunc(raw).toString()
+  }
+  let s = String(raw).trim()
+  if (/e\+/i.test(s)) {
+    const n = Number(s)
+    if (Number.isFinite(n)) return Math.trunc(n).toString()
+  }
+  if (/^\d+\.0+$/.test(s)) s = s.split('.')[0] ?? s
+  // Solo dígitos (escáner / pegado con espacios)
+  if (/[\d]/.test(s) && !/^\d+$/.test(s)) {
+    const digits = s.replace(/\D/g, '')
+    if (digits.length >= 4) return digits
+  }
+  return s
 }
 
 function onEanInput(index: number) {
-  // Si editan la ultima fila vacia y tiene valor, anadir otra *
+  dirty.value = true
+  const fila = filas.value[index]
+  if (fila) fila.ean = normalizarEanVista(fila.ean)
   const last = filas.value[filas.value.length - 1]
   if (last && last.ean.trim() !== '' && index === filas.value.length - 1) {
     filas.value.push({ ean: '', tipo: '', unidades: 0 })
   }
 }
 
-async function persistir(items: EanFila[]) {
+async function comprobarEanDisponible(ean: string): Promise<boolean> {
+  const digits = normalizarEanVista(ean)
+  if (!digits) return true
+  try {
+    const { data } = await api.get<{
+      disponible: boolean
+      codigoArticulo: string | null
+      ean: string
+    }>('/api/mantenimiento/articulos/ean-lookup', { params: { ean: digits } })
+    if (!data.disponible && data.codigoArticulo && data.codigoArticulo !== props.codigo.trim()) {
+      error.value = `El EAN ${data.ean} ya está asignado al artículo ${data.codigoArticulo}`
+      return false
+    }
+    return true
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo comprobar el EAN')
+    return false
+  }
+}
+
+async function onEanBlur(index: number) {
+  if (props.readonly) return
+  const ean = normalizarEanVista(filas.value[index]?.ean ?? '')
+  if (filas.value[index]) filas.value[index].ean = ean
+  if (!ean) return
+  error.value = null
+  await comprobarEanDisponible(ean)
+}
+
+/**
+ * Persiste la lista de EAN del artículo.
+ * No envía borrado total accidental si aún no se ha cargado del servidor.
+ */
+async function persistir(items: EanFila[], opts?: { allowEmpty?: boolean }): Promise<boolean> {
+  if (props.readonly) return false
+  if (!loaded.value && !opts?.allowEmpty) {
+    error.value = 'Espere a que carguen los EAN antes de guardar'
+    return false
+  }
+
   saving.value = true
   error.value = null
+  mensaje.value = null
   try {
-    const { data } = await api.put(`/api/mantenimiento/articulos/${encodeURIComponent(props.codigo)}/eans`, {
-      items: items.filter((i) => i.ean.trim() !== ''),
-    })
+    const limpios = items
+      .map((i) => ({
+        ean: normalizarEanVista(i.ean),
+        tipo: String(i.tipo ?? ''),
+        unidades: Number(i.unidades ?? 0),
+      }))
+      .filter((i) => i.ean !== '')
+
+    if (limpios.length === 0 && !opts?.allowEmpty) {
+      // Evitar DELETE de todos los EAN por lista vacía (p. ej. modal sin cargar).
+      error.value = 'No hay EAN para guardar. Si quiere borrar todos, déjelo explícito.'
+      return false
+    }
+
+    for (const fila of limpios) {
+      const ok = await comprobarEanDisponible(fila.ean)
+      if (!ok) return false
+    }
+
+    const { data } = await api.put(
+      `/api/mantenimiento/articulos/${encodeURIComponent(props.codigo.trim())}/eans`,
+      { items: limpios }
+    )
     filas.value = (data.items ?? []).map((i: EanFila) => ({
-      ean: String(i.ean ?? ''),
+      ean: normalizarEanVista(i.ean),
       tipo: String(i.tipo ?? ''),
       unidades: Number(i.unidades ?? 0),
     }))
     filas.value.push({ ean: '', tipo: '', unidades: 0 })
-    mensaje.value = 'EAN guardados'
+    loaded.value = true
+    dirty.value = false
+    mensaje.value = limpios.length ? `Guardados ${limpios.length} EAN` : 'EAN eliminados'
+    return true
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudieron guardar los EAN')
+    return false
   } finally {
     saving.value = false
   }
 }
 
+/** Asigna un EAN existente (escrito/escaneado) a este artículo. */
+async function asignar() {
+  if (props.readonly || saving.value || loading.value) return
+  if (!loaded.value) {
+    error.value = 'Espere a que carguen los EAN'
+    return
+  }
+  const ean = normalizarEanVista(asignarEan.value)
+  if (!ean) {
+    error.value = 'Indique el EAN a asignar'
+    return
+  }
+  if (!/^\d{4,18}$/.test(ean)) {
+    error.value = 'EAN inválido (solo dígitos, 4–18)'
+    return
+  }
+  error.value = null
+  mensaje.value = null
+  const ok = await comprobarEanDisponible(ean)
+  if (!ok) return
+
+  const actuales = filas.value
+    .map((f) => ({ ...f, ean: normalizarEanVista(f.ean) }))
+    .filter((f) => f.ean !== '')
+  if (actuales.some((f) => f.ean === ean)) {
+    mensaje.value = 'Ese EAN ya está en la lista'
+    return
+  }
+  actuales.push({ ean, tipo: '', unidades: 0 })
+  const saved = await persistir(actuales, { allowEmpty: false })
+  if (saved) {
+    asignarEan.value = ''
+    mensaje.value = `EAN ${ean} asignado y guardado`
+  }
+}
+
 async function generar() {
-  if (props.readonly) return
+  if (props.readonly || saving.value || loading.value) return
+  if (!loaded.value) {
+    error.value = 'Espere a que carguen los EAN'
+    return
+  }
   const codigo = props.codigo.trim()
   const digits = codigo.replace(/\D/g, '')
-  const actuales = filas.value.filter((f) => f.ean.trim() !== '')
-  const set = new Set(actuales.map((f) => f.ean))
-
-  // 1) Codigo articulo como EAN (como legacy muestra 5283)
-  if (digits && !set.has(digits)) {
-    actuales.push({ ean: digits, tipo: '', unidades: 0 })
-    set.add(digits)
+  if (!digits) {
+    error.value = 'El código de artículo no tiene dígitos para generar un EAN'
+    return
   }
 
-  // 2) EAN-13 simple tipo 9710 + codigo relleno (ajustable)
-  if (digits) {
-    const body = ('000000000' + digits).slice(-9)
-    const candidate = `9710${body}`.slice(0, 13)
-    if (!set.has(candidate)) {
-      actuales.push({ ean: candidate, tipo: '', unidades: 0 })
-    }
-  }
+  // Solo EAN sintético 9710… (NO añadir el código de artículo como EAN).
+  const body9 = digits.slice(-9).padStart(9, '0')
+  const base12 = (`9710${body9}`).slice(0, 12)
+  const candidate = base12 + String(eanCheckDigit(base12))
 
-  await persistir(actuales)
+  const actuales = filas.value
+    .map((f) => ({ ...f, ean: normalizarEanVista(f.ean) }))
+    .filter((f) => f.ean !== '')
+  if (actuales.some((f) => f.ean === candidate)) {
+    mensaje.value = `Ya existe el EAN ${candidate}`
+    return
+  }
+  actuales.push({ ean: candidate, tipo: '', unidades: 0 })
+  error.value = null
+  const saved = await persistir(actuales, { allowEmpty: false })
+  if (saved) {
+    mensaje.value = `Generado y guardado EAN ${candidate}`
+  }
 }
 
 async function guardarYSalir() {
   if (!props.readonly) {
-    await persistir(filas.value)
-    if (error.value) return
+    if (!loaded.value) {
+      error.value = 'Espere a que carguen los EAN'
+      return
+    }
+    if (dirty.value) {
+      const ok = await persistir(filas.value, { allowEmpty: false })
+      if (!ok) return
+    }
+  }
+  emit('cerrar')
+}
+
+async function onCerrarOverlay() {
+  if (saving.value || loading.value) return
+  if (!props.readonly && dirty.value && loaded.value) {
+    const ok = await persistir(filas.value, { allowEmpty: false })
+    if (!ok) return
   }
   emit('cerrar')
 }
 </script>
 
 <template>
-  <div v-if="open" class="overlay" @click.self="emit('cerrar')">
+  <div v-if="open" class="overlay" @click.self="onCerrarOverlay">
     <div class="modal">
       <header class="modal-header">
         <div class="tools">
@@ -131,14 +288,20 @@ async function guardarYSalir() {
           <button
             type="button"
             class="tool"
-            title="Generar"
-            :disabled="readonly || saving || loading"
+            title="Generar EAN 9710… y guardar"
+            :disabled="readonly || saving || loading || !loaded"
             @click="generar"
           >
             Generar
           </button>
-          <button type="button" class="tool" title="Salir" :disabled="saving" @click="guardarYSalir">
-            Salir
+          <button
+            type="button"
+            class="tool primary"
+            title="Guardar y salir"
+            :disabled="saving || loading"
+            @click="guardarYSalir"
+          >
+            {{ saving ? 'Guardando…' : 'Salir' }}
           </button>
         </div>
       </header>
@@ -147,6 +310,29 @@ async function guardarYSalir() {
       <p class="sub">{{ codigo }} — {{ descripcion }}</p>
       <p v-if="error" class="error">{{ error }}</p>
       <p v-else-if="mensaje" class="ok">{{ mensaje }}</p>
+      <p v-else-if="dirty" class="aviso">Cambios sin guardar</p>
+
+      <div v-if="!readonly" class="asignar">
+        <label>Asignar EAN</label>
+        <div class="asignar-row">
+          <input
+            v-model="asignarEan"
+            type="text"
+            maxlength="18"
+            placeholder="EAN / código de barras"
+            :disabled="saving || loading || !loaded"
+            @keydown.enter.prevent="asignar"
+          />
+          <button
+            type="button"
+            class="tool"
+            :disabled="saving || loading || !loaded || !asignarEan.trim()"
+            @click="asignar"
+          >
+            Asignar
+          </button>
+        </div>
+      </div>
 
       <div v-if="mostrarBuscar" class="buscar">
         <input v-model="filtro" type="search" placeholder="Filtrar EAN..." />
@@ -163,7 +349,12 @@ async function guardarYSalir() {
             <tr v-if="loading">
               <td>Cargando...</td>
             </tr>
-            <tr v-for="(fila, index) in filas" v-else :key="index" v-show="!filtro || fila.ean.includes(filtro)">
+            <tr
+              v-for="(fila, index) in filas"
+              v-else
+              :key="index"
+              v-show="!filtro || fila.ean.includes(filtro)"
+            >
               <td>
                 <input
                   v-model="fila.ean"
@@ -172,6 +363,7 @@ async function guardarYSalir() {
                   :readonly="readonly"
                   :placeholder="index === filas.length - 1 ? '*' : ''"
                   @input="onEanInput(index)"
+                  @blur="onEanBlur(index)"
                 />
               </td>
             </tr>
@@ -194,7 +386,7 @@ async function guardarYSalir() {
 }
 
 .modal {
-  width: min(280px, 92vw);
+  width: min(320px, 92vw);
   max-height: 80vh;
   display: flex;
   flex-direction: column;
@@ -225,6 +417,12 @@ async function guardarYSalir() {
   cursor: pointer;
 }
 
+.tool.primary {
+  background: #dbeafe;
+  border-color: #93c5fd;
+  font-weight: 600;
+}
+
 .tool:disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -239,7 +437,8 @@ async function guardarYSalir() {
 
 .sub,
 .error,
-.ok {
+.ok,
+.aviso {
   margin: 0;
   padding: 0.15rem 0.5rem;
   font-size: 0.72rem;
@@ -256,6 +455,36 @@ async function guardarYSalir() {
 
 .ok {
   color: #047857;
+}
+
+.aviso {
+  color: #b45309;
+}
+
+.asignar {
+  padding: 0.35rem 0.5rem 0.15rem;
+}
+
+.asignar label {
+  display: block;
+  font-size: 0.7rem;
+  color: #475569;
+  margin-bottom: 0.2rem;
+}
+
+.asignar-row {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.asignar-row input {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0.25rem;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  font-size: 0.8rem;
 }
 
 .buscar {

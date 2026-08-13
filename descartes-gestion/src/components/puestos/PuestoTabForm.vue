@@ -98,7 +98,7 @@ async function cargarPlantillas() {
     plantillas.value = lista
     if (lista.length === 0) {
       plantillasError.value =
-        'No hay plantillas en el servidor. Créelas en Configuración → Confeccionar documentos.'
+        'No hay plantillas en el servidor. Créelas en Configuración → Albaranes / Tickets / Etiquetas.'
     }
   } catch (e: unknown) {
     plantillas.value = []
@@ -130,9 +130,13 @@ function etiquetaPlantilla(p: PlantillaOpcion, row: PuestoImpresoraDoc): string 
         ? 'Fac. contado'
         : p.tipo === 'factura-credito'
           ? 'Fac. crédito'
-          : p.tipo === 'factura-rectificativa'
+            : p.tipo === 'factura-rectificativa'
             ? 'Rectificativa'
-            : p.tipo
+            : p.tipo === 'ticket'
+              ? 'Ticket'
+              : p.tipo === 'etiqueta'
+                ? 'Etiqueta'
+                : p.tipo
   const base = fueraDeTipo ? `${tipoLbl} · ${p.nombre}` : p.nombre
   return p.activa ? `${base} (activa)` : base
 }
@@ -372,7 +376,7 @@ function onNombreInput(row: PuestoImpresoraDoc, value: string) {
       <div v-if="section.kind === 'impresoras'" class="impresoras-layout">
         <div class="impresoras-docs">
           <p class="docs-hint">
-            En <strong>Plantilla</strong> elija un diseño de Configuración → Confeccionar documentos.
+            En <strong>Plantilla</strong> elija un diseño de Configuración → Albaranes y facturas / Tickets / Etiquetas.
             La térmica de tickets se configura en <strong>Datos Generales</strong> (impresora Windows +
             copias), no aquí.
           </p>

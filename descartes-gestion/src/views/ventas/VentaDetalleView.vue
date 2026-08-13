@@ -10,6 +10,8 @@ import {
   obtenerVenta,
   reservarAlbaran,
 } from '@/api/ventas'
+import { resolverArticulo } from '@/api/articulos'
+import { createBarcodeScanWatcher } from '@/composables/useBarcodeScanWatcher'
 import { api } from '@/api/client'
 import type { VentaDetalle, VentaLinea, VentaPayload, VentaResumen } from '@/types/ventas'
 import { extractApiError } from '@/composables/useMantenimiento'
@@ -164,11 +166,24 @@ async function onVendedorKeydown(e: KeyboardEvent) {
 }
 
 async function focusArticuloLinea(index = 0) {
-  await nextTick()
-  const el = articuloInputRefs.value[index]
-  if (el) {
-    el.focus()
+  const tryFocus = () => {
+    const el = articuloInputRefs.value[index]
+    if (!el || el.readOnly) return false
+    el.focus({ preventScroll: false })
     el.select()
+    return document.activeElement === el
+  }
+
+  await nextTick()
+  if (tryFocus()) return
+
+  // Tras cerrar modal de cliente el overlay puede devolver el foco; reintentar.
+  await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
+  if (tryFocus()) return
+
+  for (let i = 0; i < 8; i++) {
+    await new Promise((r) => setTimeout(r, 40))
+    if (tryFocus()) return
   }
 }
 
@@ -635,10 +650,7 @@ async function cargar() {
         mensaje.value = sinArticulos
           ? 'Puede completar cabecera (p. ej. Referencia) e introducir articulos. Luego Guardar.'
           : 'Introduzca articulos (Intro en codigo para buscar)'
-      }
-      if (sinArticulos || sinCliente) {
-        await nextTick()
-      } else {
+        // Con cliente listo → foco en 1ª línea de artículo (pistola sin clic).
         await focusArticuloLinea(0)
       }
     }
@@ -751,7 +763,12 @@ async function aplicarComentarioEnLinea(index: number) {
   await focusDescripcionLinea(index)
 }
 
-async function aplicarArticuloEnLinea(index: number, art: Record<string, unknown>, fallbackCodigo: string) {
+async function aplicarArticuloEnLinea(
+  index: number,
+  art: Record<string, unknown>,
+  fallbackCodigo: string,
+  opts?: { unidadesPaquete?: number }
+) {
   const linea = lineas.value[index]
   if (!linea) return
   const codigo = String(art.codigo ?? fallbackCodigo).trim()
@@ -762,8 +779,14 @@ async function aplicarArticuloEnLinea(index: number, art: Record<string, unknown
   linea.articulo = codigo
   linea.descripcion = String(art.descripcion ?? '').trim()
   linea.precio = redondear2(precioSegunTarifa(art, ficha.value?.tarifa))
-  if (!linea.cantidad) linea.cantidad = 1
-  else linea.cantidad = redondear2(linea.cantidad)
+  const uds = Number(opts?.unidadesPaquete)
+  if (uds > 0 && (!linea.cantidad || linea.cantidad === 1)) {
+    linea.cantidad = redondear2(uds)
+  } else if (!linea.cantidad) {
+    linea.cantidad = 1
+  } else {
+    linea.cantidad = redondear2(linea.cantidad)
+  }
   let pjeIva = Number(linea.pjeIva) > 0 ? Number(linea.pjeIva) : 21
   const impuestoCodigo = String(art.impuestoCodigo ?? '').trim()
   if (impuestoCodigo) {
@@ -805,6 +828,39 @@ async function onArticuloSeleccionado(sel: { codigo: string; etiqueta: string })
   }
 }
 
+/** Índice de la línea que está recibiendo la ráfaga del escáner. */
+let barcodeLineaIdx = 0
+const barcodeWatcher = createBarcodeScanWatcher(async (codigo) => {
+  if (!puedeEditarLineas.value) return
+  await resolverArticuloEnLinea(barcodeLineaIdx, codigo)
+})
+
+async function resolverArticuloEnLinea(index: number, codigo: string) {
+  const q = String(codigo ?? '').trim()
+  if (!q) {
+    abrirBuscarArticulo(index)
+    return
+  }
+  if (q.toUpperCase() === 'NO') {
+    await aplicarComentarioEnLinea(index)
+    return
+  }
+  try {
+    const art = await resolverArticulo(q)
+    await aplicarArticuloEnLinea(index, art, art.codigo, {
+      unidadesPaquete: art.unidadesPaquete,
+    })
+  } catch {
+    abrirBuscarArticulo(index)
+  }
+}
+
+function onArticuloInput(index: number) {
+  if (!puedeEditarLineas.value) return
+  barcodeLineaIdx = index
+  barcodeWatcher.onInput(String(lineas.value[index]?.articulo ?? ''))
+}
+
 async function onArticuloKeydown(e: KeyboardEvent, index: number) {
   if (!puedeEditarLineas.value) {
     if (!tieneCliente.value) {
@@ -818,31 +874,15 @@ async function onArticuloKeydown(e: KeyboardEvent, index: number) {
   if (e.key === 'F4') {
     e.preventDefault()
     e.stopPropagation()
+    barcodeWatcher.cancel()
     abrirBuscarArticulo(index)
     return
   }
   if (e.key !== 'Enter') return
   e.preventDefault()
   e.stopPropagation()
-
-  const codigo = String(lineas.value[index]?.articulo ?? '').trim()
-  if (!codigo) {
-    abrirBuscarArticulo(index)
-    return
-  }
-  if (codigo.toUpperCase() === 'NO') {
-    await aplicarComentarioEnLinea(index)
-    return
-  }
-
-  try {
-    const { data: art } = await api.get(
-      `/api/mantenimiento/articulos/${encodeURIComponent(codigo)}`
-    )
-    await aplicarArticuloEnLinea(index, art as Record<string, unknown>, codigo)
-  } catch {
-    abrirBuscarArticulo(index)
-  }
+  barcodeWatcher.cancel()
+  await resolverArticuloEnLinea(index, String(lineas.value[index]?.articulo ?? ''))
 }
 
 async function onIntroCabecera() {
@@ -1035,7 +1075,7 @@ async function onClienteSeleccionado(sel: { codigo: string; etiqueta: string }) 
       tipo: saved.tipo,
       albaran: saved.albaran,
     })
-    mensaje.value = `Cabecera guardada. Introduzca articulos (Intro en codigo para buscar)`
+    mensaje.value = `Cabecera guardada. Introduzca articulos (escáner o Intro en codigo)`
     busqueda.upsertResumen(resumenDesdeDetalle(saved))
     const mismaRuta =
       route.name === 'ventas-detalle' &&
@@ -1054,6 +1094,7 @@ async function onClienteSeleccionado(sel: { codigo: string; etiqueta: string }) 
       await router.replace(
         `/ventas/${encodeURIComponent(saved.empresa)}/${encodeURIComponent(saved.tipo)}/${saved.albaran}`
       )
+      // cargar() del watch pondrá el foco en artículo al tener cliente.
     }
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudo guardar la cabecera')
@@ -1565,6 +1606,7 @@ onMounted(() => {
                       maxlength="18"
                       :readonly="!puedeEditarLineas"
                       :placeholder="esLineaComentario(l) ? 'NO' : 'Codigo / buscar...'"
+                      @input="onArticuloInput(i)"
                       @keydown="onArticuloKeydown($event, i)"
                       @dblclick="puedeEditarLineas && abrirBuscarArticulo(i)"
                     />

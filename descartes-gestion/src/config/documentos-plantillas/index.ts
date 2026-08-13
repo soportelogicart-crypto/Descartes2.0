@@ -6,6 +6,7 @@ import {
   plantillaFacturaRectificativa,
 } from './factura-credito-std'
 import { plantillaTicket } from './ticket-std'
+import { plantillaEtiqueta } from './etiqueta-std'
 
 export type {
   DocumentoPlantilla,
@@ -14,8 +15,32 @@ export type {
   PlantillaBloqueTipo,
   PlantillaPageFormat,
 } from './types'
-export { esPlantillaTicket } from './types'
+export {
+  ETIQUETA_TAMANOS_MM,
+  claveTamanoEtiqueta,
+  conTamanoEtiqueta,
+  esPlantillaEtiqueta,
+  esPlantillaTicket,
+  pageSizeMm,
+  parseClaveTamanoEtiqueta,
+} from './types'
 export { datosPreviewPorTipo, EMBLEMA_PLACEHOLDER } from './preview-datos'
+export { plantillaEtiqueta } from './etiqueta-std'
+export {
+  DOCUMENTOS_PLANTILLAS_SCOPES,
+  perteneceAlScope,
+  scopeDesdeRuta,
+  tiposDelScope,
+} from './scopes'
+export type { DocumentosPlantillasScope, DocumentosPlantillasScopeMeta } from './scopes'
+export {
+  datosEtiquetaDesdeArticulo,
+  datosEtiquetaDesdeCola,
+  htmlEtiquetaDesdePlantilla,
+  prepararRenderEtiqueta,
+  svgCodigoBarrasBloque,
+} from './etiqueta-html'
+export type { DatosArticuloEtiqueta, PrepRenderEtiqueta } from './etiqueta-html'
 
 export const documentosPlantillas: DocumentoPlantilla[] = [
   plantillaAlbaran,
@@ -23,6 +48,7 @@ export const documentosPlantillas: DocumentoPlantilla[] = [
   plantillaFacturaCredito,
   plantillaFacturaRectificativa,
   plantillaTicket,
+  plantillaEtiqueta,
 ]
 
 export function plantillasPorTipo(tipo: DocumentoTipo): DocumentoPlantilla[] {

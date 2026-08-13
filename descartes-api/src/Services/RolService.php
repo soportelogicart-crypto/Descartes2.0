@@ -38,6 +38,7 @@ final class RolService
     'impuestos',
     'formas-pago',
     'compras',
+    'etiquetas',
     'ventas',
     'ventas-arqueo',
     'ventas-arqueo-desglose',

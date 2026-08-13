@@ -6,6 +6,8 @@ defineProps<{
   puedeEditar?: boolean
   puedeEliminar?: boolean
   puedeGuardar?: boolean
+  /** Abrir impresión rápida de etiquetas (005). */
+  puedeEtiquetas?: boolean
   modoEdicion?: boolean
   indice?: number
   total?: number
@@ -106,8 +108,8 @@ defineEmits<{
       <button
         type="button"
         class="tool-btn"
-        :disabled="true"
-        title="Etiquetas: pendiente del modulo de crear e imprimir etiquetas"
+        :disabled="loading || !puedeEtiquetas"
+        title="Imprimir etiquetas del artículo (impresión rápida)"
         @click="$emit('etiquetas')"
       >
         <ToolIcon name="etiquetas" />

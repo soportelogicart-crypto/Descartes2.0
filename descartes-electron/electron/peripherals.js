@@ -194,15 +194,6 @@ async function printTicket(payload) {
   }
 }
 
-async function printLabel(payload) {
-  console.log('[peripherals] printLabel', payload)
-  return {
-    ok: true,
-    stub: true,
-    message: 'Impresion de etiqueta no implementada (stub)',
-  }
-}
-
 async function openCashDrawer() {
   console.log('[peripherals] openCashDrawer')
   return {
@@ -251,10 +242,60 @@ async function displayPrice(payload) {
  * payload: { html, impresora?, impresoraId?, silent? }
  */
 async function printHtml(payload) {
+  return printHtmlSized(payload || {}, {
+    widthMm: 210,
+    heightMm: 297,
+    landscape: false,
+    copies: 1,
+    tmpPrefix: 'descartes-a4',
+    errorLabel: 'A4',
+  })
+}
+
+/**
+ * Imprime etiqueta HTML con tamaño de página en mm (misma ruta que printHtml).
+ * payload: {
+ *   html,
+ *   impresora?, impresoraId?, silent?,
+ *   pageWidthMm|widthMm?, pageHeightMm|heightMm?,
+ *   copies?, landscape?
+ * }
+ */
+async function printLabel(payload) {
+  const p = payload && typeof payload === 'object' ? payload : {}
+  const widthMm = Number(p.pageWidthMm ?? p.widthMm)
+  const heightMm = Number(p.pageHeightMm ?? p.heightMm)
+  if (!Number.isFinite(widthMm) || widthMm < 5 || !Number.isFinite(heightMm) || heightMm < 5) {
+    return {
+      ok: false,
+      stub: false,
+      message: 'pageWidthMm y pageHeightMm son obligatorios (mm, ≥ 5)',
+    }
+  }
+  let copies = Math.trunc(Number(p.copies ?? 1))
+  if (!Number.isFinite(copies) || copies < 1) copies = 1
+  if (copies > 500) copies = 500
+
+  return printHtmlSized(p, {
+    widthMm,
+    heightMm,
+    landscape: Boolean(p.landscape),
+    copies,
+    tmpPrefix: 'descartes-label',
+    errorLabel: 'etiqueta',
+  })
+}
+
+/**
+ * Núcleo compartido: HTML → BrowserWindow → webContents.print con pageSize en micrones.
+ * @param {object} payload
+ * @param {{ widthMm: number, heightMm: number, landscape: boolean, copies: number, tmpPrefix: string, errorLabel: string }} opts
+ */
+async function printHtmlSized(payload, opts) {
   const fs = require('fs')
   const os = require('os')
   const path = require('path')
-  const { BrowserWindow } = require('electron')
+  const { BrowserWindow: BW } = require('electron')
 
   const html = payload && typeof payload.html === 'string' ? payload.html : ''
   if (!html.trim()) {
@@ -272,12 +313,19 @@ async function printHtml(payload) {
     ? Boolean(payload.silent)
     : true
 
-  // A4 en micrones (API Electron print).
-  const pageSizeA4 = { width: 210000, height: 297000 }
+  // Electron pageSize: micrones (1 mm = 1000 micrones).
+  const pageSize = {
+    width: Math.round(opts.widthMm * 1000),
+    height: Math.round(opts.heightMm * 1000),
+  }
+
+  const pxPerMm = 96 / 25.4
+  const winW = Math.max(80, Math.round(opts.widthMm * pxPerMm))
+  const winH = Math.max(80, Math.round(opts.heightMm * pxPerMm))
 
   const tmpPath = path.join(
     os.tmpdir(),
-    `descartes-a4-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.html`
+    `${opts.tmpPrefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.html`
   )
   fs.writeFileSync(tmpPath, html, 'utf8')
 
@@ -288,8 +336,9 @@ async function printHtml(payload) {
           silent: useSilent,
           printBackground: true,
           deviceName: resolved.name,
-          pageSize: pageSizeA4,
-          landscape: false,
+          pageSize,
+          landscape: opts.landscape,
+          copies: opts.copies,
           scaleFactor: 100,
           margins: {
             marginType: 'custom',
@@ -306,16 +355,15 @@ async function printHtml(payload) {
     })
 
   try {
-    const win = new BrowserWindow({
+    const win = new BW({
       show: false,
-      width: 794,
-      height: 1123,
+      width: winW,
+      height: winH,
       webPreferences: { sandbox: true, offscreen: false },
     })
 
     try {
       await win.loadFile(tmpPath)
-      // Esperar layout real (evita "page size is empty").
       await win.webContents.executeJavaScript(
         `Promise.resolve(document.fonts ? document.fonts.ready : null).then(function () {
           var b = document.body;
@@ -325,7 +373,6 @@ async function printHtml(payload) {
       await new Promise((r) => setTimeout(r, 350))
 
       let result = await printOnce(win, silent)
-      // Si el driver rechaza silent (página vacía), reintentar con diálogo.
       if (
         !result.success &&
         silent &&
@@ -339,14 +386,23 @@ async function printHtml(payload) {
           ok: false,
           stub: false,
           impresora: resolved.name,
-          message: result.failureReason || 'Error al imprimir A4',
+          pageWidthMm: opts.widthMm,
+          pageHeightMm: opts.heightMm,
+          copies: opts.copies,
+          message: result.failureReason || `Error al imprimir ${opts.errorLabel}`,
         }
       }
       return {
         ok: true,
         stub: false,
         impresora: resolved.name,
-        message: `Enviado a ${resolved.name}`,
+        pageWidthMm: opts.widthMm,
+        pageHeightMm: opts.heightMm,
+        copies: opts.copies,
+        message:
+          opts.copies > 1
+            ? `Enviado a ${resolved.name} (${opts.copies} copias, ${opts.widthMm}×${opts.heightMm} mm)`
+            : `Enviado a ${resolved.name} (${opts.widthMm}×${opts.heightMm} mm)`,
       }
     } finally {
       try {

@@ -1,12 +1,27 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
+import { DOCUMENTOS_PLANTILLAS_SCOPES } from '@/config/documentos-plantillas'
 
 const opciones = [
   {
-    id: 'documentos',
-    titulo: 'Confeccionar documentos',
-    descripcion: 'Plantillas A4 (albarán, facturas) y ticket térmico 80 mm.',
-    ruta: '/configuracion/documentos',
+    id: DOCUMENTOS_PLANTILLAS_SCOPES.albaranes.id,
+    titulo: DOCUMENTOS_PLANTILLAS_SCOPES.albaranes.titulo,
+    descripcion: DOCUMENTOS_PLANTILLAS_SCOPES.albaranes.descripcionHub,
+    ruta: DOCUMENTOS_PLANTILLAS_SCOPES.albaranes.ruta,
+    disponible: true,
+  },
+  {
+    id: DOCUMENTOS_PLANTILLAS_SCOPES.tickets.id,
+    titulo: DOCUMENTOS_PLANTILLAS_SCOPES.tickets.titulo,
+    descripcion: DOCUMENTOS_PLANTILLAS_SCOPES.tickets.descripcionHub,
+    ruta: DOCUMENTOS_PLANTILLAS_SCOPES.tickets.ruta,
+    disponible: true,
+  },
+  {
+    id: DOCUMENTOS_PLANTILLAS_SCOPES.etiquetas.id,
+    titulo: DOCUMENTOS_PLANTILLAS_SCOPES.etiquetas.titulo,
+    descripcion: DOCUMENTOS_PLANTILLAS_SCOPES.etiquetas.descripcionHub,
+    ruta: DOCUMENTOS_PLANTILLAS_SCOPES.etiquetas.ruta,
     disponible: true,
   },
   {

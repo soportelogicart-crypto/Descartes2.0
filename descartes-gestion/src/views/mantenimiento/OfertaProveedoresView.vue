@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { api } from '@/api/client'
+import { resolverArticulo as resolverArticuloApi } from '@/api/articulos'
 import {
   filaVaciaDesdeColumnas,
   getGridColumns,
@@ -351,8 +352,9 @@ async function resolverArticulo() {
     return
   }
   try {
-    const { data } = await api.get(`/api/mantenimiento/articulos/${encodeURIComponent(codigo)}`)
-    articuloDescripcion.value = String(data.descripcion ?? data.nombre ?? '')
+    const art = await resolverArticuloApi(codigo)
+    form.articulo = art.codigo
+    articuloDescripcion.value = String(art.descripcion ?? art.nombre ?? '')
   } catch {
     articuloDescripcion.value = ''
   }

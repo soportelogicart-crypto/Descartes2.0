@@ -82,6 +82,11 @@ export const CAMPOS_BIND_SUGERIDOS = [
   'documento.observaciones',
   'documento.codigoBarras',
   'documento.pagina',
+  'articulo.codigo',
+  'articulo.descripcion',
+  'articulo.ean',
+  'articulo.precio',
+  'articulo.lote',
   'lineas',
   'totales.base',
   'totales.ivas',
@@ -89,6 +94,14 @@ export const CAMPOS_BIND_SUGERIDOS = [
   'vencimientos',
   'verifactu.qrPayload',
   'verifactu.url',
+]
+
+/** Catálogo reducido para etiquetas de artículo (format label). */
+export const CATALOGO_BLOQUES_ETIQUETA: BloqueCatalogoItem[] = [
+  { type: 'campo', nombre: 'Campo' },
+  { type: 'texto', nombre: 'Texto fijo' },
+  { type: 'codigo-barras', nombre: 'Código de barras EAN', unico: true },
+  { type: 'separador', nombre: 'Separador' },
 ]
 
 let seq = 0

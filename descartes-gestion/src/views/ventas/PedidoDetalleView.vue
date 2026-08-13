@@ -10,6 +10,8 @@ import {
   obtenerPedido,
   reservarPedido,
 } from '@/api/ventas'
+import { resolverArticulo } from '@/api/articulos'
+import { createBarcodeScanWatcher } from '@/composables/useBarcodeScanWatcher'
 import type { PedidoDetalle, PedidoLinea, PedidoResumen } from '@/types/ventas'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
@@ -441,27 +443,45 @@ async function onArticuloKeydown(e: KeyboardEvent, index: number) {
   if (e.key === 'F4') {
     e.preventDefault()
     e.stopPropagation()
+    barcodeWatcher.cancel()
     abrirBuscarArticulo(index)
     return
   }
   if (e.key !== 'Enter') return
   e.preventDefault()
   e.stopPropagation()
+  barcodeWatcher.cancel()
+  await resolverArticuloEnLinea(index, String(editForm.value.lineas[index]?.articulo ?? ''))
+}
 
-  const codigo = String(editForm.value.lineas[index]?.articulo ?? '').trim()
-  if (!codigo) {
+let barcodeLineaIdx = 0
+const barcodeWatcher = createBarcodeScanWatcher(async (codigo) => {
+  if (!editando.value) return
+  await resolverArticuloEnLinea(barcodeLineaIdx, codigo)
+})
+
+async function resolverArticuloEnLinea(index: number, codigo: string) {
+  const q = String(codigo ?? '').trim()
+  if (!q) {
     abrirBuscarArticulo(index)
     return
   }
-
   try {
-    const { data: art } = await api.get(
-      `/api/mantenimiento/articulos/${encodeURIComponent(codigo)}`
-    )
-    await aplicarArticuloEnLinea(index, art as Record<string, unknown>, codigo)
+    const art = await resolverArticulo(q)
+    await aplicarArticuloEnLinea(index, art, art.codigo)
+    const linea = editForm.value.lineas[index]
+    if (linea && art.unidadesPaquete > 1 && (!linea.cantidadPedida || linea.cantidadPedida === 1)) {
+      linea.cantidadPedida = art.unidadesPaquete
+    }
   } catch {
     abrirBuscarArticulo(index)
   }
+}
+
+function onArticuloInput(index: number) {
+  if (!editando.value) return
+  barcodeLineaIdx = index
+  barcodeWatcher.onInput(String(editForm.value.lineas[index]?.articulo ?? ''))
 }
 
 function abrirBuscarVendedor() {
@@ -1255,6 +1275,7 @@ onActivated(() => {
                     v-model="l.articulo"
                     maxlength="18"
                     placeholder="Código / buscar..."
+                    @input="onArticuloInput(i)"
                     @keydown="onArticuloKeydown($event, i)"
                     @dblclick="abrirBuscarArticulo(i)"
                   />

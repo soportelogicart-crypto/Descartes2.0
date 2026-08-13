@@ -9,6 +9,7 @@ import { proveedoresMenuItems, esRutaProveedores } from '@/config/proveedores-me
 import { ventasMenuItems } from '@/config/ventas-nav'
 import { facturacionMenuItems } from '@/config/facturacion-nav'
 import { comprasMenuItems } from '@/config/compras-nav'
+import { etiquetasMenuItems } from '@/config/etiquetas-nav'
 import { moduloDeEntradaMenu } from '@/config/mantenimiento-nav-permisos'
 import { menuPrincipalSecciones } from '@/config/menu-principal'
 import { entidades } from '@/config/entidades'
@@ -54,6 +55,15 @@ const comprasItems = computed(() =>
 
 const comprasSeccionVisible = computed(() => comprasItems.value.some((i) => i.habilitado))
 
+const etiquetasItems = computed(() =>
+  etiquetasMenuItems.map((item) => ({
+    ...item,
+    habilitado: puede(item.modulo, 'ver'),
+  }))
+)
+
+const etiquetasSeccionVisible = computed(() => etiquetasItems.value.some((i) => i.habilitado))
+
 const facturacionItems = computed(() =>
   facturacionMenuItems.map((item) => ({
     ...item,
@@ -68,15 +78,17 @@ const facturacionSeccionVisible = computed(() =>
 const secciones = computed(() =>
   menuPrincipalSecciones.map((seccion) => ({
     ...seccion,
-    // Ocultar seccion si no hay submenu permitido (compras / ventas / facturacion).
+    // Ocultar seccion si no hay submenu permitido (compras / etiquetas / ventas / facturacion).
     habilitado:
       seccion.id === 'compras'
         ? comprasSeccionVisible.value
-        : seccion.id === 'ventas'
-          ? ventasSeccionVisible.value
-          : seccion.id === 'facturacion'
-            ? facturacionSeccionVisible.value
-            : true,
+        : seccion.id === 'etiquetas'
+          ? etiquetasSeccionVisible.value
+          : seccion.id === 'ventas'
+            ? ventasSeccionVisible.value
+            : seccion.id === 'facturacion'
+              ? facturacionSeccionVisible.value
+              : true,
     activa:
       seccion.id === 'mantenimiento'
         ? route.path.startsWith('/mantenimiento')
@@ -333,6 +345,27 @@ async function logout() {
         <!-- Compras: submenus del modulo -->
         <nav v-else-if="seccion.id === 'compras'" v-show="seccionesAbiertas.compras">
           <template v-for="item in comprasItems" :key="item.id">
+            <RouterLink
+              v-if="item.habilitado"
+              :to="item.ruta"
+              class="nav-link nav-child"
+              :class="{
+                active:
+                  route.path === item.ruta || route.path.startsWith(item.ruta + '/'),
+              }"
+              @click="cerrarMenu"
+            >
+              {{ item.titulo }}
+            </RouterLink>
+            <span v-else class="nav-link nav-child disabled" title="Sin permiso">{{
+              item.titulo
+            }}</span>
+          </template>
+        </nav>
+
+        <!-- Etiquetas: cola de impresión -->
+        <nav v-else-if="seccion.id === 'etiquetas'" v-show="seccionesAbiertas.etiquetas">
+          <template v-for="item in etiquetasItems" :key="item.id">
             <RouterLink
               v-if="item.habilitado"
               :to="item.ruta"

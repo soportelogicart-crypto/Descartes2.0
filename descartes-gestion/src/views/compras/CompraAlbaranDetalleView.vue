@@ -9,6 +9,9 @@ import {
   eliminarAlbaranCompra,
   obtenerAlbaranCompra,
 } from '@/api/compras'
+import { encolarDesdeAlbaranCompra } from '@/api/etiquetas'
+import { resolverArticulo } from '@/api/articulos'
+import { createBarcodeScanWatcher } from '@/composables/useBarcodeScanWatcher'
 import type { AlbaranCompraDetalle, AlbaranCompraLinea, AlbaranCompraPayload } from '@/types/compras'
 import { extractApiError } from '@/composables/extractApiError'
 import {
@@ -41,6 +44,14 @@ function esEstaInstanciaActiva(): boolean {
 const puedeCrear = computed(() => puede('compras', 'crear'))
 const puedeEditar = computed(() => puede('compras', 'editar'))
 const puedeEliminar = computed(() => puede('compras', 'eliminar'))
+/** Generar cola de etiquetas desde albarán (005 / US5). */
+const puedeGenerarEtiquetas = computed(
+  () =>
+    puede('etiquetas', 'crear') &&
+    !!ficha.value &&
+    !esNuevo.value &&
+    (ficha.value.lineas?.some((l) => String(l.articulo ?? '').trim()) ?? false)
+)
 
 const loading = ref(false)
 const saving = ref(false)
@@ -51,6 +62,7 @@ const modoEdicion = ref(false)
 const esNuevo = ref(false)
 const confirmBorrar = ref(false)
 const confirmStock = ref(false)
+const generandoEtiquetas = ref(false)
 const a4Open = ref(false)
 const a4Prep = ref<PrepImpresionA4 | null>(null)
 const a4Imprimiendo = ref(false)
@@ -407,6 +419,42 @@ async function onStockConfirmado() {
   }
 }
 
+/** Vuelca líneas del albarán a la cola Etiquetas (005 / T032). */
+async function onGenerarEtiquetas() {
+  if (!puedeGenerarEtiquetas.value || !ficha.value) return
+  generandoEtiquetas.value = true
+  error.value = null
+  mensaje.value = null
+  try {
+    const res = await encolarDesdeAlbaranCompra({
+      empresa: ficha.value.empresa,
+      albaran: ficha.value.albaran,
+      puesto: puesto.puestoCodigo || undefined,
+    })
+    const n = res.items?.length ?? 0
+    const omit = res.omitidas ?? 0
+    if (n === 0) {
+      mensaje.value =
+        omit > 0
+          ? `No se generaron etiquetas (${omit} línea(s) omitida(s): sin EAN o sin artículo)`
+          : 'No hay líneas para generar etiquetas'
+    } else {
+      mensaje.value =
+        `Generadas ${n} etiqueta(s) en cola` +
+        (omit > 0 ? ` (${omit} omitida(s))` : '') +
+        '. Abra menú Etiquetas para imprimir.'
+    }
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudieron generar las etiquetas')
+  } finally {
+    generandoEtiquetas.value = false
+  }
+}
+
+function irAColaEtiquetas() {
+  void router.push({ name: 'etiquetas-cola' })
+}
+
 async function onImprimir() {
   if (!puedeImprimir.value || !ficha.value) return
   error.value = null
@@ -471,6 +519,72 @@ async function onArticuloSeleccionado(r: EntidadBuscarResultado) {
   await nextTick()
 }
 
+async function aplicarArticuloResuelto(idx: number, art: Awaited<ReturnType<typeof resolverArticulo>>) {
+  const linea = form.value.lineas[idx]
+  if (!linea) return
+  linea.articulo = art.codigo
+  linea.descripcion = String(art.descripcion ?? '').trim()
+  const precio = Number(art.precioUltimo ?? art.precioMedio ?? art.precioVen1 ?? 0)
+  if (precio > 0 && !linea.precio) linea.precio = precio
+  const uds = Number(art.unidadesPaquete)
+  if (uds > 0 && (!linea.cantidad || linea.cantidad === 1)) {
+    linea.cantidad = uds
+  } else if (!linea.cantidad) {
+    linea.cantidad = 1
+  }
+  if (idx === form.value.lineas.length - 1) {
+    form.value.lineas.push(lineaVacia())
+  }
+  await nextTick()
+  const next = document.querySelector<HTMLInputElement>(
+    `tr:nth-child(${idx + 2}) .col-art input`
+  )
+  next?.focus()
+  next?.select()
+}
+
+async function onArticuloKeydown(e: KeyboardEvent, idx: number) {
+  if (!camposEditables.value) return
+  if (e.key === 'F4') {
+    e.preventDefault()
+    barcodeWatcher.cancel()
+    abrirBuscarArticulo(idx)
+    return
+  }
+  if (e.key !== 'Enter') return
+  e.preventDefault()
+  barcodeWatcher.cancel()
+  await resolverArticuloEnLinea(idx, String(form.value.lineas[idx]?.articulo ?? ''))
+}
+
+let barcodeLineaIdx = 0
+const barcodeWatcher = createBarcodeScanWatcher(async (codigo) => {
+  if (!camposEditables.value) return
+  await resolverArticuloEnLinea(barcodeLineaIdx, codigo)
+})
+
+async function resolverArticuloEnLinea(idx: number, q: string) {
+  const codigo = String(q ?? '').trim()
+  if (!codigo) {
+    abrirBuscarArticulo(idx)
+    return
+  }
+  error.value = null
+  try {
+    const art = await resolverArticulo(codigo)
+    await aplicarArticuloResuelto(idx, art)
+  } catch (err: unknown) {
+    error.value = extractApiError(err, 'Artículo no encontrado')
+    abrirBuscarArticulo(idx)
+  }
+}
+
+function onArticuloInput(idx: number) {
+  if (!camposEditables.value) return
+  barcodeLineaIdx = idx
+  barcodeWatcher.onInput(String(form.value.lineas[idx]?.articulo ?? ''))
+}
+
 function quitarLinea(idx: number) {
   if (!camposEditables.value) return
   if (form.value.lineas.length <= 1) {
@@ -533,16 +647,39 @@ watch(
       </div>
       <p v-if="soloLecturaMotivo" class="badge-bloqueo">Solo lectura — {{ soloLecturaMotivo }}</p>
       <p v-else-if="modoEdicion" class="badge-ok">Editando</p>
-      <button
-        v-if="puedeActualizarStock"
-        type="button"
-        class="btn-stock"
-        :disabled="loading"
-        title="Aplicar entradas de stock y marcar Actualizado"
-        @click="pedirActualizarStock"
-      >
-        Actualizar stock
-      </button>
+      <div class="head-actions">
+        <button
+          v-if="puedeGenerarEtiquetas"
+          type="button"
+          class="btn-etiquetas"
+          :disabled="loading || generandoEtiquetas || modoEdicion"
+          title="Añadir líneas del albarán a la cola de etiquetas"
+          @click="onGenerarEtiquetas"
+        >
+          <ToolIcon name="etiquetas" />
+          {{ generandoEtiquetas ? 'Generando…' : 'Generar etiquetas' }}
+        </button>
+        <button
+          v-if="puedeGenerarEtiquetas"
+          type="button"
+          class="btn-etiquetas-sec"
+          :disabled="loading || generandoEtiquetas"
+          title="Abrir cola de etiquetas"
+          @click="irAColaEtiquetas"
+        >
+          Ver cola
+        </button>
+        <button
+          v-if="puedeActualizarStock"
+          type="button"
+          class="btn-stock"
+          :disabled="loading"
+          title="Aplicar entradas de stock y marcar Actualizado"
+          @click="pedirActualizarStock"
+        >
+          Actualizar stock
+        </button>
+      </div>
     </div>
 
     <p v-if="error" class="error">{{ error }}</p>
@@ -688,7 +825,8 @@ watch(
                   <div v-if="camposEditables" class="con-lupa">
                     <input
                       v-model="l.articulo"
-                      @keydown.f4.prevent="abrirBuscarArticulo(idx)"
+                      @input="onArticuloInput(idx)"
+                      @keydown="onArticuloKeydown($event, idx)"
                     />
                     <button
                       type="button"
@@ -830,6 +968,49 @@ watch(
   color: #166534;
   font-size: 0.8rem;
   font-weight: 600;
+}
+.head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+.btn-etiquetas {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid #1d4ed8;
+  background: #2563eb;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+}
+.btn-etiquetas:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.btn-etiquetas :deep(.tool-icon) {
+  width: 1rem;
+  height: 1rem;
+}
+.btn-etiquetas-sec {
+  padding: 0.4rem 0.65rem;
+  border-radius: 6px;
+  border: 1px solid #94a3b8;
+  background: #fff;
+  color: #1e40af;
+  font-weight: 600;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+}
+.btn-etiquetas-sec:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 .btn-stock {
   padding: 0.4rem 0.75rem;

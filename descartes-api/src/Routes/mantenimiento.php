@@ -62,6 +62,10 @@ return function (App $app): void {
 
     $group->get('/articulos/siguiente-codigo', [ArticuloController::class, 'siguienteCodigo'])
       ->add($setPermisoModulo('articulos', 'crear'));
+    $group->get('/articulos/resolver', [ArticuloController::class, 'resolver'])
+      ->add($setPermisoModulo('articulos', 'ver'));
+    $group->get('/articulos/ean-lookup', [ArticuloController::class, 'eanLookup'])
+      ->add($setPermisoModulo('articulos', 'ver'));
     $group->get('/articulos/{codigo}/stock', [ArticuloController::class, 'getStock'])
       ->add($setPermisoModulo('articulos', 'ver'));
     $group->get('/articulos/{codigo}/eans', [ArticuloController::class, 'listEans'])

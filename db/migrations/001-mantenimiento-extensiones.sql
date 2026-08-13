@@ -79,7 +79,7 @@ DECLARE @modulos TABLE (Modulo nvarchar(30));
 INSERT INTO @modulos VALUES
     ('mantenimiento'), ('empresas'), ('tiendas'), ('usuarios'), ('roles'),
     ('trabajadores'), ('puestos'), ('articulos'), ('clientes'), ('proveedores'),
-    ('almacenes'), ('impuestos'), ('formas-pago'), ('compras'), ('ventas'),
+    ('almacenes'), ('impuestos'), ('formas-pago'), ('compras'), ('etiquetas'), ('ventas'),
     ('facturacion'), ('inventario'), ('tpv');
 
 INSERT INTO [dbo].[RolPermisos] ([Rol], [Modulo], [Ver], [Crear], [Editar], [Eliminar])

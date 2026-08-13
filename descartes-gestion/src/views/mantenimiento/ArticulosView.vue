@@ -28,10 +28,13 @@ import ArticuloFichaPlantaModal from '@/components/articulos/ArticuloFichaPlanta
 import ArticuloConsultaModal from '@/components/articulos/ArticuloConsultaModal.vue'
 import ArticuloEansModal from '@/components/articulos/ArticuloEansModal.vue'
 import ArticuloEscandalloModal from '@/components/articulos/ArticuloEscandalloModal.vue'
+import ArticuloEtiquetasRapidaModal from '@/components/articulos/ArticuloEtiquetasRapidaModal.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import ListPagination from '@/components/common/ListPagination.vue'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
+import { resolverArticulo } from '@/api/articulos'
+import { createBarcodeScanWatcher } from '@/composables/useBarcodeScanWatcher'
 
 const MODULO = 'articulos'
 const ENTIDAD = 'articulos'
@@ -48,6 +51,9 @@ const puestoContexto = usePuestoContextoStore()
 const puedeCrear = computed(() => puede(MODULO, 'crear'))
 const puedeEditar = computed(() => puede(MODULO, 'editar'))
 const puedeEliminar = computed(() => puede(MODULO, 'eliminar'))
+/** Impresión rápida etiquetas (005 / US1): módulo etiquetas. */
+const puedeEtiquetasVer = computed(() => puede('etiquetas', 'ver'))
+const puedeEtiquetasImprimir = computed(() => puede('etiquetas', 'editar'))
 const puedeVer = computed(() => puede(MODULO, 'ver'))
 
 const vista = ref<'grid' | 'ficha'>('grid')
@@ -107,6 +113,7 @@ const mostrarFichaPlanta = ref(false)
 const mostrarConsulta = ref(false)
 const mostrarEans = ref(false)
 const mostrarEscandallo = ref(false)
+const mostrarEtiquetas = ref(false)
 const camposInvalidos = ref<string[]>([])
 const avisoOpen = ref(false)
 const avisoTitulo = ref('Campo obligatorio')
@@ -191,7 +198,13 @@ onMounted(async () => {
   const codigoQuery = String(route.query.codigo ?? '').trim()
   if (codigoQuery) {
     await abrirFichaPorCodigo(codigoQuery)
+  } else {
+    enfocarScanInput()
   }
+})
+
+watch(vista, (v) => {
+  if (v === 'grid') enfocarScanInput()
 })
 
 watch(
@@ -270,7 +283,70 @@ function onPageSize(n: number) {
 function buscarServidorAhora() {
   if (debounceFiltros) clearTimeout(debounceFiltros)
   page.value = 1
-  void cargar({ silent: true })
+  void (async () => {
+    const q = textoBusquedaServidor().trim()
+    if (q && (await intentarAbrirFichaPorReferencia(q))) return
+    await cargar({ silent: true })
+  })()
+}
+
+/** Abre ficha si `q` es código, alternativo o EAN (escáner / Intro en embudo). */
+async function intentarAbrirFichaPorReferencia(raw: string): Promise<boolean> {
+  const q = String(raw ?? '').trim()
+  if (q.length < 4 || /\s/.test(q) || !/^[0-9A-Za-z\-]+$/.test(q)) return false
+  try {
+    const art = await resolverArticulo(q)
+    await abrirFichaPorCodigo(art.codigo)
+    return true
+  } catch {
+    return false
+  }
+}
+
+const scanCodigo = ref('')
+const scanInputRef = ref<HTMLInputElement | null>(null)
+const scanBusy = ref(false)
+
+function enfocarScanInput() {
+  if (vista.value !== 'grid') return
+  void nextTick(() => {
+    requestAnimationFrame(() => {
+      scanInputRef.value?.focus()
+      scanInputRef.value?.select()
+    })
+  })
+}
+
+async function abrirPorEscaneo(raw: string) {
+  const q = String(raw ?? '').trim()
+  if (!q || scanBusy.value || vista.value !== 'grid') return
+  scanBusy.value = true
+  mensaje.value = null
+  try {
+    const art = await resolverArticulo(q)
+    scanCodigo.value = ''
+    await abrirFichaPorCodigo(art.codigo)
+  } catch (e: unknown) {
+    mensaje.value = extractApiError(e, 'Artículo no encontrado (código / EAN)')
+    enfocarScanInput()
+  } finally {
+    scanBusy.value = false
+  }
+}
+
+const scanWatcher = createBarcodeScanWatcher((codigo) => {
+  void abrirPorEscaneo(codigo)
+})
+
+function onScanInput() {
+  scanWatcher.onInput(scanCodigo.value)
+}
+
+function onScanKeydown(e: KeyboardEvent) {
+  if (e.key !== 'Enter') return
+  e.preventDefault()
+  scanWatcher.cancel()
+  void abrirPorEscaneo(scanCodigo.value)
 }
 
 let debounceFiltros: ReturnType<typeof setTimeout> | null = null
@@ -448,15 +524,32 @@ function volverAlGrid() {
   codigoAutomatico.value = false
   camposInvalidos.value = []
   ficha.value = {}
+  scanCodigo.value = ''
+  enfocarScanInput()
 }
 
 function onAccionPendiente(nombre: string) {
   const detalle: Record<string, string> = {
-    Etiquetas: 'Pendiente del modulo de crear e imprimir etiquetas.',
     Excepciones:
       'En BD solo aparece ExcepcionesAsignacionPedidos (Region/Proveedor/Articulo), sin uso claro. Confirma el dialogo legacy para portarlo.',
   }
   mensaje.value = detalle[nombre] ?? `${nombre}: pendiente de portar`
+}
+
+function onEtiquetas() {
+  if (!ficha.value.codigo || esNuevo.value) {
+    mensaje.value = 'Guarde el articulo antes de imprimir etiquetas'
+    return
+  }
+  if (!puedeEtiquetasVer.value && !puedeEtiquetasImprimir.value) {
+    mensaje.value = 'Sin permiso de etiquetas'
+    return
+  }
+  mostrarEtiquetas.value = true
+}
+
+function onEtiquetaImpresa(msg: string) {
+  mensaje.value = msg
 }
 
 function onFichaPlanta() {
@@ -548,6 +641,20 @@ const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
             Ficha
           </button>
 
+          <label class="scan-box" title="Escanee o escriba código / EAN y pulse Intro">
+            <span>Escanear</span>
+            <input
+              ref="scanInputRef"
+              v-model="scanCodigo"
+              type="text"
+              maxlength="32"
+              placeholder="Código / EAN"
+              :disabled="loading || scanBusy"
+              @input="onScanInput"
+              @keydown="onScanKeydown"
+            />
+          </label>
+
           <div class="toolbar-spacer"></div>
 
           <button
@@ -587,8 +694,8 @@ const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
         />
 
         <p class="hint">
-          Filtra columnas con el embudo. La fila <strong>*</strong> no se edita aqui: use <strong>Nuevo</strong> o doble
-          clic en ella para crear en ficha.
+          <strong>Escanear</strong> código o EAN abre la ficha. También puede filtrar con el embudo (Intro en
+          código/EAN exacto abre ficha). Doble clic en una fila o en <strong>*</strong> para crear.
         </p>
       </template>
 
@@ -602,6 +709,7 @@ const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
             :puede-editar="puedeEditar"
             :puede-eliminar="puedeEliminar"
             :puede-guardar="puedeCrear || puedeEditar"
+            :puede-etiquetas="puedeEtiquetasVer || puedeEtiquetasImprimir"
             :modo-edicion="modoEdicion || esNuevo"
             :indice="indiceFicha < 0 ? undefined : indiceFicha"
             :total="totalFicha"
@@ -618,7 +726,7 @@ const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
             @ultimo="onUltimo"
             @escandallo="onEscandallo"
             @eans="onEans"
-            @etiquetas="onAccionPendiente('Etiquetas')"
+            @etiquetas="onEtiquetas"
             @ficha="onFichaPlanta"
             @consulta="onConsulta"
             @bloqueo="onBloqueo"
@@ -724,6 +832,18 @@ const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
         @cerrar="mostrarEans = false"
       />
 
+      <ArticuloEtiquetasRapidaModal
+        :open="mostrarEtiquetas"
+        :codigo="String(ficha.codigo ?? '')"
+        :descripcion="String(ficha.descripcion ?? '')"
+        :precio="Number(ficha.precioVen1 ?? ficha.precioVenta ?? 0)"
+        :empresa="puestoContexto.empresaCodigo"
+        :puesto-codigo="puestoContexto.puestoCodigo"
+        :puede-imprimir="puedeEtiquetasImprimir"
+        @cerrar="mostrarEtiquetas = false"
+        @impresa="onEtiquetaImpresa"
+      />
+
       <ArticuloEscandalloModal
         v-if="mostrarEscandallo && ficha.codigo"
         :open="mostrarEscandallo"
@@ -755,6 +875,32 @@ const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
 
 .toolbar-spacer {
   flex: 1;
+}
+
+.scan-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: 0.35rem;
+  font-size: 0.75rem;
+  color: #475569;
+  font-weight: 600;
+}
+
+.scan-box input {
+  width: 11rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+  font: inherit;
+  font-weight: 500;
+  color: #0f172a;
+}
+
+.scan-box input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgb(59 130 246 / 20%);
 }
 
 .tool-btn {

@@ -2,7 +2,16 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { DocumentoPlantilla, PlantillaBloque, PlantillaBloqueTipo } from '@/config/documentos-plantillas'
 import {
+  ETIQUETA_TAMANOS_MM,
+  claveTamanoEtiqueta,
+  conTamanoEtiqueta,
+  esPlantillaEtiqueta,
+  pageSizeMm,
+  parseClaveTamanoEtiqueta,
+} from '@/config/documentos-plantillas'
+import {
   CATALOGO_BLOQUES,
+  CATALOGO_BLOQUES_ETIQUETA,
   CAMPOS_BIND_SUGERIDOS,
   crearBloquePorTipo,
   etiquetaTipoBloque,
@@ -18,11 +27,10 @@ const emit = defineEmits<{
   dirty: [value: boolean]
 }>()
 
-const PAGE_W = 210
-const PAGE_H = 297
-
 const canvasRef = ref<HTMLElement | null>(null)
-const pxPerMm = ref(2.4)
+/** ~1 mm en pantalla a 96 dpi (proporción real). */
+const FOLIO_PX_PER_MM = 96 / 25.4
+const pxPerMm = ref(FOLIO_PX_PER_MM)
 const selectedId = ref<string | null>(null)
 const dirty = ref(false)
 
@@ -42,11 +50,30 @@ const plantilla = computed({
   set: (v) => emit('update:modelValue', v),
 })
 
+const esEtiqueta = computed(() => esPlantillaEtiqueta(plantilla.value))
+
+const pageDims = computed(() => pageSizeMm(plantilla.value))
+const PAGE_W = computed(() => pageDims.value.widthMm)
+const PAGE_H = computed(() => pageDims.value.heightMm)
+
+const catalogo = computed(() =>
+  esEtiqueta.value ? CATALOGO_BLOQUES_ETIQUETA : CATALOGO_BLOQUES
+)
+
+const bindsSugeridos = computed(() => {
+  if (!esEtiqueta.value) return CAMPOS_BIND_SUGERIDOS
+  const art = CAMPOS_BIND_SUGERIDOS.filter((p) => p.startsWith('articulo.'))
+  const rest = CAMPOS_BIND_SUGERIDOS.filter(
+    (p) => !p.startsWith('articulo.') && !p.startsWith('cliente.') && p !== 'lineas'
+  )
+  return [...art, ...rest]
+})
+
 const selected = computed(() => plantilla.value.blocks.find((b) => b.id === selectedId.value) ?? null)
 
 const pageStyle = computed(() => ({
-  width: `${PAGE_W * pxPerMm.value}px`,
-  height: `${PAGE_H * pxPerMm.value}px`,
+  width: `${PAGE_W.value * pxPerMm.value}px`,
+  height: `${PAGE_H.value * pxPerMm.value}px`,
 }))
 
 const marginStyle = computed(() => {
@@ -54,8 +81,8 @@ const marginStyle = computed(() => {
   return {
     left: `${m.left * pxPerMm.value}px`,
     top: `${m.top * pxPerMm.value}px`,
-    width: `${(PAGE_W - m.left - m.right) * pxPerMm.value}px`,
-    height: `${(PAGE_H - m.top - m.bottom) * pxPerMm.value}px`,
+    width: `${(PAGE_W.value - m.left - m.right) * pxPerMm.value}px`,
+    height: `${(PAGE_H.value - m.top - m.bottom) * pxPerMm.value}px`,
   }
 })
 
@@ -86,6 +113,102 @@ const etiquetaModo = computed({
   set: (v: string) => setProp('etiquetaModo', v),
 })
 
+const fontSizeMm = computed({
+  get: () => {
+    const n = Number(selected.value?.props?.fontSizeMm)
+    return Number.isFinite(n) && n > 0 ? n : (esEtiqueta.value ? 3 : 2.2)
+  },
+  set: (v: number) => {
+    const n = Number(v)
+    if (!Number.isFinite(n) || n <= 0) {
+      setProp('fontSizeMm', '')
+      return
+    }
+    setProp('fontSizeMm', Math.min(20, Math.max(1, Math.round(n * 10) / 10)))
+  },
+})
+
+const fontWeight = computed({
+  get: () => String(selected.value?.props?.fontWeight ?? 'normal'),
+  set: (v: string) => setProp('fontWeight', v === 'bold' ? 'bold' : ''),
+})
+
+const textAlign = computed({
+  get: () => {
+    if (selected.value?.props?.align === 'right') return 'right'
+    if (selected.value?.props?.centrado) return 'center'
+    return 'left'
+  },
+  set: (v: string) => {
+    if (!selected.value || props.readonly) return
+    const propsMap = { ...(selected.value.props ?? {}) }
+    delete propsMap.align
+    delete propsMap.centrado
+    if (v === 'right') propsMap.align = 'right'
+    else if (v === 'center') propsMap.centrado = true
+    patchBlockContent(selected.value.id, { props: propsMap })
+  },
+})
+
+const muestraTipografia = computed(
+  () =>
+    selected.value &&
+    (selected.value.type === 'campo' ||
+      selected.value.type === 'texto' ||
+      selected.value.type === 'titulo-documento')
+)
+
+const muestraBarras = computed(() => selected.value?.type === 'codigo-barras')
+
+const BARCODE_PRESETS = [
+  { id: 'S', label: 'Pequeño', w: 24, h: 7 },
+  { id: 'M', label: 'Mediano', w: 32, h: 10 },
+  { id: 'L', label: 'Grande', w: 40, h: 13 },
+  { id: 'XL', label: 'Extra', w: 46, h: 16 },
+] as const
+
+const barcodePresetKey = computed(() => {
+  if (!selected.value || selected.value.type !== 'codigo-barras') return ''
+  const { w, h } = selected.value
+  const hit = BARCODE_PRESETS.find((p) => p.w === w && p.h === h)
+  return hit?.id ?? 'custom'
+})
+
+const barcodeShowValue = computed({
+  get: () => selected.value?.props?.showValue !== false,
+  set: (v: boolean) => {
+    if (!selected.value || props.readonly) return
+    const propsMap = { ...(selected.value.props ?? {}) }
+    if (v) delete propsMap.showValue
+    else propsMap.showValue = false
+    patchBlockContent(selected.value.id, { props: propsMap })
+  },
+})
+
+const barcodeModuleWidth = computed({
+  get: () => {
+    const n = Number(selected.value?.props?.moduleWidth)
+    return Number.isFinite(n) && n >= 0.6 ? n : 1.2
+  },
+  set: (v: number) => {
+    const n = Number(v)
+    if (!Number.isFinite(n)) return
+    setProp('moduleWidth', Math.min(3, Math.max(0.6, Math.round(n * 10) / 10)))
+  },
+})
+
+function aplicarPresetBarras(id: string) {
+  if (!selected.value || selected.value.type !== 'codigo-barras' || props.readonly) return
+  const preset = BARCODE_PRESETS.find((p) => p.id === id)
+  if (!preset) return
+  const maxW = PAGE_W.value
+  const maxH = PAGE_H.value
+  patchBlock(selected.value.id, {
+    w: Math.min(preset.w, maxW - selected.value.x),
+    h: Math.min(preset.h, maxH - selected.value.y),
+  })
+}
+
 function etiquetaBloque(type: PlantillaBloqueTipo, label?: string) {
   return label?.trim() || etiquetaTipoBloque(type)
 }
@@ -95,7 +218,7 @@ function tieneBloque(type: PlantillaBloqueTipo) {
 }
 
 function puedeAnadir(type: PlantillaBloqueTipo) {
-  const meta = CATALOGO_BLOQUES.find((c) => c.type === type)
+  const meta = catalogo.value.find((c) => c.type === type)
   if (!meta) return false
   if (meta.unico && tieneBloque(type)) return false
   return true
@@ -109,11 +232,26 @@ function markDirty() {
 function anadirBloque(type: PlantillaBloqueTipo) {
   if (props.readonly || !puedeAnadir(type)) return
   const block = crearBloquePorTipo(type)
+  if (esEtiqueta.value) {
+    if (type === 'codigo-barras') {
+      block.bind = ['articulo.ean']
+      block.w = Math.min(32, PAGE_W.value - 2)
+      block.h = Math.min(10, PAGE_H.value - 2)
+      block.x = 1.5
+      block.y = 1.5
+      block.props = { ...(block.props ?? {}), showValue: true, moduleWidth: 1.2 }
+    } else if (type === 'campo' || type === 'texto' || type === 'titulo-documento') {
+      block.w = Math.min(40, PAGE_W.value - 2)
+      block.h = Math.min(6, PAGE_H.value - 2)
+      if (type === 'campo') block.bind = ['articulo.descripcion']
+      block.props = { ...(block.props ?? {}), fontSizeMm: 3.5 }
+    }
+  }
   // Evitar id duplicado
   if (plantilla.value.blocks.some((b) => b.id === block.id)) {
     block.id = `${block.id}-${Date.now().toString(36)}`
   }
-  plantilla.value = { ...plantilla.value, blocks: [...plantilla.value.blocks, block] }
+  plantilla.value = { ...plantilla.value, blocks: [...plantilla.value.blocks, clampBlock(block)] }
   selectedId.value = block.id
   markDirty()
 }
@@ -145,14 +283,48 @@ function round1(n: number) {
 }
 
 function clampBlock(b: PlantillaBloque): PlantillaBloque {
-  const min = 8
+  const min = esEtiqueta.value ? 2 : 8
+  const maxW = PAGE_W.value
+  const maxH = PAGE_H.value
   let w = Math.max(min, b.w)
   let h = Math.max(min, b.h)
-  let x = Math.max(0, Math.min(b.x, PAGE_W - w))
-  let y = Math.max(0, Math.min(b.y, PAGE_H - h))
-  w = Math.min(w, PAGE_W - x)
-  h = Math.min(h, PAGE_H - y)
+  let x = Math.max(0, Math.min(b.x, maxW - w))
+  let y = Math.max(0, Math.min(b.y, maxH - h))
+  w = Math.min(w, maxW - x)
+  h = Math.min(h, maxH - y)
   return { ...b, x: round1(x), y: round1(y), w: round1(w), h: round1(h) }
+}
+
+function aplicarTamanoEtiqueta(widthMm: number, heightMm: number) {
+  if (props.readonly || !esEtiqueta.value) return
+  plantilla.value = conTamanoEtiqueta(plantilla.value, widthMm, heightMm)
+  markDirty()
+  void nextTick(() => fitScale())
+}
+
+function onPresetTamano(clave: string) {
+  if (!clave || clave === 'custom') return
+  const parsed = parseClaveTamanoEtiqueta(clave)
+  if (parsed) aplicarTamanoEtiqueta(parsed.widthMm, parsed.heightMm)
+}
+
+const tamanoPresetKey = computed(() => {
+  if (!esEtiqueta.value) return ''
+  const w = plantilla.value.page.widthMm ?? 50
+  const h = plantilla.value.page.heightMm ?? 30
+  return claveTamanoEtiqueta(w, h) ?? 'custom'
+})
+
+function onWidthMmChange(raw: string) {
+  const n = Number(String(raw).replace(',', '.'))
+  if (!Number.isFinite(n) || n <= 0) return
+  aplicarTamanoEtiqueta(n, plantilla.value.page.heightMm ?? 30)
+}
+
+function onHeightMmChange(raw: string) {
+  const n = Number(String(raw).replace(',', '.'))
+  if (!Number.isFinite(n) || n <= 0) return
+  aplicarTamanoEtiqueta(plantilla.value.page.widthMm ?? 50, n)
 }
 
 function patchBlock(id: string, patch: Partial<PlantillaBloque>) {
@@ -173,12 +345,27 @@ function patchBlockContent(id: string, patch: Partial<PlantillaBloque>) {
   markDirty()
 }
 
-function setProp(key: string, value: string) {
+function setProp(key: string, value: string | number | boolean) {
   if (!selected.value || props.readonly) return
   const propsMap = { ...(selected.value.props ?? {}) }
-  if (value.trim() === '') delete propsMap[key]
+  if (value === '' || value === false) delete propsMap[key]
   else propsMap[key] = value
   patchBlockContent(selected.value.id, { props: propsMap })
+}
+
+function blockFontStyle(b: PlantillaBloque): Record<string, string> {
+  if (!esEtiqueta.value) return {}
+  if (b.type !== 'campo' && b.type !== 'texto' && b.type !== 'titulo-documento') return {}
+  const mm = Number(b.props?.fontSizeMm)
+  const sizeMm = Number.isFinite(mm) && mm > 0 ? mm : 3
+  const style: Record<string, string> = {
+    fontSize: `${Math.max(9, sizeMm * pxPerMm.value)}px`,
+    lineHeight: '1.15',
+  }
+  if (b.props?.fontWeight === 'bold') style.fontWeight = '700'
+  if (b.props?.align === 'right') style.textAlign = 'right'
+  else if (b.props?.centrado) style.textAlign = 'center'
+  return style
 }
 
 function onLabelInput(raw: string) {
@@ -294,9 +481,18 @@ function addBindSugerido(path: string) {
 function fitScale() {
   const el = canvasRef.value
   if (!el) return
-  const available = Math.max(320, el.clientWidth - 24)
-  // A4 más grande en pantalla (antes tope 2.8 ≈ 588px de ancho)
-  pxPerMm.value = Math.min(4.2, Math.max(2.0, available / PAGE_W))
+  const available = Math.max(280, el.clientWidth - 24)
+  const availableH = Math.max(160, el.clientHeight - 16)
+  const w = PAGE_W.value || 210
+  const h = PAGE_H.value || 30
+  if (esEtiqueta.value) {
+    // Tamaño real en pantalla (~1 CSS mm). Solo reducir si no cabe en el panel.
+    const real = FOLIO_PX_PER_MM
+    const fit = Math.min(available / w, availableH / h)
+    pxPerMm.value = Math.min(real, Math.max(1.5, fit))
+  } else {
+    pxPerMm.value = Math.min(4.2, Math.max(2.0, available / w))
+  }
 }
 
 onMounted(() => {
@@ -323,6 +519,14 @@ watch(
     selectedId.value = null
     dirty.value = false
     emit('dirty', false)
+    void nextTick(() => fitScale())
+  }
+)
+
+watch(
+  () => [PAGE_W.value, PAGE_H.value],
+  () => {
+    void nextTick(() => fitScale())
   }
 )
 
@@ -337,7 +541,62 @@ defineExpose({
 <template>
   <div class="designer">
     <div class="toolbar">
-      <span class="hint">Añada o quite recuadros · arrastre para mover · esquina para redimensionar · Supr para borrar</span>
+      <span class="hint">
+        <template v-if="esEtiqueta">
+          Etiqueta {{ PAGE_W }}×{{ PAGE_H }} mm · arrastre recuadros · Supr para borrar
+        </template>
+        <template v-else>
+          Añada o quite recuadros · arrastre para mover · esquina para redimensionar · Supr para borrar
+        </template>
+      </span>
+      <div v-if="esEtiqueta" class="tamano-etiq">
+        <label>
+          Formato
+          <select
+            :value="tamanoPresetKey"
+            :disabled="readonly"
+            title="Tamaño de etiqueta"
+            @change="onPresetTamano(($event.target as HTMLSelectElement).value)"
+          >
+            <option
+              v-for="t in ETIQUETA_TAMANOS_MM"
+              :key="t.label"
+              :value="`${t.widthMm}x${t.heightMm}`"
+            >
+              {{ t.label }}
+            </option>
+            <option v-if="tamanoPresetKey === 'custom'" value="custom">
+              Personalizado ({{ PAGE_W }}×{{ PAGE_H }} mm)
+            </option>
+          </select>
+        </label>
+        <label>
+          Ancho
+          <input
+            type="number"
+            min="10"
+            max="200"
+            step="1"
+            :value="plantilla.page.widthMm ?? 50"
+            :disabled="readonly"
+            @change="onWidthMmChange(($event.target as HTMLInputElement).value)"
+          />
+          mm
+        </label>
+        <label>
+          Alto
+          <input
+            type="number"
+            min="10"
+            max="200"
+            step="1"
+            :value="plantilla.page.heightMm ?? 30"
+            :disabled="readonly"
+            @change="onHeightMmChange(($event.target as HTMLInputElement).value)"
+          />
+          mm
+        </label>
+      </div>
       <button
         type="button"
         class="btn-del"
@@ -352,7 +611,7 @@ defineExpose({
       <aside class="palette">
         <h4>Añadir</h4>
         <button
-          v-for="item in CATALOGO_BLOQUES"
+          v-for="item in catalogo"
           :key="item.type"
           type="button"
           class="pal-btn"
@@ -376,7 +635,10 @@ defineExpose({
             @mousedown="startMove(b, $event)"
             @click="selectBlock(b.id, $event)"
           >
-            <span class="block-label">{{ etiquetaBloque(b.type, b.label) }}</span>
+            <span class="block-label" :style="blockFontStyle(b)">{{ etiquetaBloque(b.type, b.label) }}</span>
+            <span v-if="b.bind?.length && esEtiqueta" class="block-bind" :style="blockFontStyle(b)">
+              {{ b.bind.join(' · ') }}
+            </span>
             <span v-if="b.type === 'tabla-lineas' && b.columns" class="block-cols">
               {{ b.columns.map((c) => c.label).join(' · ') }}
             </span>
@@ -412,6 +674,106 @@ defineExpose({
               @input="onLabelInput(($event.target as HTMLInputElement).value)"
             />
           </label>
+
+          <div v-if="muestraBarras" class="tipografia">
+            <h5>Código de barras</h5>
+            <label class="field">
+              Tamaño
+              <select
+                :value="barcodePresetKey"
+                :disabled="readonly"
+                @change="aplicarPresetBarras(($event.target as HTMLSelectElement).value)"
+              >
+                <option
+                  v-for="p in BARCODE_PRESETS"
+                  :key="p.id"
+                  :value="p.id"
+                >
+                  {{ p.label }} ({{ p.w }}×{{ p.h }} mm)
+                </option>
+                <option v-if="barcodePresetKey === 'custom'" value="custom">
+                  Personalizado ({{ selected.w }}×{{ selected.h }} mm)
+                </option>
+              </select>
+              <span class="help">También puede arrastrar la esquina del recuadro (W × H).</span>
+            </label>
+            <label class="field">
+              Grosor de barras
+              <div class="font-row">
+                <input
+                  v-model.number="barcodeModuleWidth"
+                  type="number"
+                  min="0.6"
+                  max="3"
+                  step="0.1"
+                  :disabled="readonly"
+                />
+                <select
+                  :value="barcodeModuleWidth"
+                  :disabled="readonly"
+                  @change="barcodeModuleWidth = Number(($event.target as HTMLSelectElement).value)"
+                >
+                  <option :value="0.8">Fino</option>
+                  <option :value="1.2">Normal</option>
+                  <option :value="1.6">Medio</option>
+                  <option :value="2">Grueso</option>
+                </select>
+              </div>
+            </label>
+            <label class="field check">
+              <input v-model="barcodeShowValue" type="checkbox" :disabled="readonly" />
+              Mostrar dígitos debajo
+            </label>
+          </div>
+
+          <div v-if="muestraTipografia" class="tipografia">
+            <h5>Tipografía</h5>
+            <label class="field">
+              Tamaño (mm)
+              <div class="font-row">
+                <input
+                  v-model.number="fontSizeMm"
+                  type="number"
+                  min="1"
+                  max="20"
+                  step="0.5"
+                  :disabled="readonly"
+                />
+                <select
+                  :value="fontSizeMm"
+                  :disabled="readonly"
+                  title="Presets"
+                  @change="fontSizeMm = Number(($event.target as HTMLSelectElement).value)"
+                >
+                  <option :value="2">2</option>
+                  <option :value="2.5">2.5</option>
+                  <option :value="3">3</option>
+                  <option :value="3.5">3.5</option>
+                  <option :value="4">4</option>
+                  <option :value="5">5</option>
+                  <option :value="6">6</option>
+                  <option :value="8">8</option>
+                  <option :value="10">10</option>
+                </select>
+              </div>
+              <span class="help">En etiqueta: mm reales de impresión (p. ej. 4–6 para precio).</span>
+            </label>
+            <label class="field">
+              Grosor
+              <select v-model="fontWeight" :disabled="readonly">
+                <option value="normal">Normal</option>
+                <option value="bold">Negrita</option>
+              </select>
+            </label>
+            <label class="field">
+              Alineación
+              <select v-model="textAlign" :disabled="readonly">
+                <option value="left">Izquierda</option>
+                <option value="center">Centro</option>
+                <option value="right">Derecha</option>
+              </select>
+            </label>
+          </div>
 
           <label
             v-if="selected.type === 'titulo-documento' || selected.type === 'totales-iva'"
@@ -455,7 +817,7 @@ defineExpose({
             <span class="help">Añadir sugerido:</span>
             <select @change="addBindSugerido(($event.target as HTMLSelectElement).value); ($event.target as HTMLSelectElement).value = ''">
               <option value="">—</option>
-              <option v-for="c in CAMPOS_BIND_SUGERIDOS" :key="c" :value="c">{{ c }}</option>
+              <option v-for="c in bindsSugeridos" :key="c" :value="c">{{ c }}</option>
             </select>
           </div>
 
@@ -517,6 +879,36 @@ defineExpose({
   gap: 0.5rem;
   font-size: 0.75rem;
   color: #64748b;
+}
+
+.tamano-etiq {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.tamano-etiq label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.tamano-etiq input {
+  width: 3.5rem;
+  padding: 0.2rem 0.3rem;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+}
+
+.tamano-etiq select {
+  padding: 0.2rem 0.35rem;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+  min-width: 8.5rem;
+  max-width: 12rem;
 }
 
 .hint {
@@ -648,6 +1040,45 @@ defineExpose({
   font-weight: 400;
   font-size: 0.65rem;
   color: #94a3b8;
+}
+
+.tipografia {
+  margin: 0.35rem 0 0.55rem;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.tipografia h5 {
+  margin: 0 0 0.35rem;
+  font-size: 0.72rem;
+  color: #0f172a;
+}
+
+.font-row {
+  display: grid;
+  grid-template-columns: 1fr 4.2rem;
+  gap: 0.25rem;
+}
+
+.field.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+}
+
+.field.check input {
+  width: auto;
+  min-width: 0;
+}
+
+.block-bind {
+  font-weight: 600;
+  color: #334155;
+  overflow: hidden;
+  word-break: break-word;
 }
 
 .sugeridos {

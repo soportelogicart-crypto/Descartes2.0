@@ -81,6 +81,17 @@ export type DocumentoPreviewDatos = {
   puesto: {
     literales: string[]
   }
+  /**
+   * Datos de artículo para plantillas tipo etiqueta (binds articulo.*).
+   * Ausente en documentos A4 / ticket.
+   */
+  articulo?: {
+    codigo: string
+    descripcion: string
+    ean: string
+    precio: number
+    lote?: string
+  }
 }
 
 /** Emblema placeholder (SVG data URL). */
@@ -232,6 +243,27 @@ export function datosPreviewPorTipo(tipo: DocumentoTipo): DocumentoPreviewDatos 
       puesto: {
         literales: basePuestoLiterales.slice(0, baseTienda.literalTicket),
       },
+    }
+  }
+
+  if (tipo === 'etiqueta') {
+    return {
+      ...comunes,
+      articulo: {
+        codigo: '0010031961',
+        descripcion: 'PEONIA 3L',
+        ean: '8437001234567',
+        precio: 18.35,
+        lote: '',
+      },
+      documento: {
+        ...comunes.documento,
+        numero: '',
+        observaciones: '',
+        codigoBarras: '8437001234567',
+      },
+      lineas: [],
+      totales: { base: 0, ivas: [], importe: 18.35 },
     }
   }
 

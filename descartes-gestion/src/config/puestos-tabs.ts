@@ -40,7 +40,7 @@ export type PuestoTab = {
   sections: PuestoSection[]
 }
 
-/** Tipos de plantilla del diseñador (Confeccionar documentos). */
+/** Tipos de plantilla del diseñador (Configuración → Albaranes / Tickets / Etiquetas). */
 const PLANTILLAS_DOC = [
   'albaran',
   'factura-contado',
@@ -125,6 +125,15 @@ export const puestoImpresorasDocumento: PuestoImpresoraDoc[] = [
     formatoKey: 'formatoPedidoCompras',
     formatoMax: 100,
     plantillaTipo: [...PLANTILLAS_DOC],
+  },
+  {
+    label: 'Etiquetas artículo',
+    nombreKey: 'impresoraEtiquetas',
+    nombreMax: 100,
+    formatoKey: 'formatoEtiquetas',
+    formatoMax: 100,
+    plantillaTipo: 'etiqueta',
+    rowKey: 'etiquetas-articulo',
   },
 ]
 
