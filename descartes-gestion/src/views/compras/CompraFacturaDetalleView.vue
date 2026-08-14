@@ -143,6 +143,9 @@ watch(
       :loading="loading"
       :indice="-1"
       :total="0"
+      :puede-buscar="true"
+      buscar-label="Listado"
+      buscar-title="Volver al listado de facturas"
       @buscar="volverListado"
     />
 

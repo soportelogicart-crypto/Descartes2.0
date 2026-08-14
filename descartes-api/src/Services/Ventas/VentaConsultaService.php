@@ -230,6 +230,173 @@ final class VentaConsultaService
         $origenAlb
       );
     }
+
+    $detalle['abonosExistentes'] = [];
+    $detalle['nroLinsAbonados'] = [];
+    if (!$esAbonoAlb && !empty($detalle['permiteAbonoParcial'])) {
+      $estadoAb = $this->resolverEstadoAbonos(
+        (string) ($detalle['empresa'] ?? ''),
+        (int) ($detalle['albaran'] ?? 0),
+        is_array($detalle['lineas'] ?? null) ? $detalle['lineas'] : []
+      );
+      $detalle['abonosExistentes'] = $estadoAb['abonosExistentes'];
+      $detalle['nroLinsAbonados'] = $estadoAb['nroLinsAbonados'];
+    }
+  }
+
+  /**
+   * Abonos previos y líneas del documento origen ya abonadas por completo.
+   *
+   * @param list<array<string, mixed>> $lineasOrig
+   * @return array{
+   *   abonosExistentes: list<array{albaran: int, fecha: string|null, importe: float}>,
+   *   nroLinsAbonados: list<int>
+   * }
+   */
+  public function resolverEstadoAbonos(string $empresa, int $albaranOrigen, array $lineasOrig): array
+  {
+    if ($empresa === '' || $albaranOrigen <= 0) {
+      return ['abonosExistentes' => [], 'nroLinsAbonados' => []];
+    }
+
+    $abonosExistentes = [];
+    try {
+      $st = $this->pdo->prepare(
+        'SELECT Albaran, Fecha, Importe
+         FROM AlbaranesVentasCab
+         WHERE Empresa = :e AND Tipo = \'A\' AND AlbaranOrigenAbono = :orig
+         ORDER BY Albaran'
+      );
+      $st->execute(['e' => $empresa, 'orig' => $albaranOrigen]);
+      while ($row = $st->fetch(PDO::FETCH_ASSOC)) {
+        $abonosExistentes[] = [
+          'albaran' => (int) $row['Albaran'],
+          'fecha' => $this->fmtDate($row['Fecha'] ?? null),
+          'importe' => (float) ($row['Importe'] ?? 0),
+        ];
+      }
+    } catch (\Throwable $e) {
+      return ['abonosExistentes' => [], 'nroLinsAbonados' => []];
+    }
+
+    if ($abonosExistentes === []) {
+      return ['abonosExistentes' => [], 'nroLinsAbonados' => []];
+    }
+
+    return [
+      'abonosExistentes' => $abonosExistentes,
+      'nroLinsAbonados' => $this->nroLinsAbonadosDesdeBd($empresa, $albaranOrigen, $lineasOrig),
+    ];
+  }
+
+  /**
+   * @param list<array<string, mixed>> $lineasOrig
+   * @return list<int>
+   */
+  private function nroLinsAbonadosDesdeBd(string $empresa, int $albaranOrigen, array $lineasOrig): array
+  {
+    try {
+      $st = $this->pdo->prepare(
+        'SELECT DISTINCT l.NroLinOrigen
+         FROM AlbaranesVentasLin l
+         INNER JOIN AlbaranesVentasCab c
+           ON c.Empresa = l.Empresa AND c.Tipo = l.Tipo AND c.Albaran = l.Albaran
+         WHERE c.Empresa = :e AND c.Tipo = \'A\' AND c.AlbaranOrigenAbono = :orig
+           AND l.NroLinOrigen IS NOT NULL AND l.NroLinOrigen > 0
+           AND UPPER(RTRIM(l.Articulo)) <> \'NO\''
+      );
+      $st->execute(['e' => $empresa, 'orig' => $albaranOrigen]);
+      $nroLins = [];
+      while ($row = $st->fetch(PDO::FETCH_ASSOC)) {
+        $n = (int) $row['NroLinOrigen'];
+        if ($n > 0) {
+          $nroLins[] = $n;
+        }
+      }
+      if ($nroLins !== []) {
+        sort($nroLins);
+        return array_values(array_unique($nroLins));
+      }
+    } catch (\Throwable $e) {
+      // Columna NroLinOrigen ausente o error de consulta: emparejar por cantidades.
+    }
+
+    return $this->nroLinsAbonadosPorCantidad($empresa, $albaranOrigen, $lineasOrig);
+  }
+
+  /**
+   * @param list<array<string, mixed>> $lineasOrig
+   * @return list<int>
+   */
+  private function nroLinsAbonadosPorCantidad(string $empresa, int $albaranOrigen, array $lineasOrig): array
+  {
+    $abonoLines = [];
+    try {
+      $st = $this->pdo->prepare(
+        'SELECT l.Articulo, l.Cantidad, l.Precio, l.PjeDto, l.LoteVenta
+         FROM AlbaranesVentasLin l
+         INNER JOIN AlbaranesVentasCab c
+           ON c.Empresa = l.Empresa AND c.Tipo = l.Tipo AND c.Albaran = l.Albaran
+         WHERE c.Empresa = :e AND c.Tipo = \'A\' AND c.AlbaranOrigenAbono = :orig
+           AND UPPER(RTRIM(l.Articulo)) <> \'NO\''
+      );
+      $st->execute(['e' => $empresa, 'orig' => $albaranOrigen]);
+      while ($row = $st->fetch(PDO::FETCH_ASSOC)) {
+        $abonoLines[] = $row;
+      }
+    } catch (\Throwable $e) {
+      return [];
+    }
+
+    if ($abonoLines === []) {
+      return [];
+    }
+
+    $pool = [];
+    foreach ($abonoLines as $row) {
+      $key = $this->claveLineaAbono($row);
+      $pool[$key] = ($pool[$key] ?? 0.0) + abs((float) ($row['Cantidad'] ?? 0));
+    }
+
+    $nroLinsAbonados = [];
+    foreach ($lineasOrig as $lin) {
+      if (!is_array($lin)) {
+        continue;
+      }
+      $nro = (int) ($lin['nroLin'] ?? 0);
+      $art = trim((string) ($lin['articulo'] ?? ''));
+      if ($nro <= 0 || $art === '' || strtoupper($art) === 'NO') {
+        continue;
+      }
+      $cantOrig = abs((float) ($lin['cantidad'] ?? 0));
+      if ($cantOrig < 0.0001) {
+        continue;
+      }
+      $key = $this->claveLineaAbono([
+        'Articulo' => $art,
+        'Precio' => $lin['precio'] ?? 0,
+        'PjeDto' => $lin['pjeDto'] ?? 0,
+        'LoteVenta' => $lin['loteVenta'] ?? null,
+      ]);
+      $abonado = $pool[$key] ?? 0.0;
+      if ($abonado >= $cantOrig - 0.0001) {
+        $nroLinsAbonados[] = $nro;
+        $pool[$key] = max(0.0, $abonado - $cantOrig);
+      }
+    }
+
+    sort($nroLinsAbonados);
+    return $nroLinsAbonados;
+  }
+
+  /** @param array<string, mixed> $row */
+  private function claveLineaAbono(array $row): string
+  {
+    $art = strtoupper(trim((string) ($row['Articulo'] ?? $row['articulo'] ?? '')));
+    $precio = round((float) ($row['Precio'] ?? $row['precio'] ?? 0), 4);
+    $dto = round((float) ($row['PjeDto'] ?? $row['pjeDto'] ?? 0), 4);
+    $lote = strtoupper(trim((string) ($row['LoteVenta'] ?? $row['loteVenta'] ?? '')));
+    return "{$art}|{$precio}|{$dto}|{$lote}";
   }
 
   /**

@@ -85,6 +85,7 @@ export type AlbaranCompraPayload = {
   proyecto?: string | null
   importeTransporte?: number
   coeficienteTransporte?: number
+  brutoConTransporte?: number
   lineas: AlbaranCompraLinea[]
 }
 

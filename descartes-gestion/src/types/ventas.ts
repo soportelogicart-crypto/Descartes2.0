@@ -32,6 +32,10 @@ export type VentaResumen = {
     factura?: number | null
     etiqueta: string
   } | null
+  /** Abonos ya generados desde este documento. */
+  abonosExistentes?: { albaran: number; fecha: string | null; importe: number }[]
+  /** NroLin del documento origen ya abonados por completo. */
+  nroLinsAbonados?: number[]
 }
 
 export type VentaLinea = {

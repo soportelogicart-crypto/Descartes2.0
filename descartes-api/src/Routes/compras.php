@@ -33,6 +33,8 @@ return function (App $app): void {
     // Albaranes
     $group->get('/albaranes', [ComprasController::class, 'listAlbaranes'])
       ->add($setPermiso('compras', 'ver'));
+    $group->post('/albaranes/reservar', [ComprasController::class, 'reservarAlbaran'])
+      ->add($setPermiso('compras', 'crear'));
     $group->post('/albaranes', [ComprasController::class, 'createAlbaran'])
       ->add($setPermiso('compras', 'crear'));
     $group->get('/albaranes/{empresa}/{albaran}', [ComprasController::class, 'getAlbaran'])
@@ -43,6 +45,12 @@ return function (App $app): void {
       ->add($setPermiso('compras', 'eliminar'));
     $group->post('/albaranes/{empresa}/{albaran}/actualizar-stock', [ComprasController::class, 'actualizarStockAlbaran'])
       ->add($setPermiso('compras', 'editar'));
+    $group->post('/albaranes/{empresa}/{albaran}/recuperar', [ComprasController::class, 'recuperarAlbaran'])
+      ->add($setPermiso('compras', 'editar'));
+    $group->post('/albaranes/{empresa}/{albaran}/convertir-venta', [ComprasController::class, 'convertirVentaAlbaran'])
+      ->add($setPermiso('compras', 'editar'));
+    $group->post('/albaranes/{empresa}/{albaran}/abono', [ComprasController::class, 'crearAbonoAlbaran'])
+      ->add($setPermiso('compras', 'crear'));
 
     // Pedidos a proveedor
     $group->get('/pedidos', [ComprasController::class, 'listPedidos'])

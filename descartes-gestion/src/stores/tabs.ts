@@ -14,6 +14,7 @@ const MAX_TABS = 8
  * Rutas de ficha de venta (/ventas/{empresa}/{tipo}/{albaran}) comparten una sola
  * pestaña; al pasar Anterior/Siguiente no se abren pestañas nuevas.
  * Igual para albarán de compra, pedido a proveedor y factura de proveedor.
+ * Compras: listado y ficha comparten pestaña para volver al grid sin pestaña extra.
  */
 function tabIdFromPath(fullPath: string): string {
   const path = (fullPath.split('?')[0] || '/').replace(/\/+$/, '') || '/'
@@ -27,26 +28,24 @@ function tabIdFromPath(fullPath: string): string {
   if (/^\/ventas\/(?!pedidos(?:\/|$))[^/]+\/[^/]+\/\d+$/.test(path)) {
     return '/ventas/ficha'
   }
-  if (/^\/compras\/albaranes\/nuevo$/.test(path)) {
-    return '/compras/albaranes/ficha'
+  if (path === '/compras/albaranes' || path.startsWith('/compras/albaranes/')) {
+    return '/compras/albaranes'
   }
-  if (/^\/compras\/albaranes\/[^/]+\/\d+$/.test(path)) {
-    return '/compras/albaranes/ficha'
+  if (path === '/compras/pedidos' || path.startsWith('/compras/pedidos/')) {
+    return '/compras/pedidos'
   }
-  if (/^\/compras\/pedidos\/nuevo$/.test(path)) {
-    return '/compras/pedidos/ficha'
+  if (path === '/compras/facturas' || /^\/compras\/facturas\/\d+$/.test(path)) {
+    return '/compras/facturas'
   }
-  if (/^\/compras\/pedidos\/[^/]+\/\d+$/.test(path)) {
-    return '/compras/pedidos/ficha'
-  }
-  if (/^\/compras\/facturas\/\d+$/.test(path)) {
-    return '/compras/facturas/ficha'
+  if (/^\/mantenimiento\/articulos$/.test(path)) {
+    return '/mantenimiento/articulos'
   }
   return fullPath || '/'
 }
 
-function tituloDesdeRuta(path: string, metaTitulo?: string): string {
-  const partes = path.split('/').filter(Boolean)
+function tituloDesdeRuta(fullPathOrPath: string, metaTitulo?: string): string {
+  const pathOnly = (fullPathOrPath.split('?')[0] || '/').replace(/\/+$/, '') || '/'
+  const partes = pathOnly.split('/').filter(Boolean)
   // Ficha compra: preferir nº de documento frente al meta genérico.
   if (partes[0] === 'compras' && partes[1] === 'albaranes') {
     if (partes[2] === 'nuevo') return 'Nuevo alb. compra'
@@ -65,8 +64,17 @@ function tituloDesdeRuta(path: string, metaTitulo?: string): string {
       return `Fact. proveedor ${partes[2]}`
     }
   }
+  if (partes[0] === 'mantenimiento' && partes[1] === 'articulos') {
+    const q = fullPathOrPath.includes('?')
+      ? new URLSearchParams(fullPathOrPath.split('?')[1] ?? '')
+      : null
+    const codigo = q?.get('codigo')?.trim()
+    if (codigo) return `Artículo ${codigo}`
+    if (q?.get('nuevo') === '1') return 'Nuevo artículo'
+    return metaTitulo?.trim() || 'Artículos'
+  }
   if (metaTitulo && metaTitulo.trim()) return metaTitulo.trim()
-  if (path === '/' || path === '') return 'Inicio'
+  if (pathOnly === '/' || pathOnly === '') return 'Inicio'
   if (partes[0] === 'compras') {
     if (partes[1] === 'albaranes') return 'Albaranes de compra'
     if (partes[1] === 'pedidos') return 'Pedidos a proveedor'
@@ -114,7 +122,7 @@ export const useTabsStore = defineStore('tabs', () => {
     const existing = tabs.value.find((t) => t.id === id)
     if (existing) {
       existing.fullPath = fullPath || '/'
-      existing.title = tituloDesdeRuta(pathOnly, metaTitulo)
+      existing.title = tituloDesdeRuta(fullPath, metaTitulo)
       activeId.value = existing.id
       return
     }
@@ -129,7 +137,7 @@ export const useTabsStore = defineStore('tabs', () => {
     tabs.value.push({
       id,
       fullPath: fullPath || '/',
-      title: tituloDesdeRuta(pathOnly, metaTitulo),
+      title: tituloDesdeRuta(fullPath, metaTitulo),
     })
     activeId.value = id
   }

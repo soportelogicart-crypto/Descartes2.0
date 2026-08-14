@@ -1,6 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, useAttrs, watch } from 'vue'
 import { formatDecimalDisplay, parseDecimalInput } from '@/composables/useDecimalInput'
+
+defineOptions({ inheritAttrs: false })
+
+const emit = defineEmits<{ keydown: [KeyboardEvent] }>()
+
+const attrs = useAttrs()
 
 const model = defineModel<number | null>({ default: null })
 
@@ -56,6 +62,10 @@ function onInput(e: Event) {
   }
 }
 
+function onKeydown(e: KeyboardEvent) {
+  emit('keydown', e)
+}
+
 function onBlur() {
   focused.value = false
   const parsed = parseDecimalInput(draft.value ?? '', { integer: props.integer })
@@ -82,8 +92,10 @@ watch(model, () => {
     :placeholder="placeholder"
     :maxlength="maxlength != null ? Number(maxlength) : undefined"
     :data-field-key="fieldKey"
+    v-bind="attrs"
     @focus="onFocus"
     @input="onInput"
+    @keydown="onKeydown"
     @blur="onBlur"
   />
 </template>

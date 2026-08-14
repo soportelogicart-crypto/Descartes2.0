@@ -36,3 +36,11 @@ export function extractApiError(e: unknown, fallback: string): string {
 
   return fallback
 }
+
+/** true si la API respondió 404 / NO_ENCONTRADO (p. ej. artículo inexistente). */
+export function isApiNotFound(e: unknown): boolean {
+  const err = e as { response?: { status?: number; data?: ApiErrorBody } }
+  if (err.response?.status === 404) return true
+  const codigo = err.response?.data?.codigo
+  return codigo === 'NO_ENCONTRADO'
+}

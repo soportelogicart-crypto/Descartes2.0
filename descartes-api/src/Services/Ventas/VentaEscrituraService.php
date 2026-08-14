@@ -83,6 +83,9 @@ final class VentaEscrituraService
     $representante = $this->codigoCharOEspacio($body['representante'] ?? null);
     $transporte = $this->spaceIfEmpty($body['transporte'] ?? null);
     $agente = $this->spaceIfEmpty($body['agente'] ?? null);
+    $genAlbaranCompras = isset($body['genAlbaranCompras']) && (int) $body['genAlbaranCompras'] > 0
+      ? (int) $body['genAlbaranCompras']
+      : 0;
 
     $this->pdo->beginTransaction();
     try {
@@ -127,7 +130,7 @@ final class VentaEscrituraService
           0, 0, 0, 0, 0, 0, 0, 0,
           0, 0, 0, 0,
           :vendedorApertura, 0, 0, NULL, 0, NULL,
-          NULL, :lineasConDescuentos, NULL, 0, 0, 0,
+          NULL, :lineasConDescuentos, NULL, :genAlbaranCompras, 0, 0,
           NULL, :portes, :tarifa, :plataforma, :numeroDeSerie, :observaciones
         )';
       $stmt = $this->pdo->prepare($sql);
@@ -186,6 +189,7 @@ final class VentaEscrituraService
         // VendedorApertura = vendedor (trabajador). No usar usuario de login.
         'vendedorApertura' => $this->nullIfEmpty($body['vendedorApertura'] ?? $vendedor),
         'lineasConDescuentos' => !empty($totales['lineasConDescuentos']) ? 1 : 0,
+        'genAlbaranCompras' => $genAlbaranCompras,
         'portes' => $this->spaceIfEmpty($body['portes'] ?? null),
         'tarifa' => isset($body['tarifa']) && $body['tarifa'] !== '' && $body['tarifa'] !== null
           ? (int) $body['tarifa'] : 0,
@@ -654,6 +658,26 @@ final class VentaEscrituraService
       throw new \InvalidArgumentException('Seleccione al menos una línea para abonar');
     }
 
+    $estadoAb = $this->consulta->resolverEstadoAbonos($empresa, $albaran, $lineasOrig);
+    $nroLinsAbonados = $estadoAb['nroLinsAbonados'];
+    if ($nroLinsAbonados !== []) {
+      $conflictos = [];
+      foreach ($seleccionadas as $lin) {
+        $nro = (int) ($lin['nroLinOrigen'] ?? 0);
+        if ($nro > 0 && in_array($nro, $nroLinsAbonados, true)) {
+          $conflictos[] = $nro;
+        }
+      }
+      if ($conflictos !== []) {
+        sort($conflictos);
+        $nums = implode(', ', $conflictos);
+        $msg = count($conflictos) === count($seleccionadas)
+          ? 'Las líneas seleccionadas ya fueron abonadas anteriormente'
+          : "Una o más líneas ya fueron abonadas (líneas: {$nums})";
+        throw new \InvalidArgumentException($msg);
+      }
+    }
+
     $etiquetaOrigen = $this->etiquetaDocumentoVenta($origen, $albaran);
     array_unshift($seleccionadas, [
       'articulo' => 'NO',
@@ -836,6 +860,15 @@ final class VentaEscrituraService
     int $albaranOrigen,
     string $observacion
   ): void {
+    $sqlConOrigenCompleto = 'INSERT INTO AlbaranesVentasLin (
+         Empresa, Tipo, Albaran, Articulo, Descripcion, Cantidad, Precio, PjeDto, Importe, PjeIva, PjeRec,
+         RebajeStock, PrecioMedio, Plato, Cocina, PrecioMenu, PrecioAlterado, PrecioHabitacion,
+         PrecioTarifa, Ean, UnidadesPaquete, LoteVenta, AlbaranOrigenAbono, ObservacionDevolucion, NroLinOrigen
+       ) VALUES (
+         :e, :t, :a, :articulo, :descripcion, :cantidad, :precio, :pjeDto, :importe, :pjeIva, 0,
+         :rebajeStock, :precioMedio, 0, 0, 0, :precioAlterado, 0,
+         :precioTarifa, :ean, :unidadesPaquete, :loteVenta, :albaranOrigenAbono, :observacionDevolucion, :nroLinOrigen
+       )';
     $sqlConOrigen = 'INSERT INTO AlbaranesVentasLin (
          Empresa, Tipo, Albaran, Articulo, Descripcion, Cantidad, Precio, PjeDto, Importe, PjeIva, PjeRec,
          RebajeStock, PrecioMedio, Plato, Cocina, PrecioMenu, PrecioAlterado, PrecioHabitacion,
@@ -855,12 +888,17 @@ final class VentaEscrituraService
          :precioTarifa, :ean, :unidadesPaquete, :loteVenta
        )';
 
-    $conOrigen = true;
+    $modoInsercion = 'completo';
     try {
-      $ins = $this->pdo->prepare($sqlConOrigen);
+      $ins = $this->pdo->prepare($sqlConOrigenCompleto);
     } catch (\Throwable $e) {
-      $conOrigen = false;
-      $ins = $this->pdo->prepare($sqlSinOrigen);
+      try {
+        $ins = $this->pdo->prepare($sqlConOrigen);
+        $modoInsercion = 'origen';
+      } catch (\Throwable $e2) {
+        $ins = $this->pdo->prepare($sqlSinOrigen);
+        $modoInsercion = 'basico';
+      }
     }
 
     foreach ($lineas as $lin) {
@@ -909,15 +947,24 @@ final class VentaEscrituraService
         'unidadesPaquete' => $esComentario ? 0.0 : 1.0,
         'loteVenta' => $this->spaceIfEmpty($lin['loteVenta'] ?? null),
       ];
-      if ($conOrigen) {
+      if ($modoInsercion !== 'basico') {
         $params['albaranOrigenAbono'] = $albaranOrigen;
         $params['observacionDevolucion'] = $this->blankIfEmpty($observacion !== '' ? $observacion : null);
+      }
+      if ($modoInsercion === 'completo') {
+        $nroLinOrigen = (int) ($lin['nroLinOrigen'] ?? 0);
+        $params['nroLinOrigen'] = $nroLinOrigen > 0 ? $nroLinOrigen : null;
       }
       try {
         $ins->execute($params);
       } catch (\Throwable $e) {
-        if ($conOrigen) {
-          $conOrigen = false;
+        if ($modoInsercion === 'completo') {
+          $modoInsercion = 'origen';
+          $ins = $this->pdo->prepare($sqlConOrigen);
+          unset($params['nroLinOrigen']);
+          $ins->execute($params);
+        } elseif ($modoInsercion === 'origen') {
+          $modoInsercion = 'basico';
           $ins = $this->pdo->prepare($sqlSinOrigen);
           unset($params['albaranOrigenAbono'], $params['observacionDevolucion']);
           $ins->execute($params);

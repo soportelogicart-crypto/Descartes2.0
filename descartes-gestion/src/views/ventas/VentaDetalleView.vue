@@ -419,8 +419,11 @@ const puedeAbonar = computed(
     albaranCompleto.value &&
     documentoAbonable.value &&
     !modoEdicion.value &&
-    !esAbono.value
+    !esAbono.value &&
+    lineasAbonables().length > 0
 )
+const nroLinsAbonados = computed(() => ficha.value?.nroLinsAbonados ?? [])
+const abonosExistentes = computed(() => ficha.value?.abonosExistentes ?? [])
 /** Durante alta/edicion no salir al listado ni navegar entre documentos. */
 const enTrabajo = computed(() => esNuevo.value || modoEdicion.value)
 const puedeBuscar = computed(() => !enTrabajo.value)
@@ -1365,7 +1368,22 @@ async function confirmarFinalizar() {
   }
 }
 
+function lineaYaAbonada(l: VentaLinea): boolean {
+  const nro = Number(l.nroLin) || 0
+  return nro > 0 && nroLinsAbonados.value.includes(nro)
+}
+
 function lineasAbonables(): VentaLinea[] {
+  return lineas.value.filter((l) => {
+    const art = String(l.articulo ?? '').trim()
+    if (!art || art.toUpperCase() === 'NO') return false
+    if (Math.abs(Number(l.cantidad) || 0) < 0.0001) return false
+    if (lineaYaAbonada(l)) return false
+    return (Number(l.nroLin) || 0) > 0
+  })
+}
+
+function lineasConEstadoAbono(): VentaLinea[] {
   return lineas.value.filter((l) => {
     const art = String(l.articulo ?? '').trim()
     if (!art || art.toUpperCase() === 'NO') return false
@@ -1795,6 +1813,12 @@ onMounted(() => {
             Desmarque las líneas que <strong>no</strong> quiera abonar. Se creará un albarán nuevo con
             cantidades negativas, listo para pendientes de facturación.
           </p>
+          <p v-if="abonosExistentes.length" class="hint abono-aviso">
+            Este documento ya tiene
+            {{ abonosExistentes.length === 1 ? 'un abono' : `${abonosExistentes.length} abonos` }}
+            ({{ abonosExistentes.map((a) => a.albaran).join(', ') }}).
+            Las líneas ya abonadas no se pueden volver a seleccionar.
+          </p>
           <div class="abono-acciones">
             <button type="button" class="linkish" @click="seleccionarTodasAbono(true)">Todas</button>
             <button type="button" class="linkish" @click="seleccionarTodasAbono(false)">Ninguna</button>
@@ -1811,11 +1835,16 @@ onMounted(() => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="l in lineasAbonables()" :key="l.nroLin">
+                <tr
+                  v-for="l in lineasConEstadoAbono()"
+                  :key="l.nroLin"
+                  :class="{ 'fila-abonada': lineaYaAbonada(l) }"
+                >
                   <td>
                     <input
                       type="checkbox"
                       :checked="abonoNroLins.includes(Number(l.nroLin))"
+                      :disabled="lineaYaAbonada(l)"
                       @change="
                         toggleAbonoLinea(
                           Number(l.nroLin),
@@ -1825,7 +1854,10 @@ onMounted(() => {
                     />
                   </td>
                   <td>{{ l.articulo }}</td>
-                  <td>{{ l.descripcion }}</td>
+                  <td>
+                    {{ l.descripcion }}
+                    <span v-if="lineaYaAbonada(l)" class="badge-abonada">Ya abonada</span>
+                  </td>
                   <td class="num">{{ l.cantidad }}</td>
                   <td class="num">{{ Number(l.importe).toFixed(2) }}</td>
                 </tr>
@@ -2079,6 +2111,23 @@ tr.comentario td input {
   display: flex;
   gap: 0.75rem;
   margin: 0.5rem 0;
+}
+.abono-aviso {
+  color: #b45309;
+  margin: 0.35rem 0 0.5rem;
+}
+.fila-abonada {
+  opacity: 0.65;
+  background: #f8fafc;
+}
+.badge-abonada {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  background: #e2e8f0;
+  color: #475569;
 }
 .linkish {
   border: none;

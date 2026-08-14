@@ -6,6 +6,7 @@ namespace Descartes\Api\Controllers;
 
 use Descartes\Api\Http\ErrorResponse;
 use Descartes\Api\Services\Compras\AlbaranCompraConsultaService;
+use Descartes\Api\Services\Compras\AlbaranCompraConversionVentaService;
 use Descartes\Api\Services\Compras\AlbaranCompraEscrituraService;
 use Descartes\Api\Services\Compras\FacturaCompraConsultaService;
 use Descartes\Api\Services\Compras\PedidoProveedorConsultaService;
@@ -22,6 +23,7 @@ final class ComprasController
 {
   private AlbaranCompraConsultaService $albaranes;
   private AlbaranCompraEscrituraService $escritura;
+  private AlbaranCompraConversionVentaService $conversionVenta;
   private PedidoProveedorConsultaService $pedidos;
   private PedidoProveedorEscrituraService $pedidosEscritura;
   private PedidoProveedorRecepcionService $recepcion;
@@ -30,6 +32,7 @@ final class ComprasController
   public function __construct(
     AlbaranCompraConsultaService $albaranes,
     AlbaranCompraEscrituraService $escritura,
+    AlbaranCompraConversionVentaService $conversionVenta,
     PedidoProveedorConsultaService $pedidos,
     PedidoProveedorEscrituraService $pedidosEscritura,
     PedidoProveedorRecepcionService $recepcion,
@@ -37,6 +40,7 @@ final class ComprasController
   ) {
     $this->albaranes = $albaranes;
     $this->escritura = $escritura;
+    $this->conversionVenta = $conversionVenta;
     $this->pedidos = $pedidos;
     $this->pedidosEscritura = $pedidosEscritura;
     $this->recepcion = $recepcion;
@@ -82,10 +86,29 @@ final class ComprasController
 
   public function createAlbaran(Request $request, Response $response): Response
   {
-    $body = (array) json_decode((string) $request->getBody(), true);
+    $body = $this->body($request);
     try {
       $item = $this->escritura->crear($body);
       return $this->json($response, 201, $item);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  /** Reserva nº de albarán (UltAlbaranCom / UltAlbaranDevCom) sin grabar cabecera. */
+  public function reservarAlbaran(Request $request, Response $response): Response
+  {
+    $body = $this->body($request);
+    try {
+      $item = $this->escritura->reservarAlbaran(
+        (string) ($body['empresa'] ?? ''),
+        !empty($body['albaranDevolucion'])
+      );
+      return $this->json($response, 200, $item);
     } catch (\InvalidArgumentException $e) {
       return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
     } catch (\RuntimeException $e) {
@@ -103,7 +126,7 @@ final class ComprasController
       return ErrorResponse::json($response, 400, 'Empresa y albarán son obligatorios', 'VALIDACION');
     }
 
-    $body = (array) json_decode((string) $request->getBody(), true);
+    $body = $this->body($request);
     try {
       $item = $this->escritura->actualizar($empresa, $albaran, $body);
       return $this->json($response, 200, $item);
@@ -154,6 +177,69 @@ final class ComprasController
     }
   }
 
+  public function recuperarAlbaran(Request $request, Response $response, array $args): Response
+  {
+    $empresa = trim((string) ($args['empresa'] ?? ''));
+    $albaran = (int) ($args['albaran'] ?? 0);
+    if ($empresa === '' || $albaran <= 0) {
+      return ErrorResponse::json($response, 400, 'Empresa y albarán son obligatorios', 'VALIDACION');
+    }
+
+    try {
+      $item = $this->escritura->recuperarStock($empresa, $albaran);
+      return $this->json($response, 200, $item);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  /** Albarán compra ACTUALIZADO → albarán venta al cliente (cliente obligatorio en body). */
+  public function convertirVentaAlbaran(Request $request, Response $response, array $args): Response
+  {
+    $empresa = trim((string) ($args['empresa'] ?? ''));
+    $albaran = (int) ($args['albaran'] ?? 0);
+    if ($empresa === '' || $albaran <= 0) {
+      return ErrorResponse::json($response, 400, 'Empresa y albarán son obligatorios', 'VALIDACION');
+    }
+
+    $body = $this->body($request);
+    try {
+      $result = $this->conversionVenta->convertir($empresa, $albaran, $body);
+      return $this->json($response, 201, $result);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function crearAbonoAlbaran(Request $request, Response $response, array $args): Response
+  {
+    $empresa = trim((string) ($args['empresa'] ?? ''));
+    $albaran = (int) ($args['albaran'] ?? 0);
+    if ($empresa === '' || $albaran <= 0) {
+      return ErrorResponse::json($response, 400, 'Empresa y albarán son obligatorios', 'VALIDACION');
+    }
+
+    $body = $this->body($request);
+    try {
+      $item = $this->escritura->crearAbonoDesdeAlbaran($empresa, $albaran, $body);
+      return $this->json($response, 201, $item);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
   public function listPedidos(Request $request, Response $response): Response
   {
     try {
@@ -184,7 +270,7 @@ final class ComprasController
 
   public function createPedido(Request $request, Response $response): Response
   {
-    $body = (array) json_decode((string) $request->getBody(), true);
+    $body = $this->body($request);
     try {
       $item = $this->pedidosEscritura->crear($body);
       return $this->json($response, 201, $item);
@@ -205,7 +291,7 @@ final class ComprasController
       return ErrorResponse::json($response, 400, 'Empresa y pedido son obligatorios', 'VALIDACION');
     }
 
-    $body = (array) json_decode((string) $request->getBody(), true);
+    $body = $this->body($request);
     try {
       $item = $this->pedidosEscritura->actualizar($empresa, $pedido, $body);
       return $this->json($response, 200, $item);
@@ -226,7 +312,7 @@ final class ComprasController
       return ErrorResponse::json($response, 400, 'Empresa y pedido son obligatorios', 'VALIDACION');
     }
 
-    $body = (array) json_decode((string) $request->getBody(), true);
+    $body = $this->body($request);
     try {
       $result = $this->recepcion->recibir($empresa, $pedido, $body);
       return $this->json($response, 201, $result);
@@ -276,6 +362,21 @@ final class ComprasController
       return ErrorResponse::json($response, 409, $e->getMessage(), 'CONFLICTO');
     }
     return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+  }
+
+  /** @return array<string, mixed> */
+  private function body(Request $request): array
+  {
+    $parsed = $request->getParsedBody();
+    if (is_array($parsed) && $parsed !== []) {
+      return $parsed;
+    }
+    $raw = (string) $request->getBody();
+    if ($raw === '') {
+      return is_array($parsed) ? $parsed : [];
+    }
+    $decoded = json_decode($raw, true);
+    return is_array($decoded) ? $decoded : [];
   }
 
   /** @param mixed $data */

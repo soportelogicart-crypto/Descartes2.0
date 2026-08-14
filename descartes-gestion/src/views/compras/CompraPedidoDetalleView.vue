@@ -15,7 +15,7 @@ import type {
   PedidoProveedorLinea,
   PedidoProveedorPayload,
 } from '@/types/compras'
-import { extractApiError } from '@/composables/extractApiError'
+import { extractApiError, isApiNotFound } from '@/composables/extractApiError'
 import {
   imprimirA4CompraPreparado,
   prepararImpresionPedidoProveedor,
@@ -30,7 +30,9 @@ import EntidadBuscarModal, {
   type EntidadBuscarResultado,
 } from '@/components/common/EntidadBuscarModal.vue'
 import PedidoRecepcionModal from '@/components/compras/PedidoRecepcionModal.vue'
+import ArticuloAltaModal from '@/components/articulos/ArticuloAltaModal.vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -45,6 +47,7 @@ function esEstaInstanciaActiva(): boolean {
 
 const puedeCrear = computed(() => puede('compras', 'crear'))
 const puedeEditar = computed(() => puede('compras', 'editar'))
+const puedeCrearArticulo = computed(() => puede('articulos', 'crear'))
 
 const loading = ref(false)
 const saving = ref(false)
@@ -63,6 +66,10 @@ const a4Imprimiendo = ref(false)
 const a4ModalRef = ref<{ capturarHtmlFolio: () => Promise<string> } | null>(null)
 const lineaArticuloIdx = ref(0)
 const articuloBusquedaInicial = ref('')
+const confirmAltaArticulo = ref(false)
+const altaArticuloOpen = ref(false)
+const altaArticuloQuery = ref('')
+const altaArticuloLineaIdx = ref(-1)
 const tiendas = ref<{ value: string; label: string }[]>([])
 const almacenes = ref<{ value: number; label: string }[]>([])
 
@@ -265,7 +272,8 @@ async function iniciarNuevo() {
 }
 
 function volverListado() {
-  router.push({ name: 'compras-pedidos' })
+  modoEdicion.value = false
+  void router.push({ name: 'compras-pedidos' })
 }
 
 function onNuevo() {
@@ -452,8 +460,52 @@ async function resolverArticuloEnLinea(idx: number, q: string) {
     const art = await resolverArticulo(codigo)
     await aplicarArticuloResuelto(idx, art)
   } catch (err: unknown) {
+    if (isApiNotFound(err) && puedeCrearArticulo.value) {
+      pedirAltaArticulo(idx, codigo)
+      return
+    }
     error.value = extractApiError(err, 'Artículo no encontrado')
     abrirBuscarArticulo(idx)
+  }
+}
+
+function pedirAltaArticulo(idx: number, query: string) {
+  altaArticuloLineaIdx.value = idx
+  altaArticuloQuery.value = query
+  confirmAltaArticulo.value = true
+}
+
+function onCancelAltaArticulo() {
+  confirmAltaArticulo.value = false
+  altaArticuloQuery.value = ''
+  altaArticuloLineaIdx.value = -1
+}
+
+function onConfirmAltaArticulo() {
+  confirmAltaArticulo.value = false
+  altaArticuloOpen.value = true
+}
+
+function onCerrarAltaArticulo() {
+  altaArticuloOpen.value = false
+  altaArticuloQuery.value = ''
+  altaArticuloLineaIdx.value = -1
+}
+
+async function onArticuloCreadoDesdeAlta(creado: Record<string, unknown>) {
+  altaArticuloOpen.value = false
+  const idx = altaArticuloLineaIdx.value
+  altaArticuloQuery.value = ''
+  altaArticuloLineaIdx.value = -1
+  if (idx < 0) return
+  error.value = null
+  try {
+    const codigo = String(creado.codigo ?? '').trim()
+    const art = await resolverArticulo(codigo)
+    await aplicarArticuloResuelto(idx, art)
+    mensaje.value = `Artículo ${codigo} creado y aplicado a la línea`
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'Artículo creado pero no se pudo cargar en la línea')
   }
 }
 
@@ -574,11 +626,14 @@ watch(
       :puede-imprimir="puedeImprimir"
       :puede-finalizar="false"
       :puede-abonar="false"
+      :puede-buscar="true"
+      buscar-label="Listado"
+      buscar-title="Volver al listado de pedidos"
       :puede-navegar="false"
       :modo-edicion="modoEdicion"
       :bloqueado="bloqueado"
       :hay-documento="!!ficha || esNuevo"
-      :loading="loading || saving"
+      :loading="loading || saving || recibiendo"
       :indice="-1"
       :total="0"
       @nuevo="onNuevo"
@@ -595,8 +650,8 @@ watch(
         <p class="hint">
           {{
             esNuevo
-              ? 'Complete cabecera y líneas; luego Guardar.'
-              : 'Cant. pedida / servida. Modificar si el pedido no está servido.'
+              ? 'Complete cabecera y líneas; luego Guardar. Listado vuelve al grid.'
+              : 'Cant. pedida / servida. Recibir genera albarán de compra al proveedor.'
           }}
         </p>
       </div>
@@ -609,8 +664,8 @@ watch(
         v-if="puedeRecibir"
         type="button"
         class="btn-recibir"
-        :disabled="loading || recibiendo"
-        title="Generar albarán de compra desde cantidades a recibir"
+        :disabled="loading || saving || recibiendo"
+        title="Recibir mercancía del proveedor (albarán de compra)"
         @click="abrirRecepcion"
       >
         Recibir
@@ -824,6 +879,24 @@ watch(
       :busqueda-inicial="articuloBusquedaInicial"
       @seleccionar="onArticuloSeleccionado"
       @cerrar="buscarArticuloOpen = false"
+    />
+    <ConfirmDialog
+      :open="confirmAltaArticulo"
+      title="Artículo inexistente"
+      message="Código de artículo inexistente, ¿desea darlo de alta?"
+      confirm-label="Sí"
+      cancel-label="No"
+      :danger="false"
+      @confirm="onConfirmAltaArticulo"
+      @cancel="onCancelAltaArticulo"
+    />
+    <ArticuloAltaModal
+      :open="altaArticuloOpen"
+      :query-inicial="altaArticuloQuery"
+      :proveedor-habitual="form.proveedor"
+      :empresa="form.empresa"
+      @cerrar="onCerrarAltaArticulo"
+      @creado="onArticuloCreadoDesdeAlta"
     />
     <PedidoRecepcionModal
       :open="recepcionOpen"

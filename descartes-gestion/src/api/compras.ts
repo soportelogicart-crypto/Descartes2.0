@@ -1,4 +1,5 @@
 import { api } from '@/api/client'
+import type { VentaDetalle } from '@/types/ventas'
 import type {
   AlbaranCompraDetalle,
   AlbaranCompraListParams,
@@ -43,6 +44,9 @@ export async function obtenerAlbaranCompra(
   const { data } = await api.get<AlbaranCompraDetalle>(
     `/api/compras/albaranes/${encodeURIComponent(empresa)}/${albaran}`
   )
+  if (!data || typeof data !== 'object') {
+    throw new Error('Albarán no encontrado o respuesta inválida del servidor')
+  }
   return data
 }
 
@@ -50,6 +54,25 @@ export async function crearAlbaranCompra(
   payload: AlbaranCompraPayload
 ): Promise<AlbaranCompraDetalle> {
   const { data } = await api.post<AlbaranCompraDetalle>('/api/compras/albaranes', payload)
+  return data
+}
+
+/** Reserva el siguiente nº (UltAlbaranCom) sin grabar cabecera. */
+export async function reservarAlbaranCompra(payload: {
+  empresa: string
+  albaranDevolucion?: boolean
+}): Promise<{
+  empresa: string
+  albaran: number
+  albaranDevolucion: boolean
+  almacen: number | null
+}> {
+  const { data } = await api.post<{
+    empresa: string
+    albaran: number
+    albaranDevolucion: boolean
+    almacen: number | null
+  }>('/api/compras/albaranes/reservar', payload)
   return data
 }
 
@@ -75,6 +98,51 @@ export async function actualizarStockAlbaranCompra(
 ): Promise<AlbaranCompraDetalle> {
   const { data } = await api.post<AlbaranCompraDetalle>(
     `/api/compras/albaranes/${encodeURIComponent(empresa)}/${albaran}/actualizar-stock`
+  )
+  return data
+}
+
+/** Legacy «Recuperar»: revierte stock y Actualizado=0. */
+export async function recuperarAlbaranCompra(
+  empresa: string,
+  albaran: number
+): Promise<AlbaranCompraDetalle> {
+  const { data } = await api.post<AlbaranCompraDetalle>(
+    `/api/compras/albaranes/${encodeURIComponent(empresa)}/${albaran}/recuperar`
+  )
+  return data
+}
+
+/** Albarán compra ACTUALIZADO → albarán venta al cliente (cliente obligatorio). */
+export async function convertirAlbaranCompraAVenta(
+  empresa: string,
+  albaran: number,
+  payload: { cliente: string; puesto?: string; vendedor?: string }
+): Promise<{ albaranCompra?: AlbaranCompraDetalle; venta: VentaDetalle }> {
+  const { data } = await api.post<{ albaranCompra: AlbaranCompraDetalle; venta: VentaDetalle }>(
+    `/api/compras/albaranes/${encodeURIComponent(empresa)}/${albaran}/convertir-venta`,
+    payload
+  )
+  if (!data || typeof data !== 'object') {
+    throw new Error('Respuesta vacía al convertir el albarán a venta')
+  }
+  const venta = (data as { venta?: VentaDetalle }).venta
+  if (!venta || typeof venta !== 'object') {
+    throw new Error('El servidor no devolvió la venta creada')
+  }
+  const albaranCompra = (data as { albaranCompra?: AlbaranCompraDetalle }).albaranCompra
+  return { albaranCompra, venta }
+}
+
+/** Abono/devolución parcial por líneas (como ventas). */
+export async function crearAbonoAlbaranCompra(
+  empresa: string,
+  albaran: number,
+  payload: { nroLins: number[]; observacion?: string }
+): Promise<AlbaranCompraDetalle> {
+  const { data } = await api.post<AlbaranCompraDetalle>(
+    `/api/compras/albaranes/${encodeURIComponent(empresa)}/${albaran}/abono`,
+    payload
   )
   return data
 }

@@ -67,7 +67,7 @@ final class AlbaranCompraEscrituraService
     $this->validarLineasArticulos($lineas);
 
     $esDevolucion = !empty($body['albaranDevolucion']);
-    $totales = $this->calcularImportes($lineas, $body);
+    [$lineas, $totales] = $this->prepararLineasYTotales($lineas, $body);
     $fecha = $this->normalizeFecha($body['fechaAlbaran'] ?? $body['fecha'] ?? null);
     $almacen = $this->intOrNull($body['almacen'] ?? null);
     if ($almacen === null) {
@@ -108,9 +108,9 @@ final class AlbaranCompraEscrituraService
       'serie' => $this->nullIfEmpty($body['serie'] ?? null),
       'cliente' => $this->nullIfEmpty($body['cliente'] ?? null),
       'proyecto' => $this->nullIfEmpty($body['proyecto'] ?? null),
-      'importeTransporte' => (float) ($body['importeTransporte'] ?? 0),
-      'coeficienteTransporte' => (float) ($body['coeficienteTransporte'] ?? 0),
-      'brutoConTransporte' => (float) ($body['brutoConTransporte'] ?? $totales['importeAlb']),
+      'importeTransporte' => $totales['importeTransporte'],
+      'coeficienteTransporte' => $totales['coeficienteTransporte'],
+      'brutoConTransporte' => $totales['brutoConTransporte'],
       'estado' => $this->nullIfEmpty($body['estado'] ?? null) ?? 'B',
       'albaranDevolucionEstado' => (int) ($body['albaranDevolucionEstado'] ?? 0),
     ]);
@@ -153,7 +153,7 @@ final class AlbaranCompraEscrituraService
 
     $merged = array_merge($actual, $body);
     $merged['proveedor'] = $proveedor;
-    $totales = $this->calcularImportes($lineas, $merged);
+    [$lineas, $totales] = $this->prepararLineasYTotales($lineas, $merged);
     $fecha = $this->normalizeFecha($merged['fechaAlbaran'] ?? null);
     $esDevolucion = !empty($merged['albaranDevolucion']);
 
@@ -196,9 +196,9 @@ final class AlbaranCompraEscrituraService
         'serie' => $this->nullIfEmpty($merged['serie'] ?? null),
         'cliente' => $this->nullIfEmpty($merged['cliente'] ?? null),
         'proyecto' => $this->nullIfEmpty($merged['proyecto'] ?? null),
-        'importeTransporte' => (float) ($merged['importeTransporte'] ?? 0),
-        'coeficienteTransporte' => (float) ($merged['coeficienteTransporte'] ?? 0),
-        'brutoConTransporte' => (float) ($merged['brutoConTransporte'] ?? $totales['importeAlb']),
+        'importeTransporte' => $totales['importeTransporte'],
+        'coeficienteTransporte' => $totales['coeficienteTransporte'],
+        'brutoConTransporte' => $totales['brutoConTransporte'],
         'estado' => $this->nullIfEmpty($merged['estado'] ?? null),
         'albaranDevolucionEstado' => (int) ($merged['albaranDevolucionEstado'] ?? 0),
         'empresa' => $empresa,
@@ -314,6 +314,11 @@ final class AlbaranCompraEscrituraService
         $v = abs($valor);
 
         $this->upsertMovimientoStock($articulo, $almacen, $year, $month, $q, $v, $devolver);
+        $this->actualizarCostesArticuloDesdeLinea(
+          $articulo,
+          (float) ($lin['precio'] ?? 0),
+          (float) ($actual['coeficienteTransporte'] ?? 0)
+        );
         $aplicadas++;
       }
 
@@ -338,6 +343,101 @@ final class AlbaranCompraEscrituraService
     $detalle = $this->consulta->obtener($empresa, $albaran);
     if ($detalle === null) {
       throw new \RuntimeException('Stock actualizado pero no se pudo releer el albarán');
+    }
+    return $detalle;
+  }
+
+  /**
+   * Legacy «Recuperar»: revierte entradas/salidas de stock y Actualizado=0 para permitir editar.
+   *
+   * @return array<string, mixed>
+   */
+  public function recuperarStock(string $empresa, int $albaran): array
+  {
+    $empresa = trim($empresa);
+    $actual = $this->consulta->obtener($empresa, $albaran);
+    if ($actual === null) {
+      throw new \RuntimeException('Albarán de compra no encontrado', 404);
+    }
+    if (!empty($actual['trasCtb'])) {
+      throw new \RuntimeException(
+        'No se puede recuperar: el albarán está traspasado a contabilidad (TrasCtb=1).',
+        409
+      );
+    }
+    if (empty($actual['actualizado'])) {
+      throw new \RuntimeException(
+        'El albarán no está actualizado; no hace falta recuperar.',
+        409
+      );
+    }
+
+    $almacenCab = (int) ($actual['almacen'] ?? 0);
+    if ($almacenCab <= 0) {
+      throw new \InvalidArgumentException('El albarán no tiene almacén de cabecera válido');
+    }
+
+    $lineas = $actual['lineas'] ?? [];
+    if (!is_array($lineas) || $lineas === []) {
+      throw new \InvalidArgumentException('El albarán no tiene líneas');
+    }
+
+    [$year, $month] = $this->anioMesDesdeFecha($actual['fechaAlbaran'] ?? null);
+    $esDevolucion = !empty($actual['albaranDevolucion']);
+
+    $this->pdo->beginTransaction();
+    try {
+      $revertidas = 0;
+      foreach ($lineas as $lin) {
+        if (!is_array($lin)) {
+          continue;
+        }
+        $articulo = trim((string) ($lin['articulo'] ?? ''));
+        if ($articulo === '' || strtoupper($articulo) === 'NO') {
+          continue;
+        }
+        $cantidad = (float) ($lin['cantidad'] ?? 0);
+        if (abs($cantidad) < 0.0000001) {
+          continue;
+        }
+        $almacenLin = isset($lin['almacen']) ? (int) $lin['almacen'] : 0;
+        $almacen = $almacenLin > 0 ? $almacenLin : $almacenCab;
+        if ($almacen <= 0) {
+          throw new \InvalidArgumentException(
+            'Línea sin almacén válido (artículo ' . $articulo . ')'
+          );
+        }
+
+        $valor = $this->valorNetoLinea($lin);
+        $devolver = $esDevolucion || $cantidad < 0;
+        $q = abs($cantidad);
+        $v = abs($valor);
+
+        $this->revertirMovimientoStock($articulo, $almacen, $year, $month, $q, $v, $devolver);
+        $revertidas++;
+      }
+
+      if ($revertidas === 0) {
+        throw new \InvalidArgumentException('No hay líneas de artículo para revertir stock');
+      }
+
+      $this->pdo->prepare(
+        'UPDATE AlbaranesCompraCab
+         SET Actualizado = 0, LUpdate = GETDATE()
+         WHERE Empresa = :e AND Albaran = :a'
+      )->execute(['e' => $empresa, 'a' => $albaran]);
+
+      $this->pdo->commit();
+    } catch (\Throwable $e) {
+      if ($this->pdo->inTransaction()) {
+        $this->pdo->rollBack();
+      }
+      throw $e;
+    }
+
+    $detalle = $this->consulta->obtener($empresa, $albaran);
+    if ($detalle === null) {
+      throw new \RuntimeException('Albarán recuperado pero no se pudo releer');
     }
     return $detalle;
   }
@@ -437,6 +537,73 @@ final class AlbaranCompraEscrituraService
     ]);
   }
 
+  /** Deshace upsertMovimientoStock (Recuperar albarán). */
+  private function revertirMovimientoStock(
+    string $articulo,
+    int $almacen,
+    int $year,
+    int $month,
+    float $cantidad,
+    float $valor,
+    bool $eraSalida
+  ): void {
+    $sel = $this->pdo->prepare(
+      'SELECT Entradas, ValorEntradas, Salidas, ValorSalidas FROM Stock WITH (UPDLOCK, ROWLOCK)
+       WHERE Codigo = :c AND Almacen = :a AND [Año] = :y AND Mes = :m'
+    );
+    $sel->execute(['c' => $articulo, 'a' => $almacen, 'y' => $year, 'm' => $month]);
+    $row = $sel->fetch(\PDO::FETCH_ASSOC);
+    if ($row === false) {
+      throw new \RuntimeException(
+        "No hay movimiento de stock que revertir para {$articulo} (almacén {$almacen})."
+      );
+    }
+
+    if ($eraSalida) {
+      $sal = (float) ($row['Salidas'] ?? 0);
+      $vs = (float) ($row['ValorSalidas'] ?? 0);
+      if ($sal + 0.0000001 < $cantidad) {
+        throw new \RuntimeException(
+          "Salidas insuficientes en stock para revertir {$articulo} (almacén {$almacen})."
+        );
+      }
+      $this->pdo->prepare(
+        'UPDATE Stock SET
+           Salidas = ISNULL(Salidas, 0) - :q,
+           ValorSalidas = ISNULL(ValorSalidas, 0) - :imp
+         WHERE Codigo = :c AND Almacen = :a AND [Año] = :y AND Mes = :m'
+      )->execute([
+        'q' => $cantidad,
+        'imp' => $valor,
+        'c' => $articulo,
+        'a' => $almacen,
+        'y' => $year,
+        'm' => $month,
+      ]);
+      return;
+    }
+
+    $ent = (float) ($row['Entradas'] ?? 0);
+    if ($ent + 0.0000001 < $cantidad) {
+      throw new \RuntimeException(
+        "Entradas insuficientes en stock para revertir {$articulo} (almacén {$almacen})."
+      );
+    }
+    $this->pdo->prepare(
+      'UPDATE Stock SET
+         Entradas = ISNULL(Entradas, 0) - :q,
+         ValorEntradas = ISNULL(ValorEntradas, 0) - :imp
+       WHERE Codigo = :c AND Almacen = :a AND [Año] = :y AND Mes = :m'
+    )->execute([
+      'q' => $cantidad,
+      'imp' => $valor,
+      'c' => $articulo,
+      'a' => $almacen,
+      'y' => $year,
+      'm' => $month,
+    ]);
+  }
+
   /**
    * T020: denegar escritura si TrasCtb=1 o Actualizado=1.
    *
@@ -458,6 +625,151 @@ final class AlbaranCompraEscrituraService
         409
       );
     }
+  }
+
+  /**
+   * Abono / devolución parcial por líneas (como ventas): nuevo albarán con AlbaranDevolucion=1.
+   *
+   * @param array<string, mixed> $body { nroLins?: list<int>, observacion?: string }
+   * @return array<string, mixed>
+   */
+  public function crearAbonoDesdeAlbaran(string $empresa, int $albaran, array $body = []): array
+  {
+    $empresa = trim($empresa);
+    $origen = $this->consulta->obtener($empresa, $albaran);
+    if ($origen === null) {
+      throw new \RuntimeException('Albarán de compra origen no encontrado', 404);
+    }
+    if (!empty($origen['albaranDevolucion'])) {
+      throw new \InvalidArgumentException('No se puede abonar un albarán que ya es devolución');
+    }
+    if (!empty($origen['trasCtb'])) {
+      throw new \InvalidArgumentException('No se puede abonar: el albarán está traspasado a contabilidad');
+    }
+
+    $lineasOrig = $origen['lineas'] ?? [];
+    if (!is_array($lineasOrig) || $lineasOrig === []) {
+      throw new \InvalidArgumentException('El albarán no tiene líneas para abonar');
+    }
+
+    /** @var list<int> $nroLins */
+    $nroLins = [];
+    if (isset($body['nroLins']) && is_array($body['nroLins'])) {
+      foreach ($body['nroLins'] as $n) {
+        $nroLins[] = (int) $n;
+      }
+      $nroLins = array_values(array_unique(array_filter($nroLins, static fn ($n) => $n > 0)));
+    }
+
+    $seleccionadas = [];
+    foreach ($lineasOrig as $lin) {
+      if (!is_array($lin)) {
+        continue;
+      }
+      $art = trim((string) ($lin['articulo'] ?? ''));
+      if ($art === '' || strtoupper($art) === 'NO') {
+        continue;
+      }
+      $nro = (int) ($lin['nroLin'] ?? 0);
+      if ($nroLins !== [] && !in_array($nro, $nroLins, true)) {
+        continue;
+      }
+      $cant = (float) ($lin['cantidad'] ?? 0);
+      if (abs($cant) < 0.0001) {
+        continue;
+      }
+      $seleccionadas[] = [
+        'articulo' => $art,
+        'descripcion' => $lin['descripcion'] ?? null,
+        'cantidad' => -abs($cant),
+        'precio' => (float) ($lin['precio'] ?? 0),
+        'pjeDto' => (float) ($lin['pjeDto'] ?? 0),
+        'dto1' => (float) ($lin['dto1'] ?? 0),
+        'dto2' => (float) ($lin['dto2'] ?? 0),
+        'dto3' => (float) ($lin['dto3'] ?? 0),
+        'lote' => $lin['lote'] ?? null,
+        'almacen' => $lin['almacen'] ?? $origen['almacen'] ?? null,
+        'pedido' => $lin['pedido'] ?? null,
+        'articuloOriginal' => $lin['articuloOriginal'] ?? null,
+      ];
+    }
+
+    if ($seleccionadas === []) {
+      throw new \InvalidArgumentException('Seleccione al menos una línea para abonar');
+    }
+
+    $obsExtra = trim((string) ($body['observacion'] ?? $body['observaciones'] ?? ''));
+    $obsBase = 'Abono/devolución de albarán ' . $albaran;
+    $obs = $obsExtra !== '' ? $obsBase . '. ' . $obsExtra : $obsBase;
+    $obsOrig = trim((string) ($origen['observaciones'] ?? ''));
+    if ($obsOrig !== '') {
+      $obs .= ' | ' . $obsOrig;
+    }
+
+    return $this->crear([
+      'empresa' => $empresa,
+      'proveedor' => $origen['proveedor'] ?? null,
+      'fpago' => $origen['fpago'] ?? null,
+      'fechaAlbaran' => date('Y-m-d'),
+      'suAlbaran' => $origen['suAlbaran'] ?? null,
+      'almacen' => $origen['almacen'] ?? null,
+      'serie' => $origen['serie'] ?? null,
+      'albaranDevolucion' => true,
+      'observaciones' => $obs,
+      'importeTransporte' => 0,
+      'coeficienteTransporte' => 0,
+      'brutoConTransporte' => 0,
+      'lineas' => $seleccionadas,
+    ]);
+  }
+
+  /**
+   * Reserva el siguiente nº de albarán de compra (contador tienda), sin grabar cabecera.
+   * Igual que ventas: el nº se muestra al crear; la cabecera se persiste al Guardar.
+   *
+   * @return array{empresa: string, albaran: int, albaranDevolucion: bool, almacen: ?int}
+   */
+  public function reservarAlbaran(string $empresa, bool $esDevolucion = false): array
+  {
+    $empresa = trim($empresa);
+    if ($empresa === '') {
+      throw new \InvalidArgumentException('Empresa (tienda) obligatoria');
+    }
+
+    $this->pdo->beginTransaction();
+    try {
+      $campo = $esDevolucion ? 'UltAlbaranDevCom' : 'UltAlbaranCom';
+      $stmt = $this->pdo->prepare(
+        "SELECT [{$campo}], Almacen FROM Empresas WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e"
+      );
+      $stmt->execute(['e' => $empresa]);
+      $row = $stmt->fetch(PDO::FETCH_ASSOC);
+      if ($row === false) {
+        throw new \RuntimeException('Tienda no encontrada', 404);
+      }
+
+      $albaran = (int) ($row[$campo] ?? 0) + 1;
+      $this->pdo->prepare(
+        "UPDATE Empresas SET [{$campo}] = :n WHERE Codigo = :e"
+      )->execute(['n' => $albaran, 'e' => $empresa]);
+
+      $almacenRaw = $row['Almacen'] ?? null;
+      $almacen = ($almacenRaw === null || $almacenRaw === '') ? null : (int) $almacenRaw;
+
+      $this->pdo->commit();
+    } catch (\Throwable $e) {
+      if ($this->pdo->inTransaction()) {
+        $this->pdo->rollBack();
+      }
+      throw $e;
+    }
+
+    return [
+      'empresa' => $empresa,
+      'albaran' => $albaran,
+      'albaranDevolucion' => $esDevolucion,
+      'almacen' => $almacen,
+    ];
   }
 
   private function nextAlbaranLocked(string $empresa, bool $esDevolucion): int
@@ -531,44 +843,147 @@ final class AlbaranCompraEscrituraService
   }
 
   /**
+   * Precios de línea en UI = coste base; al guardar se repercuten en Precio (CT) como legacy.
+   *
    * @param list<array<string, mixed>> $lineas
    * @param array<string, mixed> $body
-   * @return array{importeAlb: float, importeDtos: float, importeIva: float, importeRec: float}
+   * @return array{0: list<array<string, mixed>>, 1: array<string, float>}
    */
-  private function calcularImportes(array $lineas, array $body): array
+  private function prepararLineasYTotales(array $lineas, array $body): array
   {
-    $bruto = 0.0;
-    $neto = 0.0;
-    foreach ($lineas as $lin) {
-      $articulo = trim((string) ($lin['articulo'] ?? ''));
-      if ($articulo === '') {
-        continue;
+    $transporte = max(0.0, (float) ($body['importeTransporte'] ?? 0));
+    $netoBase = $this->sumNetoLineas($lineas);
+    $coef = 0.0;
+    $lineasGuardar = $lineas;
+
+    if ($transporte > 0.00001) {
+      $brutoConBody = (float) ($body['brutoConTransporte'] ?? 0);
+      $brutoSinTrans = $brutoConBody > $transporte + 0.00001
+        ? $brutoConBody - $transporte
+        : $netoBase;
+      if ($brutoSinTrans <= 0.00001) {
+        $brutoSinTrans = $netoBase;
       }
-      $cant = (float) ($lin['cantidad'] ?? 0);
-      $precio = (float) ($lin['precio'] ?? 0);
-      $pjeDto = (float) ($lin['pjeDto'] ?? 0);
-      $dto1 = (float) ($lin['dto1'] ?? 0);
-      $dto2 = (float) ($lin['dto2'] ?? 0);
-      $dto3 = (float) ($lin['dto3'] ?? 0);
-      $lineaBruto = $cant * $precio;
-      $factor = (1 - $pjeDto / 100) * (1 - $dto1 / 100) * (1 - $dto2 / 100) * (1 - $dto3 / 100);
-      $lineaNeto = $lineaBruto * $factor;
-      $bruto += $lineaBruto;
-      $neto += $lineaNeto;
+      $coefBody = (float) ($body['coeficienteTransporte'] ?? 0);
+      $coef = $coefBody > 0.0000001
+        ? $coefBody
+        : $this->calcularCoeficienteLegacy($transporte, $brutoSinTrans);
+      if (empty($body['preciosYaConTransporte'])) {
+        $lineasGuardar = $this->repercutirTransporteEnLineas($lineas, $coef);
+      }
     }
 
-    $transporte = (float) ($body['importeTransporte'] ?? 0);
+    $netoFinal = $this->sumNetoLineas($lineasGuardar);
+    $brutoFinal = $this->sumBrutoLineas($lineasGuardar);
     $importeIva = array_key_exists('importeIva', $body)
       ? (float) $body['importeIva']
       : (float) ($body['importeIVA'] ?? 0);
     $importeRec = (float) ($body['importeRec'] ?? 0);
 
     return [
-      'importeAlb' => round($neto + $transporte + $importeIva + $importeRec, 2),
-      'importeDtos' => round(max(0.0, $bruto - $neto), 2),
-      'importeIva' => round($importeIva, 2),
-      'importeRec' => round($importeRec, 2),
+      $lineasGuardar,
+      [
+        'importeAlb' => round($netoFinal + $importeIva + $importeRec, 2),
+        'importeDtos' => round(max(0.0, $brutoFinal - $netoFinal), 2),
+        'importeIva' => round($importeIva, 2),
+        'importeRec' => round($importeRec, 2),
+        'brutoConTransporte' => round($netoFinal, 2),
+        'coeficienteTransporte' => $coef,
+        'importeTransporte' => round($transporte, 2),
+      ],
     ];
+  }
+
+  /** Coeficiente legacy: transporte / bruto mercancía sin transporte. */
+  private function calcularCoeficienteLegacy(float $transporte, float $brutoSinTransporte): float
+  {
+    if ($transporte <= 0.00001 || $brutoSinTransporte <= 0.00001) {
+      return 0.0;
+    }
+    return round($transporte / $brutoSinTransporte, 6);
+  }
+
+  /**
+   * @param list<array<string, mixed>> $lineas
+   * @return list<array<string, mixed>>
+   */
+  private function repercutirTransporteEnLineas(array $lineas, float $coef): array
+  {
+    if ($coef <= 0.0000001) {
+      return $lineas;
+    }
+    $factor = 1 + $coef;
+    $out = [];
+    foreach ($lineas as $lin) {
+      if (!is_array($lin)) {
+        continue;
+      }
+      $copia = $lin;
+      $copia['precio'] = round((float) ($lin['precio'] ?? 0) * $factor, 6);
+      $out[] = $copia;
+    }
+    return $out;
+  }
+
+  /** @param list<array<string, mixed>> $lineas */
+  private function sumNetoLineas(array $lineas): float
+  {
+    $neto = 0.0;
+    foreach ($lineas as $lin) {
+      if (!is_array($lin)) {
+        continue;
+      }
+      $articulo = trim((string) ($lin['articulo'] ?? ''));
+      if ($articulo === '') {
+        continue;
+      }
+      $neto += $this->valorNetoLinea($lin);
+    }
+    return round($neto, 2);
+  }
+
+  /** @param list<array<string, mixed>> $lineas */
+  private function sumBrutoLineas(array $lineas): float
+  {
+    $bruto = 0.0;
+    foreach ($lineas as $lin) {
+      if (!is_array($lin)) {
+        continue;
+      }
+      $articulo = trim((string) ($lin['articulo'] ?? ''));
+      if ($articulo === '') {
+        continue;
+      }
+      $bruto += (float) ($lin['cantidad'] ?? 0) * (float) ($lin['precio'] ?? 0);
+    }
+    return round($bruto, 2);
+  }
+
+  private function actualizarCostesArticuloDesdeLinea(string $articulo, float $precioCt, float $coefTransporte): void
+  {
+    $articulo = trim($articulo);
+    if ($articulo === '' || $precioCt <= 0.00001) {
+      return;
+    }
+    $precioBase = $coefTransporte > 0.0000001
+      ? round($precioCt / (1 + $coefTransporte), 6)
+      : $precioCt;
+    try {
+      $this->pdo->prepare(
+        'UPDATE Articulos SET
+           PrecioMedio = :pm,
+           PrecioUltimo = :pu,
+           PrecioBaseUltimo = :pb
+         WHERE RTRIM(Codigo) = :c'
+      )->execute([
+        'pm' => $precioCt,
+        'pu' => $precioBase,
+        'pb' => $precioBase,
+        'c' => $articulo,
+      ]);
+    } catch (\Throwable $e) {
+      // No bloquear stock si falla actualización de maestro.
+    }
   }
 
   /** @param list<array<string, mixed>> $lineas */

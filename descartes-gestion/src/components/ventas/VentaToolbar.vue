@@ -1,24 +1,48 @@
 <script setup lang="ts">
+import { withDefaults } from 'vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
 
-defineProps<{
-  puedeCrear?: boolean
-  puedeEditar?: boolean
-  puedeEliminar?: boolean
-  puedeGuardar?: boolean
-  puedeImprimir?: boolean
-  puedeFinalizar?: boolean
-  puedeAbonar?: boolean
-  puedeBuscar?: boolean
-  puedeNavegar?: boolean
-  modoEdicion?: boolean
-  bloqueado?: boolean
-  esTicketCerrado?: boolean
-  hayDocumento?: boolean
-  loading?: boolean
-  indice?: number
-  total?: number
-}>()
+withDefaults(
+  defineProps<{
+    puedeCrear?: boolean
+    puedeEditar?: boolean
+    puedeEliminar?: boolean
+    puedeGuardar?: boolean
+    puedeImprimir?: boolean
+    puedeFinalizar?: boolean
+    puedeAbonar?: boolean
+    /** Albarán compra: legacy Recuperar (revertir stock). */
+    puedeRecuperar?: boolean
+    /** Albarán compra: legacy Actualizar stock. */
+    puedeActualizarStock?: boolean
+    /** Pedido venta: generar albarán/ticket al cliente desde pedido guardado. */
+    puedeGenerarAlbaran?: boolean
+    /** Etiqueta del botón generar albarán (default «Albarán»). */
+    generarAlbaranLabel?: string
+    /** Tooltip del botón generar albarán. */
+    generarAlbaranTitle?: string
+    puedeBuscar?: boolean
+    /** Etiqueta del botón Buscar (p. ej. «Listado» en fichas). */
+    buscarLabel?: string
+    /** Tooltip del botón Buscar. */
+    buscarTitle?: string
+    puedeNavegar?: boolean
+    modoEdicion?: boolean
+    bloqueado?: boolean
+    esTicketCerrado?: boolean
+    hayDocumento?: boolean
+    loading?: boolean
+    indice?: number
+    total?: number
+  }>(),
+  {
+    buscarLabel: 'Buscar',
+    buscarTitle: 'Volver al listado',
+    generarAlbaranLabel: 'Albarán',
+    generarAlbaranTitle:
+      'Generar albarán de venta al cliente desde las cantidades a servir del pedido',
+  }
+)
 
 defineEmits<{
   nuevo: []
@@ -29,6 +53,9 @@ defineEmits<{
   cancelar: []
   finalizar: []
   abonar: []
+  recuperar: []
+  actualizarStock: []
+  generarAlbaran: []
   primero: []
   anterior: []
   siguiente: []
@@ -74,11 +101,11 @@ defineEmits<{
         type="button"
         class="tool-btn"
         :disabled="loading || puedeBuscar === false"
-        title="Volver al listado"
+        :title="buscarTitle"
         @click="$emit('buscar')"
       >
         <ToolIcon name="buscar" />
-        <span>Buscar</span>
+        <span>{{ buscarLabel }}</span>
       </button>
     </div>
 
@@ -127,6 +154,45 @@ defineEmits<{
         @click="$emit('ultimo')"
       >
         &gt;|
+      </button>
+    </div>
+
+    <div
+      v-if="puedeGenerarAlbaran || puedeRecuperar || puedeActualizarStock"
+      class="toolbar-group"
+    >
+      <button
+        v-if="puedeGenerarAlbaran"
+        type="button"
+        class="tool-btn tool-btn-albaran"
+        :disabled="loading"
+        :title="generarAlbaranTitle"
+        @click="$emit('generarAlbaran')"
+      >
+        <ToolIcon name="ficha" />
+        <span>{{ generarAlbaranLabel }}</span>
+      </button>
+      <button
+        v-if="puedeRecuperar"
+        type="button"
+        class="tool-btn"
+        :disabled="loading"
+        title="Revertir entradas de stock y permitir modificar (legacy Recuperar)"
+        @click="$emit('recuperar')"
+      >
+        <ToolIcon name="modificar" />
+        <span>Recuperar</span>
+      </button>
+      <button
+        v-if="puedeActualizarStock"
+        type="button"
+        class="tool-btn tool-btn-stock"
+        :disabled="loading"
+        title="Aplicar entradas de stock y marcar ACTUALIZADO"
+        @click="$emit('actualizarStock')"
+      >
+        <ToolIcon name="guardar" />
+        <span>Actualizar</span>
       </button>
     </div>
 
@@ -226,6 +292,15 @@ defineEmits<{
   background: #2563eb;
   border-color: #1d4ed8;
   color: #fff;
+}
+.tool-btn-stock {
+  border-color: #b45309;
+  background: #fef3c7;
+}
+.tool-btn-albaran {
+  border-color: #b45309;
+  background: #fef3c7;
+  font-weight: 600;
 }
 .nav {
   background: #fff;

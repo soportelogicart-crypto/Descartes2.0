@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, nextTick, onActivated, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import { extractApiError, useMantenimiento } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
@@ -43,6 +43,7 @@ const FILTER_KEYS = ['codigo', 'descripcion', 'familia', 'impuestoCodigo', 'prov
 const SERVER_SEARCH_KEYS = ['descripcion', 'codigo', 'familia', 'proveedorHabitual', 'impuestoCodigo']
 
 const route = useRoute()
+const router = useRouter()
 const { puede } = usePermisos()
 const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } =
   useMantenimiento(() => ENTIDAD)
@@ -195,24 +196,67 @@ onMounted(async () => {
   if (!puedeVer.value) return
   await cargarOpciones()
   await cargar()
-  const codigoQuery = String(route.query.codigo ?? '').trim()
-  if (codigoQuery) {
-    await abrirFichaPorCodigo(codigoQuery)
-  } else {
-    enfocarScanInput()
+  await restaurarDesdeRuta()
+})
+
+onActivated(() => {
+  if (vista.value === 'ficha') {
+    void sincronizarRutaFicha()
+    return
   }
+  void restaurarDesdeRuta()
 })
 
 watch(vista, (v) => {
   if (v === 'grid') enfocarScanInput()
 })
 
+function queryFichaActiva(): boolean {
+  const codigo = String(route.query.codigo ?? '').trim()
+  return route.query.vista === 'ficha' || codigo !== '' || route.query.nuevo === '1'
+}
+
+async function sincronizarRutaFicha() {
+  if (vista.value !== 'ficha') return
+  const codigo = String(ficha.value.codigo ?? '').trim()
+  const query: Record<string, string> = { vista: 'ficha' }
+  if (esNuevo.value) {
+    query.nuevo = '1'
+    if (codigo) query.codigo = codigo
+  } else if (codigo) {
+    query.codigo = codigo
+  }
+  const mismo =
+    route.query.vista === query.vista &&
+    String(route.query.codigo ?? '') === (query.codigo ?? '') &&
+    String(route.query.nuevo ?? '') === (query.nuevo ?? '')
+  if (mismo) return
+  await router.replace({ path: route.path, query })
+}
+
+async function restaurarDesdeRuta() {
+  if (!puedeVer.value) return
+  if (!queryFichaActiva()) {
+    if (vista.value === 'ficha') resetVistaGrid()
+    else enfocarScanInput()
+    return
+  }
+  if (route.query.nuevo === '1') {
+    if (vista.value === 'ficha' && esNuevo.value) return
+    await onNuevoFicha()
+    return
+  }
+  const codigo = String(route.query.codigo ?? '').trim()
+  if (!codigo) return
+  if (vista.value === 'ficha' && String(ficha.value.codigo ?? '').trim() === codigo) return
+  await abrirFichaPorCodigo(codigo, { sincronizarRuta: false })
+}
+
 watch(
-  () => String(route.query.codigo ?? '').trim(),
-  async (codigo) => {
-    if (!codigo || !puedeVer.value) return
-    if (vista.value === 'ficha' && String(ficha.value.codigo ?? '').trim() === codigo) return
-    await abrirFichaPorCodigo(codigo)
+  () =>
+    [route.query.vista, route.query.codigo, route.query.nuevo].map((v) => String(v ?? '')).join('|'),
+  () => {
+    void restaurarDesdeRuta()
   }
 )
 
@@ -394,7 +438,7 @@ function onListado() {
   window.print()
 }
 
-async function abrirFichaPorCodigo(codigo: string) {
+async function abrirFichaPorCodigo(codigo: string, opts?: { sincronizarRuta?: boolean }) {
   try {
     ficha.value = await obtener(codigo)
     if (ficha.value.precioVen1 == null && ficha.value.precioVenta != null) {
@@ -408,6 +452,9 @@ async function abrirFichaPorCodigo(codigo: string) {
     tabActiva.value = 'general'
     vista.value = 'ficha'
     mensaje.value = null
+    if (opts?.sincronizarRuta !== false) {
+      await sincronizarRutaFicha()
+    }
   } catch (e: unknown) {
     mensaje.value = extractApiError(e, 'No se pudo cargar la ficha')
   }
@@ -446,6 +493,7 @@ async function onNuevoFicha() {
   indiceFicha.value = -1
   tabActiva.value = 'general'
   vista.value = 'ficha'
+  await sincronizarRutaFicha()
   await enfocarDescripcion()
 }
 
@@ -517,7 +565,7 @@ async function onBorrarFicha() {
   }
 }
 
-function volverAlGrid() {
+function resetVistaGrid() {
   vista.value = 'grid'
   modoEdicion.value = false
   esNuevo.value = false
@@ -525,7 +573,12 @@ function volverAlGrid() {
   camposInvalidos.value = []
   ficha.value = {}
   scanCodigo.value = ''
+}
+
+function volverAlGrid() {
+  resetVistaGrid()
   enfocarScanInput()
+  void router.replace({ path: route.path, query: {} })
 }
 
 function onAccionPendiente(nombre: string) {

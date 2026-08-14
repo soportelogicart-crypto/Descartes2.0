@@ -693,14 +693,22 @@ const totalAServir = computed(() =>
   }, 0)
 )
 
-const puedeConvertir = computed(
+const puedeConvertirBase = computed(
   () =>
     !esNuevo.value &&
     !!detalle.value?.editable &&
     (puedeEditar.value || puedeCrear.value) &&
+    String(detalle.value?.cliente ?? editForm.value.cliente ?? '').trim() !== '' &&
     tieneLineasArticulo() &&
     totalPendiente.value > 0.00001
 )
+
+/** Tras guardar el pedido (no en edición): pasar a albarán de venta al cliente. */
+const puedeGenerarAlbaranCliente = computed(
+  () => puedeConvertirBase.value && !editando.value
+)
+
+const puedeConvertir = computed(() => puedeGenerarAlbaranCliente.value)
 
 const mensajeConfirmConvertir = computed(() => {
   const r = resumentLineasAServir(confirmConvertirPendiente.value)
@@ -868,7 +876,7 @@ async function onGuardar() {
     })
     cargarEnForm(detalle.value)
     editando.value = false
-    msg.value = `Pedido ${detalle.value.pedido} guardado`
+    msg.value = `Pedido ${detalle.value.pedido} guardado. Use Albarán para generar venta al cliente.`
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudo guardar el pedido')
   } finally {
@@ -935,6 +943,8 @@ onActivated(() => {
       :puede-editar="puedeModificarPedido"
       :puede-guardar="editando && !esNuevo && (puedeEditar || puedeCrear)"
       :puede-imprimir="!!detalle && (puedeEditar || puedeCrear)"
+      :puede-generar-albaran="puedeGenerarAlbaranCliente"
+      generar-albaran-label="Albarán"
       :puede-buscar="true"
       :puede-navegar="!esNuevo && !editando && totalNav > 0"
       :modo-edicion="editando"
@@ -952,6 +962,7 @@ onActivated(() => {
       @siguiente="siguiente"
       @ultimo="ultimo"
       @imprimir="onImpreso"
+      @generar-albaran="pedirConvertir(false)"
     />
 
     <ol v-if="esNuevo" class="pasos-alta" aria-label="Pasos alta pedido">
@@ -966,6 +977,12 @@ onActivated(() => {
         <p v-if="detalle" class="hint">
           {{ detalle.actualizado ? 'CERRADO' : 'ABIERTO' }}
           — Impreso: {{ detalle.impreso ? 'Sí' : 'No' }}
+          <template v-if="!editando && puedeGenerarAlbaranCliente">
+            — Tras guardar, use <strong>Albarán</strong> para pasar a venta al cliente.
+          </template>
+          <template v-else-if="editando && !esNuevo">
+            — Guarde el pedido para habilitar <strong>Albarán</strong>.
+          </template>
           <template v-if="detalle.ventaAsociada">
             — Última venta:
             <button type="button" class="linkish" @click="irVenta">
@@ -1030,7 +1047,7 @@ onActivated(() => {
           <div class="row"><span>A servir</span><strong>{{ totalAServir.toFixed(2) }}</strong></div>
           <p v-if="!detalle.editable" class="hint-mini">Pedido cerrado: no se puede generar albarán.</p>
           <p v-else-if="totalPendiente <= 0" class="hint-mini">Todo servido. No queda pendiente.</p>
-          <template v-else-if="puedeConvertir">
+          <template v-else-if="puedeConvertirBase">
             <button
               v-if="editando"
               type="button"
@@ -1040,6 +1057,7 @@ onActivated(() => {
             >
               Rellenar a servir
             </button>
+            <template v-if="puedeGenerarAlbaranCliente">
             <button
               type="button"
               class="convert"
@@ -1060,6 +1078,7 @@ onActivated(() => {
               <strong>Generar albarán</strong> usa la columna «A servir».
               <strong> Todo pendiente</strong> sirve el resto de golpe.
             </p>
+            </template>
           </template>
         </div>
 

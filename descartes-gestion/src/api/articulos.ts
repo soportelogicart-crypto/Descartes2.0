@@ -27,3 +27,9 @@ export async function resolverArticulo(query: string): Promise<ArticuloResuelto>
     unidadesPaquete: Number(data.unidadesPaquete) > 0 ? Number(data.unidadesPaquete) : 1,
   }
 }
+
+/** Alta rápida (mismo payload que mantenimiento /api/mantenimiento/articulos). */
+export async function crearArticulo(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const { data } = await api.post<Record<string, unknown>>('/api/mantenimiento/articulos', payload)
+  return data
+}

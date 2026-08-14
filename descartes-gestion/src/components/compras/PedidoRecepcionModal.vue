@@ -146,7 +146,7 @@ function fmt(n: number) {
     >
       <div class="modal">
         <header class="modal-header">
-          <h3>Recibir mercancía</h3>
+          <h3>Generar albarán de compra</h3>
           <p v-if="pedido" class="sub">
             Pedido {{ pedido.empresa }}-{{ pedido.pedido }}
             <span v-if="pedido.proveedor"> · Prov. {{ pedido.proveedor }}</span>
