@@ -121,6 +121,33 @@ export const entidades: Record<string, EntidadConfig> = {
       { key: 'activo', label: 'Activo', type: 'checkbox' },
     ],
   },
+  'tipos-calculo-fidelizacion': {
+    titulo: 'Tipos calculo fidelizacion',
+    modulo: 'clientes',
+    listado: true,
+    campos: [
+      { key: 'codigo', label: 'Codigo', required: true, maxLength: 20 },
+      { key: 'nombre', label: 'Nombre', required: true, maxLength: 50 },
+      {
+        key: 'motor',
+        label: 'Motor',
+        type: 'select',
+        required: true,
+        options: [
+          { value: 'EUROS', label: 'Saldo en euros (%)' },
+          { value: 'PUNTOS', label: 'Puntos por euro' },
+          { value: 'NINGUNO', label: 'Sin acumulacion' },
+        ],
+      },
+      { key: 'factor', label: 'Factor', type: 'number', required: true },
+      {
+        key: 'configuracion',
+        label: 'Configuracion adicional (JSON)',
+        type: 'textarea',
+      },
+      { key: 'activo', label: 'Activo', type: 'checkbox' },
+    ],
+  },
   proveedores: {
     titulo: 'Proveedores',
     modulo: 'proveedores',

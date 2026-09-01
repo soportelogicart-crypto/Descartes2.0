@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { routeNavigationFrom, albaranCompraFocusLineas } from '@/router'
 import { api } from '@/api/client'
 import {
   actualizarAlbaranCompra,
@@ -14,7 +15,7 @@ import {
   reservarAlbaranCompra,
 } from '@/api/compras'
 import { encolarDesdeAlbaranCompra } from '@/api/etiquetas'
-import { resolverArticulo } from '@/api/articulos'
+import { resolverArticulo, asignarProveedorHabitualArticulo } from '@/api/articulos'
 import { createBarcodeScanWatcher } from '@/composables/useBarcodeScanWatcher'
 import type { AlbaranCompraDetalle, AlbaranCompraLinea, AlbaranCompraPayload } from '@/types/compras'
 import { extractApiError, isApiNotFound } from '@/composables/extractApiError'
@@ -43,6 +44,11 @@ const puesto = usePuestoContextoStore()
 
 const pathInstancia = route.fullPath
 
+/**
+ * KeepAlive cachea por fullPath. Al abrir otra pestaña (p. ej. consultar artículo),
+ * useRoute() sigue cambiando en la instancia cacheada: hay que ignorar esas rutas
+ * y no volver a cargar/reiniciar el borrador al reactivar esta pestaña.
+ */
 function esEstaInstanciaActiva(): boolean {
   return route.fullPath === pathInstancia
 }
@@ -63,6 +69,7 @@ const puedeGenerarEtiquetas = computed(
 
 const loading = ref(false)
 const saving = ref(false)
+const guardandoLineas = ref(false)
 const error = ref<string | null>(null)
 const mensaje = ref<string | null>(null)
 const ficha = ref<AlbaranCompraDetalle | null>(null)
@@ -85,6 +92,7 @@ const altaArticuloQuery = ref('')
 const altaArticuloLineaIdx = ref(-1)
 const pendingArticuloApply = ref<(() => Promise<void>) | null>(null)
 const pendingArticuloLineaIdx = ref(-1)
+const pendingArticuloProveedor = ref<{ codigo: string; proveedor: string } | null>(null)
 const generandoEtiquetas = ref(false)
 const a4Open = ref(false)
 const a4Prep = ref<PrepImpresionA4 | null>(null)
@@ -157,10 +165,12 @@ const ajusteTransporteOrigen = ref<'transporte' | 'bruto' | 'coeficiente'>('tran
 /** Nº reservado en alta (como legacy / ventas). */
 const albaranReservado = ref<number | null>(null)
 const reservando = ref(false)
-/** Alta guiada: tienda → reservar nº → proveedor → líneas. */
-const pasoAlta = ref<'tienda' | 'proveedor' | 'listo'>('listo')
+/** Alta guiada: tienda → reservar nº → proveedor → cabecera → guardar → líneas. */
+const pasoAlta = ref<'tienda' | 'proveedor' | 'cabecera' | 'listo'>('listo')
 const tiendaSelectRef = ref<HTMLSelectElement | null>(null)
 const albaranInputRef = ref<HTMLInputElement | null>(null)
+const proveedorInputRef = ref<HTMLInputElement | null>(null)
+const lineasPanelRef = ref<HTMLElement | null>(null)
 
 const titulo = computed(() => {
   if (esNuevo.value) return 'Nuevo albarán de compra'
@@ -182,7 +192,19 @@ const soloLecturaMotivo = computed(() => {
   return null
 })
 
-const camposEditables = computed(() => modoEdicion.value && !bloqueado.value)
+/** Cabecera: alta o modo Modificar. */
+const cabeceraEditables = computed(() => (esNuevo.value || modoEdicion.value) && !bloqueado.value)
+
+const camposEditables = cabeceraEditables
+
+/** Líneas: tras existir ficha guardada y documento editable. */
+const lineasEditables = computed(() => !!ficha.value && !bloqueado.value)
+
+const proveedorBusquedaHabilitada = computed(
+  () =>
+    cabeceraEditables.value &&
+    (!esNuevo.value || !!(albaranReservado.value && albaranReservado.value > 0))
+)
 
 const almacenNombre = computed(() => {
   const cod = form.value.almacen
@@ -553,6 +575,13 @@ function esRutaNuevo(): boolean {
   return (route.path || '').replace(/\/+$/, '').endsWith('/compras/albaranes/nuevo')
 }
 
+/** Conservar borrador solo al volver de otra pestaña (p. ej. consultar artículo). */
+function debeConservarBorradorAlta(rutaAnterior: string | undefined): boolean {
+  if (!esNuevo.value || !rutaAnterior) return false
+  const prev = (rutaAnterior.split('?')[0] || '').replace(/\/+$/, '') || '/'
+  return !prev.startsWith('/compras/albaranes')
+}
+
 function aplicarFicha(data: AlbaranCompraDetalle | null | undefined) {
   if (!data || typeof data !== 'object') {
     throw new Error('Datos de albarán no válidos')
@@ -638,9 +667,14 @@ async function cargarAlmacenes() {
   }
 }
 
-async function cargar() {
+async function cargar(rutaAnterior?: string) {
   if (!esEstaInstanciaActiva()) return
+
   if (esRutaNuevo()) {
+    if (debeConservarBorradorAlta(rutaAnterior)) {
+      error.value = null
+      return
+    }
     await iniciarNuevo()
     return
   }
@@ -653,13 +687,34 @@ async function cargar() {
     return
   }
 
+  // Edición en curso: no recargar desde API al volver de otra pestaña.
+  if (
+    modoEdicion.value &&
+    ficha.value &&
+    ficha.value.empresa.trim() === empresa &&
+    ficha.value.albaran === albaran
+  ) {
+    error.value = null
+    return
+  }
+
   loading.value = true
   error.value = null
   mensaje.value = null
   try {
     aplicarFicha(await obtenerAlbaranCompra(empresa, albaran))
-    modoEdicion.value = false
     esNuevo.value = false
+    modoEdicion.value = false
+    const focus = albaranCompraFocusLineas.value
+    if (
+      focus &&
+      focus.empresa.trim() === empresa &&
+      focus.albaran === albaran
+    ) {
+      albaranCompraFocusLineas.value = null
+      mensaje.value = 'Cabecera guardada. Cada línea se guarda al completarla (Intro).'
+      void focusLineaArticulo(0)
+    }
   } catch (e: unknown) {
     ficha.value = null
     error.value = extractApiError(e, 'No se pudo cargar el albarán de compra')
@@ -675,7 +730,6 @@ async function iniciarNuevo() {
   albaranReservado.value = null
   pasoAlta.value = 'tienda'
   error.value = null
-  mensaje.value = 'Nuevo albarán: elija tienda y pulse Intro'
   const empresa = puesto.empresaCodigo || tiendas.value[0]?.value || ''
   ajusteTransporteOrigen.value = 'transporte'
   form.value = {
@@ -695,7 +749,16 @@ async function iniciarNuevo() {
     coeficienteTransporte: 0,
     lineas: [lineaVacia()],
   }
+  mensaje.value = empresa.trim()
+    ? 'Pulse Intro o el botón Nuevo para reservar el número de albarán'
+    : 'Nuevo albarán: elija tienda y pulse Intro o Nuevo'
   void nextTick(() => focusCabeceraSinNumero())
+}
+
+async function focusProveedorCabecera() {
+  if (!esNuevo.value || pasoAlta.value !== 'proveedor' || !camposEditables.value) return
+  await nextTick()
+  proveedorInputRef.value?.focus()
 }
 
 async function focusCabeceraSinNumero() {
@@ -744,8 +807,9 @@ async function reservarNumero() {
     if (esNuevo.value && pasoAlta.value === 'tienda') {
       pasoAlta.value = 'proveedor'
       mensaje.value = `Albarán ${res.albaran} reservado. Pulse Intro para buscar proveedor`
+      void focusProveedorCabecera()
     } else {
-      mensaje.value = `Albarán ${res.albaran} reservado. Indique proveedor y líneas, luego Guardar.`
+      mensaje.value = `Albarán ${res.albaran} reservado. Indique proveedor y complete la cabecera.`
     }
   } catch (e: unknown) {
     albaranReservado.value = null
@@ -763,8 +827,8 @@ function onEmpresaNuevoChange() {
   if (!esNuevo.value) return
   pasoAlta.value = 'tienda'
   mensaje.value = form.value.empresa.trim()
-    ? 'Pulse Intro para reservar el número de albarán'
-    : 'Nuevo albarán: elija tienda y pulse Intro'
+    ? 'Pulse Intro o el botón Nuevo para reservar el número de albarán'
+    : 'Nuevo albarán: elija tienda y pulse Intro o Nuevo'
   void nextTick(() => focusCabeceraSinNumero())
 }
 
@@ -773,8 +837,8 @@ function onDevolucionChange() {
   albaranReservado.value = null
   pasoAlta.value = 'tienda'
   mensaje.value = form.value.empresa.trim()
-    ? 'Pulse Intro para reservar el número de albarán'
-    : 'Nuevo albarán: elija tienda y pulse Intro'
+    ? 'Pulse Intro o el botón Nuevo para reservar el número de albarán'
+    : 'Nuevo albarán: elija tienda y pulse Intro o Nuevo'
   void nextTick(() => focusCabeceraSinNumero())
 }
 
@@ -832,6 +896,10 @@ function volverListado() {
 
 function onNuevo() {
   if (!puedeCrear.value) return
+  if (esRutaNuevo()) {
+    void onIntroCabecera()
+    return
+  }
   router.push({ name: 'compras-albaran-nuevo' })
 }
 
@@ -848,6 +916,27 @@ async function onCancelar() {
   }
   modoEdicion.value = false
   await cargar()
+}
+
+function buildPayloadCabecera(): AlbaranCompraPayload {
+  return {
+    empresa: form.value.empresa.trim(),
+    albaran:
+      albaranReservado.value && albaranReservado.value > 0 ? albaranReservado.value : undefined,
+    fechaAlbaran: form.value.fechaAlbaran || null,
+    suAlbaran: form.value.suAlbaran.trim() || null,
+    proveedor: form.value.proveedor.trim() || null,
+    fpago: form.value.fpago.trim() || null,
+    observaciones: form.value.observaciones.trim() || null,
+    albaranDevolucion: form.value.albaranDevolucion,
+    almacen: form.value.almacen,
+    serie: form.value.serie.trim() || null,
+    proyecto: form.value.proyecto.trim() || null,
+    importeTransporte: Number(form.value.importeTransporte) || 0,
+    coeficienteTransporte: coeficienteEfectivo.value,
+    brutoConTransporte: Number(form.value.brutoConTransporte) || 0,
+    lineas: [],
+  }
 }
 
 function buildPayload(): AlbaranCompraPayload {
@@ -917,13 +1006,26 @@ function lineaCosteCambio(l: FormLinea): boolean {
 
 function focusLineaArticulo(idx: number) {
   void nextTick(() => {
-    requestAnimationFrame(() => {
-      const row = document.querySelector(`tr[data-linea-idx="${idx}"]`)
-      const el = row?.querySelector<HTMLInputElement>('.col-art input')
-      el?.focus()
-      el?.select()
+    void nextTick(() => {
+      requestAnimationFrame(() => {
+        void intentarFocusLineaArticulo(idx, 12)
+      })
     })
   })
+}
+
+async function intentarFocusLineaArticulo(idx: number, restantes: number) {
+  const root = lineasPanelRef.value
+  const row = root?.querySelector(`tr[data-linea-idx="${idx}"]`)
+  const el = row?.querySelector<HTMLInputElement>('.col-art input')
+  if (el && lineasEditables.value) {
+    el.focus()
+    el.select()
+    return
+  }
+  if (restantes <= 0) return
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+  await intentarFocusLineaArticulo(idx, restantes - 1)
 }
 
 function focusLineaField(idx: number, field: (typeof LINEA_CAMPOS)[number]) {
@@ -961,7 +1063,7 @@ async function onArticuloIntro(idx: number) {
 }
 
 function onLineasTbodyKeydown(e: KeyboardEvent) {
-  if (!camposEditables.value || !esTeclaIntro(e)) return
+  if (!lineasEditables.value || !esTeclaIntro(e)) return
   const target = e.target
   if (!(target instanceof HTMLInputElement) || target.readOnly || target.disabled) return
   if (!target.closest('.panel.lineas tbody')) return
@@ -993,7 +1095,35 @@ function onLineasTbodyKeydown(e: KeyboardEvent) {
   void finalizarLinea(idx)
 }
 
+async function guardarLineasAlMomento(): Promise<boolean> {
+  if (!ficha.value || bloqueado.value) return false
+  asegurarCoeficienteTransporte()
+  const payload = buildPayload()
+  if (!payload.lineas.length) return true
+
+  guardandoLineas.value = true
+  error.value = null
+  try {
+    const updated = await actualizarAlbaranCompra(
+      ficha.value.empresa,
+      ficha.value.albaran,
+      payload
+    )
+    aplicarFicha(updated)
+    return true
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudieron guardar las líneas')
+    return false
+  } finally {
+    guardandoLineas.value = false
+  }
+}
+
 async function avanzarSiguienteLinea(idx: number) {
+  if (ficha.value) {
+    const ok = await guardarLineasAlMomento()
+    if (!ok) return
+  }
   const linea = form.value.lineas[idx]
   if (!linea) return
   if (idx === form.value.lineas.length - 1) {
@@ -1068,11 +1198,11 @@ const pvpModalLinea = computed(() => {
   return form.value.lineas[idx] ?? null
 })
 
-async function ejecutarGuardar() {
-  if (!camposEditables.value) return
+async function guardarCabecera() {
+  if (!cabeceraEditables.value) return
   asegurarCoeficienteTransporte()
-  const payload = buildPayload()
-  if (!payload.empresa) {
+  const cabecera = buildPayloadCabecera()
+  if (!cabecera.empresa) {
     error.value = 'Seleccione tienda'
     return
   }
@@ -1080,12 +1210,8 @@ async function ejecutarGuardar() {
     error.value = 'Pulse Intro para reservar el número de albarán (o el botón Nº)'
     return
   }
-  if (!payload.proveedor) {
+  if (!cabecera.proveedor) {
     error.value = 'Indique proveedor'
-    return
-  }
-  if (!payload.lineas.length) {
-    error.value = 'Añada al menos una línea con artículo'
     return
   }
 
@@ -1095,31 +1221,28 @@ async function ejecutarGuardar() {
   mensaje.value = null
   try {
     if (esNuevo.value) {
-      const created = await crearAlbaranCompra(payload)
-      mensaje.value = 'Albarán creado'
+      const created = await crearAlbaranCompra(cabecera)
+      albaranCompraFocusLineas.value = {
+        empresa: String(created.empresa).trim(),
+        albaran: Number(created.albaran),
+      }
       await router.replace({
         name: 'compras-albaran-detalle',
         params: { empresa: created.empresa, albaran: String(created.albaran) },
       })
-      if (esEstaInstanciaActiva()) {
-        aplicarFicha(created)
-        modoEdicion.value = false
-        esNuevo.value = false
-        preguntarActualizarStockTrasGuardar(created)
-      }
     } else if (ficha.value) {
+      const { lineas: _omit, ...soloCabecera } = buildPayload()
       const updated = await actualizarAlbaranCompra(
         ficha.value.empresa,
         ficha.value.albaran,
-        payload
+        soloCabecera as AlbaranCompraPayload
       )
       aplicarFicha(updated)
       modoEdicion.value = false
-      mensaje.value = 'Albarán guardado'
-      preguntarActualizarStockTrasGuardar(updated)
+      mensaje.value = 'Cabecera guardada'
     }
   } catch (e: unknown) {
-    error.value = extractApiError(e, 'No se pudo guardar el albarán')
+    error.value = extractApiError(e, 'No se pudo guardar la cabecera')
   } finally {
     saving.value = false
     loading.value = false
@@ -1127,19 +1250,18 @@ async function ejecutarGuardar() {
 }
 
 async function onGuardar() {
-  if (!camposEditables.value) return
+  if (!cabeceraEditables.value) return
   const t = Number(form.value.importeTransporte) || 0
-  const hayLineas = form.value.lineas.some((l) => String(l.articulo ?? '').trim())
-  if (t > 0.0001 && hayLineas) {
+  if (t > 0.0001 && brutoMercancia.value > 0) {
     confirmTransporte.value = true
     return
   }
-  await ejecutarGuardar()
+  await guardarCabecera()
 }
 
 function onConfirmTransporte() {
   confirmTransporte.value = false
-  void ejecutarGuardar()
+  void guardarCabecera()
 }
 
 function pedirBorrar() {
@@ -1196,6 +1318,22 @@ function articuloCoincideProveedor(
   return habitual === prov
 }
 
+function mensajeConfirmProveedorArticulo(
+  art: Awaited<ReturnType<typeof resolverArticulo>>,
+  proveedorCabecera: string,
+  razonSocialProveedor: string
+): string {
+  const codigo = String(art.codigo ?? '').trim()
+  const prov = proveedorCabecera.trim()
+  const nombre = razonSocialProveedor.trim()
+  const etiquetaProv = nombre ? `${prov} — ${nombre}` : prov
+  return (
+    `El artículo ${codigo} no pertenece al proveedor del albarán` +
+    (etiquetaProv ? ` (${etiquetaProv})` : '') +
+    '. Si continúa, el artículo quedará asignado a este proveedor. ¿Desea continuar?'
+  )
+}
+
 async function validarYAplicarArticulo(
   idx: number,
   art: Awaited<ReturnType<typeof resolverArticulo>>,
@@ -1207,27 +1345,51 @@ async function validarYAplicarArticulo(
   }
   const proveedor = form.value.proveedor.trim()
   if (proveedor && !articuloCoincideProveedor(art, proveedor)) {
-    confirmProveedorArticuloMsg.value =
-      'El artículo no pertenece a este proveedor. ¿Desea continuar?'
+    confirmProveedorArticuloMsg.value = mensajeConfirmProveedorArticulo(
+      art,
+      proveedor,
+      form.value.razonSocial
+    )
     pendingArticuloLineaIdx.value = idx
     pendingArticuloApply.value = apply
+    pendingArticuloProveedor.value = {
+      codigo: String(art.codigo ?? '').trim(),
+      proveedor,
+    }
     confirmProveedorArticulo.value = true
     return
   }
   await apply()
 }
 
-function onConfirmProveedorArticulo() {
+async function onConfirmProveedorArticulo() {
   confirmProveedorArticulo.value = false
   const fn = pendingArticuloApply.value
+  const provUpd = pendingArticuloProveedor.value
+  const idx = pendingArticuloLineaIdx.value
   pendingArticuloApply.value = null
   pendingArticuloLineaIdx.value = -1
-  void fn?.()
+  pendingArticuloProveedor.value = null
+  error.value = null
+  try {
+    if (provUpd) {
+      await asignarProveedorHabitualArticulo(provUpd.codigo, provUpd.proveedor)
+    }
+    await fn?.()
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo asignar el proveedor al artículo')
+    const linea = idx >= 0 ? form.value.lineas[idx] : null
+    if (linea) {
+      linea.articulo = ''
+      linea.descripcion = ''
+    }
+  }
 }
 
 function onCancelProveedorArticulo() {
   confirmProveedorArticulo.value = false
   pendingArticuloApply.value = null
+  pendingArticuloProveedor.value = null
   const idx = pendingArticuloLineaIdx.value
   pendingArticuloLineaIdx.value = -1
   const linea = idx >= 0 ? form.value.lineas[idx] : null
@@ -1455,6 +1617,10 @@ async function onImprimirA4Confirmado() {
 
 function abrirBuscarProveedor() {
   if (!camposEditables.value) return
+  if (esNuevo.value && !(albaranReservado.value && albaranReservado.value > 0)) {
+    error.value = 'Reserve el número de albarán antes de buscar proveedor'
+    return
+  }
   buscarProveedorOpen.value = true
 }
 
@@ -1463,8 +1629,8 @@ async function onProveedorSeleccionado(r: EntidadBuscarResultado) {
   form.value.razonSocial = r.etiqueta.replace(/^\s*\S+\s*[-–]\s*/, '') || r.etiqueta
   buscarProveedorOpen.value = false
   if (esNuevo.value && pasoAlta.value === 'proveedor') {
-    pasoAlta.value = 'listo'
-    mensaje.value = 'Introduzca líneas y pulse Guardar'
+    pasoAlta.value = 'cabecera'
+    mensaje.value = 'Complete la cabecera y pulse Guardar (solo cabecera).'
   }
   try {
     const { data } = await api.get(`/api/mantenimiento/proveedores/${encodeURIComponent(r.codigo)}`)
@@ -1482,7 +1648,7 @@ async function onProveedorSeleccionado(r: EntidadBuscarResultado) {
 }
 
 function abrirBuscarArticulo(idx: number) {
-  if (!camposEditables.value) return
+  if (!lineasEditables.value) return
   lineaArticuloIdx.value = idx
   articuloBusquedaInicial.value = form.value.lineas[idx]?.articulo ?? ''
   buscarArticuloOpen.value = true
@@ -1534,7 +1700,7 @@ async function aplicarArticuloResuelto(idx: number, art: Awaited<ReturnType<type
 }
 
 function onArticuloKeydown(e: KeyboardEvent, idx: number) {
-  if (!camposEditables.value || e.key !== 'F4') return
+  if (!lineasEditables.value || e.key !== 'F4') return
   e.preventDefault()
   e.stopPropagation()
   barcodeWatcher.cancel()
@@ -1543,7 +1709,7 @@ function onArticuloKeydown(e: KeyboardEvent, idx: number) {
 
 let barcodeLineaIdx = 0
 const barcodeWatcher = createBarcodeScanWatcher(async (codigo) => {
-  if (!camposEditables.value) return
+  if (!lineasEditables.value) return
   await resolverArticuloEnLinea(barcodeLineaIdx, codigo)
 })
 
@@ -1570,18 +1736,19 @@ async function resolverArticuloEnLinea(idx: number, q: string) {
 }
 
 function onArticuloInput(idx: number) {
-  if (!camposEditables.value) return
+  if (!lineasEditables.value) return
   barcodeLineaIdx = idx
   barcodeWatcher.onInput(String(form.value.lineas[idx]?.articulo ?? ''))
 }
 
-function quitarLinea(idx: number) {
-  if (!camposEditables.value) return
+async function quitarLinea(idx: number) {
+  if (!lineasEditables.value) return
   if (form.value.lineas.length <= 1) {
     form.value.lineas = [lineaVacia()]
-    return
+  } else {
+    form.value.lineas.splice(idx, 1)
   }
-  form.value.lineas.splice(idx, 1)
+  await guardarLineasAlMomento()
 }
 
 function lineasAbonables() {
@@ -1649,14 +1816,30 @@ async function confirmarAbono() {
 
 onMounted(async () => {
   await Promise.all([cargarTiendas(), cargarAlmacenes()])
-  await cargar()
+})
+
+onActivated(() => {
+  if (!esEstaInstanciaActiva()) return
+  const prev = esRutaNuevo() ? routeNavigationFrom.value : undefined
+  void cargar(prev)
 })
 
 watch(
-  () => [route.params.empresa, route.params.albaran, route.name] as const,
-  () => {
+  () => route.fullPath,
+  (_newPath, oldPath) => {
     if (!esEstaInstanciaActiva()) return
-    void cargar()
+    void cargar(oldPath)
+  },
+  { immediate: true }
+)
+
+watch(
+  () => form.value.proveedor,
+  (codigo) => {
+    if (!esNuevo.value || pasoAlta.value !== 'proveedor') return
+    if (!String(codigo ?? '').trim()) return
+    pasoAlta.value = 'cabecera'
+    mensaje.value = 'Complete la cabecera y pulse Guardar (solo cabecera).'
   }
 )
 
@@ -1666,7 +1849,7 @@ watch(
       (l) => [l.articulo, l.cantidad, l.precio, l.pjeDto, l.dto1, l.dto2, l.dto3] as const
     ),
   () => {
-    if (!camposEditables.value) return
+    if (!ficha.value) return
     if (brutoMercancia.value <= 0) return
     ajusteTransporteOrigen.value = 'transporte'
     sincronizarTransporteDesdeOrigen()
@@ -1680,7 +1863,7 @@ watch(
       :puede-crear="puedeCrear"
       :puede-editar="puedeEditar && !!ficha && !bloqueado"
       :puede-eliminar="puedeEliminar && !!ficha && !bloqueado"
-      :puede-guardar="camposEditables"
+      :puede-guardar="cabeceraEditables"
       :puede-imprimir="puedeImprimir"
       :puede-finalizar="false"
       :puede-abonar="puedeAbonar"
@@ -1696,7 +1879,7 @@ watch(
       :modo-edicion="modoEdicion"
       :bloqueado="bloqueado"
       :hay-documento="!!ficha || esNuevo"
-      :loading="loading || saving || reservando"
+      :loading="loading || saving || guardandoLineas || reservando"
       :indice="-1"
       :total="0"
       @nuevo="onNuevo"
@@ -1719,38 +1902,18 @@ watch(
           {{
             esNuevo
               ? pasoAlta === 'tienda'
-                ? 'Elija tienda y pulse Intro para reservar el número.'
+                ? 'Elija tienda y pulse Intro o Nuevo para reservar el número.'
                 : pasoAlta === 'proveedor'
                   ? `Nº ${albaranReservado ?? '—'} reservado. Pulse Intro para buscar proveedor.`
-                  : 'Complete proveedor y líneas; luego Guardar.'
+                  : 'Complete la cabecera y pulse Guardar (solo cabecera).'
               : ficha?.actualizado
                 ? 'Documento ACTUALIZADO. Use Venta para generar albarán al cliente, o Recuperar para modificar.'
-                : 'Modificar para editar. Actualizar aplica stock y bloquea el documento.'
+                : 'Guardar = cabecera. Las líneas se guardan al completarlas (Intro). Modificar para editar cabecera.'
           }}
         </p>
       </div>
       <p v-if="soloLecturaMotivo" class="badge-bloqueo">Solo lectura — {{ soloLecturaMotivo }}</p>
       <div class="head-actions">
-        <button
-          v-if="puedeActualizarStock"
-          type="button"
-          class="btn-stock"
-          :disabled="loading || saving || reservando"
-          title="Aplicar entradas de stock y marcar ACTUALIZADO"
-          @click="pedirActualizarStock"
-        >
-          Actualizar
-        </button>
-        <button
-          v-if="puedeRecuperar"
-          type="button"
-          class="btn-recuperar"
-          :disabled="loading || saving || reservando"
-          title="Revertir stock y permitir modificar (legacy Recuperar)"
-          @click="pedirRecuperar"
-        >
-          Recuperar
-        </button>
         <button
           v-if="puedeGenerarEtiquetas"
           type="button"
@@ -1842,15 +2005,16 @@ watch(
               <span class="cab-lbl">Proveedor</span>
               <div class="con-lupa w-eq">
                 <input
+                  ref="proveedorInputRef"
                   v-model="form.proveedor"
                   class="w-cod"
-                  :readonly="!camposEditables"
+                  :readonly="!camposEditables || (esNuevo && !albaranReservado)"
                   @keydown.f4.prevent="abrirBuscarProveedor"
                 />
                 <button
                   type="button"
                   class="btn-lupa"
-                  :disabled="!camposEditables"
+                  :disabled="!proveedorBusquedaHabilitada"
                   title="Buscar proveedor"
                   @click="abrirBuscarProveedor"
                 >
@@ -1860,7 +2024,7 @@ watch(
               <input
                 v-model="form.razonSocial"
                 class="w-col-rest"
-                :readonly="!camposEditables"
+                :readonly="!camposEditables || (esNuevo && !albaranReservado)"
                 title="Razón social"
               />
             </div>
@@ -2006,11 +2170,18 @@ watch(
         </aside>
       </div>
 
-      <div class="panel lineas">
+      <div
+        ref="lineasPanelRef"
+        class="panel lineas"
+        :class="{ 'lineas-bloqueadas': !lineasEditables }"
+      >
         <div class="lineas-head">
           <h3>Líneas</h3>
+          <p v-if="!lineasEditables && esNuevo" class="lineas-bloqueo-msg">
+            Guarde la cabecera para poder añadir líneas
+          </p>
           <button
-            v-if="camposEditables"
+            v-if="lineasEditables"
             type="button"
             class="btn-add"
             @click="form.lineas.push(lineaVacia())"
@@ -2035,7 +2206,7 @@ watch(
                 <th class="num col-d">Dto2</th>
                 <th class="num col-d">Dto3</th>
                 <th class="num col-imp">Importe</th>
-                <th v-if="camposEditables" class="col-act" />
+                <th v-if="lineasEditables" class="col-act" />
               </tr>
             </thead>
             <tbody @keydown="onLineasTbodyKeydown">
@@ -2047,7 +2218,7 @@ watch(
                 <td class="col-n">{{ l.nroLin ?? idx + 1 }}</td>
                 <td class="num col-ped">
                   <DecimalInput
-                    v-if="camposEditables"
+                    v-if="lineasEditables"
                     v-model="l.pedido"
                     :empty-as-null="true"
                     :integer="true"
@@ -2055,7 +2226,7 @@ watch(
                   <span v-else>{{ l.pedido || '—' }}</span>
                 </td>
                 <td class="col-art">
-                  <div v-if="camposEditables" class="con-lupa">
+                  <div v-if="lineasEditables" class="con-lupa">
                     <input
                       v-model="l.articulo"
                       @input="onArticuloInput(idx)"
@@ -2074,7 +2245,7 @@ watch(
                 </td>
                 <td class="col-desc">
                   <input
-                    v-if="camposEditables"
+                    v-if="lineasEditables"
                     v-model="l.descripcion"
                     class="desc-input"
                   />
@@ -2082,7 +2253,7 @@ watch(
                 </td>
                 <td class="col-alm">
                   <select
-                    v-if="camposEditables"
+                    v-if="lineasEditables"
                     v-model.number="l.almacen"
                     title="Almacén línea"
                   >
@@ -2094,12 +2265,12 @@ watch(
                   <span v-else>{{ l.almacen ?? form.almacen ?? '—' }}</span>
                 </td>
                 <td class="col-lote">
-                  <input v-if="camposEditables" v-model="l.lote" />
+                  <input v-if="lineasEditables" v-model="l.lote" />
                   <span v-else>{{ l.lote || '—' }}</span>
                 </td>
                 <td class="num col-q" data-linea-field="cantidad">
                   <DecimalInput
-                    v-if="camposEditables"
+                    v-if="lineasEditables"
                     v-model="l.cantidad"
                     :empty-as-null="false"
                   />
@@ -2107,7 +2278,7 @@ watch(
                 </td>
                 <td class="num col-p" data-linea-field="precio">
                   <DecimalInput
-                    v-if="camposEditables"
+                    v-if="lineasEditables"
                     v-model="l.precio"
                     :empty-as-null="false"
                   />
@@ -2118,7 +2289,7 @@ watch(
                 </td>
                 <td class="num col-d" data-linea-field="dto1">
                   <DecimalInput
-                    v-if="camposEditables"
+                    v-if="lineasEditables"
                     v-model="l.dto1"
                     :empty-as-null="false"
                   />
@@ -2126,7 +2297,7 @@ watch(
                 </td>
                 <td class="num col-d" data-linea-field="dto2">
                   <DecimalInput
-                    v-if="camposEditables"
+                    v-if="lineasEditables"
                     v-model="l.dto2"
                     :empty-as-null="false"
                   />
@@ -2134,14 +2305,14 @@ watch(
                 </td>
                 <td class="num col-d" data-linea-field="dto3">
                   <DecimalInput
-                    v-if="camposEditables"
+                    v-if="lineasEditables"
                     v-model="l.dto3"
                     :empty-as-null="false"
                   />
                   <span v-else>{{ fmtNum(l.dto3) }}</span>
                 </td>
                 <td class="num col-imp">{{ fmtNum(importeLinea(l)) }}</td>
-                <td v-if="camposEditables" class="col-act">
+                <td v-if="lineasEditables" class="col-act">
                   <button type="button" class="btn-del" title="Quitar" @click="quitarLinea(idx)">
                     ×
                   </button>
@@ -2188,10 +2359,10 @@ watch(
     />
     <ConfirmDialog
       :open="confirmProveedorArticulo"
-      title="Artículo / proveedor"
+      title="Proveedor del artículo"
       :message="confirmProveedorArticuloMsg"
-      confirm-label="Continuar"
-      cancel-label="Cancelar"
+      confirm-label="Sí"
+      cancel-label="No"
       :danger="false"
       @confirm="onConfirmProveedorArticulo"
       @cancel="onCancelProveedorArticulo"
@@ -2402,31 +2573,6 @@ watch(
   flex-wrap: wrap;
   align-items: center;
   gap: 0.45rem;
-}
-.btn-stock {
-  padding: 0.4rem 0.75rem;
-  border-radius: 6px;
-  border: 1px solid #b45309;
-  background: #fef3c7;
-  color: #92400e;
-  font-weight: 600;
-  font-size: 0.85rem;
-  cursor: pointer;
-}
-.btn-recuperar {
-  padding: 0.4rem 0.75rem;
-  border-radius: 6px;
-  border: 1px solid #64748b;
-  background: #f1f5f9;
-  color: #334155;
-  font-weight: 600;
-  font-size: 0.85rem;
-  cursor: pointer;
-}
-.btn-stock:disabled,
-.btn-recuperar:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
 }
 .btn-etiquetas {
   display: inline-flex;
@@ -2711,7 +2857,19 @@ watch(
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 0.75rem;
   margin-bottom: 0.45rem;
+  flex-wrap: wrap;
+}
+.lineas-bloqueo-msg {
+  margin: 0;
+  flex: 1 1 auto;
+  font-size: 0.78rem;
+  color: #b45309;
+}
+.lineas-bloqueadas .grid-wrap {
+  pointer-events: none;
+  opacity: 0.55;
 }
 .lineas-head h3 {
   margin: 0;
@@ -2829,14 +2987,24 @@ td input {
   width: 2.6rem;
 }
 .col-art {
-  width: 5.5rem;
+  width: 8.2rem;
 }
 .col-art .con-lupa {
+  display: flex;
   gap: 0.12rem;
+  min-width: 0;
+}
+.col-art .con-lupa input {
+  flex: 1;
+  min-width: 0;
+}
+.col-art input {
+  font-size: 0.8rem;
 }
 .col-art .btn-lupa {
   width: 1.35rem;
   height: 1.45rem;
+  flex-shrink: 0;
 }
 .col-desc {
   width: 9rem;
@@ -2873,7 +3041,11 @@ td input {
   width: 4rem;
 }
 .col-d {
-  width: 2.8rem;
+  width: 2.1rem;
+}
+.col-d :deep(input) {
+  padding: 0.15rem 0.1rem;
+  font-size: 0.7rem;
 }
 .col-imp {
   width: 3.6rem;

@@ -1,0 +1,588 @@
+openapi: 3.0.3
+info:
+  title: Descartes API — TPV (Venta táctil)
+  version: 1.0.0
+  description: |
+    API del módulo TPV / venta táctil (006-tpv-venta-tactil).
+
+    - Auth: cookie de sesión PHP.
+    - Permisos módulo `tpv`: `ver` (GET contexto/teclado), `crear` (vender/sync), `editar` (descuentos).
+    - Ventas cerradas persisten en tablas legacy (`AlbaranesVentasCab`/`Lin`) — muchas operaciones
+      reutilizan `/api/ventas` existente; este contrato cubre endpoints **específicos TPV**.
+    - Offline: Electron sincroniza con `POST /api/tpv/sync/ventas` (idempotente).
+
+servers:
+  - url: http://localhost/descartes-api/public
+    description: XAMPP local
+
+tags:
+  - name: tpv
+  - name: tpv-teclado
+  - name: tpv-sync
+  - name: ventas-email
+
+security:
+  - sessionAuth: []
+
+paths:
+  /api/ventas/albaranes/{empresa}/{tipo}/{albaran}/email:
+    post:
+      tags: [ventas-email]
+      summary: Enviar un documento de venta finalizado por email
+      description: Envía un email HTML y adjunta el ticket/documento en PDF mediante el SMTP configurado.
+      parameters:
+        - { name: empresa, in: path, required: true, schema: { type: string } }
+        - { name: tipo, in: path, required: true, schema: { type: string } }
+        - { name: albaran, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '200':
+          description: Documento enviado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  destinatario: { type: string, format: email }
+                  documento: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/tpv/ventas/{empresa}/{tipo}/{albaran}/email:
+    post:
+      tags: [ventas-email]
+      summary: Enviar por email una venta cerrada desde TPV
+      description: Misma operación de email que Ventas, autorizada mediante el permiso tpv.ver.
+      parameters:
+        - { name: empresa, in: path, required: true, schema: { type: string } }
+        - { name: tipo, in: path, required: true, schema: { type: string } }
+        - { name: albaran, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '200': { description: Documento enviado }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/tpv/ping:
+    get:
+      tags: [tpv]
+      summary: Salud del módulo TPV
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  modulo: { type: string, example: tpv }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/tpv/contexto:
+    get:
+      tags: [tpv]
+      summary: Contexto de caja (puesto, tienda, sesión, teclado)
+      description: |
+        Resuelve puesto desde config equipo + BD. Asegura sesión abierta (`ArqueoService`).
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TpvContexto'
+          description: Contexto listo para vender
+        '400':
+          $ref: '#/components/responses/ApiError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/tpv/teclados/{general}/niveles/{nivel}:
+    get:
+      tags: [tpv-teclado]
+      summary: Botones de un nivel de teclado
+      parameters:
+        - name: general
+          in: path
+          required: true
+          schema: { type: string, example: '001' }
+          description: H_GENERAL (teclado zero-padded)
+        - name: nivel
+          in: path
+          required: true
+          schema: { type: string, example: '000' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TpvNivel'
+          description: Nivel con botones
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/tpv/teclados/{general}/niveles:
+    get:
+      tags: [tpv-teclado]
+      summary: Grupos disponibles del teclado
+      description: >
+        Incluye los grupos recién creados que aún no tienen teclas, porque solo existen
+        como H_NIVOP de la tecla que los abre.
+      parameters:
+        - name: general
+          in: path
+          required: true
+          schema: { type: string, example: '001' }
+      responses:
+        '200':
+          description: Niveles con etiqueta y número de botones
+
+  /api/tpv/teclados/{general}/niveles/{nivel}/botones/{tecla}:
+    put:
+      tags: [tpv-teclado]
+      summary: Asignar o cambiar una tecla de venta rápida
+      parameters:
+        - { name: general, in: path, required: true, schema: { type: string } }
+        - { name: nivel, in: path, required: true, schema: { type: string } }
+        - { name: tecla, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [tipo, articulo]
+                  properties:
+                    tipo: { type: string, enum: [articulo] }
+                    articulo: { type: string }
+                    etiqueta: { type: string, maxLength: 12 }
+                - type: object
+                  required: [tipo]
+                  description: >
+                    Con crearGrupo=true el servidor reserva el primer nivel libre (desde 900)
+                    y devuelve su código; el grupo nace sin teclas. En otro caso nivelDestino
+                    debe apuntar a un grupo existente.
+                  properties:
+                    tipo: { type: string, enum: [nivel] }
+                    nivelDestino: { type: string }
+                    crearGrupo: { type: boolean, default: false }
+                    etiqueta: { type: string, maxLength: 12 }
+      responses:
+        '200':
+          description: Tecla guardada en DefPlus
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nivelDestino:
+                    type: string
+                    nullable: true
+                    description: Grupo que abre la tecla; null si es un artículo
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [tpv-teclado]
+      summary: Dejar una tecla de venta rápida sin asignar
+      parameters:
+        - { name: general, in: path, required: true, schema: { type: string } }
+        - { name: nivel, in: path, required: true, schema: { type: string } }
+        - { name: tecla, in: path, required: true, schema: { type: integer } }
+      responses:
+        '204': { description: Asignación eliminada de DefPlus }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/tpv/articulos:
+    get:
+      tags: [tpv]
+      summary: Buscar artículos por código o descripción
+      description: >
+        Usado al configurar las teclas de venta rápida. Busca artículos por código o
+        descripción y también por código/descripción de macrofamilia, familia,
+        subfamilia o agrupación. Excluye artículos dados de baja.
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: { type: string }
+        - in: query
+          name: tarifa
+          schema: { type: integer }
+        - in: query
+          name: limite
+          schema: { type: integer, default: 30, maximum: 100 }
+        - in: query
+          name: ambito
+          description: Clasificación en la que se realiza la búsqueda
+          schema:
+            type: string
+            default: todos
+            enum: [todos, articulo, macrofamilia, familia, subfamilia, agrupacion]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TpvArticuloResuelto'
+          description: Artículos coincidentes con precio de tarifa
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/tpv/articulos/resolver:
+    get:
+      tags: [tpv]
+      summary: Resolver entrada por código, Alternativo o EAN (tecleado o pistola)
+      description: >
+        Equivalente a /api/mantenimiento/articulos/resolver pero con permiso tpv.ver,
+        y devuelve ya el precio de la tarifa para evitar una segunda petición.
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: { type: string }
+        - in: query
+          name: tarifa
+          schema: { type: integer }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TpvArticuloResuelto'
+          description: Artículo con precio de tarifa
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/tpv/clientes:
+    get:
+      tags: [tpv]
+      summary: Buscar cliente para asignar al ticket
+      description: >
+        Búsqueda por código exacto, NIF, razón social o teléfono. Endpoint propio del TPV
+        (permiso tpv.ver) para no exigir clientes.ver a un rol de caja.
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limite
+          schema: { type: integer, default: 30, maximum: 100 }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TpvCliente'
+          description: Clientes coincidentes
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/tpv/articulos/{codigo}/precio:
+    get:
+      tags: [tpv]
+      summary: Precio de venta para tarifa del puesto
+      parameters:
+        - name: codigo
+          in: path
+          required: true
+          schema: { type: string }
+        - in: query
+          name: tarifa
+          schema: { type: integer }
+        - in: query
+          name: empresa
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TpvArticuloPrecio'
+          description: Datos para añadir línea
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/tpv/ventas/{empresa}/{tipo}/{albaran}:
+    delete:
+      tags: [tpv]
+      summary: Anular una venta TPV todavía abierta
+      parameters:
+        - name: empresa
+          in: path
+          required: true
+          schema: { type: string }
+        - name: tipo
+          in: path
+          required: true
+          schema: { type: string }
+        - name: albaran
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '204':
+          description: Venta anulada
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/tpv/reservar-numeros:
+    post:
+      tags: [tpv-sync]
+      summary: Reservar bloque de números de ticket (offline)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [empresa, cantidad]
+              properties:
+                empresa: { type: string }
+                cantidad: { type: integer, minimum: 1, maximum: 500 }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TpvReservaNumeros'
+          description: Rango reservado
+
+  /api/tpv/sync/ventas:
+    post:
+      tags: [tpv-sync]
+      summary: Sincronizar venta cerrada offline (idempotente)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TpvSyncVentaPayload'
+      responses:
+        '200':
+          description: Ya existía (idempotencyKey)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TpvSyncVentaResult'
+        '201':
+          description: Creada en SQL Server
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TpvSyncVentaResult'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+components:
+  securitySchemes:
+    sessionAuth:
+      type: apiKey
+      in: cookie
+      name: PHPSESSID
+
+  responses:
+    Unauthorized:
+      description: No autenticado
+    Forbidden:
+      description: Sin permiso tpv
+    NotFound:
+      description: No encontrado
+    Conflict:
+      description: Conflicto de numeración o estado
+    ApiError:
+      description: Error validación
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+
+  schemas:
+    ApiError:
+      type: object
+      properties:
+        error: { type: string }
+        codigo: { type: string }
+
+    TpvContexto:
+      type: object
+      properties:
+        empresa: { type: string }
+        puesto: { type: string }
+        sesion: { type: integer }
+        tecladoCodigo: { type: integer }
+        tecladoGeneral: { type: string, example: '001' }
+        tarifa: { type: integer }
+        impresoraTickets: { type: string, nullable: true }
+        formatoTickets: { type: string, nullable: true }
+        vendedor: { type: string, nullable: true }
+        clienteRapido: { type: string, example: ZZZZZZZZZ }
+        formasPago:
+          type: array
+          description: Formas de pago de contado (CobroDeArqueo) para el cobro en caja
+          items:
+            $ref: '#/components/schemas/TpvFormaPago'
+
+    TpvCliente:
+      type: object
+      properties:
+        codigo: { type: string }
+        razonSocial: { type: string }
+        razonSocial2: { type: string }
+        nif: { type: string }
+        direccion: { type: string }
+        poblacion: { type: string }
+        codigoPostal: { type: string }
+        provincia: { type: string }
+        pais: { type: string }
+        telefono: { type: string }
+        email:
+          type: string
+          description: EmailFacturacion del cliente, con fallback a Email
+        formaPago: { type: string }
+        tarifa: { type: integer }
+
+    TpvFormaPago:
+      type: object
+      properties:
+        codigo: { type: string, example: EU }
+        descripcion: { type: string, example: EUROS }
+        etiqueta: { type: string, description: Abreviación para el botón }
+        abrirCajon: { type: boolean }
+        copiasTicket: { type: integer }
+
+    TpvBoton:
+      type: object
+      properties:
+        tecla: { type: integer }
+        nivel: { type: string }
+        etiqueta1: { type: string, nullable: true }
+        etiqueta2: { type: string, nullable: true }
+        ancho: { type: integer }
+        alto: { type: integer }
+        articulo: { type: string, nullable: true }
+        nivelDestino: { type: string, nullable: true }
+        nivelVolver: { type: string, nullable: true }
+        color: { type: number, nullable: true }
+        icono: { type: string, nullable: true }
+        tarifa: { type: number, nullable: true }
+        tipo: { type: string, enum: [articulo, nivel, vacio] }
+
+    TpvNivel:
+      type: object
+      properties:
+        general: { type: string }
+        nivel: { type: string }
+        nombre: { type: string, nullable: true }
+        botones:
+          type: array
+          items:
+            $ref: '#/components/schemas/TpvBoton'
+
+    TpvArticuloPrecio:
+      type: object
+      properties:
+        codigo: { type: string }
+        descripcion: { type: string }
+        precio: { type: number }
+        iva: { type: number, nullable: true }
+        bloqueado: { type: boolean }
+        macroFamiliaCodigo: { type: string }
+        macroFamiliaDescripcion: { type: string }
+        familiaCodigo: { type: string }
+        familiaDescripcion: { type: string }
+        subfamiliaCodigo: { type: string }
+        subfamiliaDescripcion: { type: string }
+        agrupacionCodigo: { type: string }
+        agrupacionDescripcion: { type: string }
+
+    TpvArticuloResuelto:
+      allOf:
+        - $ref: '#/components/schemas/TpvArticuloPrecio'
+        - type: object
+          properties:
+            matchPor:
+              type: string
+              enum: [codigo, alternativo, ean]
+            unidadesPaquete:
+              type: number
+              description: Unidades que aporta el EAN leído (1 por código o Alternativo)
+
+    TpvReservaNumeros:
+      type: object
+      properties:
+        empresa: { type: string }
+        tipo: { type: string, example: T }
+        desde: { type: integer }
+        hasta: { type: integer }
+
+    TpvSyncVentaPayload:
+      type: object
+      required: [idempotencyKey, venta]
+      properties:
+        idempotencyKey: { type: string, format: uuid }
+        venta:
+          type: object
+          description: Payload equivalente a crear+finalizar venta (cabecera, lineas, cobro)
+
+    TpvSyncVentaResult:
+      type: object
+      properties:
+        idempotencyKey: { type: string, format: uuid }
+        empresa: { type: string }
+        tipo: { type: string }
+        albaran: { type: integer }
+        duplicated: { type: boolean }

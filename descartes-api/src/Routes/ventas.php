@@ -30,6 +30,8 @@ return function (App $app): void {
       ->add($setPermiso('ventas', 'crear'));
     $group->get('/albaranes/{empresa}/{tipo}/{albaran}', [VentasController::class, 'getVenta'])
       ->add($setPermiso('ventas', 'ver'));
+    $group->post('/albaranes/{empresa}/{tipo}/{albaran}/email', [VentasController::class, 'emailVenta'])
+      ->add($setPermiso('ventas', 'ver'));
     $group->put('/albaranes/{empresa}/{tipo}/{albaran}', [VentasController::class, 'updateVenta'])
       ->add($setPermiso('ventas', 'editar'));
     $group->delete('/albaranes/{empresa}/{tipo}/{albaran}', [VentasController::class, 'deleteVenta'])

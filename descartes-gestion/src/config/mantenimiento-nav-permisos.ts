@@ -32,6 +32,7 @@ const moduloPorSlugArticulos: Record<string, string> = {
 const moduloPorSlugClientes: Record<string, string> = {
   actividades: 'actividades',
   'intereses-comerciales': 'intereses-comerciales',
+  'tipos-calculo-fidelizacion': 'clientes',
   clientes: 'clientes',
   'oferta-clientes': 'oferta-clientes',
   campanas: 'campanas',
@@ -116,5 +117,4 @@ export const otrosModulosPermisos: NavPermisoItem[] = [
   { id: 'puestos', titulo: 'Puestos (legado)', modulo: 'puestos' },
   { id: 'inventario', titulo: 'Inventario', modulo: 'inventario' },
   { id: 'listados', titulo: 'Listados', modulo: 'listados' },
-  { id: 'tpv', titulo: 'TPV', modulo: 'tpv' },
 ]

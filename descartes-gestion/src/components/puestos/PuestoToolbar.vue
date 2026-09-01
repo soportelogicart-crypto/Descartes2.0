@@ -100,7 +100,7 @@ defineEmits<{
   gap: 0.4rem;
   align-items: center;
   width: 100%;
-  max-width: 920px;
+  max-width: none;
   box-sizing: border-box;
   padding: 0.35rem 0.45rem;
   background: linear-gradient(180deg, #f8fafc 0%, #e5e7eb 100%);

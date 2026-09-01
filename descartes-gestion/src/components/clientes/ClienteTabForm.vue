@@ -16,6 +16,7 @@ const props = defineProps<{
   codigoReadOnly?: boolean
   ocultarCabecera?: boolean
   camposInvalidos?: string[]
+  motorFidelizacion?: 'NINGUNO' | 'EUROS' | 'PUNTOS'
 }>()
 
 const emit = defineEmits<{
@@ -195,6 +196,24 @@ function isReadOnly(field: ClienteField) {
   return false
 }
 
+function fieldVisible(field: ClienteField) {
+  const motor = props.motorFidelizacion ?? 'NINGUNO'
+  if (field.key === 'pjeFidelizacion' || field.key === 'acumuladoFidelizacion') {
+    return motor === 'EUROS'
+  }
+  if (field.key === 'acumuladoPuntos') {
+    return motor === 'PUNTOS'
+  }
+  return true
+}
+
+function etiquetaMotorFidelizacion() {
+  const motor = props.motorFidelizacion ?? 'NINGUNO'
+  if (motor === 'EUROS') return 'Método activo: saldo en euros'
+  if (motor === 'PUNTOS') return 'Método activo: puntos'
+  return 'La tienda no tiene fidelización activa'
+}
+
 function displayValue(field: ClienteField) {
   const value = props.modelValue[field.key]
   if (field.type === 'date') return fechaParaInput(value)
@@ -278,17 +297,20 @@ function colsClass(section: ClienteSection) {
     >
       <section v-for="section in fila.sections" :key="section.title" class="section">
         <h3>{{ section.title }}</h3>
+        <p v-if="section.title === 'Fidelizacion'" class="fidelizacion-motor">
+          {{ etiquetaMotorFidelizacion() }}
+        </p>
         <div class="fields" :class="colsClass(section)">
-          <label
-            v-for="field in section.fields"
-            :key="field.key"
-            class="field"
-            :class="[
-              `span-${field.span ?? 1}`,
-              field.layout ?? 'inline',
-              camposInvalidos?.includes(field.key) ? 'campo-invalido' : '',
-            ]"
-          >
+          <template v-for="field in section.fields" :key="field.key">
+            <label
+              v-if="fieldVisible(field)"
+              class="field"
+              :class="[
+                `span-${field.span ?? 1}`,
+                field.layout ?? 'inline',
+                camposInvalidos?.includes(field.key) ? 'campo-invalido' : '',
+              ]"
+            >
             <template v-if="field.layout === 'checkbox'">
               <input
                 type="checkbox"
@@ -360,7 +382,8 @@ function colsClass(section: ClienteSection) {
                 @blur="onFieldBlur(field, ($event.target as HTMLInputElement).value)"
               />
             </template>
-          </label>
+            </label>
+          </template>
         </div>
       </section>
     </div>
@@ -378,6 +401,12 @@ function colsClass(section: ClienteSection) {
 
 .section-row {
   margin-bottom: 0.65rem;
+}
+
+.fidelizacion-motor {
+  margin: -0.2rem 0 0.5rem;
+  color: #475569;
+  font-size: 0.78rem;
 }
 
 .section-row.paired {

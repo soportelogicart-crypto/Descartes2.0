@@ -237,6 +237,7 @@ final class MantenimientoService
       $this->validarClienteDatosObligatorios($data, true);
       $empresaCodigo = trim((string) ($data['tiendaCodigo'] ?? ''));
       $this->asignarCodigoClienteSiCorresponde($data, $empresaCodigo);
+      $this->prepararFechaAltaFidelizacion($data);
       $this->validarCliente($data, null);
     }
     if ($entidad === 'trabajadores') {
@@ -259,6 +260,9 @@ final class MantenimientoService
     }
     if ($entidad === 'intereses-comerciales') {
       $this->validarInteresComercial($data, null);
+    }
+    if ($entidad === 'tipos-calculo-fidelizacion') {
+      $this->validarTipoCalculoFidelizacion($data, null);
     }
     if ($entidad === 'agrupaciones') {
       $this->validarAgrupacion($data, null);
@@ -338,6 +342,7 @@ final class MantenimientoService
       $this->validarArticulo($data, $codigo);
     }
     if ($entidad === 'clientes') {
+      $this->prepararFechaAltaFidelizacion($data);
       $this->validarCliente($data, $codigo);
     }
     if ($entidad === 'trabajadores') {
@@ -360,6 +365,9 @@ final class MantenimientoService
     }
     if ($entidad === 'intereses-comerciales') {
       $this->validarInteresComercial($data, $codigo);
+    }
+    if ($entidad === 'tipos-calculo-fidelizacion') {
+      $this->validarTipoCalculoFidelizacion($data, $codigo);
     }
     if ($entidad === 'agrupaciones') {
       $this->validarAgrupacion($data, $codigo);
@@ -1106,8 +1114,8 @@ final class MantenimientoService
       if ($nuevoCodigo === '') {
         throw new \InvalidArgumentException('El codigo es obligatorio');
       }
-      if (strlen($nuevoCodigo) > 6) {
-        throw new \InvalidArgumentException('El codigo admite como maximo 6 caracteres');
+      if (strlen($nuevoCodigo) > 20) {
+        throw new \InvalidArgumentException('El codigo admite como maximo 20 caracteres');
       }
       $stmt = $this->pdo->prepare('SELECT 1 FROM [MacroFamilias] WHERE RTRIM([Codigo]) = :codigo');
       $stmt->execute(['codigo' => $nuevoCodigo]);
@@ -1311,6 +1319,20 @@ final class MantenimientoService
 
   private function validarTienda(array $data, ?string $codigo): void
   {
+    if (array_key_exists('tipoCalculoFidelizacion', $data)) {
+      $tipo = trim((string) ($data['tipoCalculoFidelizacion'] ?? ''));
+      if ($tipo !== '') {
+        $stmt = $this->pdo->prepare(
+          'SELECT 1 FROM [TiposCalculoFidelizacion]
+           WHERE RTRIM([Codigo]) = :codigo AND ISNULL([Baja], 0) = 0'
+        );
+        $stmt->execute(['codigo' => $tipo]);
+        if (!$stmt->fetch()) {
+          throw new \InvalidArgumentException('Seleccione un tipo de calculo de fidelizacion activo');
+        }
+      }
+    }
+
     if ($codigo === null) {
       $nuevoCodigo = trim((string) ($data['codigo'] ?? ''));
       if ($nuevoCodigo === '') {
@@ -1462,7 +1484,106 @@ final class MantenimientoService
       $item = $this->articuloService->enrich($item);
     }
 
+    if ($entidad === 'tiendas') {
+      $item['motorFidelizacion'] = 'NINGUNO';
+      $item['factorFidelizacion'] = 1;
+      $tipo = trim((string) ($item['tipoCalculoFidelizacion'] ?? ''));
+      if ($tipo !== '') {
+        $stmt = $this->pdo->prepare(
+          'SELECT TOP 1 RTRIM([Motor]) AS Motor, [Factor]
+           FROM [TiposCalculoFidelizacion]
+           WHERE RTRIM([Codigo]) = :codigo AND ISNULL([Baja], 0) = 0'
+        );
+        $stmt->execute(['codigo' => $tipo]);
+        $row = $stmt->fetch();
+        if ($row) {
+          $item['motorFidelizacion'] = trim((string) ($row['Motor'] ?? 'NINGUNO'));
+          $item['factorFidelizacion'] = (float) ($row['Factor'] ?? 1);
+        }
+      }
+    }
+
     return $item;
+  }
+
+  private function validarTipoCalculoFidelizacion(array $data, ?string $codigo): void
+  {
+    $esAlta = $codigo === null;
+    $nuevoCodigo = trim((string) ($data['codigo'] ?? $codigo ?? ''));
+
+    if ($esAlta) {
+      if ($nuevoCodigo === '') {
+        throw new \InvalidArgumentException('El codigo es obligatorio');
+      }
+      if (strlen($nuevoCodigo) > 6) {
+        throw new \InvalidArgumentException('El codigo admite como maximo 6 caracteres');
+      }
+      $stmt = $this->pdo->prepare(
+        'SELECT 1 FROM [TiposCalculoFidelizacion] WHERE RTRIM([Codigo]) = :codigo'
+      );
+      $stmt->execute(['codigo' => $nuevoCodigo]);
+      if ($stmt->fetch()) {
+        throw new \InvalidArgumentException('Ya existe un tipo de calculo con ese codigo');
+      }
+    }
+
+    if ($esAlta || array_key_exists('nombre', $data)) {
+      if (trim((string) ($data['nombre'] ?? '')) === '') {
+        throw new \InvalidArgumentException('El nombre es obligatorio');
+      }
+    }
+
+    if ($esAlta || array_key_exists('motor', $data)) {
+      $motor = strtoupper(trim((string) ($data['motor'] ?? '')));
+      if (!in_array($motor, ['NINGUNO', 'EUROS', 'PUNTOS'], true)) {
+        throw new \InvalidArgumentException('Motor de fidelizacion no reconocido');
+      }
+    }
+
+    if ($esAlta || array_key_exists('factor', $data)) {
+      $factor = (float) ($data['factor'] ?? 0);
+      if (!is_finite($factor) || $factor <= 0) {
+        throw new \InvalidArgumentException('El factor debe ser mayor que cero');
+      }
+    }
+
+    if (array_key_exists('configuracion', $data)) {
+      $configuracion = trim((string) ($data['configuracion'] ?? ''));
+      if ($configuracion !== '') {
+        json_decode($configuracion, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+          throw new \InvalidArgumentException(
+            'La configuracion adicional debe ser JSON valido'
+          );
+        }
+      }
+    }
+
+    if (!$esAlta && array_key_exists('activo', $data) && $data['activo'] === false) {
+      $check = $this->dependencyCheckService->puedeDarDeBaja(
+        'tipos-calculo-fidelizacion',
+        (string) $codigo
+      );
+      if (!$check['ok']) {
+        throw new DependencyException(
+          'No se puede dar de baja el tipo porque esta asignado a tiendas activas',
+          $check['dependencias']
+        );
+      }
+    }
+  }
+
+  private function prepararFechaAltaFidelizacion(array &$data): void
+  {
+    $tarjeta = trim((string) ($data['tarjetaFidelizacion'] ?? ''));
+    if ($tarjeta === '') {
+      return;
+    }
+
+    $fecha = trim((string) ($data['fechaAltaFidelizacion'] ?? ''));
+    if ($fecha === '' || str_starts_with($fecha, '1995-01-01')) {
+      $data['fechaAltaFidelizacion'] = date('Y-m-d');
+    }
   }
 
   private function validarArticulo(array $data, ?string $codigo): void
@@ -1596,6 +1717,15 @@ final class MantenimientoService
     }
 
     $this->validarClienteDatosObligatorios($data, $esAlta);
+
+    if (array_key_exists('pjeFidelizacion', $data)) {
+      $porcentaje = (float) ($data['pjeFidelizacion'] ?? 0);
+      if (!is_finite($porcentaje) || $porcentaje < 0 || $porcentaje > 100) {
+        throw new \InvalidArgumentException(
+          'El porcentaje de fidelizacion debe estar entre 0 y 100'
+        );
+      }
+    }
 
     $nif = trim((string) ($data['nif'] ?? ''));
     if ($nif === '') {

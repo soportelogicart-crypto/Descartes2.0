@@ -33,6 +33,11 @@ const puestosAbierto = ref(false)
 const proveedoresAbierto = ref(false)
 const modalEquipoAbierto = ref(false)
 
+// Toda la aplicación usa una franja de iconos. El menú completo se abre
+// flotando para no reducir el ancho útil de la pantalla actual.
+const menuDesplegado = ref(false)
+const mostrarTexto = computed(() => menuDesplegado.value)
+
 const seccionesAbiertas = reactive<Record<string, boolean>>(
   Object.fromEntries(menuPrincipalSecciones.map((s) => [s.id, false]))
 )
@@ -88,7 +93,9 @@ const secciones = computed(() =>
             ? ventasSeccionVisible.value
             : seccion.id === 'facturacion'
               ? facturacionSeccionVisible.value
-              : true,
+              : seccion.id === 'tpv'
+                ? puede('tpv', 'ver')
+                : true,
     activa:
       seccion.id === 'mantenimiento'
         ? route.path.startsWith('/mantenimiento')
@@ -144,6 +151,13 @@ const puestosActivo = computed(() => esRutaPuestos(route.path))
 const proveedoresActivo = computed(() => esRutaProveedores(route.path))
 const mantenimientoActivo = computed(() => route.path.startsWith('/mantenimiento'))
 
+/** Cabecera legacy: nombre de la pantalla actual, como la barra del TPV. */
+const tituloPantalla = computed(() =>
+  typeof route.meta.titulo === 'string' && route.meta.titulo.trim() !== ''
+    ? route.meta.titulo
+    : 'Descartes Gestion'
+)
+
 watch(
   () => route.fullPath,
   (fullPath) => {
@@ -172,6 +186,16 @@ watch(
 )
 
 function toggleSeccion(id: string) {
+  const seccion = secciones.value.find((s) => s.id === id)
+  if (id === 'tpv' && seccion?.habilitado) {
+    router.push('/tpv')
+    cerrarMenu()
+    return
+  }
+
+  // El submenu necesita el ancho completo para ser legible.
+  menuDesplegado.value = true
+
   const estabaAbierta = seccionesAbiertas[id]
   for (const key of Object.keys(seccionesAbiertas)) {
     seccionesAbiertas[key] = false
@@ -194,6 +218,15 @@ function cerrarMenu() {
   clientesAbierto.value = false
   puestosAbierto.value = false
   proveedoresAbierto.value = false
+  menuDesplegado.value = false
+}
+
+function toggleMenu() {
+  if (menuDesplegado.value) {
+    cerrarMenu()
+  } else {
+    menuDesplegado.value = true
+  }
 }
 
 function toggleArticulos() {
@@ -224,8 +257,24 @@ async function logout() {
 </script>
 
 <template>
-  <div class="layout">
-    <aside class="sidebar">
+  <div class="layout layout--compacta">
+    <aside
+      class="sidebar sidebar--compacta"
+      :class="{ 'sidebar--desplegada': menuDesplegado }"
+    >
+      <button
+        type="button"
+        class="menu-toggle"
+        :title="menuDesplegado ? 'Recoger menú' : 'Desplegar menú'"
+        :aria-label="menuDesplegado ? 'Recoger menú' : 'Desplegar menú'"
+        :aria-expanded="menuDesplegado"
+        @click="toggleMenu"
+      >
+        <span class="menu-toggle-icono" aria-hidden="true">
+          {{ menuDesplegado ? '«' : '☰' }}
+        </span>
+        <span v-if="mostrarTexto">MENÚ</span>
+      </button>
       <div class="sidebar-nav">
       <div v-for="seccion in secciones" :key="seccion.id" class="seccion">
         <button
@@ -237,11 +286,14 @@ async function logout() {
             disabled: !seccion.habilitado,
           }"
           :disabled="!seccion.habilitado"
-          :title="seccion.habilitado ? undefined : 'Sin permiso'"
+          :title="seccion.habilitado ? seccion.titulo : `${seccion.titulo} — sin permiso`"
           @click="seccion.habilitado && toggleSeccion(seccion.id)"
         >
-          <span>{{ seccion.titulo }}</span>
-          <span class="chevron">{{ seccionesAbiertas[seccion.id] ? '▾' : '▸' }}</span>
+          <ToolIcon :name="seccion.icono" class="brand-icono" />
+          <span v-if="mostrarTexto">{{ seccion.titulo }}</span>
+          <span v-if="mostrarTexto" class="chevron">
+            {{ seccionesAbiertas[seccion.id] ? '▾' : '▸' }}
+          </span>
         </button>
 
         <!-- Mantenimiento: submenu completo -->
@@ -416,6 +468,20 @@ async function logout() {
           </template>
         </nav>
 
+        <!-- TPV: acceso directo a venta táctil -->
+        <nav v-else-if="seccion.id === 'tpv'" v-show="seccionesAbiertas.tpv">
+          <RouterLink
+            v-if="seccion.habilitado"
+            to="/tpv"
+            class="nav-link nav-child"
+            :class="{ active: route.path === '/tpv' }"
+            @click="cerrarMenu"
+          >
+            Venta táctil
+          </RouterLink>
+          <span v-else class="nav-link nav-child disabled" title="Sin permiso">Venta táctil</span>
+        </nav>
+
         <!-- Resto de secciones: placeholder hasta completar -->
         <nav v-else v-show="seccionesAbiertas[seccion.id]" class="nav-placeholder">
           <RouterLink :to="seccion.ruta" class="nav-link nav-child" @click="cerrarMenu">
@@ -428,20 +494,28 @@ async function logout() {
       <div class="sidebar-footer">
         <RouterLink to="/configuracion" class="btn-config" title="Configuracion" @click="cerrarMenu">
           <ToolIcon name="config" />
-          <span>Configuracion</span>
+          <span v-if="mostrarTexto">Configuracion</span>
         </RouterLink>
         <button type="button" class="btn-salir" title="Salir" @click="logout">
           <ToolIcon name="salir" />
-          <span>Salir</span>
+          <span v-if="mostrarTexto">Salir</span>
         </button>
       </div>
     </aside>
+    <!-- Cierra el menu desplegado sin tener que volver a pulsar el icono. -->
+    <div
+      v-if="menuDesplegado"
+      class="menu-backdrop"
+      @click="cerrarMenu"
+    ></div>
+
     <div class="main">
       <header class="topbar">
-        <span>{{ auth.usuario?.nombre ?? 'Usuario' }}</span>
+        <span class="topbar-titulo">{{ tituloPantalla }}</span>
+        <span class="topbar-usuario">{{ auth.usuario?.nombre ?? 'Usuario' }}</span>
       </header>
       <AppTabs />
-      <main class="content">
+      <main class="content" :class="{ 'content--flush': route.meta.contentFlush }">
         <RouterView v-slot="{ Component, route: r }">
           <KeepAlive :max="8">
             <component :is="Component" :key="r.fullPath" />
@@ -462,10 +536,17 @@ async function logout() {
 <style scoped>
 .layout {
   display: grid;
-  grid-template-columns: 240px 1fr;
+  /* En rem para que acompañe a la escala de interfaz (`--escala-ui`). */
+  grid-template-columns: 15rem 1fr;
   height: 100vh;
   overflow: hidden;
   align-items: stretch;
+  position: relative;
+}
+
+/* TPV: la rejilla solo reserva la franja de iconos; el menu desplegado flota. */
+.layout--compacta {
+  grid-template-columns: 3.25rem 1fr;
 }
 
 .sidebar {
@@ -477,6 +558,67 @@ async function logout() {
   color: #f9fafb;
   padding: 1rem;
   box-sizing: border-box;
+}
+
+.sidebar--compacta {
+  padding: 0.4rem 0.3rem;
+  width: 3.25rem;
+}
+
+.sidebar--compacta.sidebar--desplegada {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 60;
+  width: 15rem;
+  padding: 1rem;
+  box-shadow: 4px 0 16px rgba(0, 0, 0, 0.45);
+}
+
+.menu-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.55rem;
+  width: 100%;
+  min-height: 2.75rem;
+  margin: 0 0 0.45rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid #4b5563;
+  border-radius: 8px;
+  background: #1f2937;
+  color: #f9fafb;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.menu-toggle:hover {
+  background: #374151;
+  border-color: #6b7280;
+}
+
+.menu-toggle-icono {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  font-size: 1.45rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.sidebar--compacta:not(.sidebar--desplegada) .menu-toggle {
+  justify-content: center;
+  padding: 0.45rem 0;
+}
+
+.menu-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.35);
 }
 
 .sidebar-nav {
@@ -532,7 +674,7 @@ async function logout() {
   display: flex;
   width: 100%;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 0.5rem;
   font-weight: 700;
   margin-bottom: 0.35rem;
@@ -559,6 +701,35 @@ async function logout() {
 .brand.disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.brand-icono {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+/* Franja recogida: iconos centrados y area tactil de 44px. */
+.sidebar--compacta:not(.sidebar--desplegada) .brand {
+  justify-content: center;
+  padding: 0.5rem 0;
+  min-height: 2.75rem;
+}
+
+.sidebar--compacta:not(.sidebar--desplegada) .brand-icono {
+  width: 1.4rem;
+  height: 1.4rem;
+}
+
+.sidebar--compacta:not(.sidebar--desplegada) .btn-config,
+.sidebar--compacta:not(.sidebar--desplegada) .btn-salir {
+  justify-content: center;
+  padding: 0.5rem 0;
+  min-height: 2.4rem;
+  gap: 0;
+}
+
+.sidebar--compacta:not(.sidebar--desplegada) .seccion {
+  margin-bottom: 0.2rem;
 }
 
 .nav-link {
@@ -604,6 +775,10 @@ async function logout() {
   opacity: 0.85;
 }
 
+.brand .chevron {
+  margin-left: auto;
+}
+
 .nav-children,
 .nav-placeholder {
   margin: 0.15rem 0 0.35rem 0.5rem;
@@ -625,15 +800,36 @@ async function logout() {
   overflow: hidden;
 }
 
+/* Misma cabecera legacy que la barra de título del TPV. */
 .topbar {
   display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  padding: 0.75rem 1rem;
-  background: #fff;
-  border-bottom: 1px solid #e5e7eb;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.35rem 0.6rem;
+  background: linear-gradient(#00309c, #000060);
+  border: 2px outset #f0f0f0;
+  color: #fff;
+  font-family: 'Segoe UI', Tahoma, sans-serif;
   flex-shrink: 0;
   z-index: 30;
+}
+
+.topbar-titulo {
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.topbar-usuario {
+  max-width: 16rem;
+  padding: 0.05rem 0.4rem;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid #7a8ec0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .content {
@@ -641,5 +837,12 @@ async function logout() {
   overflow-y: auto;
   overscroll-behavior: contain;
   min-height: 0;
+}
+
+.content--flush {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 </style>

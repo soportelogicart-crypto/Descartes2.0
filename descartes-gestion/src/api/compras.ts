@@ -173,6 +173,20 @@ export async function crearPedidoProveedor(
   return data
 }
 
+/** Reserva el siguiente nº (UltPedidoCom) sin grabar cabecera. */
+export async function reservarPedidoProveedor(payload: { empresa: string }): Promise<{
+  empresa: string
+  pedido: number
+  almacen: number | null
+}> {
+  const { data } = await api.post<{
+    empresa: string
+    pedido: number
+    almacen: number | null
+  }>('/api/compras/pedidos/reservar', payload)
+  return data
+}
+
 export async function actualizarPedidoProveedor(
   empresa: string,
   pedido: number,

@@ -20,6 +20,9 @@ async function cerrar(e: Event, id: string) {
 }
 
 async function cerrarOtras(e: Event, id: string) {
+  // En táctil un doble toque es involuntario y esto cierra todo lo demás:
+  // el atajo queda reservado a puestos con ratón.
+  if (!window.matchMedia('(pointer: fine)').matches) return
   e.preventDefault()
   e.stopPropagation()
   tabs.closeOthers(id)
@@ -43,11 +46,19 @@ async function cerrarOtras(e: Event, id: string) {
       @dblclick="cerrarOtras($event, t.id)"
     >
       <span class="tab-title">{{ t.title }}</span>
+      <!--
+        Solo se puede cerrar la pestaña activa: en táctil, cambiar de pestaña
+        es un gesto de un toque y la aspa quedaba al alcance del dedo, así que
+        se cerraban sin querer. En las inactivas se reserva el hueco para que
+        todas midan lo mismo.
+      -->
       <span
         class="tab-close"
+        :class="{ oculta: t.id !== tabs.activeId }"
         title="Cerrar"
         role="button"
-        tabindex="0"
+        :tabindex="t.id === tabs.activeId ? 0 : -1"
+        :aria-hidden="t.id !== tabs.activeId"
         @click="cerrar($event, t.id)"
         @keydown.enter="cerrar($event, t.id)"
       >
@@ -71,7 +82,11 @@ async function cerrarOtras(e: Event, id: string) {
 .tab {
   display: inline-flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.35rem;
+  /* Ancho mínimo: con nombres cortos la pestaña quedaba estrecha y la aspa
+     pegada al texto, lo que provocaba cierres accidentales en táctil. */
+  min-width: 8rem;
   max-width: 11rem;
   padding: 0.35rem 0.45rem 0.35rem 0.65rem;
   border: 1px solid #c5d0dc;
@@ -103,10 +118,10 @@ async function cerrarOtras(e: Event, id: string) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.1rem;
-  height: 1.1rem;
+  width: 1.35rem;
+  height: 1.35rem;
   border-radius: 3px;
-  font-size: 0.95rem;
+  font-size: 1rem;
   line-height: 1;
   color: #64748b;
   flex-shrink: 0;
@@ -115,4 +130,9 @@ async function cerrarOtras(e: Event, id: string) {
   background: #cbd5e1;
   color: #0f172a;
 }
+.tab-close.oculta {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 </style>

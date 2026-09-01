@@ -16,6 +16,7 @@ use Descartes\Api\Services\Ventas\DispositivoPuestoService;
 use Descartes\Api\Services\Ventas\PedidoClienteService;
 use Descartes\Api\Services\Ventas\ValeService;
 use Descartes\Api\Services\Ventas\VentaConsultaService;
+use Descartes\Api\Services\Ventas\VentaEmailService;
 use Descartes\Api\Services\Ventas\VentaEscrituraService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -35,6 +36,7 @@ final class VentasController
   private ValeService $vales;
   private PedidoClienteService $pedidos;
   private AbcVentasService $abcVentas;
+  private VentaEmailService $ventaEmail;
   private PermissionService $permissions;
   private LoggerInterface $logger;
 
@@ -50,6 +52,7 @@ final class VentasController
     ValeService $vales,
     PedidoClienteService $pedidos,
     AbcVentasService $abcVentas,
+    VentaEmailService $ventaEmail,
     PermissionService $permissions,
     LoggerInterface $logger
   ) {
@@ -64,6 +67,7 @@ final class VentasController
     $this->vales = $vales;
     $this->pedidos = $pedidos;
     $this->abcVentas = $abcVentas;
+    $this->ventaEmail = $ventaEmail;
     $this->permissions = $permissions;
     $this->logger = $logger;
   }
@@ -84,6 +88,30 @@ final class VentasController
       return ErrorResponse::json($response, 404, 'Venta no encontrada', 'NO_ENCONTRADO');
     }
     return $this->json($response, 200, $item);
+  }
+
+  public function emailVenta(Request $request, Response $response, array $args): Response
+  {
+    $body = (array) json_decode((string) $request->getBody(), true);
+    try {
+      $resultado = $this->ventaEmail->enviar(
+        (string) ($args['empresa'] ?? ''),
+        (string) ($args['tipo'] ?? ''),
+        (int) ($args['albaran'] ?? 0),
+        (string) ($body['email'] ?? '')
+      );
+      $this->audit('ventas.email', 'Documento de venta enviado por email', [
+        'empresa' => $args['empresa'] ?? null,
+        'tipo' => $args['tipo'] ?? null,
+        'albaran' => $args['albaran'] ?? null,
+        'destinatario' => $resultado['destinatario'],
+      ]);
+      return $this->json($response, 200, $resultado);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
   }
 
   public function createVenta(Request $request, Response $response): Response

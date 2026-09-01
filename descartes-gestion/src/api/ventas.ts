@@ -98,6 +98,22 @@ export async function marcarVentaImpresa(empresa: string, tipo: string, albaran:
   return data
 }
 
+export async function enviarVentaPorEmail(
+  empresa: string,
+  tipo: string,
+  albaran: number,
+  email: string,
+  canal: 'ventas' | 'tpv' = 'ventas'
+): Promise<{ destinatario: string; documento: string }> {
+  const { data } = await api.post<{ destinatario: string; documento: string }>(
+    canal === 'tpv'
+      ? `/api/tpv/ventas/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}/email`
+      : `/api/ventas/albaranes/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}/email`,
+    { email }
+  )
+  return data
+}
+
 export async function obtenerArqueo(empresa: string, puesto: string, sesion: number) {
   const { data } = await api.get<ArqueoResponse>('/api/ventas/arqueos', {
     params: { empresa, puesto, sesion },

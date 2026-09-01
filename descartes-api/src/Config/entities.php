@@ -141,6 +141,34 @@ return [
       'Descripcion' => '',
     ],
   ],
+  'tipos-calculo-fidelizacion' => [
+    'table' => 'TiposCalculoFidelizacion',
+    'primaryKey' => 'Codigo',
+    // Catálogo auxiliar de Clientes: reutiliza sus permisos (spec FR-010).
+    'modulo' => 'clientes',
+    'softDelete' => ['column' => 'Baja', 'inactiveValue' => 1, 'activeValue' => 0],
+    'searchColumns' => ['Codigo', 'Nombre', 'Motor'],
+    'fields' => [
+      'codigo' => 'Codigo',
+      'nombre' => 'Nombre',
+      'motor' => 'Motor',
+      'factor' => 'Factor',
+      'configuracion' => 'Configuracion',
+      'activo' => 'Baja',
+    ],
+    'stringMaxLengths' => [
+      'Codigo' => 20,
+      'Nombre' => 50,
+      'Motor' => 30,
+    ],
+    'createDefaults' => [
+      'Nombre' => '',
+      'Motor' => 'EUROS',
+      'Factor' => 1,
+      'Configuracion' => '',
+      'Baja' => 0,
+    ],
+  ],
   'clientes' => array_merge([
     'table' => 'Clientes',
     'primaryKey' => 'Codigo',

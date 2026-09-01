@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { routeNavigationFrom } from '@/router'
 import { api } from '@/api/client'
 import {
   actualizarPedidoProveedor,
   crearPedidoProveedor,
   obtenerPedidoProveedor,
   recibirPedidoProveedor,
+  reservarPedidoProveedor,
 } from '@/api/compras'
 import { resolverArticulo } from '@/api/articulos'
 import { createBarcodeScanWatcher } from '@/composables/useBarcodeScanWatcher'
@@ -41,6 +43,7 @@ const puesto = usePuestoContextoStore()
 
 const pathInstancia = route.fullPath
 
+/** KeepAlive: no reiniciar borrador al consultar otra pantalla en otra pestaña. */
 function esEstaInstanciaActiva(): boolean {
   return route.fullPath === pathInstancia
 }
@@ -72,6 +75,13 @@ const altaArticuloQuery = ref('')
 const altaArticuloLineaIdx = ref(-1)
 const tiendas = ref<{ value: string; label: string }[]>([])
 const almacenes = ref<{ value: number; label: string }[]>([])
+const pedidoReservado = ref<number | null>(null)
+const reservando = ref(false)
+/** Alta guiada: tienda → reservar nº → proveedor → cabecera + líneas. */
+const pasoAlta = ref<'tienda' | 'proveedor' | 'listo'>('listo')
+const tiendaSelectRef = ref<HTMLSelectElement | null>(null)
+const pedidoInputRef = ref<HTMLInputElement | null>(null)
+const proveedorInputRef = ref<HTMLInputElement | null>(null)
 
 type FormLinea = {
   numLin?: number
@@ -118,6 +128,29 @@ const soloLecturaMotivo = computed(() => {
 
 const camposEditables = computed(() => modoEdicion.value && !bloqueado.value)
 
+const proveedorBusquedaHabilitada = computed(() => camposEditables.value)
+
+const importeBorrador = computed(() => {
+  let sum = 0
+  for (const l of form.value.lineas) {
+    const art = String(l.articulo ?? '').trim()
+    if (!art || art.toUpperCase() === 'NO') continue
+    const cant = Number(l.cantidadPed) || 0
+    const precio = Number(l.precioPed) || 0
+    const dto = Number(l.pjeDto) || 0
+    sum += cant * precio * (1 - dto / 100)
+  }
+  return sum
+})
+
+const importeMostrado = computed(() =>
+  ficha.value && !modoEdicion.value ? Number(ficha.value.importe ?? 0) : importeBorrador.value
+)
+
+const lineasConArticulo = computed(
+  () => form.value.lineas.filter((l) => String(l.articulo ?? '').trim()).length
+)
+
 const situacionBadge = computed(() => {
   const label = ficha.value?.situacionLabel || 'pendiente'
   if (label === 'servido') return { text: 'Servido', cls: 'sit-servido' }
@@ -160,6 +193,13 @@ function fmtNum(n: number | null | undefined, dec = 2) {
 function esRutaNuevo(): boolean {
   if (route.name === 'compras-pedido-nuevo') return true
   return (route.path || '').replace(/\/+$/, '').endsWith('/compras/pedidos/nuevo')
+}
+
+/** Conservar borrador solo al volver de otra pestaña (p. ej. consultar artículo). */
+function debeConservarBorradorAlta(rutaAnterior: string | undefined): boolean {
+  if (!esNuevo.value || !rutaAnterior) return false
+  const prev = (rutaAnterior.split('?')[0] || '').replace(/\/+$/, '') || '/'
+  return !prev.startsWith('/compras/pedidos')
 }
 
 function aplicarFicha(data: PedidoProveedorDetalle) {
@@ -220,10 +260,20 @@ async function cargarAlmacenes() {
   }
 }
 
-async function cargar() {
+async function cargar(rutaAnterior?: string) {
   if (!esEstaInstanciaActiva()) return
+
   if (esRutaNuevo()) {
+    if (debeConservarBorradorAlta(rutaAnterior)) {
+      error.value = null
+      return
+    }
     await iniciarNuevo()
+    return
+  }
+
+  if (modoEdicion.value) {
+    error.value = null
     return
   }
 
@@ -242,6 +292,7 @@ async function cargar() {
     aplicarFicha(await obtenerPedidoProveedor(empresa, pedido))
     modoEdicion.value = false
     esNuevo.value = false
+    pasoAlta.value = 'listo'
   } catch (e: unknown) {
     ficha.value = null
     error.value = extractApiError(e, 'No se pudo cargar el pedido a proveedor')
@@ -250,10 +301,23 @@ async function cargar() {
   }
 }
 
+async function intentarReservarNumeroAutomatico() {
+  if (!esNuevo.value || pedidoReservado.value || reservando.value) return
+  const empresa = form.value.empresa.trim()
+  if (!empresa) {
+    mensaje.value = 'Elija la tienda para asignar el número de pedido'
+    pasoAlta.value = 'tienda'
+    return
+  }
+  await reservarNumero()
+}
+
 async function iniciarNuevo() {
   esNuevo.value = true
   modoEdicion.value = true
   ficha.value = null
+  pedidoReservado.value = null
+  pasoAlta.value = 'tienda'
   error.value = null
   mensaje.value = null
   const empresa = puesto.empresaCodigo || tiendas.value[0]?.value || ''
@@ -269,16 +333,86 @@ async function iniciarNuevo() {
     observInternas: '',
     lineas: [lineaVacia()],
   }
+  await intentarReservarNumeroAutomatico()
+  if (!pedidoReservado.value && !form.value.empresa.trim()) {
+    mensaje.value = 'Nuevo pedido: elija tienda (se asignará el número automáticamente)'
+    await nextTick(() => tiendaSelectRef.value?.focus())
+  }
+}
+
+async function onEmpresaNuevoChange() {
+  if (!esNuevo.value) return
+  pedidoReservado.value = null
+  pasoAlta.value = 'tienda'
+  await intentarReservarNumeroAutomatico()
+}
+
+async function reservarNumero() {
+  const empresa = form.value.empresa.trim()
+  if (!empresa) {
+    error.value = 'Seleccione la tienda'
+    pedidoReservado.value = null
+    return
+  }
+  if (!puedeCrear.value) {
+    error.value = 'No tiene permiso para crear pedidos a proveedor'
+    return
+  }
+  reservando.value = true
+  error.value = null
+  try {
+    const res = await reservarPedidoProveedor({ empresa })
+    pedidoReservado.value = res.pedido
+    if (res.almacen != null && form.value.almacen == null) {
+      form.value.almacen = res.almacen
+    }
+    if (esNuevo.value && pasoAlta.value === 'tienda') {
+      pasoAlta.value = 'proveedor'
+      mensaje.value = `Pedido ${res.pedido} reservado. Pulse Intro para buscar proveedor (F4).`
+      await nextTick(() => proveedorInputRef.value?.focus())
+    }
+  } catch (e: unknown) {
+    pedidoReservado.value = null
+    error.value = extractApiError(e, 'No se pudo reservar el número de pedido')
+  } finally {
+    reservando.value = false
+  }
+}
+
+async function onKeyEnter(e: KeyboardEvent) {
+  if (!esNuevo.value || pasoAlta.value === 'listo') return
+  if (buscarProveedorOpen.value || buscarArticuloOpen.value) return
+  const t = e.target
+  if (t instanceof HTMLElement) {
+    const tag = t.tagName
+    if (tag === 'TEXTAREA' || (tag === 'INPUT' && t.closest('.panel.lineas'))) return
+  }
+  e.preventDefault()
+  if (pasoAlta.value === 'tienda') {
+    if (!form.value.empresa.trim()) {
+      error.value = 'Seleccione la tienda'
+      return
+    }
+    await reservarNumero()
+    return
+  }
+  if (pasoAlta.value === 'proveedor') {
+    abrirBuscarProveedor()
+  }
+}
+
+function onNuevo() {
+  if (!puedeCrear.value) return
+  if (esRutaNuevo()) {
+    void iniciarNuevo()
+    return
+  }
+  router.push({ name: 'compras-pedido-nuevo' })
 }
 
 function volverListado() {
   modoEdicion.value = false
   void router.push({ name: 'compras-pedidos' })
-}
-
-function onNuevo() {
-  if (!puedeCrear.value) return
-  router.push({ name: 'compras-pedido-nuevo' })
 }
 
 function onModificar() {
@@ -311,6 +445,8 @@ function buildPayload(): PedidoProveedorPayload {
     }))
   return {
     empresa: form.value.empresa.trim(),
+    pedido:
+      pedidoReservado.value && pedidoReservado.value > 0 ? pedidoReservado.value : undefined,
     fechaPedido: form.value.fechaPedido || null,
     fechaMaxRecepcion: form.value.fechaMaxRecepcion || null,
     proveedor: form.value.proveedor.trim() || null,
@@ -374,7 +510,7 @@ async function onGuardar() {
 }
 
 function abrirBuscarProveedor() {
-  if (!camposEditables.value) return
+  if (!proveedorBusquedaHabilitada.value) return
   buscarProveedorOpen.value = true
 }
 
@@ -382,6 +518,10 @@ function onProveedorSeleccionado(r: EntidadBuscarResultado) {
   form.value.proveedor = r.codigo
   form.value.razonSocial = r.etiqueta.replace(/^\s*\S+\s*[-–]\s*/, '') || r.etiqueta
   buscarProveedorOpen.value = false
+  if (esNuevo.value && pasoAlta.value === 'proveedor') {
+    pasoAlta.value = 'listo'
+    mensaje.value = 'Complete cabecera y líneas; luego Guardar.'
+  }
 }
 
 function abrirBuscarArticulo(idx: number) {
@@ -604,20 +744,41 @@ async function onImprimirA4Confirmado() {
 
 onMounted(async () => {
   await Promise.all([cargarTiendas(), cargarAlmacenes()])
-  await cargar()
+  if (!esEstaInstanciaActiva()) return
+  if (esNuevo.value && !form.value.empresa.trim() && tiendas.value.length) {
+    form.value.empresa = puesto.empresaCodigo || tiendas.value[0]?.value || ''
+  }
+  await intentarReservarNumeroAutomatico()
+})
+
+onActivated(() => {
+  if (!esEstaInstanciaActiva()) return
+  const prev = esRutaNuevo() ? routeNavigationFrom.value : undefined
+  void cargar(prev)
 })
 
 watch(
-  () => [route.params.empresa, route.params.pedido, route.name] as const,
-  () => {
+  () => route.fullPath,
+  (_newPath, oldPath) => {
     if (!esEstaInstanciaActiva()) return
-    void cargar()
+    void cargar(oldPath)
+  },
+  { immediate: true }
+)
+
+watch(
+  () => form.value.proveedor,
+  (codigo) => {
+    if (!esNuevo.value || pasoAlta.value !== 'proveedor') return
+    if (!String(codigo ?? '').trim()) return
+    pasoAlta.value = 'listo'
+    mensaje.value = 'Complete cabecera y líneas; luego Guardar.'
   }
 )
 </script>
 
 <template>
-  <section class="pedido-detalle">
+  <section class="compra-detalle pedido-proveedor" tabindex="-1" @keydown.enter="onKeyEnter">
     <VentaToolbar
       :puede-crear="puedeCrear"
       :puede-editar="puedeEditar && !!ficha && !bloqueado"
@@ -633,7 +794,7 @@ watch(
       :modo-edicion="modoEdicion"
       :bloqueado="bloqueado"
       :hay-documento="!!ficha || esNuevo"
-      :loading="loading || saving || recibiendo"
+      :loading="loading || saving || recibiendo || reservando"
       :indice="-1"
       :total="0"
       @nuevo="onNuevo"
@@ -650,16 +811,17 @@ watch(
         <p class="hint">
           {{
             esNuevo
-              ? 'Complete cabecera y líneas; luego Guardar. Listado vuelve al grid.'
+              ? pasoAlta === 'tienda' && !pedidoReservado
+                ? 'Elija tienda: se asignará el número de pedido automáticamente.'
+                : pasoAlta === 'proveedor'
+                  ? `Pedido ${pedidoReservado ?? '—'}. Busque proveedor (Intro / F4).`
+                  : 'Complete cabecera y líneas; luego Guardar para crear el pedido.'
               : 'Cant. pedida / servida. Recibir genera albarán de compra al proveedor.'
           }}
         </p>
       </div>
       <p v-if="soloLecturaMotivo" class="badge-bloqueo">Solo lectura — {{ soloLecturaMotivo }}</p>
       <p v-else-if="modoEdicion" class="badge-ok">Editando</p>
-      <span v-if="ficha && !esNuevo" class="badge-sit" :class="situacionBadge.cls">
-        {{ situacionBadge.text }}
-      </span>
       <button
         v-if="puedeRecibir"
         type="button"
@@ -677,92 +839,159 @@ watch(
     <p v-if="loading && !ficha && !esNuevo" class="msg">Cargando...</p>
 
     <template v-if="ficha || esNuevo">
-      <div class="panel cabecera">
-        <h3>Cabecera</h3>
-        <div class="grid-cab">
-          <label>
-            Tienda
-            <select
-              v-if="esNuevo && camposEditables"
-              v-model="form.empresa"
-              title="Tienda"
-            >
-              <option value="">—</option>
-              <option v-for="t in tiendas" :key="t.value" :value="t.value">{{ t.label }}</option>
-            </select>
-            <input v-else :value="form.empresa" readonly />
-          </label>
-          <label>
-            Pedido
-            <input :value="esNuevo ? '(nuevo)' : ficha?.pedido" readonly />
-          </label>
-          <label>
-            Fecha
-            <input v-model="form.fechaPedido" type="date" :readonly="!camposEditables" />
-          </label>
-          <label>
-            Fecha máx. recepción
-            <input
-              v-model="form.fechaMaxRecepcion"
-              type="date"
-              :readonly="!camposEditables"
-            />
-          </label>
-          <label class="proveedor-field">
-            Proveedor
-            <div class="con-lupa">
-              <input
-                v-model="form.proveedor"
-                :readonly="!camposEditables"
-                @keydown.f4.prevent="abrirBuscarProveedor"
-              />
-              <button
-                type="button"
-                class="btn-lupa"
-                :disabled="!camposEditables"
-                title="Buscar proveedor"
-                @click="abrirBuscarProveedor"
-              >
-                <ToolIcon name="buscar" />
-              </button>
-            </div>
-          </label>
-          <label class="span-2">
-            Razón social
-            <input v-model="form.razonSocial" :readonly="!camposEditables" />
-          </label>
-          <label>
-            Vendedor
-            <input v-model="form.vendedor" maxlength="4" :readonly="!camposEditables" />
-          </label>
-          <label>
-            Almacén
-            <select
-              v-if="camposEditables"
-              v-model.number="form.almacen"
-              title="Almacén"
-            >
-              <option :value="null">—</option>
-              <option v-for="a in almacenes" :key="a.value" :value="a.value">{{ a.label }}</option>
-            </select>
-            <input v-else :value="form.almacen ?? ''" readonly />
-          </label>
-          <label v-if="ficha">
-            Importe
-            <input class="num" :value="fmtNum(ficha.importe)" readonly />
-          </label>
-          <label class="span-2">
-            Observaciones
-            <textarea v-model="form.observaciones" rows="2" :readonly="!camposEditables" />
-          </label>
-          <label class="span-2">
-            Obs. internas
-            <textarea v-model="form.observInternas" rows="2" :readonly="!camposEditables" />
-          </label>
-        </div>
-      </div>
+      <div class="ficha-compra-body">
+        <div class="cab-layout">
+          <div class="panel cab-main">
+            <div class="cab-rows">
+              <div class="cab-row">
+                <span class="cab-lbl">Tienda</span>
+                <select
+                  v-if="esNuevo && camposEditables"
+                  ref="tiendaSelectRef"
+                  v-model="form.empresa"
+                  class="w-col-a"
+                  title="Tienda"
+                  @change="onEmpresaNuevoChange"
+                >
+                  <option value="">—</option>
+                  <option v-for="t in tiendas" :key="t.value" :value="t.value">{{ t.label }}</option>
+                </select>
+                <input v-else class="w-col-a" :value="form.empresa" readonly />
+                <span class="cab-lbl cab-lbl-gap">Pedido</span>
+                <div class="con-lupa w-col-b">
+                  <input
+                    ref="pedidoInputRef"
+                    class="w-col-b-in"
+                    :value="esNuevo ? (pedidoReservado ?? (reservando ? '…' : '—')) : ficha?.pedido"
+                    readonly
+                    title="Número de pedido"
+                  />
+                  <button
+                    v-if="esNuevo && camposEditables && !pedidoReservado"
+                    type="button"
+                    class="btn-lupa"
+                    :disabled="reservando || !form.empresa"
+                    title="Reservar número de pedido"
+                    @click="reservarNumero"
+                  >
+                    Nº
+                  </button>
+                </div>
+              </div>
 
-      <div class="panel lineas">
+              <div class="cab-row">
+                <span class="cab-lbl">Fecha</span>
+                <input
+                  v-model="form.fechaPedido"
+                  class="w-col-a"
+                  type="date"
+                  :readonly="!camposEditables"
+                />
+                <span class="cab-lbl cab-lbl-gap">F. máx. recep.</span>
+                <input
+                  v-model="form.fechaMaxRecepcion"
+                  class="w-col-b"
+                  type="date"
+                  :readonly="!camposEditables"
+                  title="Fecha máxima de recepción"
+                />
+              </div>
+
+              <div class="cab-row">
+                <span class="cab-lbl">Proveedor</span>
+                <div class="con-lupa w-eq">
+                  <input
+                    ref="proveedorInputRef"
+                    v-model="form.proveedor"
+                    class="w-cod"
+                    :readonly="!camposEditables"
+                    @keydown.f4.prevent="abrirBuscarProveedor"
+                  />
+                  <button
+                    type="button"
+                    class="btn-lupa"
+                    :disabled="!proveedorBusquedaHabilitada"
+                    title="Buscar proveedor (F4)"
+                    @click="abrirBuscarProveedor"
+                  >
+                    <ToolIcon name="buscar" />
+                  </button>
+                </div>
+                <input
+                  v-model="form.razonSocial"
+                  class="w-col-rest"
+                  :readonly="!camposEditables"
+                  title="Razón social"
+                />
+              </div>
+
+              <div class="cab-row">
+                <span class="cab-lbl">Vendedor</span>
+                <input
+                  v-model="form.vendedor"
+                  class="w-col-a"
+                  maxlength="4"
+                  :readonly="!camposEditables"
+                  title="Vendedor del proveedor"
+                />
+                <span class="cab-lbl cab-lbl-gap">Almacén</span>
+                <select
+                  v-if="camposEditables"
+                  v-model.number="form.almacen"
+                  class="w-col-rest"
+                  title="Almacén"
+                >
+                  <option :value="null">—</option>
+                  <option v-for="a in almacenes" :key="a.value" :value="a.value">{{ a.label }}</option>
+                </select>
+                <input
+                  v-else
+                  class="w-col-rest"
+                  :value="form.almacen ?? ''"
+                  readonly
+                />
+              </div>
+
+              <div v-if="ficha && !esNuevo" class="cab-row">
+                <span class="cab-lbl">Situación</span>
+                <input class="w-col-rest sit-readonly" :value="situacionBadge.text" readonly />
+              </div>
+
+              <div class="cab-row cab-row-obs">
+                <span class="cab-lbl">Observaciones</span>
+                <input
+                  v-model="form.observaciones"
+                  class="w-obs"
+                  :readonly="!camposEditables"
+                />
+              </div>
+
+              <div class="cab-row cab-row-obs">
+                <span class="cab-lbl">Obs. internas</span>
+                <input
+                  v-model="form.observInternas"
+                  class="w-obs"
+                  :readonly="!camposEditables"
+                />
+              </div>
+            </div>
+          </div>
+
+          <aside class="panel cab-side">
+            <div class="side-box totales">
+              <div class="side-row">
+                <span>Importe</span>
+                <span class="num-red">{{ fmtNum(importeMostrado) }}</span>
+              </div>
+              <div class="side-row">
+                <span>Líneas</span>
+                <span class="num-red">{{ lineasConArticulo }}</span>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <div class="panel lineas">
         <div class="lineas-head">
           <h3>Líneas</h3>
           <button
@@ -780,7 +1009,7 @@ watch(
               <tr>
                 <th class="col-n">#</th>
                 <th class="col-art">Artículo</th>
-                <th>Descripción</th>
+                <th class="col-desc">Descripción</th>
                 <th class="num col-q">Pedida</th>
                 <th class="num col-q">Servida</th>
                 <th class="num col-p">Precio</th>
@@ -809,13 +1038,13 @@ watch(
                   </div>
                   <span v-else>{{ l.articulo || '—' }}</span>
                 </td>
-                <td>
+                <td class="col-desc">
                   <input
                     v-if="camposEditables"
                     v-model="l.descripcion"
                     class="desc-input"
                   />
-                  <span v-else>{{ l.descripcion || '—' }}</span>
+                  <span v-else class="desc-text">{{ l.descripcion || '—' }}</span>
                 </td>
                 <td class="num col-q">
                   <DecimalInput
@@ -860,6 +1089,7 @@ watch(
               </tr>
             </tbody>
           </table>
+        </div>
         </div>
       </div>
     </template>
@@ -920,7 +1150,7 @@ watch(
 </template>
 
 <style scoped>
-.pedido-detalle h2 {
+.compra-detalle h2 {
   margin: 0 0 0.25rem;
 }
 .head {
@@ -955,10 +1185,9 @@ watch(
   font-weight: 600;
 }
 .badge-sit {
-  margin: 0;
-  padding: 0.35rem 0.65rem;
-  border-radius: 6px;
-  font-size: 0.8rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.72rem;
   font-weight: 600;
 }
 .sit-pendiente {
@@ -1003,9 +1232,9 @@ watch(
 
 .panel {
   margin-bottom: 0.85rem;
-  padding: 0.75rem 0.85rem;
+  padding: 0.55rem 0.65rem;
   border: 1px solid #94a3b8;
-  border-radius: 6px;
+  border-radius: 4px;
   background: #fff;
 }
 .panel h3 {
@@ -1013,11 +1242,170 @@ watch(
   font-size: 0.9rem;
   color: #0f172a;
 }
+
+.ficha-compra-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  --pedido-ancho: 50rem;
+  width: var(--pedido-ancho);
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.cab-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 14.5rem;
+  gap: 0.45rem;
+  align-items: start;
+  width: 100%;
+  box-sizing: border-box;
+}
+.cab-layout > .panel {
+  margin-bottom: 0;
+}
+.cab-main {
+  background: #f1f5f9;
+  padding: 0.4rem 0.5rem;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.cab-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+}
+.cab-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.2rem 0.28rem;
+  min-height: 1.55rem;
+  min-width: 0;
+  justify-content: space-between;
+}
+.cab-lbl {
+  flex: 0 0 5.2rem;
+  font-size: 0.7rem;
+  color: #334155;
+  text-align: right;
+  white-space: nowrap;
+}
+.cab-lbl-gap {
+  flex: 0 0 5.2rem;
+  margin-left: 0;
+  width: auto;
+  text-align: right;
+}
+.cab-main input,
+.cab-main select {
+  padding: 0.2rem 0.35rem;
+  border: 1px solid #94a3b8;
+  border-radius: 2px;
+  font: inherit;
+  font-size: 0.8rem;
+  background: #fff;
+  color: #0f172a;
+  box-sizing: border-box;
+  height: 1.65rem;
+}
+.cab-main input:read-only {
+  background: #e8eef5;
+}
+.w-cod {
+  width: 4.2rem;
+  flex: 0 0 4.2rem;
+}
+.w-col-a {
+  width: 11rem;
+  flex: 0 0 11rem;
+  max-width: 11rem;
+  box-sizing: border-box;
+}
+.w-col-b,
+.w-col-b-in,
+.w-eq {
+  width: 8rem;
+  flex: 0 0 8rem;
+  max-width: 8rem;
+  box-sizing: border-box;
+}
+.w-col-b,
+.w-col-b-in {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.con-lupa.w-col-b,
+.con-lupa.w-eq {
+  display: flex;
+  width: 8rem;
+  flex: 0 0 8rem;
+}
+.con-lupa.w-col-b .w-col-b-in {
+  flex: 1;
+  width: auto;
+  max-width: none;
+}
+.con-lupa.w-eq .w-cod {
+  flex: 1;
+  width: auto;
+  max-width: none;
+}
+.w-col-rest {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: none;
+}
+.w-obs {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: none;
+}
+.sit-readonly {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+}
+.cab-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.4rem;
+  background: #f1f5f9;
+  min-width: 0;
+}
+.side-box {
+  border: 1px solid #94a3b8;
+  border-radius: 2px;
+  padding: 0.35rem 0.45rem;
+  background: #fff;
+}
+.side-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  margin-bottom: 0.25rem;
+  font-size: 0.72rem;
+  color: #334155;
+}
+.side-row:last-child {
+  margin-bottom: 0;
+}
+.side-box.totales .num-red {
+  color: #b91c1c;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
 .lineas-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 0.75rem;
   margin-bottom: 0.45rem;
+  flex-wrap: wrap;
 }
 .lineas-head h3 {
   margin: 0;
@@ -1029,44 +1417,6 @@ watch(
   background: #f8fafc;
   cursor: pointer;
   font-size: 0.8rem;
-}
-
-.grid-cab {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.45rem 0.65rem;
-}
-.grid-cab label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  font-size: 0.72rem;
-  color: #475569;
-}
-.grid-cab input,
-.grid-cab textarea,
-.grid-cab select,
-.desc-input,
-td input {
-  padding: 0.3rem 0.4rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 4px;
-  font: inherit;
-  background: #fff;
-  color: #0f172a;
-  width: 100%;
-  box-sizing: border-box;
-}
-.grid-cab input:read-only,
-.grid-cab textarea:read-only {
-  background: #f8fafc;
-}
-.grid-cab input.num {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-.grid-cab .span-2 {
-  grid-column: span 2;
 }
 
 .con-lupa {
@@ -1083,10 +1433,11 @@ td input {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2rem;
+  width: 1.65rem;
+  height: 1.65rem;
   flex-shrink: 0;
   border: 1px solid #64748b;
-  border-radius: 4px;
+  border-radius: 2px;
   background: #fff;
   cursor: pointer;
   padding: 0;
@@ -1096,12 +1447,25 @@ td input {
   cursor: not-allowed;
 }
 .btn-lupa :deep(.tool-icon) {
-  width: 1rem;
-  height: 1rem;
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.desc-input,
+td input {
+  padding: 0.3rem 0.4rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  font: inherit;
+  background: #fff;
+  color: #0f172a;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .grid-wrap {
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   border: 1px solid #e2e8f0;
   border-radius: 4px;
   max-height: min(50vh, 28rem);
@@ -1156,12 +1520,12 @@ th {
   cursor: not-allowed;
 }
 
-@media (max-width: 900px) {
-  .grid-cab {
-    grid-template-columns: 1fr 1fr;
+@media (max-width: 820px) {
+  .pedido-proveedor .ficha-compra-body {
+    width: 100%;
   }
-  .grid-cab .span-2 {
-    grid-column: 1 / -1;
+  .cab-layout {
+    grid-template-columns: 1fr;
   }
 }
 </style>

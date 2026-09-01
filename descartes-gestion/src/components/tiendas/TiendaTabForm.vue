@@ -21,9 +21,11 @@ const emit = defineEmits<{
 const almacenesOptions = ref<{ value: string; label: string }[]>([])
 const impuestosOptions = ref<{ value: string; label: string }[]>([])
 const formasPagoOptions = ref<{ value: string; label: string }[]>([])
+const tiposCalculoFidelizacionOptions = ref<{ value: string; label: string }[]>([])
 const almacenesCargados = ref(false)
 const impuestosCargados = ref(false)
 const formasPagoCargadas = ref(false)
+const tiposCalculoFidelizacionCargados = ref(false)
 
 const invalidSet = computed(() => new Set(props.camposInvalidos ?? []))
 
@@ -94,8 +96,32 @@ async function cargarFormasPago() {
   }
 }
 
+async function cargarTiposCalculoFidelizacion() {
+  if (tiposCalculoFidelizacionCargados.value) return
+  if (!allFields.value.some((f) => f.optionsSource === 'tipos-calculo-fidelizacion')) return
+  try {
+    const { data } = await api.get('/api/mantenimiento/tipos-calculo-fidelizacion', {
+      params: { activo: true, pageSize: 200 },
+    })
+    tiposCalculoFidelizacionOptions.value = (data.items ?? []).map(
+      (tipo: { codigo: string; nombre: string }) => ({
+        value: String(tipo.codigo).trim(),
+        label: `${String(tipo.codigo).trim()} - ${tipo.nombre}`,
+      })
+    )
+    tiposCalculoFidelizacionCargados.value = true
+  } catch {
+    tiposCalculoFidelizacionOptions.value = []
+  }
+}
+
 async function cargarOpcionesTab() {
-  await Promise.all([cargarAlmacenes(), cargarImpuestos(), cargarFormasPago()])
+  await Promise.all([
+    cargarAlmacenes(),
+    cargarImpuestos(),
+    cargarFormasPago(),
+    cargarTiposCalculoFidelizacion(),
+  ])
 }
 
 onMounted(() => {
@@ -113,6 +139,9 @@ watch(
 function optionsFor(field: TiendaField) {
   if (field.optionsSource === 'almacenes') return almacenesOptions.value
   if (field.optionsSource === 'formas-pago') return formasPagoOptions.value
+  if (field.optionsSource === 'tipos-calculo-fidelizacion') {
+    return tiposCalculoFidelizacionOptions.value
+  }
   return []
 }
 

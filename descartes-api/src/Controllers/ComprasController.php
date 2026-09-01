@@ -268,6 +268,21 @@ final class ComprasController
     }
   }
 
+  public function reservarPedido(Request $request, Response $response): Response
+  {
+    $body = $this->body($request);
+    try {
+      $item = $this->pedidosEscritura->reservarPedido((string) ($body['empresa'] ?? ''));
+      return $this->json($response, 200, $item);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
   public function createPedido(Request $request, Response $response): Response
   {
     $body = $this->body($request);

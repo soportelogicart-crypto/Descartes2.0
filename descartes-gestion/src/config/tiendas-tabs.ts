@@ -10,7 +10,7 @@ export type TiendaField = {
   span?: 1 | 2 | 3 | 4
   readOnly?: boolean
   required?: boolean
-  optionsSource?: 'almacenes' | 'impuestos' | 'formas-pago'
+  optionsSource?: 'almacenes' | 'impuestos' | 'formas-pago' | 'tipos-calculo-fidelizacion'
 }
 
 export type TiendaSection = {
@@ -127,6 +127,11 @@ export const tiendaTabs: TiendaTab[] = [
           inline('divisaAlt', 'Divisa alternativa', { type: 'select', optionsSource: 'formas-pago', span: 2, required: true }),
           inline('dto', 'Descuento', { type: 'number' }),
           cb('sumarDescuento', 'Dto acumulativo'),
+          inline('tipoCalculoFidelizacion', 'Tipo calculo fidelizacion', {
+            type: 'select',
+            optionsSource: 'tipos-calculo-fidelizacion',
+            span: 2,
+          }),
           cb('bloqueoFidelizacion', 'Bloqueo fidelizacion'),
           inline('pjeRetIrpf', '% Ret. IRPF', { type: 'number' }),
           inline('ctbRetIrpf', 'Cta. retencion IRPF', { type: 'number' }),
@@ -431,6 +436,7 @@ export function tiendaVacia(): Record<string, unknown> {
     impEtiquetasSinEans: 0,
     impEtiquetasSoloEansPropios: 0,
     minimoFidelizacion: 0,
+    tipoCalculoFidelizacion: '',
     minimoCambioVales: 0,
     importeObligatorioFactura: 0,
     literalInvitacion: 0,

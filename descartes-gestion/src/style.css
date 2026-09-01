@@ -2,6 +2,25 @@
   font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   color: #1a1a1a;
   background: #f5f6f8;
+
+  /*
+   * Escala de la interfaz según la pantalla.
+   *
+   * La aplicación está medida en `rem`, así que ajustar la tipografía raíz
+   * escala el conjunto (tipografías, botones, separaciones, rejillas)
+   * manteniendo las proporciones del diseño. Es lo que hace que en las cajas
+   * de 1024x768 no se vea todo sobredimensionado, sin tocar cada pantalla.
+   *
+   * Se toma la más restrictiva de alto y ancho, porque una ventana puede ir
+   * justa en cualquiera de los dos. Los 16px de tope dejan los monitores
+   * normales exactamente como estaban; el suelo de 12px evita que una ventana
+   * muy pequeña haga la letra ilegible (a partir de ahí aparece scroll).
+   *
+   * Referencia: 1024x768 -> ~13,2px (83%); 1366x768 -> ~13,2px; 1920x1080 -> 16px.
+   */
+  --escala-ui: min(1.72vh, 1.35vw);
+
+  font-size: clamp(12px, var(--escala-ui), 16px);
 }
 
 * {

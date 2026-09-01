@@ -42,6 +42,13 @@ export const entidadGridColumns: Record<string, GridColumn[]> = {
     { key: 'cobroDeArqueo', label: 'Arqueo', type: 'checkbox', width: '4.5rem' },
     { key: 'activo', label: 'Activo', type: 'checkbox', width: '4rem' },
   ],
+  'tipos-calculo-fidelizacion': [
+    { key: 'codigo', label: 'Codigo', type: 'text', width: '9rem', maxLength: 20, required: true },
+    { key: 'nombre', label: 'Nombre', type: 'text', width: '16rem', maxLength: 50, required: true },
+    { key: 'motor', label: 'Motor', type: 'text', width: '10rem', maxLength: 30, required: true },
+    { key: 'factor', label: 'Factor', type: 'number', width: '6rem', required: true },
+    { key: 'activo', label: 'Activo', type: 'checkbox', width: '4rem' },
+  ],
   roles: [
     { key: 'codigo', label: 'Codigo', type: 'text', width: '5rem', maxLength: 20, required: true },
     { key: 'nombre', label: 'Nombre', type: 'text', width: '14rem', maxLength: 50, required: true },

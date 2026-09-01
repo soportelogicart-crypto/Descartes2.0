@@ -54,6 +54,16 @@ final class VentaConsultaService
       $where[] = 'c.Empresa = :empresa';
       $params['empresa'] = $query['empresa'];
     }
+    if (isset($query['documento']) && trim((string) $query['documento']) !== '') {
+      $documento = (int) $query['documento'];
+      if ($documento > 0) {
+        // El cajero puede conocer el número interno de albarán o el visible
+        // de ticket/factura; se admiten ambos para localizar el origen.
+        $where[] = '(c.Albaran = :documentoAlbaran OR c.Factura = :documentoFactura)';
+        $params['documentoAlbaran'] = $documento;
+        $params['documentoFactura'] = $documento;
+      }
+    }
 
     $sqlWhere = implode(' AND ', $where);
 

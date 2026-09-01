@@ -55,6 +55,8 @@ return function (App $app): void {
     // Pedidos a proveedor
     $group->get('/pedidos', [ComprasController::class, 'listPedidos'])
       ->add($setPermiso('compras', 'ver'));
+    $group->post('/pedidos/reservar', [ComprasController::class, 'reservarPedido'])
+      ->add($setPermiso('compras', 'crear'));
     $group->post('/pedidos', [ComprasController::class, 'createPedido'])
       ->add($setPermiso('compras', 'crear'));
     $group->get('/pedidos/{empresa}/{pedido}', [ComprasController::class, 'getPedido'])

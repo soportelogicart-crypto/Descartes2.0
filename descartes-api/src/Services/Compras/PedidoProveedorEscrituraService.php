@@ -225,6 +225,52 @@ final class PedidoProveedorEscrituraService
     )->execute(['s' => $codigo, 'e' => $empresa, 'p' => $pedido]);
   }
 
+  /**
+   * Reserva el siguiente nº de pedido a proveedor (UltPedidoCom), sin grabar cabecera.
+   *
+   * @return array{empresa: string, pedido: int, almacen: ?int}
+   */
+  public function reservarPedido(string $empresa): array
+  {
+    $empresa = trim($empresa);
+    if ($empresa === '') {
+      throw new \InvalidArgumentException('Empresa (tienda) obligatoria');
+    }
+
+    $this->pdo->beginTransaction();
+    try {
+      $stmt = $this->pdo->prepare(
+        'SELECT UltPedidoCom, Almacen FROM Empresas WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e'
+      );
+      $stmt->execute(['e' => $empresa]);
+      $row = $stmt->fetch(PDO::FETCH_ASSOC);
+      if ($row === false) {
+        throw new \RuntimeException('Tienda no encontrada', 404);
+      }
+
+      $pedido = (int) ($row['UltPedidoCom'] ?? 0) + 1;
+      $this->pdo->prepare(
+        'UPDATE Empresas SET UltPedidoCom = :n WHERE Codigo = :e'
+      )->execute(['n' => $pedido, 'e' => $empresa]);
+
+      $almacenRaw = $row['Almacen'] ?? null;
+      $almacen = ($almacenRaw === null || $almacenRaw === '') ? null : (int) $almacenRaw;
+
+      $this->pdo->commit();
+    } catch (\Throwable $e) {
+      if ($this->pdo->inTransaction()) {
+        $this->pdo->rollBack();
+      }
+      throw $e;
+    }
+
+    return [
+      'empresa' => $empresa,
+      'pedido' => $pedido,
+      'almacen' => $almacen,
+    ];
+  }
+
   private function nextPedidoLocked(string $empresa): int
   {
     $stmt = $this->pdo->prepare(

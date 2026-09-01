@@ -11,6 +11,7 @@ import { ventasNavPermisos } from '@/config/ventas-nav'
 import { facturacionNavPermisos } from '@/config/facturacion-nav'
 import { comprasNavPermisos } from '@/config/compras-nav'
 import { etiquetasNavPermisos } from '@/config/etiquetas-nav'
+import { tpvNavPermisos } from '@/config/tpv-nav'
 import { usePermisos } from '@/composables/usePermisos'
 import { useAuthStore } from '@/stores/auth'
 
@@ -38,6 +39,7 @@ const comprasAbierto = ref(false)
 const etiquetasAbierto = ref(false)
 const ventasAbierto = ref(false)
 const facturacionAbierto = ref(false)
+const tpvAbierto = ref(false)
 
 const puedeEditar = computed(() => puede('roles', 'editar'))
 
@@ -451,6 +453,52 @@ watch(() => props.rolCodigo, cargar)
 
         <nav class="nav">
           <div v-for="nodo in facturacionNavPermisos" :key="nodo.id" class="nav-row">
+            <template v-if="filaDe(nodo.modulo)">
+              <span class="nav-title">{{ nodo.titulo }}</span>
+              <div class="checks">
+                <label v-for="acc in acciones" :key="acc.key" :title="acc.label">
+                  <span class="sr-only">{{ acc.label }}</span>
+                  <input
+                    v-model="filaDe(nodo.modulo)![acc.key]"
+                    type="checkbox"
+                    :disabled="!puedeEditar"
+                  />
+                </label>
+                <label title="Marcar / desmarcar todos">
+                  <span class="sr-only">Todos</span>
+                  <input
+                    type="checkbox"
+                    :checked="todosMarcados(nodo.modulo)"
+                    :disabled="!puedeEditar"
+                    @change="toggleTodos(nodo.modulo, ($event.target as HTMLInputElement).checked)"
+                  />
+                </label>
+              </div>
+            </template>
+          </div>
+        </nav>
+      </div>
+    </div>
+    <div v-if="!loading && filas.length" class="menu-panel menu-panel-ventas">
+      <button
+        type="button"
+        class="brand"
+        :class="{ open: tpvAbierto }"
+        @click="tpvAbierto = !tpvAbierto"
+      >
+        <span>TPV</span>
+        <span class="chevron">{{ tpvAbierto ? '▾' : '▸' }}</span>
+      </button>
+
+      <div v-show="tpvAbierto" class="menu-body">
+        <div class="acciones-header">
+          <span class="acciones-spacer">Opcion</span>
+          <span v-for="acc in acciones" :key="acc.key" class="acc-label">{{ acc.label }}</span>
+          <span class="acc-label">Todos</span>
+        </div>
+
+        <nav class="nav">
+          <div v-for="nodo in tpvNavPermisos" :key="nodo.id" class="nav-row">
             <template v-if="filaDe(nodo.modulo)">
               <span class="nav-title">{{ nodo.titulo }}</span>
               <div class="checks">

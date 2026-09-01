@@ -177,6 +177,10 @@ export const clienteTabs: ClienteTab[] = [
         row: 'mkt2',
         fields: [
           inline('tarjetaFidelizacion', 'Tarjeta fidelizacion', { span: 2, maxLength: 20 }),
+          inline('fechaAltaFidelizacion', 'Fecha alta fidelizacion', {
+            type: 'date',
+            readOnly: true,
+          }),
           inline('pjeFidelizacion', '% Fidelizacion', { type: 'number' }),
           inline('acumuladoFidelizacion', 'Acum. fidelizacion', { type: 'number', readOnly: true }),
           inline('acumuladoPuntos', 'Acum. puntos', { type: 'number', readOnly: true }),

@@ -632,11 +632,9 @@ function onNombreInput(row: PuestoImpresoraDoc, value: string) {
   background: #f0f4f8;
   border: 1px solid #c5cdd8;
   border-radius: 0 0 8px 8px;
-  max-width: 920px;
-}
-
-.tab-form-wide {
-  max-width: 64rem;
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
 }
 
 .form-section {
@@ -645,6 +643,7 @@ function onNombreInput(row: PuestoImpresoraDoc, value: string) {
   border: 1px solid #c5cdd8;
   border-radius: 4px;
   background: #fff;
+  min-width: 0;
 }
 
 .form-section legend {
@@ -656,9 +655,15 @@ function onNombreInput(row: PuestoImpresoraDoc, value: string) {
 
 .impresoras-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(14rem, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(17rem, 34%);
   gap: 0.65rem;
-  align-items: start;
+  align-items: stretch;
+}
+
+.impresoras-docs {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .docs-hint {
@@ -839,11 +844,16 @@ function onNombreInput(row: PuestoImpresoraDoc, value: string) {
 }
 
 .impresoras-sistema {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   border: 1px solid #c5cdd8;
   border-radius: 4px;
   background: #f8fafc;
   padding: 0.45rem 0.55rem;
-  min-height: 12rem;
+  min-height: 100%;
 }
 
 .sistema-cabecera {
@@ -903,10 +913,12 @@ function onNombreInput(row: PuestoImpresoraDoc, value: string) {
 }
 
 .sistema-lista {
+  flex: 1 1 auto;
   border: 1px solid #cbd5e1;
   border-radius: 3px;
   background: #fff;
-  max-height: 22rem;
+  min-height: 14rem;
+  max-height: none;
   overflow: auto;
 }
 

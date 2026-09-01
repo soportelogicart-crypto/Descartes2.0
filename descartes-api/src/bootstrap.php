@@ -104,6 +104,10 @@ return function (App $app): void {
   ));
 
   $container->set(\Descartes\Api\Services\Ventas\VentaConsultaService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\VentaConsultaService($c->get(PDO::class)));
+  $container->set(\Descartes\Api\Services\Ventas\VentaEmailService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\VentaEmailService(
+    $c->get(\Descartes\Api\Services\Ventas\VentaConsultaService::class),
+    $c->get(PDO::class)
+  ));
   $container->set(\Descartes\Api\Services\Compras\AlbaranCompraConsultaService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Compras\AlbaranCompraConsultaService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Compras\AlbaranCompraEscrituraService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Compras\AlbaranCompraEscrituraService(
     $c->get(PDO::class),
@@ -126,6 +130,16 @@ return function (App $app): void {
     $c->get(\Descartes\Api\Services\Compras\AlbaranCompraEscrituraService::class)
   ));
   $container->set(\Descartes\Api\Services\Compras\FacturaCompraConsultaService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Compras\FacturaCompraConsultaService($c->get(PDO::class)));
+  $container->set(\Descartes\Api\Services\Tpv\TpvContextoService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Tpv\TpvContextoService(
+    $c->get(PDO::class),
+    $c->get(\Descartes\Api\Services\Ventas\ArqueoService::class)
+  ));
+  $container->set(\Descartes\Api\Services\Tpv\TpvTecladoService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Tpv\TpvTecladoService($c->get(PDO::class)));
+  $container->set(\Descartes\Api\Services\Tpv\TpvArticuloService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Tpv\TpvArticuloService(
+    $c->get(PDO::class),
+    $c->get(ArtBarrasRepository::class)
+  ));
+  $container->set(\Descartes\Api\Services\Tpv\TpvClienteService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Tpv\TpvClienteService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Etiquetas\EtiquetaColaService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Etiquetas\EtiquetaColaService(
     $c->get(PDO::class),
     $c->get(\Descartes\Api\Services\Compras\AlbaranCompraConsultaService::class)
@@ -133,10 +147,14 @@ return function (App $app): void {
   $container->set(\Descartes\Api\Services\Ventas\ArqueoService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\ArqueoService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Ventas\DesgloseArqueoVentasService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\DesgloseArqueoVentasService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Ventas\DispositivoPuestoService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\DispositivoPuestoService($c->get(PDO::class)));
+  $container->set(\Descartes\Api\Services\Ventas\FidelizacionService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\FidelizacionService(
+    $c->get(PDO::class)
+  ));
   $container->set(\Descartes\Api\Services\Ventas\VentaEscrituraService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\VentaEscrituraService(
     $c->get(PDO::class),
     $c->get(\Descartes\Api\Services\Ventas\VentaConsultaService::class),
-    $c->get(\Descartes\Api\Services\Ventas\ArqueoService::class)
+    $c->get(\Descartes\Api\Services\Ventas\ArqueoService::class),
+    $c->get(\Descartes\Api\Services\Ventas\FidelizacionService::class)
   ));
   $container->set(\Descartes\Api\Services\Ventas\AnulacionConsultaService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\AnulacionConsultaService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Ventas\CobroPagoConsultaService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\CobroPagoConsultaService($c->get(PDO::class)));

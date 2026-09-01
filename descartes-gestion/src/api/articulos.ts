@@ -33,3 +33,16 @@ export async function crearArticulo(payload: Record<string, unknown>): Promise<R
   const { data } = await api.post<Record<string, unknown>>('/api/mantenimiento/articulos', payload)
   return data
 }
+
+/** Legacy albarán compra: al confirmar, UltProveedor = proveedor del albarán. */
+export async function asignarProveedorHabitualArticulo(
+  codigo: string,
+  proveedorHabitual: string
+): Promise<void> {
+  const c = String(codigo ?? '').trim()
+  const p = String(proveedorHabitual ?? '').trim()
+  if (!c || !p) return
+  await api.put(`/api/mantenimiento/articulos/${encodeURIComponent(c)}`, {
+    proveedorHabitual: p,
+  })
+}

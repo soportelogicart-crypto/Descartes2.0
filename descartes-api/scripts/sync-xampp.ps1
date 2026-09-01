@@ -43,4 +43,27 @@ function Sync-Tree([string]$relativeDir) {
 Sync-Tree 'src'
 Sync-Tree 'public'
 
-Write-Host 'Sincronizado en UTF-8 (src + public).'
+$dependenciasCambiadas = $false
+foreach ($manifest in @('composer.json', 'composer.lock')) {
+  $src = Join-Path $apiRoot $manifest
+  $dst = Join-Path $xamppRoot $manifest
+  if (-not (Test-Path $dst) -or (Get-FileHash $src).Hash -ne (Get-FileHash $dst).Hash) {
+    Copy-Item $src $dst -Force
+    $dependenciasCambiadas = $true
+    Write-Host "OK $manifest"
+  }
+}
+
+if ($dependenciasCambiadas) {
+  Push-Location $xamppRoot
+  try {
+    & composer install --no-dev --optimize-autoloader --no-interaction
+    if ($LASTEXITCODE -ne 0) {
+      throw 'composer install ha fallado en el despliegue XAMPP'
+    }
+  } finally {
+    Pop-Location
+  }
+}
+
+Write-Host 'Sincronizado en UTF-8 (src + public + dependencias Composer).'

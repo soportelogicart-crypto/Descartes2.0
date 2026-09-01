@@ -6,6 +6,7 @@ import {
   crearAbonoDesdeVenta,
   crearVenta,
   eliminarVenta,
+  enviarVentaPorEmail,
   finalizarVenta,
   obtenerVenta,
   reservarAlbaran,
@@ -21,7 +22,6 @@ import { useVentasBusquedaStore } from '@/stores/ventasBusqueda'
 import {
   imprimirA4Preparado,
   prepararOImprimirVenta,
-  puestoTicketAutomatico,
   type PrepImpresionA4,
 } from '@/composables/useImpresionVentaDocumento'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -30,6 +30,7 @@ import DecimalInput from '@/components/common/DecimalInput.vue'
 import VentaToolbar from '@/components/ventas/VentaToolbar.vue'
 import VentaCabeceraForm from '@/components/ventas/VentaCabeceraForm.vue'
 import VentaImpresionA4Modal from '@/components/ventas/VentaImpresionA4Modal.vue'
+import VentaPostFinalizacionModal from '@/components/ventas/VentaPostFinalizacionModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -68,6 +69,10 @@ const a4Open = ref(false)
 const a4Prep = ref<PrepImpresionA4 | null>(null)
 const a4Imprimiendo = ref(false)
 const a4ModalRef = ref<{ capturarHtmlFolio: () => Promise<string> } | null>(null)
+const postVentaOpen = ref(false)
+const postVentaDocumento = ref('')
+const postVentaEnviando = ref(false)
+const postVentaError = ref<string | null>(null)
 /** Flujo legacy: tienda → reservar albaran → buscar cliente → grabar cabecera */
 const pasoAlta = ref<'tienda' | 'cliente' | 'listo'>('listo')
 const buscarClienteOpen = ref(false)
@@ -216,10 +221,13 @@ const fpagoFinal = ref('')
 /** Empresas.SW_IVA: precios de linea con IVA incluido (yIVA). */
 const preciosIvaIncluido = ref(false)
 
+/** Legacy: cliente anónimo / venta rápida sin datos fiscales. */
+const CLIENTE_SIN_NOMBRE = 'ZZZZZZZZZ'
+
 /** Datos fiscales mínimos para tipificar Factura (contado o ticket→factura). */
 function esClienteSinNombre(codigo: string | null | undefined): boolean {
   const c = String(codigo ?? '').trim().toUpperCase()
-  return !c || c === 'ZZZZZZZZZ'
+  return !c || c === CLIENTE_SIN_NOMBRE
 }
 
 function nifValidoParaFactura(nif: string | null | undefined): boolean {
@@ -648,7 +656,8 @@ async function cargar() {
     if (modoEdicion.value) {
       if (!lineas.value.length) lineas.value = [lineaVacia()]
       if (sinCliente) {
-        mensaje.value = 'Falta el cliente. Pulse Intro en Código o … para buscarlo; luego las líneas.'
+        mensaje.value =
+          'Falta el cliente. Intro vacío en Código = venta rápida; F4 o … para buscar.'
       } else {
         mensaje.value = sinArticulos
           ? 'Puede completar cabecera (p. ej. Referencia) e introducir articulos. Luego Guardar.'
@@ -919,7 +928,7 @@ async function onIntroCabecera() {
       void resolverNombreVendedor(ficha.value.vendedor || '')
       void cargarPreciosIvaIncluido(ficha.value.empresa)
       pasoAlta.value = 'cliente'
-      mensaje.value = `Albaran ${reserva.albaran} reservado. Pulse Intro para buscar cliente`
+      mensaje.value = `Albaran ${reserva.albaran} reservado. Intro en Cliente (vacío = venta rápida) o F4 para buscar`
     } catch (e: unknown) {
       error.value = extractApiError(e, 'No se pudo reservar el albaran')
     } finally {
@@ -929,7 +938,8 @@ async function onIntroCabecera() {
   }
 
   if (pasoAlta.value === 'cliente') {
-    buscarClienteOpen.value = true
+    const codigo = String(ficha.value.cliente ?? '').trim()
+    await confirmarCliente(codigo || CLIENTE_SIN_NOMBRE, { abrirBusquedaSiNoExiste: Boolean(codigo) })
   }
 }
 
@@ -956,20 +966,39 @@ async function onClienteKeydown(e: KeyboardEvent) {
   e.preventDefault()
   e.stopPropagation()
   const codigo = String(ficha.value?.cliente ?? '').trim()
-  if (!codigo) {
-    abrirBuscarCliente()
-    return
+  await confirmarCliente(codigo || CLIENTE_SIN_NOMBRE, { abrirBusquedaSiNoExiste: Boolean(codigo) })
+}
+
+async function cargarDatosCliente(codigo: string): Promise<{
+  sel: { codigo: string; etiqueta: string }
+  cli: Record<string, unknown>
+}> {
+  const cod = codigo.trim()
+  if (!cod) {
+    throw new Error('Codigo de cliente vacio')
   }
-  // Resolver por código si ya lo escribieron; si no existe, abrir búsqueda.
   try {
-    const { data: cli } = await api.get(`/api/mantenimiento/clientes/${encodeURIComponent(codigo)}`)
-    await aplicarClienteEnFicha(
-      { codigo: String(cli.codigo ?? codigo), etiqueta: String(cli.nombre ?? '') },
-      cli as Record<string, unknown>
-    )
-  } catch {
-    abrirBuscarCliente()
+    const { data: cli } = await api.get(`/api/mantenimiento/clientes/${encodeURIComponent(cod)}`)
+    return {
+      sel: { codigo: String(cli.codigo ?? cod), etiqueta: String(cli.nombre ?? '') },
+      cli: cli as Record<string, unknown>,
+    }
+  } catch (e: unknown) {
+    if (cod.toUpperCase() === CLIENTE_SIN_NOMBRE) {
+      return {
+        sel: { codigo: CLIENTE_SIN_NOMBRE, etiqueta: '' },
+        cli: { codigo: CLIENTE_SIN_NOMBRE, nombre: '', nif: '' },
+      }
+    }
+    throw e
   }
+}
+
+async function confirmarCliente(
+  codigo: string,
+  opts?: { abrirBusquedaSiNoExiste?: boolean }
+) {
+  await onClienteSeleccionado({ codigo, etiqueta: '' }, opts)
 }
 
 async function aplicarClienteEnFicha(
@@ -1014,14 +1043,17 @@ async function aplicarClienteEnFicha(
   await resolverFormaPagoContado(fpagoCli)
 }
 
-async function onClienteSeleccionado(sel: { codigo: string; etiqueta: string }) {
+async function onClienteSeleccionado(
+  sel: { codigo: string; etiqueta: string },
+  opts?: { abrirBusquedaSiNoExiste?: boolean }
+) {
   buscarClienteOpen.value = false
   if (!ficha.value) return
   loading.value = true
   error.value = null
   try {
-    const { data: cli } = await api.get(`/api/mantenimiento/clientes/${encodeURIComponent(sel.codigo)}`)
-    await aplicarClienteEnFicha(sel, cli as Record<string, unknown>)
+    const { sel: resolved, cli } = await cargarDatosCliente(sel.codigo)
+    await aplicarClienteEnFicha(resolved, cli)
 
     // Alta: tras reservar albarán, grabar cabecera. Si el documento ya existe, actualizar cliente.
     const yaExisteEnBd = !esNuevo.value && Number(ficha.value.albaran) > 0
@@ -1078,7 +1110,9 @@ async function onClienteSeleccionado(sel: { codigo: string; etiqueta: string }) 
       tipo: saved.tipo,
       albaran: saved.albaran,
     })
-    mensaje.value = `Cabecera guardada. Introduzca articulos (escáner o Intro en codigo)`
+    mensaje.value = esClienteSinNombre(saved.cliente)
+      ? 'Venta rapida (sin nombre). Introduzca articulos (escaner o Intro en codigo)'
+      : 'Cabecera guardada. Introduzca articulos (escaner o Intro en codigo)'
     busqueda.upsertResumen(resumenDesdeDetalle(saved))
     const mismaRuta =
       route.name === 'ventas-detalle' &&
@@ -1100,7 +1134,11 @@ async function onClienteSeleccionado(sel: { codigo: string; etiqueta: string }) 
       // cargar() del watch pondrá el foco en artículo al tener cliente.
     }
   } catch (e: unknown) {
-    error.value = extractApiError(e, 'No se pudo guardar la cabecera')
+    if (opts?.abrirBusquedaSiNoExiste) {
+      abrirBuscarCliente()
+    } else {
+      error.value = extractApiError(e, 'No se pudo guardar la cabecera')
+    }
   } finally {
     loading.value = false
   }
@@ -1277,31 +1315,48 @@ async function onImprimirA4Confirmado() {
   }
 }
 
-async function imprimirTrasFinalizar(venta: VentaDetalle, opcionElegida: string) {
+function abrirAccionesPostVenta(venta: VentaDetalle, opcionElegida: string) {
   const op = String(opcionElegida).toUpperCase()
+  const etiqueta = TIPOS_FINAL.find((t) => t.codigo === op)?.label ?? 'Documento'
+  const numero = ['T', 'F', 'A'].includes(op) && Number(venta.factura) > 0
+    ? venta.factura
+    : venta.albaran
+  postVentaDocumento.value = `${etiqueta} ${numero ?? ''}`.trim()
+  postVentaError.value = null
+  postVentaOpen.value = true
+}
+
+async function imprimirTrasFinalizar() {
+  const venta = ficha.value
+  if (!venta) return
+  postVentaOpen.value = false
   const pue = String(puesto.puestoCodigo || venta.puesto || '').trim()
-  if (op === 'T') {
-    const auto = await puestoTicketAutomatico(pue)
-    if (!auto) return
-    try {
-      const res = await prepararOImprimirVenta(venta, { puestoCodigo: pue })
-      if (res.kind === 'ticket') {
-        mensaje.value = `${mensaje.value ? mensaje.value + ' · ' : ''}${res.message}`
-      }
-    } catch (e: unknown) {
-      error.value = extractApiError(e, 'Documento finalizado, pero no se pudo imprimir el ticket')
-    }
-    return
-  }
-  // Albarán / Factura / Presupuesto → previsualización A4 (impresora del puesto).
   try {
     const res = await prepararOImprimirVenta(venta, { puestoCodigo: pue })
-    if (res.kind === 'a4') {
+    if (res.kind === 'ticket') {
+      mensaje.value = `${mensaje.value ? mensaje.value + ' · ' : ''}${res.message}`
+    } else {
       a4Prep.value = res.prep
       a4Open.value = true
     }
   } catch (e: unknown) {
-    error.value = extractApiError(e, 'Documento finalizado, pero no se pudo preparar la impresión A4')
+    error.value = extractApiError(e, 'Documento finalizado, pero no se pudo imprimir')
+  }
+}
+
+async function enviarTrasFinalizar(email: string) {
+  const venta = ficha.value
+  if (!venta || postVentaEnviando.value) return
+  postVentaEnviando.value = true
+  postVentaError.value = null
+  try {
+    const res = await enviarVentaPorEmail(venta.empresa, venta.tipo, venta.albaran, email)
+    postVentaOpen.value = false
+    mensaje.value = `${res.documento} enviado a ${res.destinatario}`
+  } catch (e: unknown) {
+    postVentaError.value = extractApiError(e, 'No se pudo enviar el documento por email')
+  } finally {
+    postVentaEnviando.value = false
   }
 }
 
@@ -1360,7 +1415,7 @@ async function confirmarFinalizar() {
     router.replace(
       `/ventas/${encodeURIComponent(done.empresa)}/${encodeURIComponent(done.tipo)}/${done.albaran}`
     )
-    await imprimirTrasFinalizar(done, opcion)
+    abrirAccionesPostVenta(done, opcion)
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudo finalizar')
   } finally {
@@ -1552,7 +1607,8 @@ onMounted(() => {
       Elija la <strong>tienda</strong> y pulse <strong>Intro</strong> para reservar el numero de albaran.
     </p>
     <p v-else-if="esNuevo && pasoAlta === 'cliente'" class="ok">
-      Albaran <strong>{{ ficha?.albaran }}</strong> reservado. Pulse <strong>Intro</strong> para buscar el cliente.
+      Albaran <strong>{{ ficha?.albaran }}</strong> reservado.
+      <strong>Intro</strong> en Cliente vacío = venta rapida (sin nombre); <strong>F4</strong> / … para buscar cliente.
     </p>
     <p v-else-if="modoEdicion && !esNuevo && !tieneLineas" class="ok">
       Introduzca articulos: codigo + <strong>Intro</strong> (o F4 / … para buscar). Luego <strong>Guardar</strong>.
@@ -1588,7 +1644,7 @@ onMounted(() => {
           <button v-if="puedeEditarLineas" type="button" class="btn-add" @click="addLinea">+ Linea</button>
         </div>
         <p v-if="!tieneCliente && !soloLectura" class="hint">
-          Seleccione primero el <strong>cliente</strong> (Intro / … en Código) para poder añadir artículos.
+          Confirme el <strong>cliente</strong> (Intro vacío = venta rapida, F4 / … para buscar) antes de añadir artículos.
         </p>
         <div class="grid-wrap">
           <table class="tabla-lineas">
@@ -1773,10 +1829,10 @@ onMounted(() => {
           </div>
           <p v-if="tipoFinal === 'F'" class="warn">Factura: el documento quedara bloqueado.</p>
           <p v-if="tipoFinal === 'T'" class="ok">
-            Ticket: se imprimirá automáticamente en la térmica del puesto (sin elegir impresora).
+            Al finalizar podrá imprimir el ticket o enviarlo por email.
           </p>
           <p v-else-if="!esTicketCerrado" class="ok">
-            Se abrirá una previsualización A4 con la impresora asignada a este documento en el puesto.
+            Al finalizar podrá imprimir el documento o enviarlo por email.
           </p>
           <footer>
             <button type="button" @click="finalizarOpen = false">Cancelar</button>
@@ -1803,6 +1859,17 @@ onMounted(() => {
       :imprimiendo="a4Imprimiendo"
       @cerrar="a4Open = false"
       @imprimir="onImprimirA4Confirmado"
+    />
+
+    <VentaPostFinalizacionModal
+      :open="postVentaOpen"
+      :documento="postVentaDocumento"
+      :email-inicial="ficha?.email"
+      :procesando="postVentaEnviando"
+      :error="postVentaError"
+      @imprimir="imprimirTrasFinalizar"
+      @email="enviarTrasFinalizar"
+      @omitir="postVentaOpen = false"
     />
 
     <Teleport to="body">

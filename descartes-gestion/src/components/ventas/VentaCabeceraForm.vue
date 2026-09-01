@@ -285,8 +285,8 @@ onUnmounted(() => {
                 :value="ficha.cliente ?? ''"
                 maxlength="9"
                 :readonly="readonly"
-                placeholder="Código / buscar…"
-                title="Intro / F4 para buscar cliente"
+                placeholder="Vacío + Intro = venta rápida"
+                title="Intro vacío = venta rápida (ZZZZZZZZZ); F4 o … para buscar cliente"
                 @input="patch('cliente', ($event.target as HTMLInputElement).value)"
                 @keydown="emit('cliente-keydown', $event)"
               />

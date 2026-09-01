@@ -376,6 +376,7 @@ async function onUltimo() {
       </template>
 
       <template v-else>
+        <div class="ficha-shell">
         <div class="sticky-chrome">
           <button type="button" class="btn-volver" @click="volverAlGrid">← Volver a la rejilla</button>
 
@@ -439,6 +440,7 @@ async function onUltimo() {
           :ocultar-cabecera="true"
           @update:model-value="ficha = $event"
         />
+        </div>
       </template>
 
       <ConfirmDialog
@@ -512,13 +514,22 @@ async function onUltimo() {
   font-size: 0.8rem;
 }
 
+.ficha-shell {
+  width: 100%;
+  max-width: 64rem;
+  box-sizing: border-box;
+}
+
+.puestos-view .sticky-chrome {
+  width: 100%;
+}
+
 .ficha-header {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem 0.65rem;
   align-items: end;
   width: 100%;
-  max-width: 920px;
   box-sizing: border-box;
   padding: 0.35rem 0.5rem;
   background: #fff;
@@ -540,7 +551,6 @@ async function onUltimo() {
 .descripcion-input {
   flex: 1;
   min-width: 12rem;
-  max-width: 28rem;
 }
 
 .descripcion-input input {
@@ -566,7 +576,6 @@ async function onUltimo() {
   border-left: 1px solid #c5cdd8;
   border-right: 1px solid #c5cdd8;
   width: 100%;
-  max-width: 920px;
   box-sizing: border-box;
 }
 

@@ -1,3 +1,4 @@
+import { ref } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { usePermisos } from '@/composables/usePermisos'
@@ -47,6 +48,7 @@ import AlbaranesPendientesView from '@/views/facturacion/AlbaranesPendientesView
 import RetrocesoFacturaView from '@/views/facturacion/RetrocesoFacturaView.vue'
 import ConfiguracionHubView from '@/views/configuracion/ConfiguracionHubView.vue'
 import DocumentosPlantillasView from '@/views/configuracion/DocumentosPlantillasView.vue'
+import TpvVentaView from '@/views/tpv/TpvVentaView.vue'
 
 const articulosSeccionesPendientes = [
   { path: 'mantenimiento/secciones', name: 'secciones', titulo: 'Secciones' },
@@ -56,7 +58,6 @@ const articulosSeccionesPendientes = [
 const modulosPlaceholder = [
   { path: 'inventario', name: 'inventario', titulo: 'Inventario' },
   { path: 'listados', name: 'listados', titulo: 'Listados' },
-  { path: 'tpv', name: 'tpv', titulo: 'TPV' },
 ] as const
 
 const router = createRouter({
@@ -103,6 +104,12 @@ const router = createRouter({
           props: { titulo: m.titulo },
           meta: { titulo: m.titulo },
         })),
+        {
+          path: 'tpv',
+          name: 'tpv',
+          component: TpvVentaView,
+          meta: { titulo: 'TPV', modulo: 'tpv', accion: 'ver', contentFlush: true },
+        },
         {
           path: 'compras',
           redirect: '/compras/albaranes',
@@ -368,6 +375,16 @@ router.beforeEach(async (to) => {
   }
 
   return true
+})
+
+/** Ruta anterior a la navegación actual (p. ej. reactivación KeepAlive). */
+export const routeNavigationFrom = ref<string | undefined>(undefined)
+
+/** Tras guardar cabecera en alta: foco en primera línea al abrir la ficha. */
+export const albaranCompraFocusLineas = ref<{ empresa: string; albaran: number } | null>(null)
+
+router.afterEach((_to, from) => {
+  routeNavigationFrom.value = from.fullPath
 })
 
 export default router

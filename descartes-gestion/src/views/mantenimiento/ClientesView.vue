@@ -67,6 +67,7 @@ const indiceFicha = ref(-1)
 const mostrarIntereses = ref(false)
 const mostrarDireccion = ref(false)
 const mostrarContactos = ref(false)
+const motorFidelizacion = ref<'NINGUNO' | 'EUROS' | 'PUNTOS'>('NINGUNO')
 const avisoModalOpen = ref(false)
 const avisoModalTitulo = ref('Campo obligatorio')
 const avisoModalMensaje = ref('')
@@ -118,6 +119,37 @@ watch(
 function actualizarFicha(next: Record<string, unknown>) {
   ficha.value = next
 }
+
+let motorFidelizacionSeq = 0
+
+async function resolverMotorFidelizacion() {
+  const seq = ++motorFidelizacionSeq
+  const tienda = String(
+    ficha.value.tiendaCodigo || puestoContexto.empresaCodigo || ''
+  ).trim()
+  if (!tienda) {
+    motorFidelizacion.value = 'NINGUNO'
+    return
+  }
+  try {
+    const { data } = await api.get(
+      `/api/mantenimiento/tiendas/${encodeURIComponent(tienda)}`
+    )
+    if (seq !== motorFidelizacionSeq) return
+    const motor = String(data.motorFidelizacion ?? 'NINGUNO').trim().toUpperCase()
+    motorFidelizacion.value =
+      motor === 'EUROS' || motor === 'PUNTOS' ? motor : 'NINGUNO'
+  } catch {
+    if (seq === motorFidelizacionSeq) motorFidelizacion.value = 'NINGUNO'
+  }
+}
+
+watch(
+  () => String(ficha.value.tiendaCodigo ?? ''),
+  () => {
+    void resolverMotorFidelizacion()
+  }
+)
 
 let nifCheckSeq = 0
 let ultimoNifAvisado = ''
@@ -757,6 +789,7 @@ async function onUltimo() {
         <ClienteTabForm
           :sections="tabSeleccionada.sections"
           :model-value="ficha"
+          :motor-fidelizacion="motorFidelizacion"
           :readonly="soloLecturaFicha"
           :codigo-read-only="codigoReadOnlyFicha"
           :ocultar-cabecera="true"

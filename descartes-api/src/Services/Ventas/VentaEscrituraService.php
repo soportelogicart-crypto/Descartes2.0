@@ -15,12 +15,18 @@ final class VentaEscrituraService
   private PDO $pdo;
   private VentaConsultaService $consulta;
   private ArqueoService $arqueo;
+  private FidelizacionService $fidelizacion;
 
-  public function __construct(PDO $pdo, VentaConsultaService $consulta, ?ArqueoService $arqueo = null)
-  {
+  public function __construct(
+    PDO $pdo,
+    VentaConsultaService $consulta,
+    ?ArqueoService $arqueo = null,
+    ?FidelizacionService $fidelizacion = null
+  ) {
     $this->pdo = $pdo;
     $this->consulta = $consulta;
     $this->arqueo = $arqueo ?? new ArqueoService($pdo);
+    $this->fidelizacion = $fidelizacion ?? new FidelizacionService($pdo);
   }
 
   public function estaBloqueado(?array $cab): bool
@@ -370,6 +376,13 @@ final class VentaEscrituraService
     $sesion = $ctxSesion['sesion'];
     $ahora = date('Y-m-d H:i:s');
     $importe = (float) ($actual['importe'] ?? 0);
+    $estadoPrevioFidelizacion = [
+      'sesion' => (int) ($actual['sesion'] ?? 0),
+      'facturaTipo' => strtoupper(trim((string) ($actual['facturaTipo'] ?? ''))),
+      'factura' => (int) ($actual['factura'] ?? 0),
+    ];
+    /** @var list<string> */
+    $avisosFidelizacion = [];
     // Contado/ticket: forma de pago elegida (legacy Frame1/DbList2: CobroDeArqueo).
     $fpagoBody = trim((string) ($body['fpago1'] ?? ''));
     $fpago1 = $fpagoBody !== '' ? $fpagoBody : trim((string) ($this->fpagoCodigo($actual, 0)));
@@ -498,6 +511,15 @@ final class VentaEscrituraService
         );
       }
 
+      $resultadoFid = $this->fidelizacion->procesarAlCierre(
+        $empresa,
+        $actual,
+        $opcion,
+        $esTicketAFactura,
+        $estadoPrevioFidelizacion
+      );
+      $avisosFidelizacion = $resultadoFid['avisos'];
+
       $this->pdo->commit();
     } catch (\Throwable $e) {
       $this->pdo->rollBack();
@@ -507,6 +529,9 @@ final class VentaEscrituraService
     $detalle = $this->consulta->obtenerFicha($empresa, $tipoActual, $albaran);
     if ($detalle === null) {
       throw new \RuntimeException('No se pudo releer tras finalizar');
+    }
+    if ($avisosFidelizacion !== []) {
+      $detalle['avisosFidelizacion'] = $avisosFidelizacion;
     }
     return $detalle;
   }

@@ -32,6 +32,7 @@ final class DependencyCheckService
       'agrupaciones' => $this->checkAgrupacion($codigo),
       'actividades' => $this->checkActividad($codigo),
       'intereses-comerciales' => $this->checkInteresComercial($codigo),
+      'tipos-calculo-fidelizacion' => $this->checkTipoCalculoFidelizacion($codigo),
       default => ['ok' => true, 'dependencias' => []],
     };
   }
@@ -203,6 +204,22 @@ final class DependencyCheckService
     }
 
     return ['ok' => $deps === [], 'dependencias' => $deps];
+  }
+
+  private function checkTipoCalculoFidelizacion(string $codigo): array
+  {
+    $stmt = $this->pdo->prepare(
+      'SELECT TOP 1 1 AS found FROM [Empresas]
+       WHERE RTRIM(ISNULL([TipoCalculoFidelizacion], \'\')) = :codigo
+         AND ISNULL([Baja], 0) = 0'
+    );
+    $stmt->execute(['codigo' => trim($codigo)]);
+    $usado = (bool) $stmt->fetch();
+
+    return [
+      'ok' => !$usado,
+      'dependencias' => $usado ? ['Empresas'] : [],
+    ];
   }
 
   private function checkMacrofamilia(string $codigo): array
