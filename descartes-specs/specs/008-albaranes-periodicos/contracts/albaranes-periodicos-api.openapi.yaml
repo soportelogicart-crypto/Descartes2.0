@@ -1,0 +1,155 @@
+openapi: 3.0.3
+info:
+  title: Descartes API — Albaranes periódicos (Mantenimiento)
+  version: 0.1.0
+  description: CRUD de bases periódicas. Generación batch sigue en POST /api/facturacion/manual/periodicos/generar.
+
+paths:
+  /api/mantenimiento/albaranes-periodicos:
+    get:
+      summary: Listar bases periódicas
+      parameters:
+        - name: empresa
+          in: query
+          schema: { type: string }
+        - name: cliente
+          in: query
+          schema: { type: string }
+        - name: q
+          in: query
+          description: Búsqueda cliente / razón social / nº plantilla
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: pageSize
+          in: query
+          schema: { type: integer, default: 25, maximum: 500 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlbaranPeriodicoListResponse'
+    post:
+      summary: Marcar documento como base periódica
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlbaranPeriodicoWrite'
+      responses:
+        '201':
+          description: Creado
+        '404':
+          description: Plantilla no encontrada
+        '409':
+          description: Ya registrado
+
+  /api/mantenimiento/albaranes-periodicos/{empresa}/{tipo}/{albaran}:
+    parameters:
+      - { name: empresa, in: path, required: true, schema: { type: string } }
+      - { name: tipo, in: path, required: true, schema: { type: string } }
+      - { name: albaran, in: path, required: true, schema: { type: integer } }
+    get:
+      summary: Detalle de una base
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlbaranPeriodicoListItem'
+    put:
+      summary: Editar periodicidad o fecha base
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                periodicidad: { type: integer, minimum: 1 }
+                ultimaGeneracion: { type: string, format: date-time }
+      responses:
+        '200':
+          description: OK
+    delete:
+      summary: Quitar registro (no borra plantilla Ventas)
+      responses:
+        '204':
+          description: Eliminado
+
+  /api/mantenimiento/albaranes-periodicos/{empresa}/{tipo}/{albaran}/generar:
+    post:
+      summary: Generar albarán para esta base (si periodo pendiente)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fechaReferencia:
+                  type: string
+                  format: date
+                  description: Default hoy; ventana de un día
+      responses:
+        '200':
+          description: Resultado (generado u omitido)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerarUnoResponse'
+
+components:
+  schemas:
+    AlbaranPeriodicoListItem:
+      type: object
+      properties:
+        empresa: { type: string }
+        tipo: { type: string }
+        albaran: { type: integer }
+        periodicidad: { type: integer }
+        periodicidadLabel: { type: string }
+        ultimaGeneracion: { type: string, format: date-time, nullable: true }
+        proximaGeneracion: { type: string, format: date-time, nullable: true }
+        plantillaEncontrada: { type: boolean }
+        cliente: { type: string }
+        razonSocial: { type: string }
+        importePlantilla: { type: number }
+        referencia1: { type: string, nullable: true }
+
+    AlbaranPeriodicoListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AlbaranPeriodicoListItem'
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+
+    AlbaranPeriodicoWrite:
+      type: object
+      required: [empresa, tipo, albaran, periodicidad, ultimaGeneracion]
+      properties:
+        empresa: { type: string }
+        tipo: { type: string }
+        albaran: { type: integer }
+        periodicidad: { type: integer, minimum: 1 }
+        ultimaGeneracion: { type: string, format: date-time }
+        marcarReferenciaPeriodico: { type: boolean, default: true }
+
+    GenerarUnoResponse:
+      type: object
+      properties:
+        generado: { type: boolean }
+        motivoOmision: { type: string, nullable: true }
+        albaranGenerado:
+          type: object
+          nullable: true
+          properties:
+            empresa: { type: string }
+            tipo: { type: string }
+            albaran: { type: integer }

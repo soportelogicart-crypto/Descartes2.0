@@ -132,6 +132,16 @@ export const entidadGridColumns: Record<string, GridColumn[]> = {
     { key: 'fecha', label: 'Fecha', type: 'text', width: '7rem', readOnly: true },
     { key: 'fechaFinalizacion', label: 'Fecha final', type: 'text', width: '7rem', readOnly: true },
   ],
+  'albaranes-periodicos': [
+    { key: 'cliente', label: 'Cliente', type: 'text', width: '8.5rem', readOnly: true },
+    { key: 'razonSocial', label: 'Razón social', type: 'text', width: '16rem', readOnly: true },
+    { key: 'albaran', label: 'Albarán', type: 'text', width: '8.5rem', readOnly: true },
+    { key: 'periodicidadLabel', label: 'Periodicidad', type: 'text', width: '8.5rem', readOnly: true },
+    { key: 'ultimaGeneracionFmt', label: 'Ult.gen.', type: 'text', width: '8.5rem', readOnly: true },
+    { key: 'proximaGeneracionFmt', label: 'Próxima', type: 'text', width: '8.5rem', readOnly: true },
+    { key: 'importePlantilla', label: 'Importe', type: 'number', width: '8.5rem', readOnly: true },
+    { key: 'plantillaEstado', label: 'Plantilla', type: 'text', width: '10rem', readOnly: true },
+  ],
 }
 
 export function getGridColumns(entidad: string): GridColumn[] {

@@ -7,7 +7,7 @@ import {
   traspasoFacturasManual,
 } from '@/api/facturacion'
 import { api } from '@/api/client'
-import type { FacturaManualPendiente, FacturaManualGenerada } from '@/types/facturacion'
+import type { FacturaManualPendiente, FacturaManualGenerada, FacturasManualPeriodicosResponse } from '@/types/facturacion'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
@@ -32,6 +32,7 @@ const selected = ref<Record<string, boolean>>({})
 const tiendas = ref<Opt[]>([])
 const formasPago = ref<Opt[]>([])
 const generadas = ref<FacturaManualGenerada[]>([])
+const periodicosGenerados = ref<FacturasManualPeriodicosResponse['generados']>([])
 const modalPeriodicos = ref(false)
 const periodoDesde = ref('')
 const periodoHasta = ref('')
@@ -139,6 +140,18 @@ async function cargarOpciones() {
   }
 }
 
+function rutaVenta(empresa: string, tipo: string, albaran: number): string {
+  return `/ventas/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}`
+}
+
+function fmtFechaIso(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = iso.slice(0, 10)
+  const [y, m, day] = d.split('-')
+  if (!y || !m || !day) return d
+  return `${day}/${m}/${y}`
+}
+
 async function buscar() {
   if (!puede('facturacion-manual', 'ver')) {
     error.value = 'Sin permiso'
@@ -148,6 +161,7 @@ async function buscar() {
   error.value = null
   mensaje.value = null
   generadas.value = []
+  periodicosGenerados.value = []
   try {
     const data = await listarFacturasManualPendientes(paramsConsulta())
     items.value = data.items
@@ -242,6 +256,7 @@ async function onTraspaso() {
   error.value = null
   mensaje.value = null
   generadas.value = []
+  periodicosGenerados.value = []
   try {
     const result = await traspasoFacturasManual({
       empresa: form.value.empresa.trim(),
@@ -285,6 +300,8 @@ async function confirmarGenAlb() {
   busyExtra.value = true
   error.value = null
   mensaje.value = null
+  generadas.value = []
+  periodicosGenerados.value = []
   try {
     const result = await generarAlbaranesPeriodicos({
       empresa: form.value.empresa.trim(),
@@ -292,6 +309,7 @@ async function confirmarGenAlb() {
       fechaHasta: periodoHasta.value,
     })
     modalPeriodicos.value = false
+    periodicosGenerados.value = result.generados ?? []
     mensaje.value =
       result.totales.generados > 0
         ? `Generados ${result.totales.generados} albarán(es) periódico(s)` +
@@ -530,6 +548,20 @@ onMounted(async () => {
           </table>
         </div>
 
+        <div v-if="periodicosGenerados.length" class="generadas periodicos">
+          <h3>Albaranes periódicos generados</h3>
+          <ul>
+            <li v-for="(g, i) in periodicosGenerados" :key="i">
+              Albarán
+              <router-link :to="rutaVenta(g.empresa, g.tipo, g.albaran)" class="link-venta">
+                {{ g.tipo }}-{{ g.albaran }}
+              </router-link>
+              · plantilla {{ g.plantillaTipo || '?' }}-{{ g.plantilla }}
+              · periodo {{ fmtFechaIso(g.fechaPeriodo) }}
+            </li>
+          </ul>
+        </div>
+
         <div v-if="generadas.length" class="generadas">
           <h3>Facturas generadas</h3>
           <ul>
@@ -552,7 +584,10 @@ onMounted(async () => {
     >
       <div class="modal">
         <h3>Generación de albaranes periódicos</h3>
-        <p class="hint">Se copiarán las plantillas de <code>AlbaranesPeriodicos</code> cuya próxima fecha caiga en el rango.</p>
+        <p class="hint">
+          Se copiarán las plantillas de <code>AlbaranesPeriodicos</code> cuya próxima fecha caiga en el
+          rango. Soporta plantillas Tipo <strong>P</strong> (presupuesto) y <strong>A</strong> (albarán).
+        </p>
         <label>
           <span>Fecha inicial</span>
           <input v-model="periodoDesde" type="date" />
@@ -884,6 +919,18 @@ tbody tr.checked {
   margin: 0;
   padding-left: 1.1rem;
   font-size: 0.85rem;
+}
+.generadas.periodicos {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+.link-venta {
+  font-weight: 600;
+  color: #1d4ed8;
+  text-decoration: none;
+}
+.link-venta:hover {
+  text-decoration: underline;
 }
 .modal-backdrop {
   position: fixed;

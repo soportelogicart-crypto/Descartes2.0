@@ -1,5 +1,10 @@
 import { api } from '@/api/client'
+import type { VentaResumen } from '@/types/ventas'
 import type {
+  AlbaranPeriodicoListItem,
+  AlbaranPeriodicoWrite,
+  AlbaranesPeriodicosListResponse,
+  GenerarAlbaranPeriodicoResponse,
   FacturasGeneracionBody,
   FacturasGeneracionPreviewResponse,
   FacturasGeneracionResponse,
@@ -146,5 +151,82 @@ export async function ejecutarRetrocesoFactura(
   body: FacturasRetrocesoBody
 ): Promise<FacturasRetrocesoResponse> {
   const { data } = await api.post<FacturasRetrocesoResponse>('/api/facturacion/retroceso', body)
+  return data
+}
+
+export async function listarAlbaranesPeriodicos(
+  params: Record<string, string | number | undefined>
+): Promise<AlbaranesPeriodicosListResponse> {
+  const { data } = await api.get<AlbaranesPeriodicosListResponse>(
+    '/api/mantenimiento/albaranes-periodicos',
+    { params }
+  )
+  return data
+}
+
+export async function buscarPlantillasAlbaranPeriodico(
+  params: Record<string, string | number | undefined>
+): Promise<{ items: VentaResumen[]; total: number }> {
+  const { data } = await api.get<{ items: VentaResumen[]; total: number }>(
+    '/api/mantenimiento/albaranes-periodicos/plantillas',
+    { params }
+  )
+  return data
+}
+
+export async function obtenerAlbaranPeriodico(
+  empresa: string,
+  tipo: string,
+  albaran: number
+): Promise<AlbaranPeriodicoListItem> {
+  const { data } = await api.get<AlbaranPeriodicoListItem>(
+    `/api/mantenimiento/albaranes-periodicos/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}`
+  )
+  return data
+}
+
+export async function crearAlbaranPeriodico(
+  body: AlbaranPeriodicoWrite
+): Promise<AlbaranPeriodicoListItem> {
+  const { data } = await api.post<AlbaranPeriodicoListItem>(
+    '/api/mantenimiento/albaranes-periodicos',
+    body
+  )
+  return data
+}
+
+export async function actualizarAlbaranPeriodico(
+  empresa: string,
+  tipo: string,
+  albaran: number,
+  body: Pick<AlbaranPeriodicoWrite, 'periodicidad' | 'ultimaGeneracion'>
+): Promise<AlbaranPeriodicoListItem> {
+  const { data } = await api.put<AlbaranPeriodicoListItem>(
+    `/api/mantenimiento/albaranes-periodicos/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}`,
+    body
+  )
+  return data
+}
+
+export async function eliminarAlbaranPeriodico(
+  empresa: string,
+  tipo: string,
+  albaran: number
+): Promise<void> {
+  await api.delete(
+    `/api/mantenimiento/albaranes-periodicos/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}`
+  )
+}
+
+export async function generarAlbaranPeriodico(
+  empresa: string,
+  tipo: string,
+  albaran: number,
+  fechaReferencia?: string
+): Promise<GenerarAlbaranPeriodicoResponse> {
+  const { data } = await api.post<GenerarAlbaranPeriodicoResponse>(
+    `/api/mantenimiento/albaranes-periodicos/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}/generar`,
+    fechaReferencia ? { fechaReferencia } : {}
+  )
   return data
 }

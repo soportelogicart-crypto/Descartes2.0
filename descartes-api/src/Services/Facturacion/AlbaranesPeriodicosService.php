@@ -85,14 +85,9 @@ final class AlbaranesPeriodicosService
           continue;
         }
 
-        if ($periodicidad % 30 === 0) {
-          $meses = (int) ($periodicidad / 30);
-          $fechaVen = $ultima->modify("+{$meses} months");
-          $fechaVen2 = $fechaVen->modify("+{$meses} months");
-        } else {
-          $fechaVen = $ultima->modify("+{$periodicidad} days");
-          $fechaVen2 = $fechaVen->modify("+{$periodicidad} days");
-        }
+        $fechas = $this->calcularVentanaPeriodo($ultima, $periodicidad);
+        $fechaVen = $fechas['fechaVen'];
+        $fechaVen2 = $fechas['fechaVen2'];
 
         if ($fechaVen < $desde || $fechaVen > $hasta) {
           continue;
@@ -110,6 +105,7 @@ final class AlbaranesPeriodicosService
         $fechaFinPeriodo = $fechaVen2->modify('-1 day');
         $nuevo = $this->copiarAlbaran(
           $empPlantilla,
+          $tipoPlantilla,
           $albPlantilla,
           $empresa,
           $fechaVen,
@@ -147,6 +143,146 @@ final class AlbaranesPeriodicosService
     ];
   }
 
+  /**
+   * Genera el albarán de una base concreta si el periodo cae en la fecha de referencia.
+   *
+   * @return array{generado: bool, motivoOmision: ?string, albaranGenerado: ?array<string, mixed>}
+   */
+  public function generarUno(
+    string $empresa,
+    string $tipo,
+    int $albaran,
+    ?string $fechaReferencia = null
+  ): array {
+    $empresa = trim($empresa);
+    $tipo = trim($tipo);
+    if ($empresa === '' || $tipo === '' || $albaran < 1) {
+      throw new \InvalidArgumentException('empresa, tipo y albaran obligatorios');
+    }
+
+    $fechaRef = $fechaReferencia ?? date('Y-m-d');
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $fechaRef)) {
+      throw new \InvalidArgumentException('fechaReferencia debe ser YYYY-MM-DD');
+    }
+
+    $stmt = $this->pdo->prepare(
+      'SELECT Empresa, Tipo, Albaran, UltimaGeneracion, Periodicidad
+       FROM AlbaranesPeriodicos
+       WHERE RTRIM(Empresa) = :e AND RTRIM(Tipo) = :t AND Albaran = :a'
+    );
+    $stmt->execute(['e' => $empresa, 't' => $tipo, 'a' => $albaran]);
+    $per = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($per === false) {
+      throw new \RuntimeException('Base periódica no encontrada', 404);
+    }
+
+    $periodicidad = (int) ($per['Periodicidad'] ?? 0);
+    if ($periodicidad <= 0) {
+      return [
+        'generado' => false,
+        'motivoOmision' => 'Periodicidad no válida',
+        'albaranGenerado' => null,
+      ];
+    }
+
+    $ultimaRaw = $per['UltimaGeneracion'] ?? null;
+    if ($ultimaRaw === null || $ultimaRaw === '') {
+      return [
+        'generado' => false,
+        'motivoOmision' => 'Sin fecha base de generación',
+        'albaranGenerado' => null,
+      ];
+    }
+
+    try {
+      $ultima = new \DateTimeImmutable(is_string($ultimaRaw) ? $ultimaRaw : (string) $ultimaRaw);
+    } catch (\Throwable $e) {
+      return [
+        'generado' => false,
+        'motivoOmision' => 'Fecha base inválida',
+        'albaranGenerado' => null,
+      ];
+    }
+
+    $fechas = $this->calcularVentanaPeriodo($ultima, $periodicidad);
+    $fechaVen = $fechas['fechaVen'];
+    $fechaVen2 = $fechas['fechaVen2'];
+    $desde = new \DateTimeImmutable($fechaRef);
+    $hasta = $desde;
+
+    if ($fechaVen < $desde || $fechaVen > $hasta) {
+      return [
+        'generado' => false,
+        'motivoOmision' => 'Nada pendiente en este periodo',
+        'albaranGenerado' => null,
+      ];
+    }
+
+    $tipoPlantilla = trim((string) ($per['Tipo'] ?? 'A'));
+    $albPlantilla = (int) ($per['Albaran'] ?? 0);
+    $empPlantilla = trim((string) ($per['Empresa'] ?? $empresa));
+
+    if (!$this->clientePermitePeriodico($empPlantilla, $tipoPlantilla, $albPlantilla)) {
+      return [
+        'generado' => false,
+        'motivoOmision' => 'Forma de pago con cobro de arqueo',
+        'albaranGenerado' => null,
+      ];
+    }
+
+    $this->pdo->beginTransaction();
+    try {
+      $fechaFinPeriodo = $fechaVen2->modify('-1 day');
+      $nuevo = $this->copiarAlbaran(
+        $empPlantilla,
+        $tipoPlantilla,
+        $albPlantilla,
+        $empresa,
+        $fechaVen,
+        $fechaFinPeriodo
+      );
+
+      $this->pdo->prepare(
+        'UPDATE AlbaranesPeriodicos
+         SET UltimaGeneracion = :u
+         WHERE Empresa = :e AND Tipo = :t AND Albaran = :a'
+      )->execute([
+        'u' => $fechaVen->format('Y-m-d H:i:s'),
+        'e' => $empPlantilla,
+        't' => $tipoPlantilla,
+        'a' => $albPlantilla,
+      ]);
+
+      $this->pdo->commit();
+    } catch (\Throwable $e) {
+      if ($this->pdo->inTransaction()) {
+        $this->pdo->rollBack();
+      }
+      throw $e;
+    }
+
+    return [
+      'generado' => true,
+      'motivoOmision' => null,
+      'albaranGenerado' => $nuevo,
+    ];
+  }
+
+  /** @return array{fechaVen: \DateTimeImmutable, fechaVen2: \DateTimeImmutable} */
+  private function calcularVentanaPeriodo(\DateTimeImmutable $ultima, int $periodicidad): array
+  {
+    if ($periodicidad % 30 === 0) {
+      $meses = (int) ($periodicidad / 30);
+      $fechaVen = $ultima->modify("+{$meses} months");
+      $fechaVen2 = $fechaVen->modify("+{$meses} months");
+    } else {
+      $fechaVen = $ultima->modify("+{$periodicidad} days");
+      $fechaVen2 = $fechaVen->modify("+{$periodicidad} days");
+    }
+
+    return ['fechaVen' => $fechaVen, 'fechaVen2' => $fechaVen2];
+  }
+
   private function clientePermitePeriodico(string $empresa, string $tipo, int $albaran): bool
   {
     $st = $this->pdo->prepare(
@@ -174,24 +310,27 @@ final class AlbaranesPeriodicosService
   }
 
   /**
-   * @return array{empresa: string, tipo: string, albaran: number, plantilla: int}
+   * @return array{empresa: string, tipo: string, albaran: int, plantilla: int, plantillaTipo: string, fechaPeriodo: string}
    */
   private function copiarAlbaran(
     string $empresaPlantilla,
+    string $tipoPlantilla,
     int $albaranPlantilla,
     string $empresaDestino,
     \DateTimeImmutable $fechaVen,
     \DateTimeImmutable $fechaFinPeriodo
   ): array {
+    $tipoPlantilla = trim($tipoPlantilla) !== '' ? trim($tipoPlantilla) : 'A';
+
     $st = $this->pdo->prepare(
-      "SELECT * FROM AlbaranesVentasCab
-       WHERE Empresa = :e AND Tipo = 'A' AND Albaran = :a"
+      'SELECT * FROM AlbaranesVentasCab
+       WHERE Empresa = :e AND Tipo = :t AND Albaran = :a'
     );
-    $st->execute(['e' => $empresaPlantilla, 'a' => $albaranPlantilla]);
+    $st->execute(['e' => $empresaPlantilla, 't' => $tipoPlantilla, 'a' => $albaranPlantilla]);
     $plantilla = $st->fetch(PDO::FETCH_ASSOC);
     if ($plantilla === false) {
       throw new \RuntimeException(
-        "Plantilla periódica {$empresaPlantilla}-A-{$albaranPlantilla} no encontrada",
+        "Plantilla periódica {$empresaPlantilla}-{$tipoPlantilla}-{$albaranPlantilla} no encontrada",
         404
       );
     }
@@ -236,11 +375,11 @@ final class AlbaranesPeriodicosService
       ->execute($params);
 
     $linSt = $this->pdo->prepare(
-      "SELECT * FROM AlbaranesVentasLin
-       WHERE Empresa = :e AND Tipo = 'A' AND Albaran = :a
-       ORDER BY NroLin"
+      'SELECT * FROM AlbaranesVentasLin
+       WHERE Empresa = :e AND Tipo = :t AND Albaran = :a
+       ORDER BY NroLin'
     );
-    $linSt->execute(['e' => $empresaPlantilla, 'a' => $albaranPlantilla]);
+    $linSt->execute(['e' => $empresaPlantilla, 't' => $tipoPlantilla, 'a' => $albaranPlantilla]);
     $lineas = $linSt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
     // Línea texto "Periodo dd/mm/yy al dd/mm/yy"
@@ -280,6 +419,7 @@ final class AlbaranesPeriodicosService
       'tipo' => 'A',
       'albaran' => $nuevoNum,
       'plantilla' => $albaranPlantilla,
+      'plantillaTipo' => $tipoPlantilla,
       'fechaPeriodo' => $fechaVen->format('Y-m-d'),
     ];
   }

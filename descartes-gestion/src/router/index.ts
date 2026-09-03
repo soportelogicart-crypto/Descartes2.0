@@ -16,6 +16,7 @@ import ActividadesView from '@/views/mantenimiento/ActividadesView.vue'
 import InteresesComercialesView from '@/views/mantenimiento/InteresesComercialesView.vue'
 import OfertaClientesView from '@/views/mantenimiento/OfertaClientesView.vue'
 import CampanasView from '@/views/mantenimiento/CampanasView.vue'
+import AlbaranesPeriodicosView from '@/views/mantenimiento/AlbaranesPeriodicosView.vue'
 import ParametrosPuestoView from '@/views/mantenimiento/ParametrosPuestoView.vue'
 import PuestosView from '@/views/mantenimiento/PuestosView.vue'
 import ImpuestosView from '@/views/mantenimiento/ImpuestosView.vue'
@@ -334,6 +335,16 @@ const router = createRouter({
           path: 'mantenimiento/campanas',
           name: 'campanas',
           component: CampanasView,
+        },
+        {
+          path: 'mantenimiento/albaranes-periodicos',
+          name: 'albaranes-periodicos',
+          component: AlbaranesPeriodicosView,
+          meta: {
+            titulo: 'Albaranes periódicos',
+            modulo: 'albaranes-periodicos',
+            accion: 'ver',
+          },
         },
         {
           path: 'mantenimiento/puestos/parametros',

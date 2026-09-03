@@ -25,6 +25,14 @@ const ESTADOS_VENTA = [
   { value: 'G', label: 'G — Contado diferido' },
 ] as const
 
+const CLASES_DOCUMENTO = [
+  { value: '', label: 'Todos' },
+  { value: 'albaran', label: 'Albarán' },
+  { value: 'presupuesto', label: 'Presupuesto' },
+  { value: 'factura', label: 'Factura' },
+  { value: 'ticket', label: 'Ticket' },
+] as const
+
 const router = useRouter()
 const puestoContexto = usePuestoContextoStore()
 const busqueda = useVentasBusquedaStore()
@@ -42,15 +50,24 @@ const buscarCampo = ref<'cliente' | 'vendedor' | 'puesto'>('cliente')
 const buscarTitulo = ref('Buscar')
 const buscarInicial = ref('')
 
-const hoy = new Date().toISOString().slice(0, 10)
+/** Legacy: tienda "001" y ventas Empresa "1" deben coincidir. */
+function normalizarEmpresaCodigo(v: string): string {
+  const t = v.trim()
+  if (/^\d+$/.test(t)) return String(Number.parseInt(t, 10))
+  return t
+}
+
 const filtros = ref({
-  empresa: busqueda.filtros?.empresa || puestoContexto.empresaCodigo || '',
-  fechaDesde: busqueda.filtros?.fechaDesde || hoy,
-  fechaHasta: busqueda.filtros?.fechaHasta || hoy,
+  empresa: normalizarEmpresaCodigo(
+    busqueda.filtros?.empresa || puestoContexto.empresaCodigo || ''
+  ),
+  fechaDesde: busqueda.filtros?.fechaDesde ?? '',
+  fechaHasta: busqueda.filtros?.fechaHasta ?? '',
   puesto: busqueda.filtros?.puesto || '',
   vendedor: busqueda.filtros?.vendedor || '',
   cliente: busqueda.filtros?.cliente || '',
   estado: busqueda.filtros?.estado || '',
+  claseDocumento: busqueda.filtros?.claseDocumento || '',
 })
 
 const tiendaLabel = computed(() => {
@@ -74,7 +91,7 @@ async function cargarTiendas() {
       }
     })
     if (!filtros.value.empresa && puestoContexto.empresaCodigo) {
-      filtros.value.empresa = puestoContexto.empresaCodigo
+      filtros.value.empresa = normalizarEmpresaCodigo(puestoContexto.empresaCodigo)
     }
   } catch {
     tiendas.value = []
@@ -86,13 +103,14 @@ async function cargar() {
   error.value = null
   try {
     const data = await listarVentas({
-      empresa: filtros.value.empresa || undefined,
+      empresa: filtros.value.empresa ? normalizarEmpresaCodigo(filtros.value.empresa) : undefined,
       fechaDesde: filtros.value.fechaDesde || undefined,
       fechaHasta: filtros.value.fechaHasta || undefined,
       puesto: filtros.value.puesto || undefined,
       vendedor: filtros.value.vendedor || undefined,
       cliente: filtros.value.cliente || undefined,
       estado: filtros.value.estado || undefined,
+      claseDocumento: filtros.value.claseDocumento || undefined,
       page: page.value,
       pageSize: pageSize.value,
     })
@@ -220,7 +238,8 @@ onActivated(() => {
         <h2>Ventas</h2>
         <p class="hint">
           Tienda: <strong class="tienda-activa">{{ tiendaLabel }}</strong>
-          — Pulse <strong>Nuevo</strong> para iniciar una venta
+          — Pulse <strong>Nuevo</strong> para iniciar una venta.
+          Deje fechas vacías para ver todos los albaranes (paginado).
         </p>
       </div>
       <button type="button" class="btn-nuevo" @click="nueva">Nueva venta</button>
@@ -271,6 +290,14 @@ onActivated(() => {
           @buscar="abrirBuscar('cliente')"
         />
         <label>
+          Tipo documento
+          <select v-model="filtros.claseDocumento" title="Clase comercial del documento">
+            <option v-for="c in CLASES_DOCUMENTO" :key="c.value || 'todos'" :value="c.value">
+              {{ c.label }}
+            </option>
+          </select>
+        </label>
+        <label>
           Estado
           <select v-model="filtros.estado" title="Estado del albarán">
             <option v-for="e in ESTADOS_VENTA" :key="e.value || 'todos'" :value="e.value">
@@ -279,7 +306,7 @@ onActivated(() => {
           </select>
         </label>
 
-        <button type="submit" class="btn-buscar" :disabled="loading">Buscar</button>
+        <button type="submit" class="btn-buscar">{{ loading ? 'Buscando…' : 'Buscar' }}</button>
       </form>
 
       <div class="panel-listado">

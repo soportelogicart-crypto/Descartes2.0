@@ -13,6 +13,7 @@ export const MODULO_PADRE: Record<string, string> = {
   'intereses-comerciales': 'clientes',
   'oferta-clientes': 'clientes',
   campanas: 'clientes',
+  'albaranes-periodicos': 'facturacion-manual',
   'oferta-proveedores': 'proveedores',
   'puestos-parametros': 'puestos',
   'puestos-trabajo': 'puestos',

@@ -10,6 +10,7 @@ export type VentasFiltrosBusqueda = {
   vendedor: string
   cliente: string
   estado: string
+  claseDocumento: string
 }
 
 /** Resultado de la ultima busqueda del listado de ventas (para nav. en ficha). */

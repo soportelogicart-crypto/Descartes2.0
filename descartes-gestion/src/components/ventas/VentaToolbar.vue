@@ -34,6 +34,8 @@ withDefaults(
     loading?: boolean
     indice?: number
     total?: number
+    /** Ficha abierta como plantilla periódica desde Mantenimiento: toolbar reducida. */
+    modoPlantillaConsulta?: boolean
   }>(),
   {
     buscarLabel: 'Buscar',
@@ -65,7 +67,77 @@ defineEmits<{
 </script>
 
 <template>
-  <div class="toolbar">
+  <div v-if="modoPlantillaConsulta" class="toolbar toolbar-plantilla">
+    <div class="toolbar-group">
+      <button
+        type="button"
+        class="tool-btn"
+        :disabled="loading || !puedeEliminar || !hayDocumento || bloqueado || modoEdicion"
+        title="Borrar documento"
+        @click="$emit('borrar')"
+      >
+        <ToolIcon name="borrar" />
+        <span>Borrar</span>
+      </button>
+      <button
+        type="button"
+        class="tool-btn"
+        :disabled="loading || puedeBuscar === false"
+        title="Volver al grid de albaranes periódicos"
+        @click="$emit('buscar')"
+      >
+        <ToolIcon name="buscar" />
+        <span>Volver</span>
+      </button>
+    </div>
+
+    <div class="toolbar-group">
+      <button
+        type="button"
+        class="tool-btn"
+        :disabled="loading || puedeImprimir === false"
+        title="Imprimir plantilla"
+        @click="$emit('imprimir')"
+      >
+        <ToolIcon name="listado" />
+        <span>Imprimir</span>
+      </button>
+      <button
+        type="button"
+        class="tool-btn"
+        :disabled="loading || !puedeEditar || modoEdicion || !hayDocumento || bloqueado"
+        title="Modificar plantilla"
+        @click="$emit('modificar')"
+      >
+        <ToolIcon name="modificar" />
+        <span>Modificar</span>
+      </button>
+    </div>
+
+    <div class="toolbar-group">
+      <button
+        v-if="modoEdicion"
+        type="button"
+        class="tool-btn primary"
+        :disabled="loading || !puedeGuardar"
+        @click="$emit('guardar')"
+      >
+        <ToolIcon name="guardar" />
+        <span>Guardar</span>
+      </button>
+      <button
+        v-if="modoEdicion"
+        type="button"
+        class="tool-btn"
+        :disabled="loading"
+        @click="$emit('cancelar')"
+      >
+        Cancelar
+      </button>
+    </div>
+  </div>
+
+  <div v-else class="toolbar">
     <div class="toolbar-group">
       <button
         type="button"

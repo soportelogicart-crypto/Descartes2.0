@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   actualizarVenta,
@@ -11,6 +11,7 @@ import {
   obtenerVenta,
   reservarAlbaran,
 } from '@/api/ventas'
+import { crearAlbaranPeriodico, eliminarAlbaranPeriodico } from '@/api/facturacion'
 import { resolverArticulo } from '@/api/articulos'
 import { createBarcodeScanWatcher } from '@/composables/useBarcodeScanWatcher'
 import { api } from '@/api/client'
@@ -19,6 +20,7 @@ import { extractApiError } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { useVentasBusquedaStore } from '@/stores/ventasBusqueda'
+import { usePlantillaPeriodicaStore } from '@/stores/plantillaPeriodica'
 import {
   imprimirA4Preparado,
   prepararOImprimirVenta,
@@ -37,6 +39,31 @@ const router = useRouter()
 const { puede } = usePermisos()
 const puesto = usePuestoContextoStore()
 const busqueda = useVentasBusquedaStore()
+const plantillaPeriodica = usePlantillaPeriodicaStore()
+
+const PERIODICIDAD_PRESETS = [
+  { value: 7, label: 'Semanal (7 días)' },
+  { value: 30, label: 'Mensual' },
+  { value: 60, label: 'Bimestral' },
+  { value: 90, label: 'Trimestral' },
+  { value: 365, label: 'Anual' },
+  { value: 0, label: 'Personalizado…' },
+] as const
+
+const esPlantillaAlta = computed(
+  () => plantillaPeriodica.esAlta || route.query.plantillaPeriodica === '1'
+)
+const esPlantillaConsulta = computed(
+  () => plantillaPeriodica.esConsulta || route.query.plantillaConsulta === '1'
+)
+
+function destinoVenta(empresa: string, tipo: string, albaran: number) {
+  const path = `/ventas/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}`
+  if (esPlantillaConsulta.value) {
+    return { path, query: { plantillaConsulta: '1' } }
+  }
+  return path
+}
 
 /**
  * KeepAlive cachea por fullPath. Al cambiar de /nuevo a /empresa/tipo/nº la instancia
@@ -73,6 +100,19 @@ const postVentaOpen = ref(false)
 const postVentaDocumento = ref('')
 const postVentaEnviando = ref(false)
 const postVentaError = ref<string | null>(null)
+const plantillaPeriodicaOpen = ref(false)
+const plantillaPeriodicaSaving = ref(false)
+const plantillaPeriodicaForm = reactive({
+  presetPeriodicidad: 30,
+  periodicidadCustom: 30,
+  ultimaGeneracion: new Date().toISOString().slice(0, 10),
+  marcarReferenciaPeriodico: true,
+})
+const periodicidadPlantilla = computed(() =>
+  plantillaPeriodicaForm.presetPeriodicidad === 0
+    ? plantillaPeriodicaForm.periodicidadCustom
+    : plantillaPeriodicaForm.presetPeriodicidad
+)
 /** Flujo legacy: tienda → reservar albaran → buscar cliente → grabar cabecera */
 const pasoAlta = ref<'tienda' | 'cliente' | 'listo'>('listo')
 const buscarClienteOpen = ref(false)
@@ -250,6 +290,13 @@ const tieneDatosFactura = computed(() => {
 })
 
 const tiposFinalDisponibles = computed(() => {
+  if (esPlantillaAlta.value) {
+    return TIPOS_FINAL.filter((t) => {
+      if (t.codigo !== 'P' && t.codigo !== 'A') return false
+      if (clienteContado.value && t.codigo === 'A') return false
+      return true
+    })
+  }
   if (esTicketCerrado.value) {
     return TIPOS_FINAL.filter((t) => t.codigo === 'F')
   }
@@ -379,16 +426,21 @@ const documentoFinalizado = computed(() => {
   if (ft === 'A' && (Number(f.factura) || 0) > 0) return true
   return false
 })
-/** Imprimir solo tras Finalizar (no en borrador abierto). */
-const puedeImprimir = computed(() => documentoFinalizado.value && !modoEdicion.value)
+/** Imprimir solo tras Finalizar (no en borrador abierto). En plantilla periódica, basta con líneas. */
+const puedeImprimir = computed(() => {
+  if (modoEdicion.value) return false
+  if (esPlantillaConsulta.value) return albaranCompleto.value
+  return documentoFinalizado.value
+})
 const puedePasarAFactura = computed(() => {
   if (!esTicketCerrado.value || !puedeEditar.value || modoEdicion.value) return false
   return tieneDatosFactura.value
 })
 const puedeFinalizar = computed(
   () =>
-    (albaranCompleto.value && !bloqueado.value && !ticketNoEditable.value && puedeEditar.value && !modoEdicion.value) ||
-    puedePasarAFactura.value
+    !esPlantillaConsulta.value &&
+    ((albaranCompleto.value && !bloqueado.value && !ticketNoEditable.value && puedeEditar.value && !modoEdicion.value) ||
+      puedePasarAFactura.value)
 )
 const esAbono = computed(() => {
   const f = ficha.value
@@ -423,6 +475,7 @@ const documentoAbonable = computed(() => {
 })
 const puedeAbonar = computed(
   () =>
+    !esPlantillaConsulta.value &&
     puedeCrear.value &&
     albaranCompleto.value &&
     documentoAbonable.value &&
@@ -610,6 +663,12 @@ function payloadDesdeFicha(): VentaPayload {
 async function cargar() {
   if (!esEstaInstanciaActiva()) return
 
+  if (route.query.plantillaConsulta === '1') {
+    plantillaPeriodica.iniciarConsulta()
+  } else if (route.query.plantillaPeriodica === '1') {
+    plantillaPeriodica.iniciarAlta()
+  }
+
   const esRutaNuevo = route.name === 'ventas-nuevo'
   if (esRutaNuevo) {
     iniciarNuevaVenta()
@@ -706,7 +765,9 @@ function iniciarNuevaVenta() {
   lineas.value = [lineaVacia()]
   void nextTick(async () => {
     await cabeceraForm.value?.focusTienda()
-    mensaje.value = 'Nueva venta: elija tienda y pulse Intro'
+    mensaje.value = esPlantillaAlta.value
+      ? 'Nueva plantilla periódica: elija tienda, cliente y líneas. Guarde y Finalice como Presupuesto.'
+      : 'Nueva venta: elija tienda y pulse Intro'
   })
 }
 
@@ -1128,9 +1189,7 @@ async function onClienteSeleccionado(
       })
       await focusArticuloLinea(0)
     } else {
-      await router.replace(
-        `/ventas/${encodeURIComponent(saved.empresa)}/${encodeURIComponent(saved.tipo)}/${saved.albaran}`
-      )
+      await router.replace(destinoVenta(saved.empresa, saved.tipo, saved.albaran))
       // cargar() del watch pondrá el foco en artículo al tener cliente.
     }
   } catch (e: unknown) {
@@ -1155,6 +1214,16 @@ function onModificar() {
 }
 
 function onCancelar() {
+  if (esPlantillaConsulta.value && modoEdicion.value) {
+    modoEdicion.value = false
+    void cargar()
+    return
+  }
+  if (esPlantillaAlta.value && (esNuevo.value || !ficha.value?.albaran)) {
+    plantillaPeriodica.cancelar()
+    router.push({ name: 'albaranes-periodicos' })
+    return
+  }
   if (esNuevo.value) {
     router.push('/ventas')
     return
@@ -1189,18 +1258,20 @@ async function onGuardar() {
     aplicarDetalle(saved)
     esNuevo.value = false
     modoEdicion.value = false
-    mensaje.value = tieneLineas.value
-      ? 'Albaran guardado. Ya puede Finalizar o Imprimir.'
-      : 'Venta guardada'
+    mensaje.value = esPlantillaConsulta.value
+      ? 'Plantilla actualizada.'
+      : esPlantillaAlta.value
+        ? 'Documento guardado. Finalice como Presupuesto para registrar la plantilla periódica.'
+        : tieneLineas.value
+          ? 'Albaran guardado. Ya puede Finalizar o Imprimir.'
+          : 'Venta guardada'
     busqueda.upsertResumen(resumenDesdeDetalle(saved))
     if (
       route.params.empresa !== saved.empresa ||
       route.params.tipo !== saved.tipo ||
       Number(route.params.albaran) !== saved.albaran
     ) {
-      router.replace(
-        `/ventas/${encodeURIComponent(saved.empresa)}/${encodeURIComponent(saved.tipo)}/${saved.albaran}`
-      )
+      router.replace(destinoVenta(saved.empresa, saved.tipo, saved.albaran))
     }
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudo guardar')
@@ -1224,9 +1295,22 @@ async function confirmarBorrar() {
       tipo: ficha.value.tipo,
       albaran: ficha.value.albaran,
     }
+    if (esPlantillaConsulta.value) {
+      try {
+        await eliminarAlbaranPeriodico(key.empresa, key.tipo, key.albaran)
+      } catch (e: unknown) {
+        const status = (e as { response?: { status?: number } })?.response?.status
+        if (status !== 404) throw e
+      }
+    }
     await eliminarVenta(key.empresa, key.tipo, key.albaran)
     busqueda.quitar(key)
-    router.push('/ventas')
+    if (esPlantillaConsulta.value) {
+      plantillaPeriodica.cancelar()
+      router.push({ name: 'albaranes-periodicos' })
+    } else {
+      router.push('/ventas')
+    }
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudo borrar')
   } finally {
@@ -1235,7 +1319,7 @@ async function confirmarBorrar() {
 }
 
 async function onFinalizar() {
-  if (!ficha.value) return
+  if (!ficha.value || esPlantillaConsulta.value) return
   if (bloqueado.value && !esTicketCerrado.value) return
   const fpago =
     String(ficha.value.formasPago?.[0]?.codigo ?? '').trim() || formaPagoCliente.value
@@ -1254,11 +1338,13 @@ async function onFinalizar() {
   if (esTicketCerrado.value) {
     // Legacy TransformacionTicketaFactura: solo Factura.
     tipoFinal.value = 'F'
+  } else if (esPlantillaAlta.value) {
+    tipoFinal.value = 'P'
   } else {
     tipoFinal.value = clienteContado.value ? 'T' : 'A'
   }
   if (!tiposFinalDisponibles.value.some((t) => t.codigo === tipoFinal.value)) {
-    tipoFinal.value = tiposFinalDisponibles.value[0]?.codigo ?? 'T'
+    tipoFinal.value = tiposFinalDisponibles.value[0]?.codigo ?? (esPlantillaAlta.value ? 'P' : 'T')
   }
   await cargarFormasPagoContado()
   const preferida =
@@ -1412,15 +1498,61 @@ async function confirmarFinalizar() {
       busqueda.quitar(prev)
     }
     busqueda.upsertResumen(resumenDesdeDetalle(done))
-    router.replace(
-      `/ventas/${encodeURIComponent(done.empresa)}/${encodeURIComponent(done.tipo)}/${done.albaran}`
-    )
-    abrirAccionesPostVenta(done, opcion)
+    router.replace(destinoVenta(done.empresa, done.tipo, done.albaran))
+    if (esPlantillaAlta.value) {
+      plantillaPeriodicaForm.ultimaGeneracion = new Date().toISOString().slice(0, 10)
+      plantillaPeriodicaOpen.value = true
+      mensaje.value = 'Documento listo. Indique la periodicidad y pulse Crear plantilla.'
+    } else {
+      abrirAccionesPostVenta(done, opcion)
+    }
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudo finalizar')
   } finally {
     loading.value = false
   }
+}
+
+async function confirmarPlantillaPeriodica() {
+  if (!ficha.value || plantillaPeriodicaSaving.value) return
+  if (periodicidadPlantilla.value <= 0) {
+    error.value = 'La periodicidad debe ser mayor que 0'
+    return
+  }
+  plantillaPeriodicaSaving.value = true
+  error.value = null
+  try {
+    await crearAlbaranPeriodico({
+      empresa: ficha.value.empresa,
+      tipo: ficha.value.tipo,
+      albaran: ficha.value.albaran,
+      periodicidad: periodicidadPlantilla.value,
+      ultimaGeneracion: plantillaPeriodicaForm.ultimaGeneracion,
+      marcarReferenciaPeriodico: plantillaPeriodicaForm.marcarReferenciaPeriodico,
+    })
+    plantillaPeriodicaOpen.value = false
+    plantillaPeriodica.cancelar()
+    router.push({ name: 'albaranes-periodicos' })
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo registrar la plantilla periódica')
+  } finally {
+    plantillaPeriodicaSaving.value = false
+  }
+}
+
+function cancelarPlantillaPeriodica() {
+  plantillaPeriodicaOpen.value = false
+  mensaje.value =
+    'Documento guardado en Ventas. Puede volver a Albaranes periódicos o registrarlo más tarde.'
+}
+
+function onBuscarListado() {
+  if (esPlantillaConsulta.value || esPlantillaAlta.value) {
+    plantillaPeriodica.cancelar()
+    router.push({ name: 'albaranes-periodicos' })
+    return
+  }
+  router.push('/ventas')
 }
 
 function lineaYaAbonada(l: VentaLinea): boolean {
@@ -1544,6 +1676,7 @@ onMounted(() => {
 <template>
   <section class="ficha-venta" tabindex="-1" @keydown.enter="onKeyEnter">
     <VentaToolbar
+      :modo-plantilla-consulta="esPlantillaConsulta"
       :puede-crear="puedeCrear"
       :puede-editar="puedeEditar"
       :puede-eliminar="puedeEliminar"
@@ -1551,7 +1684,7 @@ onMounted(() => {
       :puede-imprimir="puedeImprimir"
       :puede-finalizar="puedeFinalizar"
       :puede-abonar="puedeAbonar"
-      :puede-buscar="puedeBuscar"
+      :puede-buscar="esPlantillaConsulta || puedeBuscar"
       :puede-navegar="puedeNavegar"
       :modo-edicion="modoEdicion || esNuevo"
       :bloqueado="bloqueado || esTicketCerrado"
@@ -1563,7 +1696,7 @@ onMounted(() => {
       @nuevo="onNuevo"
       @modificar="onModificar"
       @borrar="onBorrar"
-      @buscar="router.push('/ventas')"
+      @buscar="onBuscarListado"
       @guardar="onGuardar"
       @cancelar="onCancelar"
       @finalizar="onFinalizar"
@@ -1575,13 +1708,13 @@ onMounted(() => {
       @imprimir="onImprimir"
     />
 
-    <ol v-if="esNuevo" class="pasos-alta" aria-label="Pasos alta albaran">
+    <ol v-if="esNuevo && !esPlantillaConsulta" class="pasos-alta" aria-label="Pasos alta albaran">
       <li :class="{ activo: pasoAlta === 'tienda', hecho: pasoAlta !== 'tienda' }">1. Tienda</li>
       <li :class="{ activo: pasoAlta === 'cliente', hecho: pasoAlta === 'listo' }">2. Cliente</li>
       <li :class="{ activo: false, hecho: false }">3. Articulos</li>
     </ol>
     <ol
-      v-else-if="modoEdicion && ficha"
+      v-else-if="modoEdicion && ficha && !esPlantillaConsulta"
       class="pasos-alta"
       aria-label="Pasos albaran"
     >
@@ -1589,6 +1722,16 @@ onMounted(() => {
       <li class="hecho">2. Cliente</li>
       <li class="activo">3. Articulos · Guardar</li>
     </ol>
+
+    <p v-if="esPlantillaConsulta" class="banner-plantilla">
+      <strong>Plantilla periódica</strong> — consulta o edición de líneas. Use
+      <strong>Modificar</strong> / <strong>Guardar</strong> para cambios; <strong>Volver</strong> al grid.
+    </p>
+    <p v-else-if="esPlantillaAlta" class="banner-plantilla">
+      Creando <strong>plantilla periódica</strong>: complete cliente y líneas, guarde el documento y
+      <strong>Finalice</strong> como Presupuesto (recomendado) o Albarán. Después indicará la periodicidad.
+      <button type="button" class="link-inline" @click="onCancelar">Volver a Albaranes periódicos</button>
+    </p>
 
     <p v-if="bloqueado && ficha && !esTicketCerrado" class="banner-lock">
       Documento facturado / tipo Factura - solo consulta
@@ -1613,10 +1756,10 @@ onMounted(() => {
     <p v-else-if="modoEdicion && !esNuevo && !tieneLineas" class="ok">
       Introduzca articulos: codigo + <strong>Intro</strong> (o F4 / … para buscar). Luego <strong>Guardar</strong>.
     </p>
-    <p v-else-if="modoEdicion && !esNuevo && tieneLineas" class="ok">
+    <p v-else-if="modoEdicion && !esNuevo && tieneLineas && !esPlantillaConsulta" class="ok">
       Lineas listas. Pulse <strong>Guardar</strong> y despues podra <strong>Finalizar</strong> / <strong>Imprimir</strong>.
     </p>
-    <p v-else-if="!modoEdicion && albaranCompleto && !bloqueado && !esTicketCerrado" class="ok">
+    <p v-else-if="!modoEdicion && albaranCompleto && !bloqueado && !esTicketCerrado && !esPlantillaConsulta" class="ok">
       Albaran listo. Puede <strong>Finalizar</strong> (tipificar) o <strong>Imprimir</strong>.
     </p>
     <p v-if="error" class="error">{{ error }}</p>
@@ -1757,8 +1900,12 @@ onMounted(() => {
 
     <ConfirmDialog
       :open="confirmBorrar"
-      title="Borrar venta"
-      message="Eliminar este albaran y sus lineas?"
+      :title="esPlantillaConsulta ? 'Borrar plantilla periódica' : 'Borrar venta'"
+      :message="
+        esPlantillaConsulta
+          ? 'Eliminar la base periódica del grid y el documento en Ventas con sus líneas?'
+          : 'Eliminar este albaran y sus lineas?'
+      "
       confirm-label="Borrar"
       @confirm="confirmarBorrar"
       @cancel="confirmBorrar = false"
@@ -1793,8 +1940,19 @@ onMounted(() => {
     <Teleport to="body">
       <div v-if="finalizarOpen" class="overlay" @click.self="finalizarOpen = false">
         <div class="modal-tipo">
-          <h3>{{ esTicketCerrado ? 'Pasar ticket a factura' : 'Finalizar documento' }}</h3>
-          <p v-if="esTicketCerrado">
+          <h3>
+            {{
+              esTicketCerrado
+                ? 'Pasar ticket a factura'
+                : esPlantillaAlta
+                  ? 'Finalizar plantilla'
+                  : 'Finalizar documento'
+            }}
+          </h3>
+          <p v-if="esPlantillaAlta && !esTicketCerrado" class="ok">
+            Elija Presupuesto (recomendado) o Albarán. A continuación registrará la periodicidad.
+          </p>
+          <p v-else-if="esTicketCerrado">
             Se convertira el ticket {{ ficha?.factura }} en factura (legacy TransformacionTicketaFactura).
           </p>
           <p v-else>Que tipo de documento es?</p>
@@ -1843,6 +2001,50 @@ onMounted(() => {
               @click="confirmarFinalizar"
             >
               Aceptar
+            </button>
+          </footer>
+        </div>
+      </div>
+
+      <div v-if="plantillaPeriodicaOpen" class="overlay" @click.self="cancelarPlantillaPeriodica">
+        <div class="modal-tipo modal-plantilla">
+          <h3>Crear plantilla periódica</h3>
+          <p class="ok">
+            Documento {{ ficha?.tipo }}/{{ ficha?.albaran }} — {{ ficha?.razonSocial || ficha?.cliente }}
+          </p>
+          <label>
+            Periodicidad
+            <select v-model.number="plantillaPeriodicaForm.presetPeriodicidad">
+              <option v-for="p in PERIODICIDAD_PRESETS" :key="p.value" :value="p.value">
+                {{ p.label }}
+              </option>
+            </select>
+          </label>
+          <label v-if="plantillaPeriodicaForm.presetPeriodicidad === 0">
+            Días
+            <input
+              v-model.number="plantillaPeriodicaForm.periodicidadCustom"
+              type="number"
+              min="1"
+            />
+          </label>
+          <label>
+            Fecha base (última generación)
+            <input v-model="plantillaPeriodicaForm.ultimaGeneracion" type="date" />
+          </label>
+          <label class="check-plantilla">
+            <input v-model="plantillaPeriodicaForm.marcarReferenciaPeriodico" type="checkbox" />
+            Marcar Referencia1 = PERIODICO si está vacía
+          </label>
+          <footer>
+            <button type="button" @click="cancelarPlantillaPeriodica">Más tarde</button>
+            <button
+              type="button"
+              class="primary"
+              :disabled="plantillaPeriodicaSaving"
+              @click="confirmarPlantillaPeriodica"
+            >
+              {{ plantillaPeriodicaSaving ? 'Guardando…' : 'Crear plantilla' }}
             </button>
           </footer>
         </div>
@@ -1995,6 +2197,40 @@ onMounted(() => {
   border-radius: 6px;
   margin: 0;
   font-size: 0.85rem;
+}
+.banner-plantilla {
+  margin: 0.5rem 0;
+  padding: 0.6rem 0.85rem;
+  background: #e8f4fd;
+  border: 1px solid #90caf9;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+.link-inline {
+  margin-left: 0.5rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #1565c0;
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+.modal-plantilla label {
+  display: block;
+  margin: 0.75rem 0 0.25rem;
+}
+.modal-plantilla select,
+.modal-plantilla input[type='date'],
+.modal-plantilla input[type='number'] {
+  width: 100%;
+  max-width: 20rem;
+}
+.check-plantilla {
+  display: flex !important;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem !important;
 }
 .error {
   color: #b91c1c;

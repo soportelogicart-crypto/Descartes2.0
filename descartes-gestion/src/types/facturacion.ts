@@ -141,6 +141,7 @@ export type FacturasManualPeriodicosResponse = {
     tipo: string
     albaran: number
     plantilla: number
+    plantillaTipo: string
     fechaPeriodo: string
   }>
   totales: { generados: number; omitidos: number }
@@ -212,4 +213,48 @@ export type FacturasRetrocesoResponse = {
   abono?: { empresa: string; facturaTipo: string; factura: number; importe: number }
   albaranesLiberados: number
   mensaje: string
+}
+
+export type AlbaranPeriodicoListItem = {
+  empresa: string
+  tipo: string
+  albaran: number
+  periodicidad: number
+  periodicidadLabel: string
+  ultimaGeneracion: string | null
+  proximaGeneracion: string | null
+  plantillaEncontrada: boolean
+  cliente: string
+  razonSocial: string
+  importePlantilla: number
+  referencia1: string | null
+}
+
+export type AlbaranesPeriodicosListResponse = {
+  items: AlbaranPeriodicoListItem[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export type AlbaranPeriodicoWrite = {
+  empresa: string
+  tipo: string
+  albaran: number
+  periodicidad: number
+  ultimaGeneracion: string
+  marcarReferenciaPeriodico?: boolean
+}
+
+export type GenerarAlbaranPeriodicoResponse = {
+  generado: boolean
+  motivoOmision: string | null
+  albaranGenerado: {
+    empresa: string
+    tipo: string
+    albaran: number
+    plantilla: number
+    plantillaTipo: string
+    fechaPeriodo: string
+  } | null
 }

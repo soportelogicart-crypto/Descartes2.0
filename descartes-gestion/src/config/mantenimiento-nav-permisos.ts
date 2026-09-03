@@ -36,6 +36,7 @@ const moduloPorSlugClientes: Record<string, string> = {
   clientes: 'clientes',
   'oferta-clientes': 'oferta-clientes',
   campanas: 'campanas',
+  'albaranes-periodicos': 'albaranes-periodicos',
 }
 
 const moduloPorSlugProveedores: Record<string, string> = {
@@ -115,6 +116,7 @@ export const mantenimientoNavPermisos: NavPermisoNodo[] = [
 export const otrosModulosPermisos: NavPermisoItem[] = [
   { id: 'mantenimiento', titulo: 'Mantenimiento (general)', modulo: 'mantenimiento' },
   { id: 'puestos', titulo: 'Puestos (legado)', modulo: 'puestos' },
+  { id: 'albaranes-periodicos', titulo: 'Albaranes periódicos', modulo: 'albaranes-periodicos' },
   { id: 'inventario', titulo: 'Inventario', modulo: 'inventario' },
   { id: 'listados', titulo: 'Listados', modulo: 'listados' },
 ]

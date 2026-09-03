@@ -10,6 +10,7 @@ use Descartes\Api\Controllers\ConfigEquipoController;
 use Descartes\Api\Controllers\DocumentoPlantillasController;
 use Descartes\Api\Controllers\EmpresaClienteController;
 use Descartes\Api\Controllers\MantenimientoController;
+use Descartes\Api\Controllers\AlbaranesPeriodicosController;
 use Descartes\Api\Controllers\CampanaController;
 use Descartes\Api\Controllers\OfertaClienteController;
 use Descartes\Api\Controllers\OfertaProveedorController;
@@ -135,6 +136,21 @@ return function (App $app): void {
       ->add($setPermisoModulo('campanas', 'editar'));
     $group->delete('/campanas/{empresa}/{campana}', [CampanaController::class, 'delete'])
       ->add($setPermisoModulo('campanas', 'eliminar'));
+
+    $group->get('/albaranes-periodicos', [AlbaranesPeriodicosController::class, 'list'])
+      ->add($setPermisoModulo('albaranes-periodicos', 'ver'));
+    $group->post('/albaranes-periodicos', [AlbaranesPeriodicosController::class, 'create'])
+      ->add($setPermisoModulo('albaranes-periodicos', 'crear'));
+    $group->get('/albaranes-periodicos/plantillas', [AlbaranesPeriodicosController::class, 'buscarPlantillas'])
+      ->add($setPermisoModulo('albaranes-periodicos', 'crear'));
+    $group->get('/albaranes-periodicos/{empresa}/{tipo}/{albaran}', [AlbaranesPeriodicosController::class, 'get'])
+      ->add($setPermisoModulo('albaranes-periodicos', 'ver'));
+    $group->put('/albaranes-periodicos/{empresa}/{tipo}/{albaran}', [AlbaranesPeriodicosController::class, 'update'])
+      ->add($setPermisoModulo('albaranes-periodicos', 'editar'));
+    $group->delete('/albaranes-periodicos/{empresa}/{tipo}/{albaran}', [AlbaranesPeriodicosController::class, 'delete'])
+      ->add($setPermisoModulo('albaranes-periodicos', 'eliminar'));
+    $group->post('/albaranes-periodicos/{empresa}/{tipo}/{albaran}/generar', [AlbaranesPeriodicosController::class, 'generar'])
+      ->add($setPermisoModulo('facturacion-manual', 'crear'));
 
     $group->get('/oferta-clientes', [OfertaClienteController::class, 'list'])
       ->add($setPermisoModulo('oferta-clientes', 'ver'));

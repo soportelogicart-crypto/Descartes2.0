@@ -52,8 +52,9 @@ final class VentaConsultaService
       $params['estado'] = $query['estado'];
     }
     if (!empty($query['empresa'])) {
-      $where[] = 'c.Empresa = :empresa';
-      $params['empresa'] = $query['empresa'];
+      $empresa = $this->normalizarEmpresaCodigo((string) $query['empresa']);
+      $where[] = 'RTRIM(c.Empresa) = :empresa';
+      $params['empresa'] = $empresa;
     }
     if (isset($query['documento']) && trim((string) $query['documento']) !== '') {
       $documento = (int) $query['documento'];
@@ -66,6 +67,8 @@ final class VentaConsultaService
       }
     }
 
+    $this->aplicarFiltroClaseDocumento($where, $query);
+
     $sqlWhere = implode(' AND ', $where);
 
     $countStmt = $this->pdo->prepare("SELECT COUNT(*) FROM AlbaranesVentasCab c WHERE {$sqlWhere}");
@@ -77,7 +80,7 @@ final class VentaConsultaService
                    c.AlbaranOrigenAbono
             FROM AlbaranesVentasCab c
             WHERE {$sqlWhere}";
-    $sql = SqlPagination::wrap($innerSql, 'c.Albaran DESC, c.Fecha DESC, c.Empresa ASC', $offset, $pageSize);
+    $sql = SqlPagination::wrap($innerSql, 'Albaran DESC, Fecha DESC, Empresa ASC', $offset, $pageSize);
     $stmt = $this->pdo->prepare($sql);
     foreach ($params as $k => $v) {
       $stmt->bindValue(':' . $k, $v);
@@ -591,5 +594,57 @@ final class VentaConsultaService
       return false;
     }
     return (bool) preg_match('/^\d{4}-\d{2}-\d{2}/', (string) $value);
+  }
+
+  private function normalizarEmpresaCodigo(string $empresa): string
+  {
+    $empresa = trim($empresa);
+    if ($empresa !== '' && ctype_digit($empresa)) {
+      return (string) (int) $empresa;
+    }
+
+    return $empresa;
+  }
+
+  /**
+   * Clase comercial del documento (legacy: Tipo cabecera suele ser 'A'; se usa FacturaTipo).
+   *
+   * @param list<string> $where
+   * @param array<string, mixed> $query
+   */
+  private function aplicarFiltroClaseDocumento(array &$where, array $query): void
+  {
+    $clase = strtolower(trim((string) ($query['claseDocumento'] ?? '')));
+    if ($clase === '') {
+      $tipoLegacy = strtoupper(trim((string) ($query['tipo'] ?? '')));
+      if ($tipoLegacy === 'P') {
+        $clase = 'presupuesto';
+      } elseif ($tipoLegacy === 'A') {
+        $clase = 'albaran';
+      } elseif ($tipoLegacy === 'F') {
+        $clase = 'factura';
+      } elseif ($tipoLegacy === 'T') {
+        $clase = 'ticket';
+      } else {
+        return;
+      }
+    }
+
+    switch ($clase) {
+      case 'factura':
+        $where[] = "RTRIM(c.FacturaTipo) = 'F'";
+        break;
+      case 'presupuesto':
+        $where[] = "RTRIM(c.FacturaTipo) = 'R'";
+        break;
+      case 'ticket':
+        $where[] = "RTRIM(c.FacturaTipo) = 'T'";
+        break;
+      case 'albaran':
+        $where[] = "(c.FacturaTipo IS NULL OR LTRIM(RTRIM(c.FacturaTipo)) = '' OR RTRIM(c.FacturaTipo) = 'A')";
+        break;
+      default:
+        break;
+    }
   }
 }

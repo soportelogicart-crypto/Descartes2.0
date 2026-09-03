@@ -54,6 +54,7 @@ final class RolService
     'facturacion-diario',
     'facturacion-albaranes-pendientes',
     'facturacion-retroceso',
+    'albaranes-periodicos',
     'inventario',
     'listados',
     'tpv',
@@ -91,6 +92,7 @@ final class RolService
     'facturacion-diario' => 'facturacion',
     'facturacion-albaranes-pendientes' => 'facturacion',
     'facturacion-retroceso' => 'facturacion',
+    'albaranes-periodicos' => 'facturacion-manual',
   ];
 
   private RolRepository $rolRepository;

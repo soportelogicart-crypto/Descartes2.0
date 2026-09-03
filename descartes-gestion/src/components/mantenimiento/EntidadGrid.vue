@@ -168,13 +168,17 @@ onBeforeUnmount(() => {
       <thead>
         <tr>
           <th class="col-ind"></th>
-          <th v-for="col in columns" :key="col.key" :style="{ minWidth: col.width }">
+          <th v-for="col in columns" :key="col.key" :style="col.width ? { minWidth: col.width, width: col.width } : undefined">
             {{ col.label }}
           </th>
         </tr>
         <tr v-if="muestraFiltros" class="filter-row">
           <th class="col-ind"></th>
-          <th v-for="col in columns" :key="`f-${col.key}`">
+          <th
+            v-for="col in columns"
+            :key="`f-${col.key}`"
+            :style="col.width ? { minWidth: col.width, width: col.width } : undefined"
+          >
             <div
               v-if="filterKeySet.has(col.key)"
               class="filter-cell"
