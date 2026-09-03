@@ -25,6 +25,13 @@ const opciones = [
     disponible: true,
   },
   {
+    id: 'base-datos',
+    titulo: 'Base de datos',
+    descripcion: 'Servidor SQL, nombre de la BD y actualización automática de la estructura.',
+    ruta: '/configuracion/base-datos',
+    disponible: true,
+  },
+  {
     id: 'impresoras',
     titulo: 'Impresoras y periféricos',
     descripcion: 'Próximamente: acceso rápido a la configuración de impresoras del puesto.',

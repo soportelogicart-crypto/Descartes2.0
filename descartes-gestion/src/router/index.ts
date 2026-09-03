@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { usePermisos } from '@/composables/usePermisos'
 import LoginView from '@/views/LoginView.vue'
+import InstalacionView from '@/views/InstalacionView.vue'
 import EmpresaClienteView from '@/views/mantenimiento/EmpresaClienteView.vue'
 import EntidadView from '@/views/mantenimiento/EntidadView.vue'
 import AppLayout from '@/components/layout/AppLayout.vue'
@@ -49,6 +50,7 @@ import RetrocesoFacturaView from '@/views/facturacion/RetrocesoFacturaView.vue'
 import ConfiguracionHubView from '@/views/configuracion/ConfiguracionHubView.vue'
 import DocumentosPlantillasView from '@/views/configuracion/DocumentosPlantillasView.vue'
 import TpvVentaView from '@/views/tpv/TpvVentaView.vue'
+import { getInstalacionEstado } from '@/api/instalacion'
 
 const articulosSeccionesPendientes = [
   { path: 'mantenimiento/secciones', name: 'secciones', titulo: 'Secciones' },
@@ -64,6 +66,7 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/login', name: 'login', component: LoginView, meta: { public: true } },
+    { path: '/instalacion', name: 'instalacion', component: InstalacionView, meta: { public: true } },
     {
       path: '/',
       component: AppLayout,
@@ -74,6 +77,12 @@ const router = createRouter({
           name: 'configuracion',
           component: ConfiguracionHubView,
           meta: { titulo: 'Configuración' },
+        },
+        {
+          path: 'configuracion/base-datos',
+          name: 'configuracion-base-datos',
+          component: InstalacionView,
+          meta: { titulo: 'Base de datos' },
         },
         {
           path: 'configuracion/documentos',
@@ -354,6 +363,19 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
+  if (to.name !== 'instalacion') {
+    try {
+      const estado = await getInstalacionEstado()
+      if (estado.requiereAccion) {
+        return { name: 'instalacion', query: to.fullPath !== '/' ? { redirect: to.fullPath } : undefined }
+      }
+    } catch {
+      if (to.name !== 'login') {
+        return { name: 'instalacion' }
+      }
+    }
+  }
+
   if (to.meta.public) return true
 
   const auth = useAuthStore()

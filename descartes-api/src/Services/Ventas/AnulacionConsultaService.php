@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Descartes\Api\Services\Ventas;
 
+use Descartes\Api\Database\SqlPagination;
 use PDO;
 
 final class AnulacionConsultaService
@@ -53,19 +54,17 @@ final class AnulacionConsultaService
     $countStmt->execute($params);
     $total = (int) $countStmt->fetchColumn();
 
-    $sql = "SELECT a.Fecha, a.Articulo, a.Cantidad, a.ImporteLin, a.Cajero, a.Puesto, a.Mesa,
+    $innerSql = "SELECT a.Fecha, a.Articulo, a.Cantidad, a.ImporteLin, a.Cajero, a.Puesto, a.Mesa,
                    a.Sesion, a.Empresa, a.Motivo, a.MotivoOperador, m.Descripcion AS MotivoDesc
             FROM LogAnulaciones a
             LEFT JOIN Motivos m ON m.Codigo = a.Motivo
-            WHERE {$sqlWhere}
-            ORDER BY a.Fecha DESC
-            OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY";
+            WHERE {$sqlWhere}";
+    $sql = SqlPagination::wrap($innerSql, 'a.Fecha DESC', $offset, $pageSize);
     $stmt = $this->pdo->prepare($sql);
     foreach ($params as $k => $v) {
       $stmt->bindValue(':' . $k, $v);
     }
-    $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
-    $stmt->bindValue(':pageSize', $pageSize, PDO::PARAM_INT);
+    SqlPagination::bind($stmt, $offset, $pageSize);
     $stmt->execute();
 
     $items = [];

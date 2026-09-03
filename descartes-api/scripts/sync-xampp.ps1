@@ -18,13 +18,13 @@ function Read-SourceText([string]$path) {
   return [System.IO.File]::ReadAllText($path, $utf8)
 }
 
-function Sync-Tree([string]$relativeDir) {
+function Sync-Tree([string]$relativeDir, [string[]]$include = @('*.php', '*.htaccess')) {
   $srcDir = Join-Path $apiRoot $relativeDir
   if (-not (Test-Path $srcDir)) {
     Write-Warning "No existe $srcDir"
     return
   }
-  $files = Get-ChildItem -Path $srcDir -Recurse -File -Include *.php,*.htaccess
+  $files = Get-ChildItem -Path $srcDir -Recurse -File -Include $include
   foreach ($file in $files) {
     $rel = $file.FullName.Substring($apiRoot.Length).TrimStart('\', '/')
     # Normalizar separadores
@@ -42,6 +42,13 @@ function Sync-Tree([string]$relativeDir) {
 
 Sync-Tree 'src'
 Sync-Tree 'public'
+Sync-Tree 'database' @('*.sql')
+
+$varDir = Join-Path $xamppRoot 'var'
+if (-not (Test-Path $varDir)) {
+  New-Item -ItemType Directory -Path $varDir -Force | Out-Null
+  Write-Host 'OK var\ (directorio instalacion)'
+}
 
 $dependenciasCambiadas = $false
 foreach ($manifest in @('composer.json', 'composer.lock')) {
@@ -66,4 +73,4 @@ if ($dependenciasCambiadas) {
   }
 }
 
-Write-Host 'Sincronizado en UTF-8 (src + public + dependencias Composer).'
+Write-Host 'Sincronizado en UTF-8 (src + public + database/migrations + dependencias Composer).'

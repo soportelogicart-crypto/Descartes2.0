@@ -172,6 +172,17 @@ return function (App $app): void {
   $container->set(\Descartes\Api\Services\Facturacion\AlbaranesPendientesService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\AlbaranesPendientesService($c->get(\Descartes\Api\Services\Facturacion\GeneracionFacturasManualService::class)));
   $container->set(\Descartes\Api\Services\Facturacion\RetrocesoFacturaService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\RetrocesoFacturaService($c->get(PDO::class)));
 
+  $container->set(\Descartes\Api\Services\Instalacion\MigrationService::class, static fn () => new \Descartes\Api\Services\Instalacion\MigrationService());
+  $container->set(\Descartes\Api\Services\Instalacion\InstalacionBootstrapService::class, static fn () => new \Descartes\Api\Services\Instalacion\InstalacionBootstrapService());
+  $container->set(\Descartes\Api\Services\Instalacion\SchemaRepairService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Instalacion\SchemaRepairService(
+    $c->get(\Descartes\Api\Services\Instalacion\MigrationService::class)
+  ));
+  $container->set(\Descartes\Api\Services\Instalacion\InstalacionService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Instalacion\InstalacionService(
+    $c->get(\Descartes\Api\Services\Instalacion\MigrationService::class),
+    $c->get(\Descartes\Api\Services\Instalacion\InstalacionBootstrapService::class),
+    $c->get(\Descartes\Api\Services\Instalacion\SchemaRepairService::class)
+  ));
+
   $container->set(LoggerInterface::class, static fn () => new FileLogger());
   $container->set(FileLogger::class, static fn (ContainerInterface $c) => $c->get(LoggerInterface::class));
   ErrorResponse::setLogger($container->get(LoggerInterface::class));

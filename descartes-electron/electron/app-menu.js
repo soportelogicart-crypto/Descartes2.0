@@ -9,11 +9,42 @@ function isLoginUrl(url) {
   }
 }
 
-function buildLoginMenu() {
+function isInstalacionUrl(url) {
+  try {
+    const { pathname } = new URL(url)
+    return pathname === '/instalacion' || pathname.endsWith('/instalacion')
+  } catch {
+    return /\/instalacion(\?|#|$)/.test(String(url || ''))
+  }
+}
+
+function rutaConexion(url) {
+  if (isLoginUrl(url) || isInstalacionUrl(url)) {
+    return '/instalacion'
+  }
+  return '/configuracion/base-datos'
+}
+
+function navegarEnVentana(win, path) {
+  if (!win || win.isDestroyed()) return
+  win.webContents.send('app:navigate', path)
+}
+
+function buildDescartesMenu(getFocusedWindow) {
   return Menu.buildFromTemplate([
     {
       label: 'Descartes',
       submenu: [
+        {
+          label: 'Conexion',
+          accelerator: 'Ctrl+Shift+C',
+          click: (_item, focusedWindow) => {
+            const win = focusedWindow || getFocusedWindow()
+            if (!win) return
+            navegarEnVentana(win, rutaConexion(win.webContents.getURL()))
+          },
+        },
+        { type: 'separator' },
         {
           label: 'Salir',
           accelerator: process.platform === 'darwin' ? 'Cmd+Q' : 'Alt+F4',
@@ -25,7 +56,7 @@ function buildLoginMenu() {
           label: 'Consola',
           accelerator: process.platform === 'darwin' ? 'Alt+Cmd+I' : 'Ctrl+Shift+I',
           click: (_item, focusedWindow) => {
-            const win = focusedWindow || BrowserWindow.getFocusedWindow()
+            const win = focusedWindow || getFocusedWindow()
             win?.webContents.toggleDevTools()
           },
         },
@@ -34,40 +65,25 @@ function buildLoginMenu() {
   ])
 }
 
-function setLoginMenu() {
-  Menu.setApplicationMenu(buildLoginMenu())
+function setDescartesMenu(getFocusedWindow) {
+  Menu.setApplicationMenu(buildDescartesMenu(getFocusedWindow))
 }
 
 function clearMenu() {
   Menu.setApplicationMenu(null)
 }
 
-function applyMenuForUrl(url) {
-  if (isLoginUrl(url)) {
-    setLoginMenu()
-  } else {
-    clearMenu()
-  }
-}
-
 /**
- * Sincroniza el menu nativo con la ruta Vue: login = Descartes > Salir/Consola; resto = sin menu.
+ * En Electron el menu Descartes permanece visible (Conexion, Salir, Consola).
  */
 function bindWindowMenu(win) {
-  clearMenu()
-
-  const sync = () => {
-    applyMenuForUrl(win.webContents.getURL())
-  }
-
-  win.webContents.on('did-navigate', sync)
-  win.webContents.on('did-navigate-in-page', sync)
-  win.webContents.on('did-finish-load', sync)
+  const getFocusedWindow = () => win
+  setDescartesMenu(getFocusedWindow)
 }
 
 module.exports = {
   bindWindowMenu,
-  applyMenuForUrl,
-  setLoginMenu,
+  setDescartesMenu,
   clearMenu,
+  rutaConexion,
 }

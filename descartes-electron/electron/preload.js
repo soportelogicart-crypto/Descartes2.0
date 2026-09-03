@@ -22,3 +22,8 @@ contextBridge.exposeInMainWorld('descartes', {
   readScale: () => ipcRenderer.invoke('peripheral:readScale'),
   displayPrice: (payload) => ipcRenderer.invoke('peripheral:displayPrice', payload),
 })
+
+ipcRenderer.on('app:navigate', (_event, path) => {
+  if (typeof path !== 'string' || path === '') return
+  window.dispatchEvent(new CustomEvent('descartes:navigate', { detail: path }))
+})

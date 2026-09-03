@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Descartes\Api\Services\Ventas;
 
+use Descartes\Api\Database\SqlPagination;
 use PDO;
 
 final class PedidoClienteService
@@ -78,33 +79,30 @@ final class PedidoClienteService
     }
     $total = (int) $countStmt->fetchColumn();
 
-    $sql = "SELECT p.Empresa, p.Pedido, p.Cliente, p.RazonSocial, p.NIF, p.Fecha, p.Estado, p.Situacion,
+    $innerSql = "SELECT p.Empresa, p.Pedido, p.Cliente, p.RazonSocial, p.NIF, p.Fecha, p.Estado, p.Situacion,
                    p.Impreso, p.Importe, p.Actualizado, p.Puesto, p.Vendedor, p.SuPedido
             FROM PedidosClientes p
-            WHERE {$sqlWhere}
-            ORDER BY p.Fecha DESC, p.Pedido DESC
-            OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY";
+            WHERE {$sqlWhere}";
+    $orderBy = 'p.Fecha DESC, p.Pedido DESC';
+    $sql = SqlPagination::wrap($innerSql, $orderBy, $offset, $pageSize);
     $stmt = $this->pdo->prepare($sql);
     foreach ($params as $k => $v) {
       $stmt->bindValue(':' . $k, $v);
     }
-    $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
-    $stmt->bindValue(':pageSize', $pageSize, PDO::PARAM_INT);
+    SqlPagination::bind($stmt, $offset, $pageSize);
     try {
       $stmt->execute();
     } catch (\Throwable $e) {
-      $sql = "SELECT p.Empresa, p.Pedido, p.Cliente, p.RazonSocial, p.Fecha, p.Estado, p.Situacion,
+      $innerSql = "SELECT p.Empresa, p.Pedido, p.Cliente, p.RazonSocial, p.Fecha, p.Estado, p.Situacion,
                      p.Impreso, p.Importe
               FROM PedidosClientes p
-              WHERE {$sqlWhere}
-              ORDER BY p.Fecha DESC, p.Pedido DESC
-              OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY";
+              WHERE {$sqlWhere}";
+      $sql = SqlPagination::wrap($innerSql, $orderBy, $offset, $pageSize);
       $stmt = $this->pdo->prepare($sql);
       foreach ($params as $k => $v) {
         $stmt->bindValue(':' . $k, $v);
       }
-      $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
-      $stmt->bindValue(':pageSize', $pageSize, PDO::PARAM_INT);
+      SqlPagination::bind($stmt, $offset, $pageSize);
       $stmt->execute();
     }
 

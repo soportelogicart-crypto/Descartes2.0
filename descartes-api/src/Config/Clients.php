@@ -2,12 +2,10 @@
 
 declare(strict_types=1);
 
+/**
+ * Reserva para multi-cliente (Principio III). v1: la conexion activa sale de
+ * Database::resolveConfig() en cada peticion (var/instalacion.json o .env).
+ */
 return [
-  'default' => [
-    'server' => $_ENV['DB_SERVER'] ?? 'localhost',
-    'database' => $_ENV['DB_NAME'] ?? 'larasa',
-    'user' => $_ENV['DB_USER'] ?? '',
-    'password' => $_ENV['DB_PASSWORD'] ?? '',
-    'trust_cert' => $_ENV['DB_TRUST_CERT'] ?? 'true',
-  ],
+  'default' => 'default',
 ];

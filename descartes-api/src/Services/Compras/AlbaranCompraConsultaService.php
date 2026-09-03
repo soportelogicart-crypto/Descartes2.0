@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Descartes\Api\Services\Compras;
 
+use Descartes\Api\Database\SqlPagination;
 use PDO;
 
 /**
@@ -72,20 +73,18 @@ final class AlbaranCompraConsultaService
     $countStmt->execute($params);
     $total = (int) $countStmt->fetchColumn();
 
-    $sql = "SELECT c.Empresa, c.Albaran, c.SuAlbaran, c.FechaAlbaran, c.Proveedor,
+    $innerSql = "SELECT c.Empresa, c.Albaran, c.SuAlbaran, c.FechaAlbaran, c.Proveedor,
                    p.RazonSocial AS ProveedorNombre,
                    c.FPago, c.ImporteAlb, c.ImporteDtos, c.ImporteIVA, c.ImporteRec,
                    c.Actualizado, c.AlbaranDevolucion, c.TrasCtb, c.Almacen, c.Estado
             FROM {$from}
-            WHERE {$sqlWhere}
-            ORDER BY c.FechaAlbaran DESC, c.Albaran DESC, c.Empresa ASC
-            OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY";
+            WHERE {$sqlWhere}";
+    $sql = SqlPagination::wrap($innerSql, 'c.FechaAlbaran DESC, c.Albaran DESC, c.Empresa ASC', $offset, $pageSize);
     $stmt = $this->pdo->prepare($sql);
     foreach ($params as $k => $v) {
       $stmt->bindValue(':' . $k, $v);
     }
-    $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
-    $stmt->bindValue(':pageSize', $pageSize, PDO::PARAM_INT);
+    SqlPagination::bind($stmt, $offset, $pageSize);
     $stmt->execute();
 
     $items = [];

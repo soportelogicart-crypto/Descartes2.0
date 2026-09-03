@@ -8,9 +8,26 @@ powershell -ExecutionPolicy Bypass -File c:\descartes-2.0\descartes-api\scripts\
 
 Equivalente: `descartes-api\scripts\sync-xampp.cmd`.
 
-Copia en UTF-8 sin BOM todo `src\` y `public\` (mantenimiento, ventas, facturación, compras, **etiquetas**, etc.).
+Copia en UTF-8 sin BOM todo `src\`, `public\` y `database\migrations\` (migraciones SQL incluidas en el despliegue).
 
 El monorepo fuente es `c:\descartes-2.0\descartes-api\`.
+
+## Instalación / otra base de datos
+
+No hace falta ejecutar `sqlcmd` a mano en cada cliente:
+
+1. Abrir Gestión → asistente **Configuración de la instalación** (`/instalacion`) o **Configuración → Base de datos**.
+2. Indicar servidor, **nombre de la BD**, usuario y contraseña → **Guardar y actualizar estructura**.
+
+La API guarda `var/instalacion.json` (prioridad sobre `.env`) y aplica las migraciones pendientes registradas en `SchemaMigrations`.
+
+CLI equivalente (misma config activa):
+
+```powershell
+php c:\descartes-2.0\descartes-api\scripts\migrate.php
+```
+
+Opcional en desarrollo: `AUTO_MIGRATE=true` en `.env` aplica pendientes al conectar.
 
 ## Compras (004)
 

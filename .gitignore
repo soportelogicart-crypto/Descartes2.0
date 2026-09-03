@@ -43,5 +43,6 @@ abc-ventas-app/frontend/node_modules/
 descartes-electron/node_modules/
 descartes-gestion/node_modules/
 descartes-api/vendor/
+descartes-api/var/instalacion.json
 descartes-api/storage/logs/*
 !descartes-api/storage/logs/.gitignore

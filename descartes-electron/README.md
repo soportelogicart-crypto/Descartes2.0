@@ -40,6 +40,18 @@ npm run dev:tools
 
 No hace falta abrir Chrome ni ejecutar `npm run dev` en `descartes-gestion` aparte.
 
+### Menu Descartes (barra superior)
+
+En la ventana Electron aparece el menu **Descartes**:
+
+| Opcion | Atajo | Funcion |
+|--------|-------|---------|
+| **Conexion** | Ctrl+Shift+C | Abre la configuracion de la base de datos SQL (servidor local o nube, migraciones, usuario ADM) |
+| Salir | Alt+F4 | Cierra la aplicacion |
+| Consola | Ctrl+Shift+I | Herramientas de desarrollo |
+
+La conexion se guarda en el servidor (`descartes-api/var/instalacion.json`), no en el PC.
+
 ## Configuracion
 
 ### URL de la UI (`config.json`)

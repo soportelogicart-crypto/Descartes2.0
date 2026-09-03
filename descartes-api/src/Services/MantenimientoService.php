@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Descartes\Api\Services;
 
 use Descartes\Api\Config\EntityConfig;
+use Descartes\Api\Database\SqlPagination;
 use PDO;
 use PDOException;
 
@@ -161,13 +162,13 @@ final class MantenimientoService
     $countStmt->execute($params);
     $total = (int) ($countStmt->fetch()['total'] ?? 0);
 
-    $sql = "SELECT * FROM [{$table}] {$whereSql} ORDER BY [{$pk}] OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY";
+    $innerSql = "SELECT * FROM [{$table}] {$whereSql}";
+    $sql = SqlPagination::wrap($innerSql, "[{$pk}]", $offset, $pageSize);
     $stmt = $this->pdo->prepare($sql);
     foreach ($params as $key => $value) {
       $stmt->bindValue(':' . $key, $value);
     }
-    $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
-    $stmt->bindValue(':limit', $pageSize, PDO::PARAM_INT);
+    SqlPagination::bind($stmt, $offset, $pageSize);
     $stmt->execute();
 
     $items = [];

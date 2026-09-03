@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Descartes\Api\Services\Ventas;
 
+use Descartes\Api\Database\SqlPagination;
 use PDO;
 
 final class ValeService
@@ -44,18 +45,16 @@ final class ValeService
     $countStmt->execute($params);
     $total = (int) $countStmt->fetchColumn();
 
-    $sql = "SELECT v.Empresa, v.Codigo, v.Cliente, v.Importe, v.Fecha, v.FechaCaducidad,
+    $innerSql = "SELECT v.Empresa, v.Codigo, v.Cliente, v.Importe, v.Fecha, v.FechaCaducidad,
                    v.Liquidado, v.FechaLiquidacion, v.TipoLiquidacion
             FROM Vales v
-            WHERE {$sqlWhere}
-            ORDER BY v.Fecha DESC, v.Codigo DESC
-            OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY";
+            WHERE {$sqlWhere}";
+    $sql = SqlPagination::wrap($innerSql, 'v.Fecha DESC, v.Codigo DESC', $offset, $pageSize);
     $stmt = $this->pdo->prepare($sql);
     foreach ($params as $k => $v) {
       $stmt->bindValue(':' . $k, $v);
     }
-    $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
-    $stmt->bindValue(':pageSize', $pageSize, PDO::PARAM_INT);
+    SqlPagination::bind($stmt, $offset, $pageSize);
     $stmt->execute();
 
     $hoy = date('Y-m-d');

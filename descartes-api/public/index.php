@@ -12,6 +12,7 @@ $dotenv->safeLoad();
 
 $containerBuilder = new ContainerBuilder();
 $containerBuilder->addDefinitions([
+  \Descartes\Api\Controllers\InstalacionController::class => DI\autowire(),
   \Descartes\Api\Controllers\AuthController::class => DI\autowire(),
   \Descartes\Api\Controllers\MantenimientoController::class => DI\autowire(),
   \Descartes\Api\Controllers\EmpresaClienteController::class => DI\autowire(),
@@ -48,6 +49,7 @@ if ($basePath === '') {
 $app->setBasePath($basePath);
 
 ($bootstrap = require __DIR__ . '/../src/bootstrap.php')($app);
+(require __DIR__ . '/../src/Routes/instalacion.php')($app);
 (require __DIR__ . '/../src/Routes/auth.php')($app);
 (require __DIR__ . '/../src/Routes/mantenimiento.php')($app);
 (require __DIR__ . '/../src/Routes/ventas.php')($app);
