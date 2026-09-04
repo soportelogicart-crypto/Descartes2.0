@@ -138,6 +138,7 @@ export function extrasEmpresaDesdeTienda(
   literalFacturaContado: string
   literalPresupuesto: string
   literalVale: string
+  preciosIvaIncluido: boolean
 } {
   return {
     empresaNombre: String(tienda.nombre ?? tienda.nombreFiscal ?? ''),
@@ -154,6 +155,8 @@ export function extrasEmpresaDesdeTienda(
     literalFacturaContado: String(tienda.literalFacturaContado ?? ''),
     literalPresupuesto: String(tienda.literalPresupuesto ?? ''),
     literalVale: String(tienda.literalVale ?? ''),
+    // Empresas.SW_IVA: precios de línea con IVA incluido.
+    preciosIvaIncluido: Boolean(tienda.swIva),
   }
 }
 

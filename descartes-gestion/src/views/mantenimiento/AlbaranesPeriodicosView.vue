@@ -586,7 +586,7 @@ async function generarAhora() {
         </button>
       </div>
 
-      <div class="listado-panel">
+      <div class="mantenimiento-listado listado-panel">
         <div class="toolbar">
           <button type="button" class="tool-btn" @click="onListado">
             <ToolIcon name="listado" />
@@ -665,29 +665,27 @@ async function generarAhora() {
           </button>
         </div>
 
-        <div class="grid-compact">
-          <EntidadGrid
-            :columns="columns"
-            :filas="filas"
-            :indice-seleccionado="indiceSeleccionado"
-            :readonly="true"
-            :loading="loading"
-            :filterable-keys="FILTER_KEYS"
-            v-model:filters="filtros"
-            @seleccionar="seleccionar"
-            @abrir="onEditar"
-            @search="buscarServidorAhora"
-          />
+        <EntidadGrid
+          :columns="columns"
+          :filas="filas"
+          :indice-seleccionado="indiceSeleccionado"
+          :readonly="true"
+          :loading="loading"
+          :filterable-keys="FILTER_KEYS"
+          v-model:filters="filtros"
+          @seleccionar="seleccionar"
+          @abrir="onEditar"
+          @search="buscarServidorAhora"
+        />
 
-          <ListPagination
+        <ListPagination
             :page="page"
             :page-size="pageSize"
             :total="total"
             :loading="loading"
             @update:page="onPage"
             @update:page-size="onPageSize"
-          />
-        </div>
+        />
 
         <p class="hint">
           Tienda activa: <strong>{{ empresaCodigo || '—' }}</strong>.
@@ -864,66 +862,6 @@ async function generarAhora() {
 <style scoped>
 .periodicos-view h2 {
   margin: 0 0 0.75rem;
-}
-
-.listado-panel {
-  max-width: 100%;
-  box-sizing: border-box;
-}
-
-.grid-compact {
-  width: fit-content;
-  max-width: 100%;
-}
-
-.grid-compact :deep(.grid-wrap) {
-  width: fit-content;
-  max-width: 100%;
-}
-
-.grid-compact :deep(.entidad-grid) {
-  width: auto;
-  table-layout: fixed;
-  font-size: 0.75rem;
-}
-
-.grid-compact :deep(.entidad-grid thead tr:first-child th),
-.grid-compact :deep(.entidad-grid tbody td) {
-  padding: 0.1rem 0.15rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.grid-compact :deep(.entidad-grid .filter-row th) {
-  padding: 0.1rem 0.15rem;
-  overflow: visible;
-}
-
-.grid-compact :deep(.grid-wrap.filter-menu-open) {
-  overflow: visible;
-}
-
-.grid-compact :deep(.entidad-grid th) {
-  font-size: 0.7rem;
-}
-
-.grid-compact :deep(.entidad-grid .filter-input) {
-  min-width: 0;
-  padding: 0.1rem 0.15rem;
-  font-size: 0.74rem;
-  min-height: 1.4rem;
-}
-
-.grid-compact :deep(.entidad-grid .filter-btn) {
-  width: 1.35rem;
-  height: 1.35rem;
-}
-
-.grid-compact :deep(.entidad-grid td .cell-input),
-.grid-compact :deep(.entidad-grid td input.cell-input) {
-  font-size: 0.75rem;
-  padding: 0.05rem 0.08rem;
 }
 
 .toolbar {

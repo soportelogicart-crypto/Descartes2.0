@@ -118,6 +118,18 @@ const modalTitulo = computed(() =>
   modalModo.value === 'nueva' ? 'Nueva plantilla' : 'Guardar como…'
 )
 
+/**
+ * Versión del esqueleto de código cuando es más nueva que el diseño guardado
+ * en el servidor: hasta que no se restaura, se sigue imprimiendo el antiguo.
+ */
+const esqueletoMasReciente = computed(() => {
+  const item = actual.value
+  if (!item) return null
+  const base = esqueletoPorTipo(item.tipo)
+  if (!base) return null
+  return base.version > Number(item.definicion.version ?? 1) ? base.version : null
+})
+
 function etiquetaTipo(tipo: string) {
   return TIPOS_TODOS.find((t) => t.value === tipo)?.label ?? tipo
 }
@@ -129,7 +141,7 @@ function aplicarItem(item: DocumentoPlantillaServidor) {
     ...item.definicion,
     nombre: item.nombre,
     descripcion: item.descripcion ?? item.definicion.descripcion,
-    version: item.version,
+    // `version` es la del diseño (esqueleto), no la de la fila del servidor.
     tipo: item.tipo as DocumentoPlantilla['tipo'],
   }
   dirty.value = false
@@ -531,6 +543,11 @@ function marcarDirty() {
       <p v-if="mensaje" class="msg">{{ mensaje }}</p>
       <p v-if="errorMsg" class="err">{{ errorMsg }}</p>
       <p v-if="dirty" class="aviso">Cambios sin guardar</p>
+      <p v-if="esqueletoMasReciente" class="aviso">
+        Hay un diseño base más reciente (v{{ esqueletoMasReciente }}) para este tipo. Pulse
+        «Esqueleto base» y luego «Guardar» para adoptarlo; se perderán los ajustes hechos sobre
+        esta plantilla.
+      </p>
     </div>
 
     <div class="layout">
@@ -551,7 +568,9 @@ function marcarDirty() {
             <em v-if="p.activa" class="activa">activa</em>
           </span>
           <strong>{{ p.nombre }}</strong>
-          <span class="meta">{{ p.definicion.blocks.length }} bloques · v{{ p.version }}</span>
+          <span class="meta">
+            {{ p.definicion.blocks.length }} bloques · diseño v{{ p.definicion.version ?? 1 }}
+          </span>
         </button>
         <p v-if="!cargando && itemsFiltrados.length === 0" class="vacio">
           No hay plantillas de {{ scopeMeta.titulo.toLowerCase() }} para esta empresa.

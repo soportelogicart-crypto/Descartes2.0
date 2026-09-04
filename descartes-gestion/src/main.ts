@@ -5,6 +5,7 @@ import router from './router'
 import { installGlobalErrorReporting } from './api/clientLogger'
 import { registerElectronNavigation } from './bridge/electronNavigation'
 import './style.css'
+import './assets/mantenimiento-listado.css'
 
 installGlobalErrorReporting()
 

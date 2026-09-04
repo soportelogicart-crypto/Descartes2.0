@@ -548,6 +548,7 @@ async function onUltimo() {
       <p v-if="error" class="error">{{ error }}</p>
 
       <template v-if="vista === 'grid'">
+        <div class="mantenimiento-listado">
         <div class="toolbar">
           <button type="button" class="tool-btn" @click="onListado">Listado</button>
           <button v-if="puedeCrear" type="button" class="tool-btn" :disabled="loading" @click="onNuevo">
@@ -619,6 +620,7 @@ async function onUltimo() {
           Desmarque <strong>Activo</strong> y pulse <strong>Guardar</strong> para dar de baja. Filtro
           <strong>Estado</strong> para ver activos, todos o inactivos.
         </p>
+        </div>
       </template>
 
       <template v-else>

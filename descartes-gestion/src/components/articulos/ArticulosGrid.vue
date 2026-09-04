@@ -187,99 +187,14 @@ function onRowDblClick(index: number, fila: ArticuloFila) {
   </div>
 </template>
 
+<style scoped src="../../assets/grid-mantenimiento.css"></style>
+
 <style scoped>
-.grid-wrap {
-  overflow: auto;
-  border: 1px solid #94a3b8;
-  border-radius: 4px;
-  background: #fff;
-}
-
-.grid-wrap.filter-menu-open {
-  overflow: visible;
-}
-
-.loading-banner {
-  margin: 0;
-  padding: 0.35rem 0.6rem;
-  font-size: 0.8rem;
-  color: #334155;
-  background: #f1f5f9;
-  border-bottom: 1px solid #cbd5e1;
-}
-
-.articulos-grid {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.82rem;
-}
-
-.articulos-grid th,
-.articulos-grid td {
-  border: 1px solid #cbd5e1;
-  padding: 0.12rem 0.2rem;
-  vertical-align: middle;
-}
-
-.articulos-grid th {
-  background: linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%);
-  font-weight: 600;
-  text-align: center;
-  white-space: nowrap;
-}
-
-.col-ind {
-  width: 1.5rem;
-  text-align: center;
-  color: #1e40af;
-  font-weight: 700;
-  background: #f8fafc;
-}
-
-.articulos-grid tbody tr {
-  cursor: pointer;
-}
-
-.articulos-grid tbody tr.selected {
-  background: #dbeafe;
-}
-
-.articulos-grid tbody tr.nuevo {
-  background: #fefce8;
-}
-
-.celda-vacia {
-  height: 1.6rem;
-}
-
 .celda-texto {
   display: block;
-  padding: 0.15rem 0.3rem;
+  padding: 0.05rem 0.15rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.cell-input,
-select {
-  width: 100%;
-  border: none;
-  background: transparent;
-  padding: 0.15rem 0.3rem;
-  font: inherit;
-  min-width: 0;
-}
-
-input[type='checkbox'] {
-  width: 0.95rem;
-  height: 0.95rem;
-  display: block;
-  margin: 0 auto;
-}
-
-.cell-input:focus,
-select:focus {
-  outline: 2px solid #2563eb;
-  background: #fff;
 }
 </style>

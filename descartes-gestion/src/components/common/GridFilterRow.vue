@@ -151,106 +151,10 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
   </tr>
 </template>
 
+<style scoped src="../../assets/grid-mantenimiento.css"></style>
+
 <style scoped>
-.col-ind {
-  width: 1.5rem;
-}
-
 .filter-row th {
-  background: #e8eef5;
-  padding: 0.15rem 0.2rem;
-  font-weight: 400;
-  overflow: visible;
   vertical-align: middle;
-}
-
-.filter-cell {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 0.15rem;
-  overflow: visible;
-}
-
-.filter-cell.abierta {
-  z-index: 20;
-}
-
-.filter-inputs {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  min-width: 0;
-}
-
-.filter-input {
-  width: 100%;
-  box-sizing: border-box;
-  border: 1px solid #94a3b8;
-  border-radius: 2px;
-  background: #fff;
-  padding: 0.12rem 0.25rem;
-  font: inherit;
-  font-size: 0.78rem;
-  min-height: 1.45rem;
-}
-
-.filter-input:disabled {
-  background: #e2e8f0;
-  color: #94a3b8;
-}
-
-.filter-btn {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.45rem;
-  height: 1.45rem;
-  padding: 0;
-  border: 1px solid #ca8a04;
-  border-radius: 2px;
-  background: linear-gradient(180deg, #fde047 0%, #eab308 100%);
-  color: #713f12;
-  cursor: pointer;
-}
-
-.filter-btn.active {
-  box-shadow: inset 0 0 0 1px #a16207;
-}
-
-.filter-menu {
-  position: absolute;
-  top: calc(100% + 2px);
-  left: 0;
-  z-index: 30;
-  min-width: 11rem;
-  max-height: 16rem;
-  overflow: auto;
-  background: #fff;
-  border: 1px solid #64748b;
-  box-shadow: 2px 2px 6px rgba(15, 23, 42, 0.18);
-}
-
-.filter-menu-item {
-  display: block;
-  width: 100%;
-  text-align: left;
-  border: 0;
-  background: transparent;
-  padding: 0.28rem 0.55rem;
-  font-size: 0.78rem;
-  cursor: pointer;
-  color: #0f172a;
-}
-
-.filter-menu-item:hover {
-  background: #e0f2fe;
-}
-
-.filter-menu-item.selected {
-  background: #fde047;
-  font-weight: 600;
 }
 </style>

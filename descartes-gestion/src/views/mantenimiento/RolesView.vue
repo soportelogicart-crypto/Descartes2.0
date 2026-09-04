@@ -2,7 +2,6 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import {
   clonarFilaGrid,
-  esGridEstrecho,
   filaVaciaDesdeColumnas,
   getGridColumns,
   payloadFilaGrid,
@@ -27,7 +26,6 @@ const ENTIDAD = 'roles'
 const MODULO = 'roles'
 const FILTER_KEYS = ['codigo', 'nombre']
 const columns = getGridColumns(ENTIDAD)
-const esEstrecho = esGridEstrecho(columns)
 
 function rolVacio(): Record<string, unknown> {
   return { codigo: '', nombre: '', activo: true }
@@ -316,7 +314,8 @@ async function onUltimo() {
       <p v-if="error" class="error">{{ error }}</p>
 
       <template v-if="vista === 'grid'">
-        <div class="toolbar" :class="{ 'toolbar--half': esEstrecho }">
+        <div class="mantenimiento-listado">
+        <div class="toolbar">
           <button type="button" class="tool-btn" @click="onListado">Listado</button>
           <button v-if="puedeCrear" type="button" class="tool-btn" :disabled="loading" @click="onNuevo">
             Nuevo
@@ -377,6 +376,7 @@ async function onUltimo() {
           Filtra por <strong>Codigo</strong> y <strong>Nombre</strong> con el embudo. Doble clic o
           <strong>Ficha</strong> abre el detalle.
         </p>
+        </div>
       </template>
 
       <template v-else>
@@ -525,10 +525,6 @@ async function onUltimo() {
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   margin-bottom: 0.5rem;
-}
-
-.toolbar--half {
-  width: 50%;
 }
 
 .ficha-toolbar {

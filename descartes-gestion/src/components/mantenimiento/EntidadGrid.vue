@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { esGridEstrecho, type GridColumn, type GridFila } from '@/config/entidad-grid-columns'
+import { type GridColumn, type GridFila } from '@/config/entidad-grid-columns'
 import {
   FILTRO_OPERADORES,
   operadorNecesitaValor,
@@ -43,7 +43,6 @@ const filterInputRefs = ref<Record<string, HTMLInputElement | null>>({})
 const filterKeySet = computed(() => new Set(props.filterableKeys ?? []))
 const dateKeySet = computed(() => new Set(props.dateKeys ?? []))
 const muestraFiltros = computed(() => (props.filterableKeys?.length ?? 0) > 0)
-const esEstrecho = computed(() => esGridEstrecho(props.columns))
 
 function setFilterInputRef(key: string, el: unknown) {
   filterInputRefs.value[key] = (el as HTMLInputElement | null) ?? null
@@ -161,7 +160,7 @@ onBeforeUnmount(() => {
 <template>
   <div
     class="grid-wrap"
-    :class="{ 'filter-menu-open': !!menuAbierto, 'grid-wrap--half': esEstrecho }"
+    :class="{ 'filter-menu-open': !!menuAbierto }"
   >
     <p v-if="loading" class="loading-banner">Cargando...</p>
     <table class="entidad-grid">
@@ -298,210 +297,20 @@ onBeforeUnmount(() => {
   </div>
 </template>
 
+<style scoped src="../../assets/grid-mantenimiento.css"></style>
+
 <style scoped>
-.grid-wrap {
-  overflow: auto;
-  border: 1px solid #94a3b8;
-  border-radius: 4px;
-  background: #fff;
+.grid-wrap .entidad-grid td {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.grid-wrap--half {
-  width: 50%;
-}
-
-/* Al abrir el embudo, el menu puede sobresalir del grid */
-.grid-wrap.filter-menu-open {
-  overflow: visible;
-}
-
-.loading-banner {
-  margin: 0;
-  padding: 0.35rem 0.6rem;
-  font-size: 0.8rem;
-  color: #334155;
-  background: #f1f5f9;
-  border-bottom: 1px solid #cbd5e1;
-}
-
-.entidad-grid {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.82rem;
-}
-
-.entidad-grid th,
-.entidad-grid td {
-  border: 1px solid #cbd5e1;
-  padding: 0.12rem 0.2rem;
-  vertical-align: middle;
-}
-
-.entidad-grid th {
-  background: linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%);
-  font-weight: 600;
-  text-align: center;
-  white-space: nowrap;
-}
-
-.filter-row th {
-  background: #e8eef5;
-  padding: 0.15rem 0.2rem;
-  font-weight: 400;
-  overflow: visible;
-}
-
-.filter-cell {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 0.15rem;
-  overflow: visible;
-}
-
-.filter-cell.abierta {
-  z-index: 20;
-}
-
-.filter-inputs {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  min-width: 0;
-}
-
-.filter-input {
-  width: 100%;
-  box-sizing: border-box;
-  border: 1px solid #94a3b8;
-  border-radius: 2px;
-  background: #fff;
-  padding: 0.12rem 0.25rem;
-  font: inherit;
-  min-height: 1.45rem;
-}
-
-.filter-input:disabled {
-  background: #e2e8f0;
-  color: #94a3b8;
-}
-
-.filter-btn {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.45rem;
-  height: 1.45rem;
-  padding: 0;
-  border: 1px solid #ca8a04;
-  border-radius: 2px;
-  background: linear-gradient(180deg, #fde047 0%, #eab308 100%);
-  color: #713f12;
-  cursor: pointer;
-}
-
-.filter-btn.active {
-  box-shadow: inset 0 0 0 1px #a16207;
-}
-
-.filter-btn:hover {
-  filter: brightness(1.05);
-}
-
-.filter-menu {
-  position: absolute;
-  top: calc(100% + 2px);
-  left: 0;
-  z-index: 30;
-  min-width: 11rem;
-  max-height: 16rem;
-  overflow: auto;
-  background: #fff;
-  border: 1px solid #64748b;
-  box-shadow: 2px 2px 6px rgba(15, 23, 42, 0.18);
-}
-
-.filter-menu-item {
-  display: block;
-  width: 100%;
-  text-align: left;
-  border: 0;
-  background: transparent;
-  padding: 0.28rem 0.55rem;
-  font-size: 0.78rem;
-  cursor: pointer;
-  color: #0f172a;
-}
-
-.filter-menu-item:hover {
-  background: #e0f2fe;
-}
-
-.filter-menu-item.selected {
-  background: #fde047;
-  font-weight: 600;
-}
-
-.col-ind {
-  width: 1.5rem;
-  text-align: center;
-  color: #1e40af;
-  font-weight: 700;
-  background: #f8fafc;
-}
-
-.entidad-grid tbody tr {
-  cursor: pointer;
-}
-
-.entidad-grid tbody tr.selected {
-  background: #dbeafe;
-}
-
-.entidad-grid tbody tr.nuevo {
-  background: #fefce8;
-}
-
-.entidad-grid tbody tr:nth-child(even):not(.selected):not(.nuevo) {
-  background: #f8fafc;
-}
-
-.celda-vacia {
-  height: 1.6rem;
-}
-
-.cell-input,
-select {
-  width: 100%;
-  border: none;
-  background: transparent;
-  padding: 0.15rem 0.3rem;
-  font: inherit;
-  min-width: 0;
-}
-
-input[type='checkbox'] {
-  width: 0.95rem;
-  height: 0.95rem;
-  display: block;
-  margin: 0 auto;
-}
-
-input[type='checkbox']:disabled {
+.grid-wrap input[type='checkbox']:disabled {
   opacity: 0.85;
   cursor: default;
 }
 
-.cell-input:focus,
-select:focus {
-  outline: 2px solid #2563eb;
-  background: #fff;
-}
-
-.cell-input:read-only,
-select:disabled {
+.grid-wrap td select:disabled {
   cursor: default;
 }
 </style>

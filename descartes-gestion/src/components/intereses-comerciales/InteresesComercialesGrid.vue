@@ -80,65 +80,10 @@ function onRowDblClick(index: number, fila: InteresComercialFila) {
   </div>
 </template>
 
+<style scoped src="../../assets/grid-mantenimiento.css"></style>
+
 <style scoped>
-.grid-wrap {
-  width: 50%;
-  overflow: auto;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  background: #fff;
-}
-
-.grid-wrap.filter-menu-open {
-  overflow: visible;
-}
-
-.loading {
-  margin: 0;
-  padding: 0.75rem;
-  color: #64748b;
-}
-
-.intereses-grid {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.82rem;
-}
-
-.intereses-grid th,
-.intereses-grid td {
-  border-bottom: 1px solid #e2e8f0;
-  padding: 0.28rem 0.4rem;
-  text-align: left;
-}
-
-.intereses-grid th {
-  background: #f1f5f9;
-  font-weight: 600;
-}
-
-.col-ind {
-  width: 1.5rem;
-  text-align: center;
-}
-
 .col-codigo {
   width: 4rem;
-}
-
-.intereses-grid tbody tr {
-  cursor: pointer;
-}
-
-.intereses-grid tbody tr.selected {
-  background: #dbeafe;
-}
-
-.intereses-grid tbody tr.nuevo {
-  background: #f8fafc;
-}
-
-.celda-vacia {
-  color: transparent;
 }
 </style>

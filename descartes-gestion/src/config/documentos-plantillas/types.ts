@@ -42,7 +42,8 @@ export type PlantillaBloque = {
   /** Campos de datos enlazados (p.ej. cliente.nombre, articulo.ean). */
   bind?: string[]
   /** Columnas de tabla cuando type = tabla-lineas. */
-  columns?: { key: string; label: string; width: number }[]
+  /** Columnas de `tabla-lineas`: `width` en % del ancho del bloque. */
+  columns?: { key: string; label: string; width: number; align?: 'left' | 'center' | 'right' }[]
   props?: Record<string, unknown>
 }
 

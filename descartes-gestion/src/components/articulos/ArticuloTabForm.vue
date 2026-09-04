@@ -167,6 +167,37 @@ function sectionClass(section: ArticuloSection) {
   return `cols-${section.columns ?? 4}`
 }
 
+function gridClass(section: ArticuloSection) {
+  return [sectionClass(section), section.flow === 'column' ? 'flow-column' : '']
+}
+
+function anchoInput(field: ArticuloField, section: ArticuloSection) {
+  if (fieldLayout(field) !== 'inline') return undefined
+  return field.inputWidth ?? section.inputWidth
+}
+
+/**
+ * El ancho se aplica como pista de la rejilla del campo, no como max-width del
+ * control: asi todos los campos de la seccion arrancan y terminan igual aunque
+ * la etiqueta sea mas larga. '100%' significa ocupar la celda entera.
+ */
+function fieldStyle(field: ArticuloField, section: ArticuloSection) {
+  const ancho = anchoInput(field, section)
+  if (!ancho) return undefined
+  return { '--input-col': ancho === '100%' ? '1fr' : `minmax(0, ${ancho})` }
+}
+
+function gridStyle(section: ArticuloSection) {
+  const estilo: Record<string, string> = {}
+  if (section.flow === 'column') {
+    estilo.gridTemplateRows = `repeat(${section.rows ?? section.fields.length}, auto)`
+  }
+  if (section.labelWidth) {
+    estilo['--label-col'] = `minmax(0, ${section.labelWidth})`
+  }
+  return Object.keys(estilo).length > 0 ? estilo : undefined
+}
+
 function fieldLayout(field: ArticuloField) {
   if (field.layout) return field.layout
   if (field.type === 'checkbox') return 'checkbox'
@@ -200,7 +231,7 @@ function sectionZoneClass(section: ArticuloSection) {
           {{ header }}
         </span>
       </div>
-      <div class="section-grid" :class="sectionClass(section)">
+      <div class="section-grid" :class="gridClass(section)" :style="gridStyle(section)">
         <div
           v-for="field in section.fields"
           :key="field.key"
@@ -211,7 +242,9 @@ function sectionZoneClass(section: ArticuloSection) {
             field.type === 'number' ? 'field-number' : '',
             section.hideFieldLabels ? 'field-no-label' : '',
             isInvalid(field) ? 'field-invalid' : '',
+            anchoInput(field, section) ? 'field-ancho-fijo' : '',
           ]"
+          :style="fieldStyle(field, section)"
         >
           <span v-if="!section.hideFieldLabels" class="field-label">
             {{ field.label }}<em v-if="field.required"> *</em>
@@ -369,6 +402,11 @@ function sectionZoneClass(section: ArticuloSection) {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+/* Rellena cada columna de arriba abajo (grid-template-rows va en el estilo inline). */
+.section-grid.flow-column {
+  grid-auto-flow: column;
+}
+
 .field {
   min-width: 0;
 }
@@ -400,7 +438,8 @@ function sectionZoneClass(section: ArticuloSection) {
 
 .field-inline {
   display: grid;
-  grid-template-columns: minmax(5.2rem, auto) 1fr;
+  /* --label-col y --input-col fijan las pistas para que todos los campos de la seccion coincidan. */
+  grid-template-columns: var(--label-col, minmax(5.2rem, auto)) var(--input-col, 1fr);
   gap: 0.35rem;
   align-items: center;
 }
@@ -449,6 +488,19 @@ function sectionZoneClass(section: ArticuloSection) {
 
 .field-number input {
   max-width: 7rem;
+}
+
+/* Con ancho de pista manda la rejilla, no el tope por tipo de campo. */
+.field.field-ancho-fijo input,
+.field.field-ancho-fijo select {
+  max-width: none;
+  width: 100%;
+}
+
+/* El selector de fecha necesita hueco para dd/mm/aaaa mas el icono del calendario. */
+.field input[type='date'] {
+  max-width: 11rem;
+  padding-right: 0.2rem;
 }
 
 .field-no-label.field-number input {

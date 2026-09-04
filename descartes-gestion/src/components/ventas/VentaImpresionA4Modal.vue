@@ -3,6 +3,8 @@ import { computed, nextTick, ref, watch } from 'vue'
 import DocumentoPlantillaPreview from '@/components/documentos/DocumentoPlantillaPreview.vue'
 import type { DocumentoPlantilla } from '@/config/documentos-plantillas'
 import type { DocumentoPreviewDatos } from '@/config/documentos-plantillas/preview-datos'
+// El scoped CSS no viaja en el clon del folio: se inyecta en el HTML a imprimir.
+import documentoA4Css from '@/assets/documento-a4.css?raw'
 
 const props = defineProps<{
   open: boolean
@@ -63,9 +65,11 @@ async function capturarHtmlFolio(): Promise<string> {
   }
   body { font-family: "Segoe UI", Arial, sans-serif; color: #0f172a; }
   .folio { position: relative; width: 210mm; height: 297mm; overflow: hidden; box-sizing: border-box; background: #fff; }
+  .page { position: relative; background: #fff; }
   .block { position: absolute; box-sizing: border-box; overflow: hidden; }
   table { border-collapse: collapse; width: 100%; }
   img { max-width: 100%; }
+${documentoA4Css}
 </style></head><body>${clone.outerHTML}</body></html>`
 }
 

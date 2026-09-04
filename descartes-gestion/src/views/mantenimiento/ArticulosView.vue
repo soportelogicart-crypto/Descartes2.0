@@ -674,6 +674,7 @@ const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
 
       <!-- GRID (mismo patron Familias) -->
       <template v-if="vista === 'grid'">
+        <div class="mantenimiento-listado">
         <div class="toolbar">
           <button type="button" class="tool-btn" @click="onListado">Listado</button>
           <button
@@ -750,6 +751,7 @@ const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
           <strong>Escanear</strong> código o EAN abre la ficha. También puede filtrar con el embudo (Intro en
           código/EAN exacto abre ficha). Doble clic en una fila o en <strong>*</strong> para crear.
         </p>
+        </div>
       </template>
 
       <!-- FICHA detallada (legacy) -->

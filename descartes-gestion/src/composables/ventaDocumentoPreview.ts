@@ -32,6 +32,8 @@ export function ventaAPreviewDatos(
     literalFacturaContado?: string
     literalPresupuesto?: string
     literalVale?: string
+    /** Empresas.SW_IVA: los precios de línea ya llevan IVA. */
+    preciosIvaIncluido?: boolean
   } = {}
 ): DocumentoPreviewDatos {
   const ivas = (venta.importesIva ?? []).map((x) => ({
@@ -97,16 +99,25 @@ export function ventaAPreviewDatos(
         const art = String(l.articulo ?? '').trim()
         return art !== '' && art.toUpperCase() !== 'NO'
       })
-      .map((l) => ({
-        articulo: String(l.articulo ?? ''),
-        descripcion: String(l.descripcion ?? ''),
-        unidades: Number(l.cantidad) || 0,
-        precio: Number(l.precio) || 0,
-        dto: Number(l.pjeDto) || 0,
-        pjeIva: Number(l.pjeIva) || 0,
-        importe: Number(l.importe) || 0,
-        pvp: Number(l.precio) || 0,
-      })),
+      .map((l) => {
+        const precio = Number(l.precio) || 0
+        const pje = Number(l.pjeIva) || 0
+        const factor = 1 + pje / 100
+        // P.V.P. es la tarifa con IVA y "precio sin IVA" la base, como en el
+        // formato legacy; según SW_IVA hay que quitar o añadir la cuota.
+        const conIva = extras.preciosIvaIncluido || pje <= 0
+        return {
+          articulo: String(l.articulo ?? ''),
+          descripcion: String(l.descripcion ?? ''),
+          unidades: Number(l.cantidad) || 0,
+          precio,
+          precioSinIva: conIva ? redondear2(precio / factor) : precio,
+          dto: Number(l.pjeDto) || 0,
+          pjeIva: pje,
+          importe: Number(l.importe) || 0,
+          pvp: conIva ? precio : redondear2(precio * factor),
+        }
+      }),
     totales: {
       base: redondear2(base),
       ivas,

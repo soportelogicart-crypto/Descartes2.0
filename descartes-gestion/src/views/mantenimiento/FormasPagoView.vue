@@ -2,7 +2,6 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   clonarFilaGrid,
-  esGridEstrecho,
   filaVaciaDesdeColumnas,
   getGridColumns,
   payloadFilaGrid,
@@ -35,7 +34,6 @@ const ENTIDAD = 'formas-pago'
 const MODULO = 'formas-pago'
 const FILTER_KEYS = ['codigo', 'descripcion']
 const columns = getGridColumns(ENTIDAD)
-const esEstrecho = esGridEstrecho(columns)
 
 const { puede } = usePermisos()
 const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(
@@ -391,7 +389,8 @@ async function onUltimo() {
       <p v-if="error" class="error">{{ error }}</p>
 
       <template v-if="vista === 'grid'">
-        <div class="toolbar" :class="{ 'toolbar--half': esEstrecho }">
+        <div class="mantenimiento-listado">
+        <div class="toolbar">
           <button type="button" class="tool-btn" @click="onListado">Listado</button>
           <button v-if="puedeCrear" type="button" class="tool-btn" :disabled="loading" @click="onNuevo">
             Nuevo
@@ -460,6 +459,7 @@ async function onUltimo() {
           Filtra por <strong>Codigo</strong> y <strong>Descripcion</strong>. Doble clic o
           <strong>Ficha</strong> abre el detalle.
         </p>
+        </div>
       </template>
 
       <template v-else>
@@ -637,10 +637,6 @@ async function onUltimo() {
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   margin-bottom: 0.5rem;
-}
-
-.toolbar--half {
-  width: 50%;
 }
 
 .ficha-toolbar {

@@ -161,6 +161,62 @@ function barcodeHtml(b: PlantillaBloque): string {
   const code = str(path) || str('documento.codigoBarras') || str('articulo.ean')
   return svgCodigoBarrasBloque(code, b)
 }
+
+/** Etiqueta legacy de cada dato del documento en el bloque `bloque-meta`. */
+const META_ETIQUETAS: Record<string, string> = {
+  'documento.numero': 'Factura',
+  'documento.serie': 'Serie',
+  'documento.albaran': 'Albarán',
+  'documento.fecha': 'Fecha',
+  'documento.suPedido': 'Su Pedido',
+  'documento.transportista': 'Transportista',
+  'documento.portes': 'Portes',
+  'documento.atendidoPor': 'Atendido por',
+  'documento.terminalSesion': 'Terminal-Sesión',
+  'documento.fechaEntrega': 'Fecha entrega',
+  'documento.observaciones': 'Observaciones',
+  'documento.pagina': 'Página',
+}
+
+const META_FILAS_DEFECTO = [
+  'documento.fecha',
+  'documento.suPedido',
+  'documento.albaran',
+  'documento.atendidoPor',
+  'documento.terminalSesion',
+]
+
+/**
+ * Una fila por cada dato enlazado, en el orden del `bind`. Como en el formato
+ * legacy la etiqueta se imprime aunque el dato venga vacío; con
+ * `props.ocultarVacias` se omiten las filas sin valor.
+ */
+function metaFilas(b: PlantillaBloque): { label: string; valor: string }[] {
+  const paths = b.bind && b.bind.length > 0 ? b.bind : META_FILAS_DEFECTO
+  const ocultarVacias = b.props?.ocultarVacias === true
+  return paths
+    .map((path) => ({ label: META_ETIQUETAS[path] ?? path, valor: str(path) }))
+    .filter((fila) => !ocultarVacias || fila.valor !== '')
+}
+
+type ColumnaLinea = NonNullable<PlantillaBloque['columns']>[number]
+
+function colStyle(c: ColumnaLinea): Record<string, string> {
+  return { width: `${c.width}%`, textAlign: c.align ?? 'left' }
+}
+
+function tieneBind(b: PlantillaBloque, path: string): boolean {
+  return (b.bind ?? []).includes(path)
+}
+
+function rotuloQr(b: PlantillaBloque): string {
+  return String(b.props?.rotulo ?? 'VERI*FACTU')
+}
+
+function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
+  const color = String(b.props?.color ?? '')
+  return color ? { '--sep-color': color } : undefined
+}
 </script>
 
 <template>
@@ -196,6 +252,7 @@ function barcodeHtml(b: PlantillaBloque): string {
               <span>{{ str('empresa.cp') }} {{ str('empresa.poblacion') }}</span>
               <span>{{ str('empresa.provincia') }}</span>
               <span>Tel. {{ str('empresa.telefono') }}</span>
+              <span v-if="tieneBind(b, 'empresa.fax')">Fax {{ str('empresa.fax') }}</span>
               <span v-if="str('empresa.email')">{{ str('empresa.email') }}</span>
             </div>
           </template>
@@ -204,7 +261,7 @@ function barcodeHtml(b: PlantillaBloque): string {
           <template v-else-if="b.type === 'titulo-documento'">
             <div class="titulo" :class="{ 'fs-mm': !!textStyle(b).fontSize }" :style="textStyle(b)">
               <strong>{{ b.label || 'DOCUMENTO' }}</strong>
-              <span>{{ str('documento.numero') }}</span>
+              <span v-if="tieneBind(b, 'documento.numero')">{{ str('documento.numero') }}</span>
               <em v-if="etiquetaModo(b)">{{ etiquetaModo(b) }}</em>
             </div>
           </template>
@@ -212,24 +269,31 @@ function barcodeHtml(b: PlantillaBloque): string {
           <!-- Meta -->
           <template v-else-if="b.type === 'bloque-meta'">
             <div class="meta">
-              <div><span>Fecha</span> {{ str('documento.fecha') }}</div>
-              <div v-if="str('documento.suPedido')"><span>Su Pedido</span> {{ str('documento.suPedido') }}</div>
-              <div v-if="str('documento.albaran')"><span>Albarán</span> {{ str('documento.albaran') }}</div>
-              <div v-if="str('documento.atendidoPor')"><span>Atendido por</span> {{ str('documento.atendidoPor') }}</div>
-              <div v-if="str('documento.terminalSesion')"><span>Terminal-Sesión</span> {{ str('documento.terminalSesion') }}</div>
+              <div v-for="(fila, i) in metaFilas(b)" :key="i">
+                <span>{{ fila.label }}</span> {{ fila.valor }}
+              </div>
             </div>
           </template>
 
           <!-- Cliente -->
           <template v-else-if="b.type === 'bloque-cliente'">
             <div class="cliente">
-              <div class="cli-cod">Cliente {{ str('cliente.codigo') }}</div>
+              <div class="cli-cod">
+                <span class="chip">Cliente</span> {{ str('cliente.codigo') }}
+              </div>
               <strong>{{ str('cliente.nombre') }}</strong>
               <span>{{ str('cliente.direccion') }}</span>
               <span>{{ str('cliente.cp') }} {{ str('cliente.poblacion') }}</span>
-              <span>{{ str('cliente.provincia') }} · {{ str('cliente.pais') }}</span>
-              <span>CIF.{{ str('cliente.cif') }}</span>
+              <span>{{ str('cliente.provincia') }}</span>
+              <span v-if="str('cliente.pais')">{{ str('cliente.pais') }}</span>
+              <span v-if="tieneBind(b, 'cliente.telefono')">Tel. {{ str('cliente.telefono') }}</span>
+              <span>CIF {{ str('cliente.cif') }}</span>
             </div>
+          </template>
+
+          <!-- Línea de separación -->
+          <template v-else-if="b.type === 'separador'">
+            <div class="sep-line" :style="sepStyle(b)" />
           </template>
 
           <!-- Texto fijo -->
@@ -245,11 +309,17 @@ function barcodeHtml(b: PlantillaBloque): string {
               class="campo"
               :class="{
                 'campo-right': b.props?.align === 'right',
+                'campo-inline': b.props?.inline === true,
                 'fs-mm': !!textStyle(b).fontSize,
               }"
               :style="textStyle(b)"
             >
-              <span v-if="b.label" class="campo-label">{{ b.label }}</span>
+              <span
+                v-if="b.label"
+                class="campo-label"
+                :class="{ 'campo-label-plana': b.props?.etiquetaPlana === true }"
+                >{{ b.label }}</span
+              >
               <span v-for="path in b.bind ?? []" :key="path">{{
                 b.props?.format === 'importe' ? formatImporte(Number(str(path) || 0)) : str(path)
               }}</span>
@@ -266,7 +336,7 @@ function barcodeHtml(b: PlantillaBloque): string {
             <table class="lineas">
               <thead>
                 <tr>
-                  <th v-for="c in columnasLineas" :key="c.key" :style="{ width: c.width + '%' }">
+                  <th v-for="c in columnasLineas" :key="c.key" :style="colStyle(c)">
                     {{ c.label }}
                   </th>
                 </tr>
@@ -277,9 +347,14 @@ function barcodeHtml(b: PlantillaBloque): string {
                     <td :colspan="columnasLineas.length">{{ lin.albaranCabecera }}</td>
                   </tr>
                   <tr v-else>
-                    <td v-for="c in columnasLineas" :key="c.key">
+                    <td v-for="c in columnasLineas" :key="c.key" :style="colStyle(c)">
+                      <!-- Unidades, dto e IVA: dos decimales como el formato legacy y en blanco si son 0. -->
                       <template v-if="c.key === 'unidades' || c.key === 'dto' || c.key === 'pjeIva'">
-                        {{ lin[c.key as keyof typeof lin] || '' }}
+                        {{
+                          lin[c.key as keyof typeof lin]
+                            ? formatImporte(Number(lin[c.key as keyof typeof lin]))
+                            : ''
+                        }}
                       </template>
                       <template v-else-if="c.key === 'precioSinIva' || c.key === 'precio' || c.key === 'importe' || c.key === 'pvp'">
                         {{ formatImporte(Number(lin[c.key as keyof typeof lin] ?? 0)) }}
@@ -305,7 +380,7 @@ function barcodeHtml(b: PlantillaBloque): string {
                 <strong>{{ formatImporte(datos.totales.base) }}</strong>
               </div>
               <div v-for="(iva, i) in datos.totales.ivas" :key="i" class="tot-row">
-                <span>IVA {{ iva.pje }}%</span>
+                <span>IVA {{ formatImporte(iva.pje) }}%</span>
                 <span>{{ formatImporte(iva.base) }}</span>
                 <strong>{{ formatImporte(iva.cuota) }}</strong>
               </div>
@@ -341,7 +416,7 @@ function barcodeHtml(b: PlantillaBloque): string {
           <template v-else-if="b.type === 'qr-verifactu'">
             <div class="qr">
               <img :src="qrSvgUrl(str('verifactu.qrPayload'))" alt="QR Verifactu" />
-              <span>Verifactu</span>
+              <span>{{ rotuloQr(b) }}</span>
             </div>
           </template>
 
@@ -408,183 +483,14 @@ function barcodeHtml(b: PlantillaBloque): string {
   color: #0f172a;
 }
 
-.block {
-  position: absolute;
-  box-sizing: border-box;
-  overflow: hidden;
-  padding: 0.08rem 0.12rem;
-  font-size: 0.65rem;
-  line-height: 1.25;
-}
-
-.empresa,
-.cliente,
-.meta,
-.campo,
-.banco,
-.totales,
-.venc {
-  display: flex;
-  flex-direction: column;
-  gap: 0.05rem;
-  height: 100%;
-}
-
-.campo-right {
-  align-items: flex-end;
-  text-align: right;
-}
-
-.empresa strong,
-.cliente strong,
-.titulo strong {
-  font-size: 0.72rem;
-}
-
-.titulo {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-}
-
-.titulo em {
-  font-style: normal;
-  font-weight: 700;
-  color: #1d4ed8;
-  font-size: 0.68rem;
-}
-
-.meta span,
-.campo-label,
-.cli-cod {
-  color: #64748b;
-  font-size: 0.58rem;
-}
-
-.fs-mm,
-.fs-mm strong,
-.fs-mm span,
-.fs-mm em,
-.fs-mm .campo-label {
-  font-size: inherit;
-}
-
-.meta div {
-  display: flex;
-  gap: 0.35rem;
-}
-
-.emblema {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  display: block;
-}
-
-.barcode {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-}
-
+/* El SVG del código de barras llega por v-html: necesita :deep en la preview. */
 .barcode :deep(svg) {
   display: block;
   width: 100%;
   height: 100%;
   max-height: 100%;
 }
-
-.lineas {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.55rem;
-}
-
-.lineas th {
-  text-align: left;
-  border-bottom: 1px solid #94a3b8;
-  padding: 0.05rem 0.1rem;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.lineas td {
-  padding: 0.05rem 0.1rem;
-  vertical-align: top;
-  border-bottom: 1px solid #e2e8f0;
-}
-
-.lineas .cab-alb td {
-  font-weight: 600;
-  background: #f8fafc;
-  border-bottom: 0;
-  padding-top: 0.25rem;
-}
-
-.lineas .nota td {
-  color: #64748b;
-  font-style: italic;
-  border-bottom: 0;
-}
-
-.tot-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.35rem;
-}
-
-.tot-row.total {
-  margin-top: 0.2rem;
-  padding-top: 0.15rem;
-  border-top: 1px solid #94a3b8;
-  font-size: 0.68rem;
-}
-
-.venc-h {
-  font-weight: 600;
-  margin-bottom: 0.15rem;
-}
-
-.qr {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.15rem;
-  height: 100%;
-}
-
-.qr img {
-  width: 85%;
-  height: auto;
-  max-height: 78%;
-  object-fit: contain;
-}
-
-.qr span {
-  font-size: 0.55rem;
-  color: #6d28d9;
-  font-weight: 600;
-}
-
-.pie {
-  font-size: 0.58rem;
-  color: #334155;
-  display: flex;
-  align-items: center;
-  height: 100%;
-  border-top: 1px solid #e2e8f0;
-}
-
-.muted,
-.fallback {
-  color: #94a3b8;
-}
-
-.banco {
-  font-size: 0.58rem;
-}
 </style>
+
+<!-- Estilos del contenido del documento: compartidos con el HTML de impresión. -->
+<style scoped src="../../assets/documento-a4.css"></style>

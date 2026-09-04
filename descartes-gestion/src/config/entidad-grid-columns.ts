@@ -148,11 +148,6 @@ export function getGridColumns(entidad: string): GridColumn[] {
   return entidadGridColumns[entidad] ?? []
 }
 
-/** Rejillas compactas (2–3 columnas): toolbar y grid al 50% de ancho. */
-export function esGridEstrecho(columns: readonly unknown[]): boolean {
-  return columns.length >= 2 && columns.length <= 3
-}
-
 export function filaVaciaDesdeColumnas(columns: GridColumn[]): GridFila {
   const fila: GridFila = { _nuevo: true, _dirty: true, activo: true }
   for (const col of columns) {

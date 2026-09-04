@@ -354,6 +354,7 @@ async function onUltimo() {
       <p v-if="error" class="error">{{ error }}</p>
 
       <template v-if="vista === 'grid'">
+        <div class="mantenimiento-listado">
         <div class="toolbar">
           <button type="button" class="tool-btn" @click="onListado">
             <ToolIcon name="listado" />
@@ -408,6 +409,7 @@ async function onUltimo() {
         <p class="hint">
           Filtra columnas con el embudo. Doble clic o <strong>Ficha</strong> abre el detalle.
         </p>
+        </div>
       </template>
 
       <template v-else>

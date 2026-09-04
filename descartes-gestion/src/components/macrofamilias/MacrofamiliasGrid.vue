@@ -80,76 +80,14 @@ function onRowDblClick(index: number, fila: MacrofamiliaFila) {
   </div>
 </template>
 
+<style scoped src="../../assets/grid-mantenimiento.css"></style>
+
 <style scoped>
-.grid-wrap {
-  width: 50%;
-  overflow: auto;
-  border: 1px solid #94a3b8;
-  border-radius: 4px;
-  background: #fff;
-}
-
-.grid-wrap.filter-menu-open {
-  overflow: visible;
-}
-
-.loading {
-  padding: 1rem;
-  margin: 0;
-}
-
-.macro-grid {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.85rem;
-}
-
-.macro-grid th,
-.macro-grid td {
-  border: 1px solid #cbd5e1;
-  padding: 0.2rem 0.4rem;
-  vertical-align: middle;
-}
-
-.macro-grid th {
-  background: linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%);
-  font-weight: 600;
-  text-align: center;
-}
-
-.col-ind {
-  width: 1.5rem;
-  text-align: center;
-  color: #1e40af;
-  font-weight: 700;
-  background: #f8fafc;
-}
-
 .col-codigo {
   width: 6rem;
 }
 
 .col-descripcion {
   min-width: 18rem;
-}
-
-.macro-grid tbody tr {
-  cursor: pointer;
-}
-
-.macro-grid tbody tr.selected {
-  background: #dbeafe;
-}
-
-.macro-grid tbody tr.nuevo {
-  background: #fefce8;
-}
-
-.macro-grid tbody tr:nth-child(even):not(.selected):not(.nuevo) {
-  background: #f8fafc;
-}
-
-.celda-vacia {
-  height: 1.7rem;
 }
 </style>

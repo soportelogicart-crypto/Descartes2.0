@@ -354,7 +354,8 @@ async function onUltimo() {
       <p v-if="error" class="error">{{ error }}</p>
 
       <template v-if="vista === 'grid'">
-        <div class="toolbar toolbar--half">
+        <div class="mantenimiento-listado">
+        <div class="toolbar">
           <button type="button" class="tool-btn" @click="onListado">
             <ToolIcon name="listado" />
             <span>Listado</span>
@@ -396,7 +397,6 @@ async function onUltimo() {
         />
 
         <ListPagination
-          class="pager--half"
           :page="page"
           :page-size="pageSize"
           :total="total"
@@ -409,6 +409,7 @@ async function onUltimo() {
           Filtra por <strong>Codigo</strong> y <strong>Descripcion</strong> con el embudo. Doble clic o
           <strong>Ficha</strong> abre el detalle.
         </p>
+        </div>
       </template>
 
       <template v-else>
@@ -564,16 +565,6 @@ async function onUltimo() {
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   margin-bottom: 0.5rem;
-}
-
-.toolbar--half {
-  width: 50%;
-  box-sizing: border-box;
-}
-
-.pager--half {
-  width: 50%;
-  box-sizing: border-box;
 }
 
 .ficha-toolbar {

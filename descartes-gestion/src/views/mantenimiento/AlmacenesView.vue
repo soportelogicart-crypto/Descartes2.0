@@ -442,6 +442,7 @@ async function onUltimo() {
       <p v-if="error" class="flash flash-error" role="alert">{{ error }}</p>
 
       <template v-if="vista === 'grid'">
+        <div class="mantenimiento-listado">
         <div class="toolbar">
           <button type="button" class="tool-btn" @click="onListado">
             <ToolIcon name="listado" />
@@ -525,6 +526,7 @@ async function onUltimo() {
           Use <strong>Nuevo</strong> para el formulario de alta. Doble clic o <strong>Ficha</strong>
           abre el detalle. En rejilla solo se guardan almacenes existentes.
         </p>
+        </div>
       </template>
 
       <template v-else>

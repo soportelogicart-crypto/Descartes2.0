@@ -1,0 +1,258 @@
+/**
+ * Estilos del CONTENIDO de los documentos A4 (plantillas de DocumentoPlantillas).
+ *
+ * Se usan en dos sitios y deben mantenerse en un único fichero:
+ *  - `DocumentoPlantillaPreview.vue` los importa como estilo scoped.
+ *  - `VentaImpresionA4Modal.capturarHtmlFolio()` los inyecta (?raw) en el HTML
+ *    que se manda a la impresora, porque el scoped CSS no viaja con el clon.
+ *
+ * Por eso aquí no puede entrar nada del marco del editor (fondo del lienzo,
+ * sombras del folio, scroll): solo lo que debe verse igual en pantalla y papel.
+ * Aspecto de referencia: documentos legacy de Descartes (etiquetas azules).
+ */
+
+.block {
+  position: absolute;
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: 0.08rem 0.12rem;
+  font-family: 'Segoe UI', Arial, sans-serif;
+  font-size: 0.65rem;
+  line-height: 1.25;
+  color: #0f172a;
+}
+
+.empresa,
+.cliente,
+.meta,
+.campo,
+.banco,
+.totales,
+.venc {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  height: 100%;
+}
+
+.campo-right {
+  align-items: flex-end;
+  text-align: right;
+}
+
+/* Campo en una sola línea: etiqueta azul + valor (p. ej. FACTURA 1-18145). */
+.campo-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.empresa strong,
+.cliente strong {
+  font-size: 0.72rem;
+}
+
+.titulo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.titulo strong {
+  color: #14509b;
+  font-size: 1.05rem;
+  letter-spacing: 0.01em;
+}
+
+.titulo em {
+  font-style: normal;
+  font-weight: 700;
+  color: #14509b;
+  font-size: 0.68rem;
+}
+
+/* Etiquetas azules del formato legacy: FACTURA, Cliente, Observaciones… */
+.campo-label,
+.cli-cod .chip {
+  align-self: flex-start;
+  padding: 0.05rem 0.5rem;
+  background: #dbe4f2;
+  color: #14509b;
+  font-weight: 700;
+  font-size: 0.6rem;
+  white-space: nowrap;
+}
+
+/* Etiqueta sin recuadro azul (p. ej. FECHA ENTREGA). */
+.campo-label-plana {
+  padding: 0;
+  background: none;
+  color: #0f172a;
+}
+
+.cli-cod {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.6rem;
+  color: #334155;
+}
+
+/* Datos del documento: etiqueta a la derecha, valor a la izquierda. */
+.meta div {
+  display: grid;
+  grid-template-columns: minmax(0, 45%) 1fr;
+  gap: 0.3rem;
+}
+
+.meta span {
+  color: #334155;
+  font-size: 0.6rem;
+  text-align: right;
+}
+
+.fs-mm,
+.fs-mm strong,
+.fs-mm span,
+.fs-mm em,
+.fs-mm .campo-label {
+  font-size: inherit;
+}
+
+.emblema {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.barcode {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.barcode svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+}
+
+/* Línea horizontal de separación entre zonas del documento. */
+.sep-line {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+.sep-line::before {
+  content: '';
+  display: block;
+  width: 100%;
+  border-top: 1px solid var(--sep-color, #7d1f2d);
+}
+
+.lineas {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.55rem;
+}
+
+.lineas th {
+  text-align: left;
+  padding: 0.08rem 0.15rem;
+  background: #dbe4f2;
+  color: #14509b;
+  border-top: 1px solid #9fb4d4;
+  border-bottom: 1px solid #9fb4d4;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.lineas td {
+  padding: 0.05rem 0.15rem;
+  vertical-align: top;
+}
+
+.lineas .cab-alb td {
+  padding-top: 0.12rem;
+  background: #eef2fa;
+  color: #14509b;
+  font-weight: 700;
+  font-style: italic;
+}
+
+.lineas .nota td {
+  padding-top: 0.15rem;
+}
+
+.totales {
+  gap: 0;
+}
+
+.tot-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.35rem;
+  padding: 0.12rem 0.3rem;
+  border: 1px solid #7f8c9e;
+  border-bottom: 0;
+  font-size: 0.62rem;
+}
+
+.tot-row:last-child {
+  border-bottom: 1px solid #7f8c9e;
+}
+
+.tot-row.total {
+  font-weight: 700;
+}
+
+.venc-h {
+  font-weight: 600;
+  margin-bottom: 0.15rem;
+}
+
+.qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  height: 100%;
+}
+
+.qr img {
+  width: 100%;
+  height: auto;
+  max-height: 82%;
+  object-fit: contain;
+}
+
+.qr span {
+  font-size: 0.5rem;
+  color: #0f172a;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.pie {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  font-size: 0.58rem;
+  color: #334155;
+}
+
+.banco {
+  font-size: 0.58rem;
+}
+
+.muted,
+.fallback {
+  color: #94a3b8;
+}

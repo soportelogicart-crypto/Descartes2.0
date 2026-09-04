@@ -812,12 +812,6 @@ function fmtNum(n: number): string {
   margin: 0 0 0.75rem;
 }
 
-.listado-panel {
-  width: 100%;
-  max-width: 100%;
-  box-sizing: border-box;
-}
-
 .listado-panel > .toolbar,
 .listado-panel :deep(.grid-wrap) {
   width: 100%;

@@ -8,6 +8,8 @@ export type ArticuloField = {
   type?: ArticuloFieldType
   layout?: ArticuloFieldLayout
   span?: 1 | 2 | 3 | 4
+  /** Ancho maximo del control (p.ej. '11rem') para igualar campos de una seccion. */
+  inputWidth?: string
   readOnly?: boolean
   required?: boolean
   optionsSource?:
@@ -22,6 +24,14 @@ export type ArticuloField = {
 export type ArticuloSection = {
   title: string
   columns?: 1 | 2 | 3 | 4
+  /** Reparte los campos rellenando cada columna de arriba abajo en vez de por filas. */
+  flow?: 'column'
+  /** Campos por columna cuando flow es 'column'. */
+  rows?: number
+  /** Ancho fijo de la columna de etiquetas: alinea todos los inputs de la seccion. */
+  labelWidth?: string
+  /** Ancho maximo por defecto de los controles de la seccion (cada campo puede sobreescribirlo). */
+  inputWidth?: string
   /** Cabeceras de columna (p.ej. Unidades | Precio) para rejillas tipo legacy. */
   columnHeaders?: string[]
   /** Oculta la etiqueta de cada campo (útil con columnHeaders). */
@@ -151,17 +161,19 @@ export const articuloTabs: ArticuloTab[] = [
     sections: [
       {
         title: 'Medidas y empaquetado',
-        columns: 4,
+        columns: 2,
+        labelWidth: '8rem',
+        inputWidth: '9.5rem',
         fields: [
           inline('pesoKilogramos', 'Peso kg', { type: 'number' }),
           inline('volumen', 'Volumen', { type: 'number' }),
-          cb('transporteEspecial', 'Articulo transporte'),
           inline('empaquetado', 'Empaquetado', { type: 'number' }),
           inline('unidadEmpaquetado', 'Des. unidad empa'),
           inline('unidadesCompra', 'Unidades compra', { type: 'number' }),
           inline('unidadStock', 'Des. unidad stock'),
+          inline('tiendaWeb', 'Tienda web', { type: 'number', span: 2 }),
+          cb('transporteEspecial', 'Articulo transporte'),
           cb('envioWeb', 'Envio a WEB'),
-          inline('tiendaWeb', 'Tienda web', { type: 'number' }),
         ],
       },
       {
@@ -196,10 +208,14 @@ export const articuloTabs: ArticuloTab[] = [
       },
       {
         title: 'Fechas y clasificacion',
-        columns: 4,
+        columns: 2,
+        flow: 'column',
+        rows: 3,
+        labelWidth: '8rem',
+        inputWidth: '9.5rem',
         fields: [
-          inline('fechaUltCompra', 'Ultima compra', { type: 'date' }),
           inline('fechaAlta', 'Fecha alta', { type: 'date' }),
+          inline('fechaUltCompra', 'Ultima compra', { type: 'date' }),
           inline('fechaBaja', 'Fecha baja', { type: 'date' }),
           inline('categoria', 'Categoria'),
           inline('contramarca', 'Contramarca', { type: 'number' }),
@@ -207,25 +223,27 @@ export const articuloTabs: ArticuloTab[] = [
       },
       {
         title: 'Datos planta / jardin',
-        columns: 4,
+        columns: 2,
+        labelWidth: '8rem',
+        inputWidth: '9.5rem',
         fields: [
-          inline('nombreBotanico', 'Nombre botanico', { span: 4 }),
-          inline('floracion', 'Floracion', { span: 2 }),
-          inline('altura', 'Altura', { span: 2 }),
-          inline('exposicion', 'Exposicion', { span: 2 }),
-          inline('poda', 'Poda', { span: 2 }),
+          inline('nombreBotanico', 'Nombre botanico', { span: 2, inputWidth: '100%' }),
+          inline('floracion', 'Floracion'),
+          inline('altura', 'Altura'),
+          inline('exposicion', 'Exposicion'),
+          inline('poda', 'Poda'),
           inline('tipoPlanta', 'Tipo planta'),
           inline('numAlveolos', 'N. alveolos', { type: 'number' }),
           inline('udsXAlveolo', 'Uds x alveolo', { type: 'number' }),
           inline('udsXSobre', 'Uds x sobre', { type: 'number' }),
-          cb('stockBandejas', 'Stock x bandejas'),
-          inline('literalPlanta1', 'Literal 1', { span: 4 }),
-          inline('literalPlanta2', 'Literal 2', { span: 4 }),
-          inline('patron', 'Patron', { span: 4 }),
-          inline('variedad', 'Variedad', { span: 4 }),
-          inline('imagen', 'Imagen', { span: 4 }),
-          inline('imagen2', 'Imagen 2', { span: 4 }),
-          inline('fichaPlantilla', 'Plantilla ficha', { span: 2 }),
+          cb('stockBandejas', 'Stock x bandejas', { span: 2 }),
+          inline('literalPlanta1', 'Literal 1', { span: 2, inputWidth: '100%' }),
+          inline('literalPlanta2', 'Literal 2', { span: 2, inputWidth: '100%' }),
+          inline('patron', 'Patron', { span: 2, inputWidth: '100%' }),
+          inline('variedad', 'Variedad', { span: 2, inputWidth: '100%' }),
+          inline('imagen', 'Imagen', { span: 2, inputWidth: '100%' }),
+          inline('imagen2', 'Imagen 2', { span: 2, inputWidth: '100%' }),
+          inline('fichaPlantilla', 'Plantilla ficha'),
         ],
       },
     ],

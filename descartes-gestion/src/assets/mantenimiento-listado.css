@@ -1,0 +1,87 @@
+/**
+ * Panel de listado de mantenimiento.
+ *
+ * El panel se ajusta al contenido pero nunca baja del 50% del area disponible,
+ * de modo que la barra de botones y la rejilla comparten el mismo ancho.
+ * En resoluciones pequenas (TPV) pasa a ocupar todo el ancho.
+ */
+.mantenimiento-listado,
+.listado-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: fit-content;
+  min-width: min(100%, 50%);
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.mantenimiento-listado > *,
+.listado-panel > * {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+/**
+ * Cabecera de botones: mismo borde, radio y densidad que la rejilla.
+ * Los selectores llevan especificidad extra (div.toolbar / .toolbar .tool-btn)
+ * para prevalecer sobre los estilos scoped que cada vista ya define.
+ */
+.mantenimiento-listado > div.toolbar,
+.listado-panel > div.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.35rem;
+  margin: 0 0 0.35rem;
+  background: linear-gradient(180deg, #f8fafc 0%, #e5e7eb 100%);
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+}
+
+.mantenimiento-listado > div.toolbar .tool-btn,
+.listado-panel > div.toolbar .tool-btn {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  padding: 0.22rem 0.55rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  line-height: 1.25;
+}
+
+.mantenimiento-listado > div.toolbar label,
+.listado-panel > div.toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+}
+
+.mantenimiento-listado > div.toolbar select,
+.mantenimiento-listado > div.toolbar input,
+.listado-panel > div.toolbar select,
+.listado-panel > div.toolbar input {
+  padding: 0.15rem 0.25rem;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  font-size: 0.72rem;
+}
+
+@media (max-width: 1280px) {
+  .mantenimiento-listado,
+  .listado-panel {
+    min-width: min(100%, 70%);
+  }
+}
+
+@media (max-width: 1024px) {
+  .mantenimiento-listado,
+  .listado-panel {
+    width: 100%;
+    min-width: 0;
+  }
+}

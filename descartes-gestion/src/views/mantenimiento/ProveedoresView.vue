@@ -655,12 +655,6 @@ async function onUltimo() {
   margin: 0 0 0.75rem;
 }
 
-.listado-panel {
-  width: fit-content;
-  max-width: 100%;
-  box-sizing: border-box;
-}
-
 .listado-panel > .toolbar,
 .listado-panel :deep(.grid-wrap),
 .listado-panel .paginacion {

@@ -6,7 +6,6 @@ import {
   clonarFilaGrid,
   filaVaciaDesdeColumnas,
   getGridColumns,
-  esGridEstrecho,
   payloadFilaGrid,
   validarFilaGrid,
   type GridFila,
@@ -38,7 +37,6 @@ const { items, loading, error, listar, obtener, crear, actualizar, eliminar } = 
 )
 
 const columns = computed(() => getGridColumns(props.entidad))
-const esEstrecho = computed(() => esGridEstrecho(columns.value))
 const filterKeys = computed(() => ENTITY_FILTER_KEYS[props.entidad] ?? [])
 const tieneFiltrosColumnas = computed(() => filterKeys.value.length > 0)
 const tieneColumnaActivo = computed(() => columns.value.some((c) => c.key === 'activo'))
@@ -287,7 +285,8 @@ function cancelarFormulario() {
       <p v-if="error" class="error">{{ error }}</p>
 
       <template v-if="modo === 'grid'">
-        <div class="toolbar" :class="{ 'toolbar--half': esEstrecho }">
+        <div class="mantenimiento-listado">
+        <div class="toolbar">
           <button
             v-if="!tieneFiltrosColumnas"
             type="button"
@@ -378,6 +377,7 @@ function cancelarFormulario() {
         <p v-else class="hint">
           La fila <strong>*</strong> no se edita aqui: use <strong>Nuevo</strong> o doble clic para crear en ficha.
         </p>
+        </div>
       </template>
 
       <template v-else>
@@ -418,10 +418,6 @@ function cancelarFormulario() {
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   margin-bottom: 0.5rem;
-}
-
-.toolbar--half {
-  width: 50%;
 }
 
 .toolbar-spacer {
