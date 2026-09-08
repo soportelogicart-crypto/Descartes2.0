@@ -16,10 +16,12 @@ use PDO;
 final class RetrocesoFacturaService
 {
   private PDO $pdo;
+  private RecibosFacturaService $recibos;
 
-  public function __construct(PDO $pdo)
+  public function __construct(PDO $pdo, RecibosFacturaService $recibos)
   {
     $this->pdo = $pdo;
+    $this->recibos = $recibos;
   }
 
   /**
@@ -148,6 +150,7 @@ final class RetrocesoFacturaService
       $hoy = date('Y-m-d');
 
       $this->insertarAbonoRectificativo($fac, $abonoNum, $hoy, $ref);
+      $recibos = $this->recibos->generar($empresa, 'A', $abonoNum);
 
       $this->pdo->commit();
     } catch (\Throwable $e) {
@@ -168,6 +171,7 @@ final class RetrocesoFacturaService
         'facturaTipo' => 'A',
         'factura' => $abonoNum,
         'importe' => round(-1 * (float) ($fac['Importe'] ?? 0), 2),
+        'recibos' => $recibos,
       ],
       'albaranesLiberados' => 0,
       'mensaje' => "Creado abono rectificativo A-{$abonoNum} de la factura F-{$factura}. La factura original se conserva.",

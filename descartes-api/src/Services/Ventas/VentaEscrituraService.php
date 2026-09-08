@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Descartes\Api\Services\Ventas;
 
+use Descartes\Api\Services\Facturacion\RecibosFacturaService;
 use PDO;
 
 /**
@@ -16,17 +17,20 @@ final class VentaEscrituraService
   private VentaConsultaService $consulta;
   private ArqueoService $arqueo;
   private FidelizacionService $fidelizacion;
+  private RecibosFacturaService $recibos;
 
   public function __construct(
     PDO $pdo,
     VentaConsultaService $consulta,
     ?ArqueoService $arqueo = null,
-    ?FidelizacionService $fidelizacion = null
+    ?FidelizacionService $fidelizacion = null,
+    ?RecibosFacturaService $recibos = null
   ) {
     $this->pdo = $pdo;
     $this->consulta = $consulta;
     $this->arqueo = $arqueo ?? new ArqueoService($pdo);
     $this->fidelizacion = $fidelizacion ?? new FidelizacionService($pdo);
+    $this->recibos = $recibos ?? new RecibosFacturaService($pdo);
   }
 
   public function estaBloqueado(?array $cab): bool
@@ -364,7 +368,7 @@ final class VentaEscrituraService
       }
     }
 
-    // Legacy FrmVenta: si FormaPago tiene CobroDeArqueo / FacturacionDirecta, no permite Albaran.
+    // Cliente de contado = forma de pago con CobroDeArqueo: no permite Albaran.
     if ($opcion === 'A' && $this->esFormaPagoContado($actual)) {
       throw new \InvalidArgumentException(
         'Cliente de contado: no se puede finalizar como albaran. Use Ticket o Factura.'
@@ -1507,10 +1511,13 @@ final class VentaEscrituraService
       'albaranTicket' => $albaranTicketTransformado > 0 ? $albaranTicketTransformado : 0,
     ]);
 
+    $recibos = $this->recibos->generar($empresa, $facturaTipo, $factura);
+
     return [
       'factura' => $factura,
       'facturaTipo' => $facturaTipo,
       'estado' => $estado,
+      'recibos' => $recibos,
     ];
   }
 
@@ -1676,8 +1683,7 @@ final class VentaEscrituraService
   }
 
   /**
-   * Contado = FormasPago con CobroDeArqueo, AbrirCajon o FacturacionDirecta
-   * (legacy: "si su forma de pago es de contado no deja hacer albaranes").
+   * Contado = FormasPago.CobroDeArqueo. Sin ese flag, el cliente es de crédito.
    *
    * @param array<string, mixed> $actual ficha venta
    */
@@ -1704,15 +1710,10 @@ final class VentaEscrituraService
       return false;
     }
     try {
-      $st = $this->pdo->prepare(
-        'SELECT CobroDeArqueo, AbrirCajon, FacturacionDirecta FROM FormasPago WHERE Codigo = :c'
-      );
+      $st = $this->pdo->prepare('SELECT CobroDeArqueo FROM FormasPago WHERE Codigo = :c');
       $st->execute(['c' => $codigo]);
       $row = $st->fetch(PDO::FETCH_ASSOC);
-      if ($row === false) {
-        return false;
-      }
-      return !empty($row['CobroDeArqueo']) || !empty($row['AbrirCajon']) || !empty($row['FacturacionDirecta']);
+      return $row !== false && !empty($row['CobroDeArqueo']);
     } catch (\Throwable $e) {
       return false;
     }

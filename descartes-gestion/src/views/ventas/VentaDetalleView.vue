@@ -252,7 +252,7 @@ const TIPOS_FINAL = [
   { codigo: 'F', label: 'Factura' },
 ]
 
-/** Legacy: CobroDeArqueo / AbrirCajon / FacturacionDirecta = contado → no Albaran. */
+/** Contado = forma de pago con CobroDeArqueo → no Albarán. */
 const clienteContado = ref(false)
 const formaPagoCliente = ref('')
 /** Formas de pago con CobroDeArqueo + AbrirCajon (legacy ticket Frame1). */
@@ -809,7 +809,7 @@ async function resolverFormaPagoContado(codigoFpago: string): Promise<boolean> {
   }
   try {
     const { data } = await api.get(`/api/mantenimiento/formas-pago/${encodeURIComponent(codigo)}`)
-    const contado = Boolean(data.cobroDeArqueo || data.abrirCajon || data.facturacionDirecta)
+    const contado = Boolean(data.cobroDeArqueo)
     clienteContado.value = contado
     return contado
   } catch {
@@ -1959,7 +1959,7 @@ onMounted(() => {
           <p v-if="clienteContado && !esTicketCerrado" class="ok">
             Cliente de contado (forma de pago
             <strong>{{ formaPagoCliente || '—' }}</strong>
-            con cobro de arqueo / abrir cajon): no se puede cerrar como albaran.
+            con cobro de arqueo): no se puede cerrar como albaran.
           </p>
           <p v-if="!tieneDatosFactura && !esTicketCerrado" class="warn">
             Venta sin datos fiscales (p. ej. cliente ZZZZZZZZZ / sin NIF válido): solo Ticket o

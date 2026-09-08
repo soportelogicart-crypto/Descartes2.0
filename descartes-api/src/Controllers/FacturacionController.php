@@ -13,6 +13,7 @@ use Descartes\Api\Services\Facturacion\GeneracionFacturasManualService;
 use Descartes\Api\Services\Facturacion\ImpresionFacturasService;
 use Descartes\Api\Services\Facturacion\RetrocesoFacturaService;
 use Descartes\Api\Services\Facturacion\TraspasoComercialService;
+use Descartes\Api\Services\Facturacion\TraspasoContableService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Log\LoggerInterface;
@@ -27,6 +28,7 @@ final class FacturacionController
   private DiarioFacturacionService $diario;
   private AlbaranesPendientesService $pendientes;
   private RetrocesoFacturaService $retroceso;
+  private TraspasoContableService $contabilidad;
   private LoggerInterface $logger;
 
   public function __construct(
@@ -38,6 +40,7 @@ final class FacturacionController
     DiarioFacturacionService $diario,
     AlbaranesPendientesService $pendientes,
     RetrocesoFacturaService $retroceso,
+    TraspasoContableService $contabilidad,
     LoggerInterface $logger
   ) {
     $this->manual = $manual;
@@ -48,6 +51,7 @@ final class FacturacionController
     $this->diario = $diario;
     $this->pendientes = $pendientes;
     $this->retroceso = $retroceso;
+    $this->contabilidad = $contabilidad;
     $this->logger = $logger;
   }
 
@@ -187,6 +191,45 @@ final class FacturacionController
         'source' => 'api',
         'action' => 'facturacion.manual.traspaso',
         'traspasos' => $result['totales']['traspasos'] ?? 0,
+      ]);
+      return $this->json($response, 200, $result);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function listTraspasoContable(Request $request, Response $response): Response
+  {
+    try {
+      return $this->json(
+        $response,
+        200,
+        $this->contabilidad->listarPendientes($request->getQueryParams())
+      );
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function ejecutarTraspasoContable(Request $request, Response $response): Response
+  {
+    $body = (array) json_decode((string) $request->getBody(), true);
+    try {
+      $result = $this->contabilidad->traspasar($body);
+      $this->logger->info('Traspaso contable de facturas emitidas', [
+        'source' => 'api',
+        'action' => 'facturacion.contabilidad.traspasar',
+        'facturas' => $result['totales']['facturas'] ?? 0,
+        'asientos' => $result['totales']['asientos'] ?? 0,
+        'efectos' => $result['totales']['efectos'] ?? 0,
       ]);
       return $this->json($response, 200, $result);
     } catch (\InvalidArgumentException $e) {

@@ -48,6 +48,7 @@ import ImpresionFacturasView from '@/views/facturacion/ImpresionFacturasView.vue
 import DiarioFacturacionView from '@/views/facturacion/DiarioFacturacionView.vue'
 import AlbaranesPendientesView from '@/views/facturacion/AlbaranesPendientesView.vue'
 import RetrocesoFacturaView from '@/views/facturacion/RetrocesoFacturaView.vue'
+import TraspasoContableView from '@/views/facturacion/TraspasoContableView.vue'
 import ConfiguracionHubView from '@/views/configuracion/ConfiguracionHubView.vue'
 import DocumentosPlantillasView from '@/views/configuracion/DocumentosPlantillasView.vue'
 import TpvVentaView from '@/views/tpv/TpvVentaView.vue'
@@ -266,6 +267,16 @@ const router = createRouter({
           meta: {
             titulo: 'Generador de facturas Manual',
             modulo: 'facturacion-manual',
+            accion: 'ver',
+          },
+        },
+        {
+          path: 'facturacion/contabilidad',
+          name: 'facturacion-contabilidad',
+          component: TraspasoContableView,
+          meta: {
+            titulo: 'Traspaso contable',
+            modulo: 'facturacion-contabilidad',
             accion: 'ver',
           },
         },

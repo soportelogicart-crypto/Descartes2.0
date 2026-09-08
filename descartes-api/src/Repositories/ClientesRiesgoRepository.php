@@ -65,7 +65,13 @@ final class ClientesRiesgoRepository
          AND [FacturaTipo] IN ('F', 'A')
          AND ISNULL([Importe], 0) <> ISNULL([ImporteLiquidado], 0)
          AND (ISNULL([FacturaContadoDiferida], 0) <> 0 OR [Estado] = 'G')
-         AND ISNULL([TrasCtb], 0) = 0"
+         AND ISNULL([TrasCtb], 0) = 0
+         AND NOT EXISTS (
+           SELECT 1 FROM [Recibos] r
+           WHERE r.[Empresa] = [Facturas].[Empresa]
+             AND r.[FacturaTipo] = [Facturas].[FacturaTipo]
+             AND r.[Factura] = [Facturas].[Factura]
+         )"
     );
     $stmt->execute(['codigo' => $codigo]);
     return (float) ($stmt->fetchColumn() ?: 0);

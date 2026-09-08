@@ -96,6 +96,7 @@ function tituloDesdeRuta(fullPathOrPath: string, metaTitulo?: string): string {
   }
   if (partes[0] === 'facturacion') {
     if (partes[1] === 'manual') return 'Facturas Manual'
+    if (partes[1] === 'contabilidad') return 'Traspaso contable'
     if (partes[1] === 'generacion') return 'Generación facturas'
     if (partes[1] === 'impresion') return 'Impresión facturas'
     if (partes[1] === 'diario') return 'Diario facturación'

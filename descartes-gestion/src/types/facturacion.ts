@@ -24,9 +24,50 @@ export type FacturaManualGenerada = {
   facturaTipo: string
   factura: number
   cliente: string
+  razonSocial?: string
   importe: number
   estado: string
-  albaranes: Array<{ empresa: string; tipo: string; albaran: number }>
+  recibos?: Array<{ recibo: number; importe: number; vencimiento: string }>
+  albaranes: Array<{
+    empresa: string
+    tipo: string
+    albaran: number
+    fecha?: string
+    importe?: number
+  }>
+}
+
+export type FacturaTraspasoContable = {
+  empresa: string
+  facturaTipo: 'F' | 'A'
+  factura: number
+  fecha: string | null
+  cliente: string
+  razonSocial: string
+  nif: string
+  importe: number
+  formaPago: string
+  estado: string
+  numEfectos: number
+}
+
+export type FacturasTraspasoContableListResponse = {
+  items: FacturaTraspasoContable[]
+  totales: { facturas: number; importe: number }
+}
+
+export type FacturasTraspasoContableResponse = {
+  items: Array<{
+    empresa: string
+    facturaTipo: string
+    factura: number
+    serie: string
+    numeroContable: number
+    asiento: boolean
+    efectos: number
+    recuperado: boolean
+  }>
+  totales: { facturas: number; asientos: number; efectos: number }
 }
 
 export type FacturasManualGenerarResponse = {
@@ -44,9 +85,25 @@ export type FacturasManualGenerarBody = {
   albaranes: Array<{ empresa: string; tipo: string; albaran: number }>
 }
 
+export type FacturaGeneracionGrupoPreview = {
+  indice: number
+  cliente: string
+  razonSocial: string
+  sujetoPasivo: boolean
+  importe: number
+  albaranes: Array<{
+    empresa: string
+    tipo: string
+    albaran: number
+    fecha: string
+    importe: number
+  }>
+}
+
 export type FacturasGeneracionPreviewResponse = {
   totales: { albaranes: number; importe: number; gruposEstimados: number }
   omitidosImporteMinimo: number
+  grupos: FacturaGeneracionGrupoPreview[]
 }
 
 export type FacturasGeneracionBody = {

@@ -22,7 +22,29 @@ import type {
   FacturasRetrocesoBody,
   FacturasRetrocesoPreview,
   FacturasRetrocesoResponse,
+  FacturasTraspasoContableListResponse,
+  FacturasTraspasoContableResponse,
 } from '@/types/facturacion'
+
+export async function listarTraspasoContable(
+  params: Record<string, string | undefined>
+): Promise<FacturasTraspasoContableListResponse> {
+  const { data } = await api.get<FacturasTraspasoContableListResponse>(
+    '/api/facturacion/contabilidad/pendientes',
+    { params }
+  )
+  return data
+}
+
+export async function ejecutarTraspasoContable(
+  facturas: Array<{ empresa: string; facturaTipo: string; factura: number }>
+): Promise<FacturasTraspasoContableResponse> {
+  const { data } = await api.post<FacturasTraspasoContableResponse>(
+    '/api/facturacion/contabilidad/traspasar',
+    { facturas }
+  )
+  return data
+}
 
 export async function listarFacturasManualPendientes(
   params: Record<string, string | number | undefined>

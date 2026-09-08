@@ -28,6 +28,12 @@ export const facturacionMenuItems: FacturacionMenuItem[] = [
     modulo: 'facturacion-manual',
   },
   {
+    id: 'facturacion-contabilidad',
+    titulo: 'Traspaso contable',
+    ruta: '/facturacion/contabilidad',
+    modulo: 'facturacion-contabilidad',
+  },
+  {
     id: 'facturacion-retroceso',
     titulo: 'Retroceso / rectificativa',
     ruta: '/facturacion/retroceso',

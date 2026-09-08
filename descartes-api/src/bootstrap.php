@@ -159,11 +159,13 @@ return function (App $app): void {
   $container->set(\Descartes\Api\Services\Ventas\FidelizacionService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\FidelizacionService(
     $c->get(PDO::class)
   ));
+  $container->set(\Descartes\Api\Services\Facturacion\RecibosFacturaService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\RecibosFacturaService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Ventas\VentaEscrituraService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\VentaEscrituraService(
     $c->get(PDO::class),
     $c->get(\Descartes\Api\Services\Ventas\VentaConsultaService::class),
     $c->get(\Descartes\Api\Services\Ventas\ArqueoService::class),
-    $c->get(\Descartes\Api\Services\Ventas\FidelizacionService::class)
+    $c->get(\Descartes\Api\Services\Ventas\FidelizacionService::class),
+    $c->get(\Descartes\Api\Services\Facturacion\RecibosFacturaService::class)
   ));
   $container->set(\Descartes\Api\Services\Ventas\AnulacionConsultaService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\AnulacionConsultaService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Ventas\CobroPagoConsultaService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\CobroPagoConsultaService($c->get(PDO::class)));
@@ -173,11 +175,19 @@ return function (App $app): void {
     $c->get(\Descartes\Api\Services\Ventas\VentaEscrituraService::class)
   ));
   $container->set(\Descartes\Api\Services\Ventas\AbcVentasService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\AbcVentasService($c->get(PDO::class)));
-  $container->set(\Descartes\Api\Services\Facturacion\GeneracionFacturasManualService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\GeneracionFacturasManualService($c->get(PDO::class)));
+  $container->set(\Descartes\Api\Services\Facturacion\GeneracionFacturasManualService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\GeneracionFacturasManualService(
+    $c->get(PDO::class),
+    $c->get(\Descartes\Api\Services\Facturacion\RecibosFacturaService::class)
+  ));
   $container->set(\Descartes\Api\Services\Facturacion\ImpresionFacturasService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\ImpresionFacturasService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Facturacion\FacturaEmailService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\FacturaEmailService(
     $c->get(PDO::class),
     $c->get(\Descartes\Api\Services\Facturacion\ImpresionFacturasService::class)
+  ));
+  $container->set(\Descartes\Api\Services\Facturacion\ConexionContableService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\ConexionContableService($c->get(PDO::class)));
+  $container->set(\Descartes\Api\Services\Facturacion\TraspasoContableService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\TraspasoContableService(
+    $c->get(PDO::class),
+    $c->get(\Descartes\Api\Services\Facturacion\ConexionContableService::class)
   ));
   $container->set(\Descartes\Api\Services\Facturacion\TraspasoComercialService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\TraspasoComercialService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Facturacion\AlbaranesPeriodicosConsultaService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\AlbaranesPeriodicosConsultaService($c->get(PDO::class)));
@@ -188,7 +198,10 @@ return function (App $app): void {
   $container->set(\Descartes\Api\Services\Facturacion\AlbaranesPeriodicosService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\AlbaranesPeriodicosService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Facturacion\DiarioFacturacionService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\DiarioFacturacionService($c->get(\Descartes\Api\Services\Facturacion\ImpresionFacturasService::class)));
   $container->set(\Descartes\Api\Services\Facturacion\AlbaranesPendientesService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\AlbaranesPendientesService($c->get(\Descartes\Api\Services\Facturacion\GeneracionFacturasManualService::class)));
-  $container->set(\Descartes\Api\Services\Facturacion\RetrocesoFacturaService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\RetrocesoFacturaService($c->get(PDO::class)));
+  $container->set(\Descartes\Api\Services\Facturacion\RetrocesoFacturaService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\RetrocesoFacturaService(
+    $c->get(PDO::class),
+    $c->get(\Descartes\Api\Services\Facturacion\RecibosFacturaService::class)
+  ));
 
   $container->set(\Descartes\Api\Services\Instalacion\MigrationService::class, static fn () => new \Descartes\Api\Services\Instalacion\MigrationService());
   $container->set(\Descartes\Api\Services\Instalacion\InstalacionBootstrapService::class, static fn () => new \Descartes\Api\Services\Instalacion\InstalacionBootstrapService());

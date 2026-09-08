@@ -14,10 +14,12 @@ use PDO;
 final class GeneracionFacturasManualService
 {
   private PDO $pdo;
+  private RecibosFacturaService $recibos;
 
-  public function __construct(PDO $pdo)
+  public function __construct(PDO $pdo, RecibosFacturaService $recibos)
   {
     $this->pdo = $pdo;
+    $this->recibos = $recibos;
   }
 
   /**
@@ -185,7 +187,11 @@ final class GeneracionFacturasManualService
    * Vista previa de generación automática (legacy GeneracionFacturas / frmListado).
    *
    * @param array<string, mixed> $query
-   * @return array{totales: array{albaranes: int, importe: float, gruposEstimados: int}, omitidosImporteMinimo: int}
+   * @return array{
+   *   totales: array{albaranes: int, importe: float, gruposEstimados: int},
+   *   omitidosImporteMinimo: int,
+   *   grupos: list<array<string, mixed>>
+   * }
    */
   public function previewAutomatico(array $query): array
   {
@@ -211,8 +217,9 @@ final class GeneracionFacturasManualService
     $importeMinimo = (float) ($query['importeMinimo'] ?? 0);
 
     $importe = 0.0;
-    $gruposOk = 0;
+    $albaranesOk = 0;
     $omitidos = 0;
+    $gruposOut = [];
     for ($h = 1; $h <= $veces; $h++) {
       foreach ($this->agruparAlbaranes($albaranes, $veces, $h) as $grupo) {
         $sum = 0.0;
@@ -223,19 +230,58 @@ final class GeneracionFacturasManualService
           $omitidos++;
           continue;
         }
-        $gruposOk++;
+        $gruposOut[] = $this->resumenGrupo($grupo, $sum, count($gruposOut) + 1);
+        $albaranesOk += count($grupo);
         $importe += $sum;
       }
     }
 
     return [
       'totales' => [
-        'albaranes' => count($albaranes),
+        'albaranes' => $albaranesOk,
         'importe' => round($importe, 2),
-        'gruposEstimados' => $gruposOk,
+        'gruposEstimados' => count($gruposOut),
       ],
       'omitidosImporteMinimo' => $omitidos,
+      'grupos' => $gruposOut,
     ];
+  }
+
+  /**
+   * @param list<array<string, mixed>> $grupo
+   * @return array<string, mixed>
+   */
+  private function resumenGrupo(array $grupo, float $importe, int $indice): array
+  {
+    $primero = $grupo[0] ?? [];
+    $albaranes = [];
+    foreach ($grupo as $alb) {
+      $albaranes[] = [
+        'empresa' => trim((string) ($alb['Empresa'] ?? '')),
+        'tipo' => trim((string) ($alb['Tipo'] ?? '')),
+        'albaran' => (int) ($alb['Albaran'] ?? 0),
+        'fecha' => $this->fechaIso($alb['Fecha'] ?? null),
+        'importe' => round((float) ($alb['Importe'] ?? 0), 2),
+      ];
+    }
+
+    return [
+      'indice' => $indice,
+      'cliente' => trim((string) ($primero['ClienteFacturacion'] ?? $primero['Cliente'] ?? '')),
+      'razonSocial' => trim((string) ($primero['RazonSocial'] ?? '')),
+      'sujetoPasivo' => !empty($primero['SujetoPasivo']),
+      'importe' => round($importe, 2),
+      'albaranes' => $albaranes,
+    ];
+  }
+
+  private function fechaIso(mixed $valor): string
+  {
+    if ($valor === null || $valor === '') {
+      return '';
+    }
+    $ts = strtotime((string) $valor);
+    return $ts === false ? '' : date('Y-m-d', $ts);
   }
 
   /**
@@ -643,6 +689,8 @@ final class GeneracionFacturasManualService
         'empresa' => trim((string) $alb['Empresa']),
         'tipo' => trim((string) $alb['Tipo']),
         'albaran' => (int) $alb['Albaran'],
+        'fecha' => $this->fechaIso($alb['Fecha'] ?? null),
+        'importe' => round((float) ($alb['Importe'] ?? 0), 2),
       ];
       for ($i = 1; $i <= 6; $i++) {
         $base = (float) ($alb["ImporteBase{$i}"] ?? 0);
@@ -770,6 +818,10 @@ final class GeneracionFacturasManualService
       'sujetoPasivo' => $sujetoPasivo,
     ]);
 
+    $recibos = $esPrefactura
+      ? []
+      : $this->recibos->generar($empresaFacturacion, $facturaTipo, $factura);
+
     if ($esPrefactura) {
       $upd = $this->pdo->prepare(
         'UPDATE AlbaranesVentasCab SET
@@ -814,9 +866,11 @@ final class GeneracionFacturasManualService
       'facturaTipo' => $facturaTipo,
       'factura' => $factura,
       'cliente' => $cliente,
+      'razonSocial' => trim((string) ($primero['RazonSocial'] ?? '')),
       'importe' => round($importe, 2),
       'estado' => $estado,
       'prefactura' => $esPrefactura,
+      'recibos' => $recibos,
       'albaranes' => $refs,
     ];
   }

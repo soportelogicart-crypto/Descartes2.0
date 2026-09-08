@@ -11,8 +11,20 @@ import { extractApiError } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import DecimalInput from '@/components/common/DecimalInput.vue'
+import EntidadBuscarModal, {
+  type EntidadBuscarResultado,
+} from '@/components/common/EntidadBuscarModal.vue'
+import ToolIcon from '@/components/common/ToolIcon.vue'
 
 type Opt = { value: string; label: string }
+type EntidadLupa = 'trabajadores' | 'clientes' | 'formas-pago'
+type CampoLupa =
+  | 'vendedorDesde'
+  | 'vendedorHasta'
+  | 'clienteDesde'
+  | 'clienteHasta'
+  | 'fpagoDesde'
+  | 'fpagoHasta'
 
 const puestoContexto = usePuestoContextoStore()
 const { puede } = usePermisos()
@@ -30,6 +42,16 @@ const puestos = ref<Opt[]>([])
 
 function hoyIso() {
   return new Date().toISOString().slice(0, 10)
+}
+
+function fechaCorta(valor?: string | null) {
+  const s = String(valor ?? '').trim()
+  if (!s) return '—'
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const [y, m, d] = s.slice(0, 10).split('-')
+    return `${d}/${m}/${y}`
+  }
+  return s
 }
 
 const form = ref({
@@ -55,6 +77,38 @@ const form = ref({
   fpagoDesde: '',
   fpagoHasta: '',
 })
+
+const buscarOpen = ref(false)
+const buscarEntidad = ref<EntidadLupa>('clientes')
+const buscarCampo = ref<CampoLupa>('clienteDesde')
+const buscarInicial = ref('')
+
+const TITULOS_LUPA: Record<CampoLupa, string> = {
+  vendedorDesde: 'Buscar vendedor desde',
+  vendedorHasta: 'Buscar vendedor hasta',
+  clienteDesde: 'Buscar cliente desde',
+  clienteHasta: 'Buscar cliente hasta',
+  fpagoDesde: 'Buscar forma de pago desde',
+  fpagoHasta: 'Buscar forma de pago hasta',
+}
+
+function abrirBuscar(entidad: EntidadLupa, campo: CampoLupa) {
+  buscarEntidad.value = entidad
+  buscarCampo.value = campo
+  buscarInicial.value = String(form.value[campo] ?? '').trim()
+  buscarOpen.value = true
+}
+
+function onLupaSeleccionado(sel: EntidadBuscarResultado) {
+  buscarOpen.value = false
+  const campo = buscarCampo.value
+  form.value[campo] = sel.codigo
+  // Rango con un solo valor: replicar en "Hasta" para no facturar de más.
+  if (campo.endsWith('Desde')) {
+    const hasta = campo.replace('Desde', 'Hasta') as CampoLupa
+    if (!String(form.value[hasta] ?? '').trim()) form.value[hasta] = sel.codigo
+  }
+}
 
 function params(): Record<string, string | number | undefined> {
   const f = form.value
@@ -350,13 +404,53 @@ onMounted(async () => {
             </div>
             <div class="rango-row">
               <span class="rango-label">Vendedor</span>
-              <input v-model="form.vendedorDesde" type="text" />
-              <input v-model="form.vendedorHasta" type="text" />
+              <div class="con-lupa">
+                <input v-model="form.vendedorDesde" type="text" />
+                <button
+                  type="button"
+                  class="btn-lupa"
+                  title="Buscar vendedor desde"
+                  @click="abrirBuscar('trabajadores', 'vendedorDesde')"
+                >
+                  <ToolIcon name="buscar" />
+                </button>
+              </div>
+              <div class="con-lupa">
+                <input v-model="form.vendedorHasta" type="text" />
+                <button
+                  type="button"
+                  class="btn-lupa"
+                  title="Buscar vendedor hasta"
+                  @click="abrirBuscar('trabajadores', 'vendedorHasta')"
+                >
+                  <ToolIcon name="buscar" />
+                </button>
+              </div>
             </div>
             <div class="rango-row">
               <span class="rango-label">Cliente</span>
-              <input v-model="form.clienteDesde" type="text" />
-              <input v-model="form.clienteHasta" type="text" />
+              <div class="con-lupa">
+                <input v-model="form.clienteDesde" type="text" maxlength="12" />
+                <button
+                  type="button"
+                  class="btn-lupa"
+                  title="Buscar cliente desde"
+                  @click="abrirBuscar('clientes', 'clienteDesde')"
+                >
+                  <ToolIcon name="buscar" />
+                </button>
+              </div>
+              <div class="con-lupa">
+                <input v-model="form.clienteHasta" type="text" maxlength="12" />
+                <button
+                  type="button"
+                  class="btn-lupa"
+                  title="Buscar cliente hasta"
+                  @click="abrirBuscar('clientes', 'clienteHasta')"
+                >
+                  <ToolIcon name="buscar" />
+                </button>
+              </div>
             </div>
             <div class="rango-row">
               <span class="rango-label">Albarán</span>
@@ -375,8 +469,28 @@ onMounted(async () => {
             </div>
             <div class="rango-row">
               <span class="rango-label">F.Pago</span>
-              <input v-model="form.fpagoDesde" type="text" maxlength="4" />
-              <input v-model="form.fpagoHasta" type="text" maxlength="4" />
+              <div class="con-lupa">
+                <input v-model="form.fpagoDesde" type="text" maxlength="4" />
+                <button
+                  type="button"
+                  class="btn-lupa"
+                  title="Buscar forma de pago desde"
+                  @click="abrirBuscar('formas-pago', 'fpagoDesde')"
+                >
+                  <ToolIcon name="buscar" />
+                </button>
+              </div>
+              <div class="con-lupa">
+                <input v-model="form.fpagoHasta" type="text" maxlength="4" />
+                <button
+                  type="button"
+                  class="btn-lupa"
+                  title="Buscar forma de pago hasta"
+                  @click="abrirBuscar('formas-pago', 'fpagoHasta')"
+                >
+                  <ToolIcon name="buscar" />
+                </button>
+              </div>
             </div>
           </fieldset>
 
@@ -406,26 +520,108 @@ onMounted(async () => {
         </p>
         <p v-if="loading" class="hint">Calculando pendientes…</p>
 
-        <div v-if="generadas.length" class="generadas">
-          <h3>Facturas generadas</h3>
-          <ul>
-            <li v-for="(f, i) in generadas" :key="i">
-              {{ f.facturaTipo }}/{{ f.factura }} · cliente {{ f.cliente }} ·
-              {{ f.importe.toFixed(2) }} € · {{ f.albaranes.length }} alb.
-              <template v-if="emails?.detalles[i]">
-                · email {{ emails.detalles[i].estado }}
-                <span v-if="emails.detalles[i].destinatario">
-                  ({{ emails.detalles[i].destinatario }})
-                </span>
-                <span v-if="emails.detalles[i].motivo">
-                  — {{ emails.detalles[i].motivo }}
-                </span>
+        <div v-if="preview && preview.grupos?.length" class="grid-wrap">
+          <table class="resumen-grid">
+            <thead>
+              <tr>
+                <th class="col-ind"></th>
+                <th>Factura</th>
+                <th>Cliente</th>
+                <th>Nombre</th>
+                <th>Albarán</th>
+                <th>Fecha</th>
+                <th class="num">Importe</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template v-for="g in preview.grupos" :key="'p-' + g.indice">
+                <tr class="fila-factura">
+                  <td class="col-ind">{{ g.indice }}</td>
+                  <td>Prevista {{ g.indice }}</td>
+                  <td>{{ g.cliente }}</td>
+                  <td>
+                    {{ g.razonSocial || '—' }}
+                    <span v-if="g.sujetoPasivo" class="tag">SP</span>
+                  </td>
+                  <td>{{ g.albaranes.length }} alb.</td>
+                  <td></td>
+                  <td class="num">{{ g.importe.toFixed(2) }}</td>
+                </tr>
+                <tr v-for="a in g.albaranes" :key="'p-' + g.indice + '-' + a.empresa + '-' + a.albaran" class="fila-alb">
+                  <td></td>
+                  <td></td>
+                  <td></td>
+                  <td></td>
+                  <td>{{ a.albaran }}</td>
+                  <td>{{ fechaCorta(a.fecha) }}</td>
+                  <td class="num">{{ a.importe.toFixed(2) }}</td>
+                </tr>
               </template>
-            </li>
-          </ul>
+            </tbody>
+          </table>
+        </div>
+
+        <div v-if="generadas.length" class="grid-wrap">
+          <h3>Facturas generadas</h3>
+          <table class="resumen-grid">
+            <thead>
+              <tr>
+                <th class="col-ind"></th>
+                <th>Factura</th>
+                <th>Cliente</th>
+                <th>Nombre</th>
+                <th>Albarán</th>
+                <th>Fecha</th>
+                <th class="num">Importe</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template v-for="(f, i) in generadas" :key="'g-' + f.facturaTipo + '-' + f.factura">
+                <tr class="fila-factura">
+                  <td class="col-ind">{{ i + 1 }}</td>
+                  <td>{{ f.facturaTipo }}/{{ f.factura }}</td>
+                  <td>{{ f.cliente }}</td>
+                  <td>{{ f.razonSocial || '—' }}</td>
+                  <td>{{ f.albaranes.length }} alb.</td>
+                  <td>
+                    <span v-if="emails?.detalles[i]" class="email">
+                      {{ emails.detalles[i].estado }}
+                      <template v-if="emails.detalles[i].destinatario">
+                        ({{ emails.detalles[i].destinatario }})
+                      </template>
+                    </span>
+                  </td>
+                  <td class="num">{{ f.importe.toFixed(2) }}</td>
+                </tr>
+                <tr
+                  v-for="a in f.albaranes"
+                  :key="'g-' + f.factura + '-' + a.empresa + '-' + a.albaran"
+                  class="fila-alb"
+                >
+                  <td></td>
+                  <td></td>
+                  <td></td>
+                  <td></td>
+                  <td>{{ a.albaran }}</td>
+                  <td>{{ fechaCorta(a.fecha) }}</td>
+                  <td class="num">{{ a.importe != null ? a.importe.toFixed(2) : '' }}</td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
+
+    <EntidadBuscarModal
+      :open="buscarOpen"
+      :entidad="buscarEntidad"
+      :titulo="TITULOS_LUPA[buscarCampo]"
+      :busqueda-inicial="buscarInicial"
+      :codigo-actual="String(form[buscarCampo] ?? '')"
+      @seleccionar="onLupaSeleccionado"
+      @cerrar="buscarOpen = false"
+    />
   </section>
 </template>
 
@@ -579,6 +775,38 @@ legend {
   color: #334155;
   white-space: nowrap;
 }
+.con-lupa {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.con-lupa input {
+  flex: 1;
+  min-width: 0;
+}
+.btn-lupa {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.65rem;
+  height: 1.65rem;
+  padding: 0;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  background: #fff;
+  cursor: pointer;
+  color: #334155;
+  flex-shrink: 0;
+}
+.btn-lupa:hover {
+  background: #e0f2fe;
+  border-color: #38bdf8;
+}
+.btn-lupa :deep(.tool-icon) {
+  width: 0.95rem;
+  height: 0.95rem;
+}
 .resumen {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -616,6 +844,66 @@ legend {
   background: #fff;
   box-sizing: border-box;
 }
+.grid-wrap {
+  overflow: auto;
+  min-height: 0;
+  flex: 1;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+}
+.grid-wrap h3 {
+  margin: 0;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.9rem;
+  background: #ecfdf5;
+  border-bottom: 1px solid #d1fae5;
+}
+.resumen-grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.resumen-grid th,
+.resumen-grid td {
+  border: 1px solid #e2e8f0;
+  padding: 0.22rem 0.4rem;
+  text-align: left;
+  white-space: nowrap;
+}
+.resumen-grid th {
+  background: #f1f5f9;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  font-weight: 600;
+}
+.col-ind {
+  width: 2rem;
+  text-align: center;
+}
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.fila-factura {
+  background: #eff6ff;
+  font-weight: 600;
+}
+.fila-alb td {
+  color: #475569;
+  background: #fff;
+}
+.tag {
+  margin-left: 0.3rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #1d4ed8;
+}
+.email {
+  font-weight: 400;
+  color: #047857;
+  font-size: 0.72rem;
+}
 .error {
   color: #b91c1c;
   margin: 0;
@@ -627,20 +915,5 @@ legend {
 .empty {
   color: #64748b;
   margin: 1rem 0;
-}
-.generadas {
-  border: 1px solid #d1fae5;
-  background: #ecfdf5;
-  border-radius: 4px;
-  padding: 0.6rem 0.75rem;
-}
-.generadas h3 {
-  margin: 0 0 0.35rem;
-  font-size: 0.9rem;
-}
-.generadas ul {
-  margin: 0;
-  padding-left: 1.1rem;
-  font-size: 0.85rem;
 }
 </style>

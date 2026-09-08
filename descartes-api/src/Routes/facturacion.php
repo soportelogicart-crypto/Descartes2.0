@@ -31,6 +31,11 @@ return function (App $app): void {
     $group->post('/manual/periodicos/generar', [FacturacionController::class, 'periodicosGenerar'])
       ->add($setPermiso('facturacion-manual', 'crear'));
 
+    $group->get('/contabilidad/pendientes', [FacturacionController::class, 'listTraspasoContable'])
+      ->add($setPermiso('facturacion-contabilidad', 'ver'));
+    $group->post('/contabilidad/traspasar', [FacturacionController::class, 'ejecutarTraspasoContable'])
+      ->add($setPermiso('facturacion-contabilidad', 'crear'));
+
     $group->get('/generar/preview', [FacturacionController::class, 'previewGeneracion'])
       ->add($setPermiso('facturacion-generacion', 'ver'));
     $group->post('/generar', [FacturacionController::class, 'generarAutomatico'])
