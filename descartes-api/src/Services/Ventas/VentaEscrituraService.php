@@ -1005,7 +1005,7 @@ final class VentaEscrituraService
   }
 
   /**
-   * Reserva el siguiente albaran de venta desde Empresas.UltAlbaranVen (contador tienda)
+   * Reserva el siguiente albaran de venta desde Empresas_Ges.UltAlbaranVen (contador tienda)
    * e incrementa el contador en el mismo momento (como legacy al pulsar Intro).
    *
    * @return array{
@@ -1027,7 +1027,7 @@ final class VentaEscrituraService
     $this->pdo->beginTransaction();
     try {
       $stmt = $this->pdo->prepare(
-        'SELECT UltAlbaranVen, Almacen FROM Empresas WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e'
+        'SELECT UltAlbaranVen, Almacen FROM Empresas_Ges WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e'
       );
       $stmt->execute(['e' => $empresa]);
       $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -1037,7 +1037,7 @@ final class VentaEscrituraService
 
       $albaran = (int) ($row['UltAlbaranVen'] ?? 0) + 1;
       $this->pdo->prepare(
-        'UPDATE Empresas SET UltAlbaranVen = :n WHERE Codigo = :e'
+        'UPDATE Empresas_Ges SET UltAlbaranVen = :n WHERE Codigo = :e'
       )->execute(['n' => $albaran, 'e' => $empresa]);
 
       $vendedor = null;
@@ -1210,7 +1210,7 @@ final class VentaEscrituraService
 
   /**
    * Agrupa bases/IVA por PjeIva de linea (como CalculoTotal de FrmVenta).
-   * Si Empresas.SW_IVA (yIVA): el Precio de linea es PVP con IVA incluido
+   * Si Empresas_Ges.SW_IVA (yIVA): el Precio de linea es PVP con IVA incluido
    * → base = totalConIva / (1+pje/100), iva = totalConIva - base (CalculoEspecialIvaIncluido).
    * Cabecera PjeDto/ImporteDtos = Dto1 del cliente (no el dto de linea).
    *
@@ -1337,11 +1337,11 @@ final class VentaEscrituraService
     }
   }
 
-  /** Empresas.SW_IVA = yIVA legacy (precios de venta con IVA incluido). */
+  /** Empresas_Ges.SW_IVA = yIVA legacy (precios de venta con IVA incluido). */
   private function empresaPreciosIvaIncluido(string $empresa): bool
   {
     try {
-      $stmt = $this->pdo->prepare('SELECT SW_IVA FROM Empresas WHERE Codigo = :e');
+      $stmt = $this->pdo->prepare('SELECT SW_IVA FROM Empresas_Ges WHERE Codigo = :e');
       $stmt->execute(['e' => $empresa]);
       $v = $stmt->fetchColumn();
       return $v !== false && (int) $v !== 0;
@@ -1357,7 +1357,7 @@ final class VentaEscrituraService
       throw new \InvalidArgumentException('Contador empresa no permitido');
     }
     $stmt = $this->pdo->prepare(
-      "SELECT [{$campo}] FROM Empresas WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e"
+      "SELECT [{$campo}] FROM Empresas_Ges WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e"
     );
     $stmt->execute(['e' => $empresa]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -1365,7 +1365,7 @@ final class VentaEscrituraService
       throw new \RuntimeException('Tienda no encontrada', 404);
     }
     $n = (int) ($row[$campo] ?? 0) + 1;
-    $this->pdo->prepare("UPDATE Empresas SET [{$campo}] = :n WHERE Codigo = :e")
+    $this->pdo->prepare("UPDATE Empresas_Ges SET [{$campo}] = :n WHERE Codigo = :e")
       ->execute(['n' => $n, 'e' => $empresa]);
     return $n;
   }
@@ -1537,7 +1537,7 @@ final class VentaEscrituraService
       $cols .= $campo === 'UltFactura' ? ', UltFacturaDiferida' : ', UltAbonoDiferido';
     }
     $stmt = $this->pdo->prepare(
-      "SELECT {$cols} FROM Empresas WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e"
+      "SELECT {$cols} FROM Empresas_Ges WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e"
     );
     $stmt->execute(['e' => $empresa]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -1557,7 +1557,7 @@ final class VentaEscrituraService
     }
 
     $n = (int) ($row[$campoUsar] ?? 0) + 1;
-    $this->pdo->prepare("UPDATE Empresas SET [{$campoUsar}] = :n WHERE Codigo = :e")
+    $this->pdo->prepare("UPDATE Empresas_Ges SET [{$campoUsar}] = :n WHERE Codigo = :e")
       ->execute(['n' => $n, 'e' => $empresa]);
 
     if ($this->contadorFacturasAnioMesActivo()) {
@@ -1588,7 +1588,7 @@ final class VentaEscrituraService
   private function empresaFacturasRectificativas(string $empresa): bool
   {
     try {
-      $st = $this->pdo->prepare('SELECT FacturasRectificativas FROM Empresas WHERE Codigo = :e');
+      $st = $this->pdo->prepare('SELECT FacturasRectificativas FROM Empresas_Ges WHERE Codigo = :e');
       $st->execute(['e' => $empresa]);
       $v = $st->fetchColumn();
       return $v !== false && (int) $v !== 0;

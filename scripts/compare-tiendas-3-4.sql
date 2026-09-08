@@ -10,14 +10,14 @@ SELECT ''' + COLUMN_NAME + ''',
   CAST(n.[' + COLUMN_NAME + '] AS nvarchar(4000)),
   CASE WHEN l.[' + COLUMN_NAME + '] IS NULL THEN 1 ELSE 0 END,
   CASE WHEN n.[' + COLUMN_NAME + '] IS NULL THEN 1 ELSE 0 END
-FROM (SELECT * FROM Empresas WHERE RTRIM(Codigo)=''3'') l
-CROSS JOIN (SELECT * FROM Empresas WHERE RTRIM(Codigo)=''4'') n
+FROM (SELECT * FROM Empresas_Ges WHERE RTRIM(Codigo)=''3'') l
+CROSS JOIN (SELECT * FROM Empresas_Ges WHERE RTRIM(Codigo)=''4'') n
 WHERE (l.[' + COLUMN_NAME + '] IS NULL) <> (n.[' + COLUMN_NAME + '] IS NULL)
    OR (l.[' + COLUMN_NAME + '] IS NOT NULL AND n.[' + COLUMN_NAME + '] IS NOT NULL
        AND CAST(l.[' + COLUMN_NAME + '] AS nvarchar(4000)) <> CAST(n.[' + COLUMN_NAME + '] AS nvarchar(4000)));
 '
 FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_NAME='Empresas' AND DATA_TYPE NOT IN ('timestamp') AND COLUMN_NAME <> 'upsize_ts';
+WHERE TABLE_NAME='Empresas_Ges' AND DATA_TYPE NOT IN ('timestamp') AND COLUMN_NAME <> 'upsize_ts';
 
 EXEC sp_executesql @sql;
 

@@ -244,7 +244,7 @@ final class AlbaranCompraConversionVentaService
       return min(9, max(1, $tarifa));
     }
     try {
-      $st = $this->pdo->prepare('SELECT Tarifa FROM Empresas WHERE Codigo = :e');
+      $st = $this->pdo->prepare('SELECT Tarifa FROM Empresas_Ges WHERE Codigo = :e');
       $st->execute(['e' => $empresa]);
       $v = $st->fetchColumn();
       if ($v !== false && (int) $v > 0) {

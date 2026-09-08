@@ -91,11 +91,11 @@ final class ConfigEquipoService
   private function existeEmpresa(string $codigo): bool
   {
     $stmt = $this->pdo->prepare(
-      'SELECT 1 FROM [Empresas]
+      'SELECT 1 FROM [Empresas_Ges]
        WHERE RTRIM([Codigo]) = RTRIM(:codigo)
          AND EXISTS (
            SELECT 1 FROM [Parametros] p
-           WHERE RTRIM(p.[Empresa]) = RTRIM([Empresas].[Codigo])
+           WHERE RTRIM(p.[Empresa]) = RTRIM([Empresas_Ges].[Codigo])
          )'
     );
     $stmt->execute(['codigo' => $codigo]);

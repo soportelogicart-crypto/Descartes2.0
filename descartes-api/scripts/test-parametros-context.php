@@ -60,7 +60,7 @@ while ($row = $stmt->fetch()) {
 }
 
 echo "\n=== Parametros empresas ===\n";
-$stmt = $pdo->query('SELECT p.[Empresa], e.[Nombre], e.[Almacen] FROM [Parametros] p LEFT JOIN [Empresas] e ON RTRIM(e.[Codigo]) = RTRIM(p.[Empresa])');
+$stmt = $pdo->query('SELECT p.[Empresa], e.[Nombre], e.[Almacen] FROM [Parametros] p LEFT JOIN [Empresas_Ges] e ON RTRIM(e.[Codigo]) = RTRIM(p.[Empresa])');
 while ($row = $stmt->fetch()) {
   echo "Empresa={$row['Empresa']} {$row['Nombre']} Almacen={$row['Almacen']}\n";
 }

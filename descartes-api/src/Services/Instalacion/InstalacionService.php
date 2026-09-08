@@ -114,7 +114,7 @@ final class InstalacionService
       $pdo = Database::createPdo($config);
       $diagnostico = $this->diagnosticoEsquema($pdo, $config);
       if ($diagnostico['tieneRol'] && $diagnostico['tieneBaja']) {
-        $mensaje .= ' Usuarios.Rol y Usuarios.Baja ya existen en esta BD.';
+        $mensaje .= ' Usuarios_Ges.Rol y Usuarios_Ges.Baja ya existen en esta BD.';
       } else {
         $mensaje .= ' Faltan columnas Rol/Baja: se crearan al preparar el programa.';
       }
@@ -219,7 +219,7 @@ final class InstalacionService
     $columnas = [];
     $stmt = $pdo->query(
       "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
-       WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'Usuarios'
+       WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'Usuarios_Ges'
        ORDER BY ORDINAL_POSITION"
     );
     while ($col = $stmt->fetch(PDO::FETCH_ASSOC)) {
@@ -256,7 +256,7 @@ final class InstalacionService
       $db = $diagnostico['baseDatos'] ?? '';
       $partes[] = "Conectado a {$srv} / {$db}.";
       if (($diagnostico['tieneRol'] ?? false) && ($diagnostico['tieneBaja'] ?? false)) {
-        $partes[] = 'Usuarios.Rol y Usuarios.Baja confirmados.';
+        $partes[] = 'Usuarios_Ges.Rol y Usuarios_Ges.Baja confirmados.';
       } else {
         $faltan = [];
         if (!($diagnostico['tieneRol'] ?? false)) {
@@ -265,7 +265,7 @@ final class InstalacionService
         if (!($diagnostico['tieneBaja'] ?? false)) {
           $faltan[] = 'Baja';
         }
-        $partes[] = 'ATENCION: faltan columnas en Usuarios: ' . implode(', ', $faltan) . '.';
+        $partes[] = 'ATENCION: faltan columnas en Usuarios_Ges: ' . implode(', ', $faltan) . '.';
       }
     }
     if ($admin['creado']) {

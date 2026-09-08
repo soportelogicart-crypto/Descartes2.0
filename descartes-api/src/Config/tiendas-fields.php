@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Mapeo API -> columnas [Empresas] para ficha completa de tienda.
+ * Mapeo API -> columnas [Empresas_Ges] para ficha completa de tienda.
  */
 return [
   'fields' => [
@@ -207,7 +207,7 @@ return [
   'readOnlyFields' => [
     'ultAlbaranDevCom',
   ],
-  /** Longitudes max. columnas string en [Empresas] (evitar SQLSTATE 22001). */
+  /** Longitudes max. columnas string en [Empresas_Ges] (evitar SQLSTATE 22001). */
   'stringMaxLengths' => [
     'Codigo' => 3,
     'Nombre' => 50,

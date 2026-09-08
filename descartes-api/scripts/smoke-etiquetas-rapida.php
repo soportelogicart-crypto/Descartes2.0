@@ -167,7 +167,7 @@ try {
   if ($empresa !== '') {
     $tf = $pdo->prepare(
       "SELECT TOP 1 ImpEtiquetasSinEans, ImpEtiquetasSoloEansPropios, EtiquetasIvaIncluido
-       FROM [Empresas]
+       FROM [Empresas_Ges]
        WHERE RTRIM(Codigo) = RTRIM(:e)
           OR RTRIM(Codigo) = RIGHT('000' + RTRIM(:e2), 3)"
     );
@@ -184,7 +184,7 @@ try {
         $ivaIncl ? '1' : '0'
       );
     } else {
-      echo "[AVISO] Empresa {$empresa} no encontrada en Empresas; flags=0 (default)\n";
+      echo "[AVISO] Empresa {$empresa} no encontrada en Empresas_Ges; flags=0 (default)\n";
     }
   }
 

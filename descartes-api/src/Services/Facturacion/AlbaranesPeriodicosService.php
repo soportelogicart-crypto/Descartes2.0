@@ -442,7 +442,7 @@ final class AlbaranesPeriodicosService
   private function nextUltAlbaranVen(string $empresa): int
   {
     $stmt = $this->pdo->prepare(
-      'SELECT UltAlbaranVen FROM Empresas WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e'
+      'SELECT UltAlbaranVen FROM Empresas_Ges WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e'
     );
     $stmt->execute(['e' => $empresa]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -450,7 +450,7 @@ final class AlbaranesPeriodicosService
       throw new \RuntimeException('Tienda no encontrada', 404);
     }
     $n = (int) ($row['UltAlbaranVen'] ?? 0) + 1;
-    $this->pdo->prepare('UPDATE Empresas SET UltAlbaranVen = :n WHERE Codigo = :e')
+    $this->pdo->prepare('UPDATE Empresas_Ges SET UltAlbaranVen = :n WHERE Codigo = :e')
       ->execute(['n' => $n, 'e' => $empresa]);
     return $n;
   }

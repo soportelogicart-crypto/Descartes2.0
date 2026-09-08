@@ -161,7 +161,7 @@ final class MantenimientoService
     }
 
     if ($entidad === 'tiendas' && filter_var($query['conParametros'] ?? false, FILTER_VALIDATE_BOOL)) {
-      $where[] = 'EXISTS (SELECT 1 FROM [Parametros] p WHERE RTRIM(p.[Empresa]) = RTRIM([Empresas].[Codigo]))';
+      $where[] = 'EXISTS (SELECT 1 FROM [Parametros] p WHERE RTRIM(p.[Empresa]) = RTRIM([Empresas_Ges].[Codigo]))';
     }
 
     $whereSql = $where === [] ? '' : 'WHERE ' . implode(' AND ', $where);
@@ -885,7 +885,7 @@ final class MantenimientoService
         $mapped[$sqlColumn] = (int) $plain;
         continue;
       }
-      // Usuarios.PassWord se guarda en texto plano (legacy).
+      // Usuarios_Ges.PassWord se guarda en texto plano (legacy).
       $mapped[$sqlColumn] = $plain;
     }
 
@@ -1007,7 +1007,7 @@ final class MantenimientoService
     $insert->execute(['codigo' => $codigo, 'nombre' => $nombre]);
   }
 
-  /** Al renombrar la tienda en Empresas, mantener Parametros.Nombre alineado. */
+  /** Al renombrar la tienda en Empresas_Ges, mantener Parametros.Nombre alineado. */
   private function syncParametrosNombreTienda(string $codigo, array $data): void
   {
     if (!array_key_exists('nombre', $data) && !array_key_exists('nombreFiscal', $data)) {
@@ -1363,7 +1363,7 @@ final class MantenimientoService
         throw new \InvalidArgumentException('El codigo de tienda admite como maximo 3 caracteres');
       }
       $stmt = $this->pdo->prepare(
-        'SELECT 1 FROM [Empresas] WHERE RTRIM(LTRIM([Codigo])) = :codigo'
+        'SELECT 1 FROM [Empresas_Ges] WHERE RTRIM(LTRIM([Codigo])) = :codigo'
       );
       $stmt->execute(['codigo' => $nuevoCodigo]);
       if ($stmt->fetch()) {
@@ -1378,7 +1378,7 @@ final class MantenimientoService
     // validar solo los campos presentes en el payload.
     $this->assertTiendaCamposObligatorios($data, false);
 
-    $stmt = $this->pdo->prepare('SELECT [Central], [Baja] FROM [Empresas] WHERE [Codigo] = :codigo');
+    $stmt = $this->pdo->prepare('SELECT [Central], [Baja] FROM [Empresas_Ges] WHERE [Codigo] = :codigo');
     $stmt->execute(['codigo' => $codigo]);
     $row = $stmt->fetch();
     if (!$row) {
@@ -2169,7 +2169,7 @@ final class MantenimientoService
     }
 
     throw new \InvalidArgumentException(
-      'No se pudo generar un codigo de proveedor libre (revise UltProveedor en Empresas)'
+      'No se pudo generar un codigo de proveedor libre (revise UltProveedor en Empresas_Ges)'
     );
   }
 
@@ -2197,7 +2197,7 @@ final class MantenimientoService
 
     $stmt = $this->pdo->query(
       "SELECT TOP 1 RTRIM([Codigo]) AS Codigo
-       FROM [Empresas]
+       FROM [Empresas_Ges]
        WHERE ISNULL([Central], 0) = 1
        ORDER BY [Codigo]"
     );
@@ -2211,7 +2211,7 @@ final class MantenimientoService
 
     $stmt = $this->pdo->query(
       "SELECT TOP 1 RTRIM([Codigo]) AS Codigo
-       FROM [Empresas]
+       FROM [Empresas_Ges]
        WHERE ISNULL([GenProveedores], 0) = 1
        ORDER BY [Codigo]"
     );
@@ -2228,7 +2228,7 @@ final class MantenimientoService
       'SELECT RTRIM([Codigo]) AS Codigo,
               CAST(ISNULL([GenProveedores], 0) AS int) AS GenProveedores,
               CAST(ISNULL([UltProveedor], 0) AS int) AS UltProveedor
-       FROM [Empresas]
+       FROM [Empresas_Ges]
        WHERE RTRIM([Codigo]) = :codigo'
     );
     $stmt->execute(['codigo' => trim($codigo)]);
@@ -2248,10 +2248,10 @@ final class MantenimientoService
   {
     $this->pdo->beginTransaction();
     try {
-      // Empresas tiene triggers: no usar OUTPUT sin INTO.
+      // Empresas_Ges tiene triggers: no usar OUTPUT sin INTO.
       $stmt = $this->pdo->prepare(
         'SELECT CAST(ISNULL([UltProveedor], 0) AS int)
-         FROM [Empresas] WITH (UPDLOCK, ROWLOCK)
+         FROM [Empresas_Ges] WITH (UPDLOCK, ROWLOCK)
          WHERE RTRIM([Codigo]) = :codigo AND ISNULL([GenProveedores], 0) = 1'
       );
       $stmt->execute(['codigo' => trim($empresaCodigo)]);
@@ -2268,7 +2268,7 @@ final class MantenimientoService
       }
 
       $upd = $this->pdo->prepare(
-        'UPDATE [Empresas]
+        'UPDATE [Empresas_Ges]
          SET [UltProveedor] = :nuevo
          WHERE RTRIM([Codigo]) = :codigo AND ISNULL([GenProveedores], 0) = 1'
       );
@@ -2280,7 +2280,7 @@ final class MantenimientoService
         // SQL Server puede reportar 0; verificar valor final.
         $check = $this->pdo->prepare(
           'SELECT CAST(ISNULL([UltProveedor], 0) AS int)
-           FROM [Empresas]
+           FROM [Empresas_Ges]
            WHERE RTRIM([Codigo]) = :codigo'
         );
         $check->execute(['codigo' => trim($empresaCodigo)]);
@@ -2378,7 +2378,7 @@ final class MantenimientoService
     }
 
     throw new \InvalidArgumentException(
-      'No se pudo generar un codigo de cliente libre (revise Prefijo / UltCliente / GenClientes en Empresas)'
+      'No se pudo generar un codigo de cliente libre (revise Prefijo / UltCliente / GenClientes en Empresas_Ges)'
     );
   }
 
@@ -2406,7 +2406,7 @@ final class MantenimientoService
 
     $stmt = $this->pdo->query(
       "SELECT TOP 1 RTRIM([Codigo]) AS Codigo
-       FROM [Empresas]
+       FROM [Empresas_Ges]
        WHERE ISNULL([Central], 0) = 1
        ORDER BY [Codigo]"
     );
@@ -2420,7 +2420,7 @@ final class MantenimientoService
 
     $stmt = $this->pdo->query(
       "SELECT TOP 1 RTRIM([Codigo]) AS Codigo
-       FROM [Empresas]
+       FROM [Empresas_Ges]
        WHERE ISNULL([GenClientes], 0) = 1
        ORDER BY [Codigo]"
     );
@@ -2438,7 +2438,7 @@ final class MantenimientoService
               CAST(ISNULL([GenClientes], 0) AS int) AS GenClientes,
               CAST(ISNULL([Prefijo], 0) AS int) AS Prefijo,
               CAST(ISNULL([UltCliente], 0) AS int) AS UltCliente
-       FROM [Empresas]
+       FROM [Empresas_Ges]
        WHERE RTRIM([Codigo]) = :codigo'
     );
     $stmt->execute(['codigo' => trim($codigo)]);
@@ -2461,7 +2461,7 @@ final class MantenimientoService
     try {
       $stmt = $this->pdo->prepare(
         'SELECT CAST(ISNULL([UltCliente], 0) AS int)
-         FROM [Empresas] WITH (UPDLOCK, ROWLOCK)
+         FROM [Empresas_Ges] WITH (UPDLOCK, ROWLOCK)
          WHERE RTRIM([Codigo]) = :codigo AND ISNULL([GenClientes], 0) = 1'
       );
       $stmt->execute(['codigo' => trim($empresaCodigo)]);
@@ -2478,7 +2478,7 @@ final class MantenimientoService
       }
 
       $upd = $this->pdo->prepare(
-        'UPDATE [Empresas]
+        'UPDATE [Empresas_Ges]
          SET [UltCliente] = :nuevo
          WHERE RTRIM([Codigo]) = :codigo AND ISNULL([GenClientes], 0) = 1'
       );
@@ -2489,7 +2489,7 @@ final class MantenimientoService
       if ($upd->rowCount() === 0) {
         $check = $this->pdo->prepare(
           'SELECT CAST(ISNULL([UltCliente], 0) AS int)
-           FROM [Empresas]
+           FROM [Empresas_Ges]
            WHERE RTRIM([Codigo]) = :codigo'
         );
         $check->execute(['codigo' => trim($empresaCodigo)]);
@@ -2518,7 +2518,7 @@ final class MantenimientoService
   }
 
   /**
-   * Preview del siguiente codigo de articulo (si Empresas.GenArticulos=1).
+   * Preview del siguiente codigo de articulo (si Empresas_Ges.GenArticulos=1).
    * Sin UltArticulo en schema: se calcula como MAX(codigos numericos)+1, con ceros a la izquierda.
    *
    * @return array{automatico: bool, codigo: ?string, empresaCodigo: ?string, ancho: ?int}
@@ -2618,7 +2618,7 @@ final class MantenimientoService
 
     $stmt = $this->pdo->query(
       "SELECT TOP 1 RTRIM([Codigo]) AS Codigo
-       FROM [Empresas]
+       FROM [Empresas_Ges]
        WHERE ISNULL([Central], 0) = 1
        ORDER BY [Codigo]"
     );
@@ -2632,7 +2632,7 @@ final class MantenimientoService
 
     $stmt = $this->pdo->query(
       "SELECT TOP 1 RTRIM([Codigo]) AS Codigo
-       FROM [Empresas]
+       FROM [Empresas_Ges]
        WHERE ISNULL([GenArticulos], 0) = 1
        ORDER BY [Codigo]"
     );
@@ -2648,7 +2648,7 @@ final class MantenimientoService
     $stmt = $this->pdo->prepare(
       'SELECT RTRIM([Codigo]) AS Codigo,
               CAST(ISNULL([GenArticulos], 0) AS int) AS GenArticulos
-       FROM [Empresas]
+       FROM [Empresas_Ges]
        WHERE RTRIM([Codigo]) = :codigo'
     );
     $stmt->execute(['codigo' => trim($codigo)]);

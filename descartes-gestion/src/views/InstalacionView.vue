@@ -233,7 +233,7 @@ onMounted(() => {
           <summary>Detalle de conexion</summary>
           <p>{{ diagnosticoActual.servidorSql }} / {{ diagnosticoActual.baseDatos }}</p>
           <p v-if="diagnosticoActual.tieneRol && diagnosticoActual.tieneBaja" class="diag-ok">
-            Usuarios.Rol y Usuarios.Baja: OK
+            Usuarios_Ges.Rol y Usuarios_Ges.Baja: OK
           </p>
           <p v-else class="diag-alerta">Faltan columnas Rol o Baja en Usuarios.</p>
         </details>

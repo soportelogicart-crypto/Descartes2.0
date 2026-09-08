@@ -321,7 +321,7 @@ final class PedidoClienteService
   }
 
   /**
-   * Reserva el siguiente pedido de cliente desde Empresas.UltPedidoCli (legacy FrmPedido).
+   * Reserva el siguiente pedido de cliente desde Empresas_Ges.UltPedidoCli (legacy FrmPedido).
    *
    * @return array{empresa: string, pedido: int, puesto: ?string, vendedor: ?string}
    */
@@ -338,7 +338,7 @@ final class PedidoClienteService
     }
     try {
       $stmt = $this->pdo->prepare(
-        'SELECT UltPedidoCli FROM Empresas WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e'
+        'SELECT UltPedidoCli FROM Empresas_Ges WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e'
       );
       $stmt->execute(['e' => $empresa]);
       $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -348,7 +348,7 @@ final class PedidoClienteService
 
       $pedido = (int) ($row['UltPedidoCli'] ?? 0) + 1;
       $this->pdo->prepare(
-        'UPDATE Empresas SET UltPedidoCli = :n WHERE Codigo = :e'
+        'UPDATE Empresas_Ges SET UltPedidoCli = :n WHERE Codigo = :e'
       )->execute(['n' => $pedido, 'e' => $empresa]);
 
       $vendedor = null;

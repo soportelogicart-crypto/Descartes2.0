@@ -29,7 +29,7 @@ if ($codigo === '' || $plain === '') {
 
 $pdo = Database::fromEnv();
 
-$stmt = $pdo->prepare('SELECT 1 FROM [Usuarios] WHERE [Codigo] = :codigo');
+$stmt = $pdo->prepare('SELECT 1 FROM [Usuarios_Ges] WHERE [Codigo] = :codigo');
 $stmt->execute(['codigo' => $codigo]);
 if (!$stmt->fetch()) {
   fwrite(STDERR, "No existe usuario con Codigo '{$codigo}'\n");
@@ -37,7 +37,7 @@ if (!$stmt->fetch()) {
 }
 
 $upd = $pdo->prepare(
-  "UPDATE [Usuarios] SET [PassWord] = :password, [Baja] = 0, [Rol] = COALESCE(NULLIF([Rol], ''), 'ADMIN') WHERE [Codigo] = :codigo"
+  "UPDATE [Usuarios_Ges] SET [PassWord] = :password, [Baja] = 0, [Rol] = COALESCE(NULLIF([Rol], ''), 'ADMIN') WHERE [Codigo] = :codigo"
 );
 $upd->execute(['password' => $plain, 'codigo' => $codigo]);
 

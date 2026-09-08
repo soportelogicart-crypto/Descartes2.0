@@ -6,7 +6,7 @@ const { query } = require('../db')
  */
 const ENTIDADES = {
   empresas: {
-    table: 'Empresas',
+    table: 'Empresas_Ges',
     codeCol: 'Codigo',
     labelCol: 'Nombre',
     labelHeader: 'Nombre',

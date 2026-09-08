@@ -343,7 +343,7 @@ final class ImpresionFacturasService
         e.CodigoPostal AS EmpCodigoPostal, e.Provincia AS EmpProvincia
       FROM Facturas f
       INNER JOIN Clientes c ON c.Codigo = f.Cliente
-      INNER JOIN Empresas e ON e.Codigo = f.Empresa
+      INNER JOIN Empresas_Ges e ON e.Codigo = f.Empresa
       WHERE f.Empresa = :e AND f.FacturaTipo = :ft AND f.Factura = :f";
 
     $stmt = $this->pdo->prepare($sql);

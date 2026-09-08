@@ -927,7 +927,7 @@ final class GeneracionFacturasManualService
       $cols .= $campo === 'UltFactura' ? ', UltFacturaDiferida' : ', UltAbonoDiferido';
     }
     $stmt = $this->pdo->prepare(
-      "SELECT {$cols} FROM Empresas WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e"
+      "SELECT {$cols} FROM Empresas_Ges WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e"
     );
     $stmt->execute(['e' => $empresa]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -947,7 +947,7 @@ final class GeneracionFacturasManualService
     }
 
     $n = (int) ($row[$campoUsar] ?? 0) + 1;
-    $this->pdo->prepare("UPDATE Empresas SET [{$campoUsar}] = :n WHERE Codigo = :e")
+    $this->pdo->prepare("UPDATE Empresas_Ges SET [{$campoUsar}] = :n WHERE Codigo = :e")
       ->execute(['n' => $n, 'e' => $empresa]);
 
     if ($this->contadorFacturasAnioMesActivo()) {
@@ -978,7 +978,7 @@ final class GeneracionFacturasManualService
   private function empresaFacturasRectificativas(string $empresa): bool
   {
     try {
-      $st = $this->pdo->prepare('SELECT FacturasRectificativas FROM Empresas WHERE Codigo = :e');
+      $st = $this->pdo->prepare('SELECT FacturasRectificativas FROM Empresas_Ges WHERE Codigo = :e');
       $st->execute(['e' => $empresa]);
       $v = $st->fetchColumn();
       return $v !== false && (int) $v !== 0;

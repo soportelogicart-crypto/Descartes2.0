@@ -138,20 +138,15 @@ final class TraspasoContableService
         ];
       }
 
-      $ctb->beginTransaction();
       $numero = $this->siguienteNumero($ctb, $serie);
       $cuentaCliente = $this->cuentaCliente($origen);
       $this->sincronizarCliente($ctb, $cuentaCliente, $origen);
       $this->insertarLibroEmitidas($ctb, $serie, $numero, $factura, $cuentaCliente, $origen);
       $efectos = $this->insertarEfectos($ctb, $serie, $numero, $cuentaCliente, $origen);
       $this->insertarAsiento($ctb, $serie, $numero, $cuentaCliente, $origen);
-      $ctb->commit();
       $this->marcarTraspasada($empresa, $tipo, $factura, $serie, $numero);
       $this->gestion->commit();
     } catch (\Throwable $e) {
-      if (isset($ctb) && $ctb->inTransaction()) {
-        $ctb->rollBack();
-      }
       if ($this->gestion->inTransaction()) {
         $this->gestion->rollBack();
       }
@@ -182,7 +177,7 @@ final class TraspasoContableService
               e.CtbRetIrpf
        FROM Facturas f WITH (UPDLOCK, ROWLOCK)
        LEFT JOIN Clientes c ON c.Codigo=f.Cliente
-       LEFT JOIN Empresas e ON e.Codigo=f.Empresa
+       LEFT JOIN Empresas_Ges e ON e.Codigo=f.Empresa
        WHERE f.Empresa=:empresa AND f.FacturaTipo=:tipo AND f.Factura=:factura"
     );
     $stmt->execute(['empresa' => $empresa, 'tipo' => $tipo, 'factura' => $factura]);
@@ -659,7 +654,7 @@ final class TraspasoContableService
       'factura' => $factura,
     ]);
     $this->gestion->prepare(
-      'UPDATE Empresas SET UltimaComunicacionCTB=GETDATE() WHERE Codigo=:empresa'
+      'UPDATE Empresas_Ges SET UltimaComunicacionCTB=GETDATE() WHERE Codigo=:empresa'
     )->execute(['empresa' => $empresa]);
   }
 

@@ -39,7 +39,7 @@ final class DependencyCheckService
 
   private function checkTienda(string $codigo): array
   {
-    $stmt = $this->pdo->prepare('SELECT [Central] FROM [Empresas] WHERE [Codigo] = :codigo');
+    $stmt = $this->pdo->prepare('SELECT [Central] FROM [Empresas_Ges] WHERE [Codigo] = :codigo');
     $stmt->execute(['codigo' => $codigo]);
     $row = $stmt->fetch();
     if ($row && (int) $row['Central'] === 1) {
@@ -67,7 +67,7 @@ final class DependencyCheckService
     }
 
     $stmt = $this->pdo->prepare(
-      'SELECT COUNT(*) AS total FROM [Empresas] WHERE CAST([Almacen] AS int) = :almacen AND [Baja] = 0'
+      'SELECT COUNT(*) AS total FROM [Empresas_Ges] WHERE CAST([Almacen] AS int) = :almacen AND [Baja] = 0'
     );
     $stmt->execute(['almacen' => (int) $codigo]);
     $total = (int) ($stmt->fetch()['total'] ?? 0);
@@ -94,7 +94,7 @@ final class DependencyCheckService
   private function checkRol(string $codigo): array
   {
     $stmt = $this->pdo->prepare(
-      'SELECT COUNT(*) AS total FROM [Usuarios] WHERE [Rol] = :rol AND [Baja] = 0'
+      'SELECT COUNT(*) AS total FROM [Usuarios_Ges] WHERE [Rol] = :rol AND [Baja] = 0'
     );
     $stmt->execute(['rol' => $codigo]);
     $total = (int) ($stmt->fetch()['total'] ?? 0);
@@ -209,7 +209,7 @@ final class DependencyCheckService
   private function checkTipoCalculoFidelizacion(string $codigo): array
   {
     $stmt = $this->pdo->prepare(
-      'SELECT TOP 1 1 AS found FROM [Empresas]
+      'SELECT TOP 1 1 AS found FROM [Empresas_Ges]
        WHERE RTRIM(ISNULL([TipoCalculoFidelizacion], \'\')) = :codigo
          AND ISNULL([Baja], 0) = 0'
     );

@@ -35,7 +35,7 @@ final class AuthController
     // No filtrar por Baja: esa columna se añadió para Descartes 2.0 y puede no existir aún.
     $stmt = $this->pdo->prepare(
       'SELECT RTRIM([Codigo]) AS [Codigo], [Nombre], RTRIM(CAST([PassWord] AS nvarchar(255))) AS [PassWord], RTRIM([Rol]) AS [Rol]
-       FROM [Usuarios]
+       FROM [Usuarios_Ges]
        WHERE RTRIM([Codigo]) = :codigo'
     );
     $stmt->execute(['codigo' => $usuario]);

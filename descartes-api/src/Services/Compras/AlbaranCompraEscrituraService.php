@@ -8,7 +8,7 @@ use PDO;
 
 /**
  * Escritura de albaranes de compra (004 US2 / T019).
- * Contador Empresas.UltAlbaranCom (o UltAlbaranDevCom si devolución).
+ * Contador Empresas_Ges.UltAlbaranCom (o UltAlbaranDevCom si devolución).
  */
 final class AlbaranCompraEscrituraService
 {
@@ -740,7 +740,7 @@ final class AlbaranCompraEscrituraService
     try {
       $campo = $esDevolucion ? 'UltAlbaranDevCom' : 'UltAlbaranCom';
       $stmt = $this->pdo->prepare(
-        "SELECT [{$campo}], Almacen FROM Empresas WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e"
+        "SELECT [{$campo}], Almacen FROM Empresas_Ges WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e"
       );
       $stmt->execute(['e' => $empresa]);
       $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -750,7 +750,7 @@ final class AlbaranCompraEscrituraService
 
       $albaran = (int) ($row[$campo] ?? 0) + 1;
       $this->pdo->prepare(
-        "UPDATE Empresas SET [{$campo}] = :n WHERE Codigo = :e"
+        "UPDATE Empresas_Ges SET [{$campo}] = :n WHERE Codigo = :e"
       )->execute(['n' => $albaran, 'e' => $empresa]);
 
       $almacenRaw = $row['Almacen'] ?? null;
@@ -776,7 +776,7 @@ final class AlbaranCompraEscrituraService
   {
     $campo = $esDevolucion ? 'UltAlbaranDevCom' : 'UltAlbaranCom';
     $stmt = $this->pdo->prepare(
-      "SELECT [{$campo}], Almacen FROM Empresas WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e"
+      "SELECT [{$campo}], Almacen FROM Empresas_Ges WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e"
     );
     $stmt->execute(['e' => $empresa]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -785,14 +785,14 @@ final class AlbaranCompraEscrituraService
     }
     $n = (int) ($row[$campo] ?? 0) + 1;
     $this->pdo->prepare(
-      "UPDATE Empresas SET [{$campo}] = :n WHERE Codigo = :e"
+      "UPDATE Empresas_Ges SET [{$campo}] = :n WHERE Codigo = :e"
     )->execute(['n' => $n, 'e' => $empresa]);
     return $n;
   }
 
   private function assertTiendaExiste(string $empresa): void
   {
-    $stmt = $this->pdo->prepare('SELECT 1 FROM Empresas WHERE Codigo = :e');
+    $stmt = $this->pdo->prepare('SELECT 1 FROM Empresas_Ges WHERE Codigo = :e');
     $stmt->execute(['e' => $empresa]);
     if ($stmt->fetchColumn() === false) {
       throw new \InvalidArgumentException('Tienda no encontrada: ' . $empresa);
@@ -1052,7 +1052,7 @@ final class AlbaranCompraEscrituraService
 
   private function almacenTienda(string $empresa): ?int
   {
-    $stmt = $this->pdo->prepare('SELECT Almacen FROM Empresas WHERE Codigo = :e');
+    $stmt = $this->pdo->prepare('SELECT Almacen FROM Empresas_Ges WHERE Codigo = :e');
     $stmt->execute(['e' => $empresa]);
     $v = $stmt->fetchColumn();
     if ($v === false || $v === null || $v === '') {

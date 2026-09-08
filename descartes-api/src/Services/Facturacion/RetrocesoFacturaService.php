@@ -341,7 +341,7 @@ final class RetrocesoFacturaService
   private function nextNumeroAbono(string $empresa): int
   {
     $stmt = $this->pdo->prepare(
-      'SELECT UltAbono FROM Empresas WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e'
+      'SELECT UltAbono FROM Empresas_Ges WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e'
     );
     $stmt->execute(['e' => $empresa]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -349,7 +349,7 @@ final class RetrocesoFacturaService
       throw new \RuntimeException('Tienda no encontrada', 404);
     }
     $n = (int) ($row['UltAbono'] ?? 0) + 1;
-    $this->pdo->prepare('UPDATE Empresas SET UltAbono = :n WHERE Codigo = :e')
+    $this->pdo->prepare('UPDATE Empresas_Ges SET UltAbono = :n WHERE Codigo = :e')
       ->execute(['n' => $n, 'e' => $empresa]);
 
     if ($this->contadorFacturasAnioMesActivo()) {
@@ -454,7 +454,7 @@ final class RetrocesoFacturaService
     try {
       $st = $this->pdo->query(
         "SELECT TOP 1 ISNULL(TicketSI_Territorio, '') AS Territorio
-         FROM Empresas
+         FROM Empresas_Ges
          WHERE ISNULL(Central, 0) <> 0"
       );
       $row = $st ? $st->fetch(PDO::FETCH_ASSOC) : false;

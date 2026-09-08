@@ -387,7 +387,7 @@ final class EtiquetaColaService
       $defaults = $this->defaultsArticulo($articulo);
       $ean = $defaults['ean'];
 
-      // Flags Empresas (misma semántica que FE T028)
+      // Flags Empresas_Ges (misma semántica que FE T028)
       if ($flags['soloPropios'] && ($ean === null || $ean === '')) {
         $omitidas++;
         continue;
@@ -447,7 +447,7 @@ final class EtiquetaColaService
     try {
       $stmt = $this->pdo->prepare(
         "SELECT TOP 1 ImpEtiquetasSinEans, ImpEtiquetasSoloEansPropios
-         FROM [Empresas]
+         FROM [Empresas_Ges]
          WHERE RTRIM(Codigo) = RTRIM(:e)
             OR RTRIM(Codigo) = RIGHT('000' + RTRIM(:e2), 3)"
       );

@@ -8,7 +8,7 @@ use PDO;
 
 /**
  * Escritura de pedidos a proveedor (004 US3 / T026).
- * Contador Empresas.UltPedidoCom.
+ * Contador Empresas_Ges.UltPedidoCom.
  */
 final class PedidoProveedorEscrituraService
 {
@@ -240,7 +240,7 @@ final class PedidoProveedorEscrituraService
     $this->pdo->beginTransaction();
     try {
       $stmt = $this->pdo->prepare(
-        'SELECT UltPedidoCom, Almacen FROM Empresas WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e'
+        'SELECT UltPedidoCom, Almacen FROM Empresas_Ges WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e'
       );
       $stmt->execute(['e' => $empresa]);
       $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -250,7 +250,7 @@ final class PedidoProveedorEscrituraService
 
       $pedido = (int) ($row['UltPedidoCom'] ?? 0) + 1;
       $this->pdo->prepare(
-        'UPDATE Empresas SET UltPedidoCom = :n WHERE Codigo = :e'
+        'UPDATE Empresas_Ges SET UltPedidoCom = :n WHERE Codigo = :e'
       )->execute(['n' => $pedido, 'e' => $empresa]);
 
       $almacenRaw = $row['Almacen'] ?? null;
@@ -274,7 +274,7 @@ final class PedidoProveedorEscrituraService
   private function nextPedidoLocked(string $empresa): int
   {
     $stmt = $this->pdo->prepare(
-      'SELECT UltPedidoCom FROM Empresas WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e'
+      'SELECT UltPedidoCom FROM Empresas_Ges WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e'
     );
     $stmt->execute(['e' => $empresa]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -283,14 +283,14 @@ final class PedidoProveedorEscrituraService
     }
     $n = (int) ($row['UltPedidoCom'] ?? 0) + 1;
     $this->pdo->prepare(
-      'UPDATE Empresas SET UltPedidoCom = :n WHERE Codigo = :e'
+      'UPDATE Empresas_Ges SET UltPedidoCom = :n WHERE Codigo = :e'
     )->execute(['n' => $n, 'e' => $empresa]);
     return $n;
   }
 
   private function assertTiendaExiste(string $empresa): void
   {
-    $stmt = $this->pdo->prepare('SELECT 1 FROM Empresas WHERE Codigo = :e');
+    $stmt = $this->pdo->prepare('SELECT 1 FROM Empresas_Ges WHERE Codigo = :e');
     $stmt->execute(['e' => $empresa]);
     if ($stmt->fetchColumn() === false) {
       throw new \InvalidArgumentException('Tienda no encontrada: ' . $empresa);
@@ -549,7 +549,7 @@ final class PedidoProveedorEscrituraService
 
   private function almacenTienda(string $empresa): ?int
   {
-    $stmt = $this->pdo->prepare('SELECT Almacen FROM Empresas WHERE Codigo = :e');
+    $stmt = $this->pdo->prepare('SELECT Almacen FROM Empresas_Ges WHERE Codigo = :e');
     $stmt->execute(['e' => $empresa]);
     $v = $stmt->fetchColumn();
     if ($v === false || $v === null || (int) $v <= 0) {

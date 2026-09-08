@@ -755,12 +755,12 @@ th{background:#f1f5f9}
   /**
    * Forma de pago “efectivo en cajón” para cierre (salida banco / siguiente / descuadre).
    *
-   * No usar a ciegas Empresas.Divisa: en algunos maestros Divisa apunta a Bizum u otra
+   * No usar a ciegas Empresas_Ges.Divisa: en algunos maestros Divisa apunta a Bizum u otra
    * forma digital. Prioridad:
    * 1) Forma Agrupacion=0 con mas Entrado (o Acumulado) en la sesion
    * 2) FormasPago Agrupacion=0 con AbrirCajon
    * 3) FormasPago Agrupacion=0 con CajonElectronico
-   * 4) Empresas.Divisa solo si es Agrupacion=0 y no es datafono/vale
+   * 4) Empresas_Ges.Divisa solo si es Agrupacion=0 y no es datafono/vale
    * 5) Primera Agrupacion=0 “caja” (sin Datafono/Vales)
    */
   private function resolverFormaEfectivoCierre(
@@ -965,7 +965,7 @@ th{background:#f1f5f9}
       return null;
     }
     try {
-      $st = $this->pdo->prepare('SELECT Divisa FROM Empresas WHERE Codigo = :e');
+      $st = $this->pdo->prepare('SELECT Divisa FROM Empresas_Ges WHERE Codigo = :e');
       $st->execute(['e' => $empresa]);
       $v = $st->fetchColumn();
       if ($v !== false && trim((string) $v) !== '') {

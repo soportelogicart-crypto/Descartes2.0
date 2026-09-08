@@ -146,7 +146,7 @@ final class FidelizacionService
       return self::$schemaReady;
     }
     try {
-      $col = $this->pdo->query("SELECT COL_LENGTH('dbo.Empresas', 'TipoCalculoFidelizacion')")->fetchColumn();
+      $col = $this->pdo->query("SELECT COL_LENGTH('dbo.Empresas_Ges', 'TipoCalculoFidelizacion')")->fetchColumn();
       if ($col === false || $col === null) {
         self::$schemaReady = false;
         return false;
@@ -169,7 +169,7 @@ final class FidelizacionService
           ISNULL([BloqueoFidelizacion], 0) AS BloqueoFidelizacion,
           ISNULL([MinimoFidelizacion], 0) AS MinimoFidelizacion,
           RTRIM(ISNULL([TipoCalculoFidelizacion], \'\')) AS TipoCalculoFidelizacion
-       FROM [Empresas]
+       FROM [Empresas_Ges]
        WHERE RTRIM([Codigo]) = :empresa'
     );
     $stmt->execute(['empresa' => trim($empresa)]);

@@ -60,11 +60,11 @@ final class SchemaRepairService
   public function extensionesFaltantes(PDO $pdo): array
   {
     $faltantes = [];
-    if (!$this->columnExists($pdo, 'Usuarios', 'Rol')) {
-      $faltantes[] = 'Usuarios.Rol';
+    if (!$this->columnExists($pdo, 'Usuarios_Ges', 'Rol')) {
+      $faltantes[] = 'Usuarios_Ges.Rol';
     }
-    if (!$this->columnExists($pdo, 'Usuarios', 'Baja')) {
-      $faltantes[] = 'Usuarios.Baja';
+    if (!$this->columnExists($pdo, 'Usuarios_Ges', 'Baja')) {
+      $faltantes[] = 'Usuarios_Ges.Baja';
     }
     if (!$this->tableExists($pdo, 'Roles')) {
       $faltantes[] = 'Roles';

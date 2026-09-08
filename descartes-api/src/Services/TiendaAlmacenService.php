@@ -7,7 +7,7 @@ namespace Descartes\Api\Services;
 use PDO;
 
 /**
- * Vínculo tienda ↔ almacén vía campo legacy Empresas.Almacen (almacén principal).
+ * Vínculo tienda ↔ almacén vía campo legacy Empresas_Ges.Almacen (almacén principal).
  * Varias tiendas pueden compartir el mismo almacén; no se crea tabla puente.
  */
 final class TiendaAlmacenService
@@ -22,7 +22,7 @@ final class TiendaAlmacenService
   public function getAlmacenPrincipal(string $tiendaCodigo): ?int
   {
     $stmt = $this->pdo->prepare(
-      'SELECT [Almacen] FROM [Empresas] WHERE [Codigo] = :codigo'
+      'SELECT [Almacen] FROM [Empresas_Ges] WHERE [Codigo] = :codigo'
     );
     $stmt->execute(['codigo' => $tiendaCodigo]);
     $row = $stmt->fetch();
@@ -36,7 +36,7 @@ final class TiendaAlmacenService
   public function listTiendasPorAlmacen(int $almacenCodigo): array
   {
     $stmt = $this->pdo->prepare(
-      'SELECT [Codigo] FROM [Empresas] WHERE CAST([Almacen] AS int) = :almacen AND [Baja] = 0 ORDER BY [Codigo]'
+      'SELECT [Codigo] FROM [Empresas_Ges] WHERE CAST([Almacen] AS int) = :almacen AND [Baja] = 0 ORDER BY [Codigo]'
     );
     $stmt->execute(['almacen' => $almacenCodigo]);
     $codigos = [];

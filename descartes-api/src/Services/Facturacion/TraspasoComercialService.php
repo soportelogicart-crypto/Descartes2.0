@@ -370,7 +370,7 @@ final class TraspasoComercialService
       throw new \InvalidArgumentException('Contador no permitido');
     }
     $stmt = $this->pdo->prepare(
-      "SELECT [{$campo}] FROM Empresas WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e"
+      "SELECT [{$campo}] FROM Empresas_Ges WITH (UPDLOCK, ROWLOCK) WHERE Codigo = :e"
     );
     $stmt->execute(['e' => $empresa]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -378,7 +378,7 @@ final class TraspasoComercialService
       throw new \RuntimeException('Tienda no encontrada', 404);
     }
     $n = (int) ($row[$campo] ?? 0) + 1;
-    $this->pdo->prepare("UPDATE Empresas SET [{$campo}] = :n WHERE Codigo = :e")
+    $this->pdo->prepare("UPDATE Empresas_Ges SET [{$campo}] = :n WHERE Codigo = :e")
       ->execute(['n' => $n, 'e' => $empresa]);
     return $n;
   }

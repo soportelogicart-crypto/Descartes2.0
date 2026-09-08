@@ -32,7 +32,7 @@ $stmt->execute();
 echo 'Puestos count: ' . $stmt->fetch()['n'] . PHP_EOL;
 
 $stmt = $pdo->query(
-  "SELECT COUNT(*) AS n FROM [Empresas] e WHERE EXISTS (SELECT 1 FROM [Parametros] p WHERE RTRIM(p.[Empresa]) = RTRIM(e.[Codigo]))"
+  "SELECT COUNT(*) AS n FROM [Empresas_Ges] e WHERE EXISTS (SELECT 1 FROM [Parametros] p WHERE RTRIM(p.[Empresa]) = RTRIM(e.[Codigo]))"
 );
 echo 'Tiendas con Parametros: ' . $stmt->fetch()['n'] . PHP_EOL;
 

@@ -14,14 +14,14 @@ $proveedoresConfig = require __DIR__ . '/proveedores-fields.php';
 
 return [
   'tiendas' => array_merge([
-    'table' => 'Empresas',
+    'table' => 'Empresas_Ges',
     'primaryKey' => 'Codigo',
     'modulo' => 'tiendas',
     'softDelete' => ['column' => 'Baja', 'inactiveValue' => 1, 'activeValue' => 0],
     'searchColumns' => ['Codigo', 'Nombre', 'NIF', 'NombreFiscal'],
   ], $tiendasConfig),
   'usuarios' => [
-    'table' => 'Usuarios',
+    'table' => 'Usuarios_Ges',
     'primaryKey' => 'Codigo',
     'modulo' => 'usuarios',
     'softDelete' => ['column' => 'Baja', 'inactiveValue' => 1, 'activeValue' => 0],

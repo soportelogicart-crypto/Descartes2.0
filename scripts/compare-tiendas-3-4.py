@@ -1,4 +1,4 @@
-"""Compara Empresas codigo 3 (legacy) vs 4 (Descartes 2.0)."""
+"""Compara Empresas_Ges codigo 3 (legacy) vs 4 (Descartes 2.0)."""
 from __future__ import annotations
 
 import subprocess
@@ -21,7 +21,7 @@ def is_zero(v: str) -> bool:
 def main() -> int:
     sql = (
         "SET NOCOUNT ON;\n"
-        "SELECT * FROM Empresas WHERE RTRIM(Codigo) IN ('3','4') ORDER BY RTRIM(Codigo);\n"
+        "SELECT * FROM Empresas_Ges WHERE RTRIM(Codigo) IN ('3','4') ORDER BY RTRIM(Codigo);\n"
     )
     cmd = ["sqlcmd", "-S", "localhost", "-d", "larasa", "-E", "-W", "-s", "\t", "-Q", sql]
     raw = subprocess.check_output(cmd, stderr=subprocess.STDOUT)

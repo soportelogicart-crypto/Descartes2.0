@@ -22,7 +22,7 @@ final class Database
     return self::prepareConfig([
       'tipo' => 'local',
       'server' => $_ENV['DB_SERVER'] ?? getenv('DB_SERVER') ?: 'localhost',
-      'database' => $_ENV['DB_NAME'] ?? getenv('DB_NAME') ?: 'larasa',
+      'database' => $_ENV['DB_NAME'] ?? getenv('DB_NAME') ?: 'LOGIA',
       'user' => $_ENV['DB_USER'] ?? getenv('DB_USER') ?: '',
       'password' => $_ENV['DB_PASSWORD'] ?? getenv('DB_PASSWORD') ?: '',
       'trust_cert' => filter_var(
@@ -44,7 +44,7 @@ final class Database
     return [
       'tipo' => $tipo,
       'server' => $parsed['server'],
-      'database' => trim((string) ($config['database'] ?? 'larasa')),
+      'database' => trim((string) ($config['database'] ?? 'LOGIA')),
       'user' => (string) ($config['user'] ?? ''),
       'password' => (string) ($config['password'] ?? ''),
       'trust_cert' => filter_var($config['trust_cert'] ?? true, FILTER_VALIDATE_BOOL),

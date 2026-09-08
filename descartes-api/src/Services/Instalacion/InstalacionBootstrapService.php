@@ -25,7 +25,7 @@ final class InstalacionBootstrapService
     $creado = false;
     $actualizado = false;
 
-    $stmt = $pdo->prepare('SELECT TOP 1 [Codigo] FROM [Usuarios] WHERE RTRIM([Codigo]) = :codigo');
+    $stmt = $pdo->prepare('SELECT TOP 1 [Codigo] FROM [Usuarios_Ges] WHERE RTRIM([Codigo]) = :codigo');
     $stmt->execute(['codigo' => $codigo]);
     $existe = $stmt->fetch(PDO::FETCH_ASSOC) !== false;
 
@@ -52,7 +52,7 @@ final class InstalacionBootstrapService
   public function existeAdministrador(PDO $pdo): bool
   {
     $stmt = $pdo->prepare(
-      'SELECT TOP 1 1 FROM [Usuarios] WHERE RTRIM([Codigo]) = :codigo AND ISNULL([Baja], 0) = 0'
+      'SELECT TOP 1 1 FROM [Usuarios_Ges] WHERE RTRIM([Codigo]) = :codigo AND ISNULL([Baja], 0) = 0'
     );
     $stmt->execute(['codigo' => self::USUARIO_ADMIN]);
     return (bool) $stmt->fetchColumn();
@@ -80,7 +80,7 @@ final class InstalacionBootstrapService
     }
 
     $sql = sprintf(
-      'INSERT INTO [Usuarios] (%s) VALUES (%s)',
+      'INSERT INTO [Usuarios_Ges] (%s) VALUES (%s)',
       implode(', ', array_map(static fn ($c) => "[{$c}]", $campos)),
       implode(', ', $valores)
     );
@@ -103,7 +103,7 @@ final class InstalacionBootstrapService
       $sets[] = '[Baja] = 0';
     }
 
-    $sql = 'UPDATE [Usuarios] SET ' . implode(', ', $sets) . ' WHERE RTRIM([Codigo]) = :codigo';
+    $sql = 'UPDATE [Usuarios_Ges] SET ' . implode(', ', $sets) . ' WHERE RTRIM([Codigo]) = :codigo';
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
     return $stmt->rowCount() > 0;
@@ -114,7 +114,7 @@ final class InstalacionBootstrapService
   {
     try {
       $stmt = $pdo->query(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'Usuarios'"
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'Usuarios_Ges'"
       );
       $cols = [];
       while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {

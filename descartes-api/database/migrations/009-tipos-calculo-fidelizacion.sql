@@ -1,5 +1,5 @@
 -- 007-fidelizacion-clientes: catálogo extensible de métodos y selección por tienda.
--- Idempotente. Vacío en Empresas = no acumular.
+-- Idempotente. Vacío en Empresas_Ges = no acumular.
 
 IF OBJECT_ID('dbo.TiposCalculoFidelizacion', 'U') IS NULL
 BEGIN
@@ -17,11 +17,11 @@ BEGIN
 END
 GO
 
-IF COL_LENGTH('dbo.Empresas', 'TipoCalculoFidelizacion') IS NULL
+IF COL_LENGTH('dbo.Empresas_Ges', 'TipoCalculoFidelizacion') IS NULL
 BEGIN
-    ALTER TABLE [dbo].[Empresas]
-        ADD [TipoCalculoFidelizacion] nvarchar(20) NULL
-            CONSTRAINT [DF_Empresas_TipoCalculoFidelizacion] DEFAULT ('');
+    -- DEFAULT sin nombre: DF_Empresas_* puede estar ocupado en el esquema unificado.
+    ALTER TABLE [dbo].[Empresas_Ges]
+        ADD [TipoCalculoFidelizacion] nvarchar(20) NULL DEFAULT ('');
 END
 GO
 

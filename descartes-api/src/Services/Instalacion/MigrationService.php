@@ -26,6 +26,7 @@ final class MigrationService
     '007-permisos-etiquetas.sql',
     '008-puestos-formato-etiquetas.sql',
     '009-tipos-calculo-fidelizacion.sql',
+    '010-permisos-albaranes-periodicos.sql',
   ];
 
   /**
@@ -266,7 +267,7 @@ final class MigrationService
     foreach (['Rol', 'Baja'] as $column) {
       $stmt = $pdo->prepare(
         'SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
-         WHERE TABLE_SCHEMA = \'dbo\' AND TABLE_NAME = \'Usuarios\' AND COLUMN_NAME = :column'
+         WHERE TABLE_SCHEMA = \'dbo\' AND TABLE_NAME = \'Usuarios_Ges\' AND COLUMN_NAME = :column'
       );
       $stmt->execute(['column' => $column]);
       if (!$stmt->fetchColumn()) {

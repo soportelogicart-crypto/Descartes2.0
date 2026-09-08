@@ -17,7 +17,7 @@ final class EmpresaClienteRepository
 
   public function findCentral(): ?array
   {
-    $stmt = $this->pdo->query('SELECT TOP 1 * FROM [Empresas] WHERE [Central] = 1');
+    $stmt = $this->pdo->query('SELECT TOP 1 * FROM [Empresas_Ges] WHERE [Central] = 1');
     $row = $stmt->fetch();
 
     return $row ?: null;
@@ -34,7 +34,7 @@ final class EmpresaClienteRepository
       $sets[] = "[{$col}] = :{$col}";
     }
 
-    $sql = 'UPDATE [Empresas] SET ' . implode(', ', $sets) . ' WHERE [Central] = 1';
+    $sql = 'UPDATE [Empresas_Ges] SET ' . implode(', ', $sets) . ' WHERE [Central] = 1';
     $stmt = $this->pdo->prepare($sql);
     foreach ($columns as $col => $value) {
       $stmt->bindValue(':' . $col, $value);

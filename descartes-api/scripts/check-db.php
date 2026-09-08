@@ -19,17 +19,18 @@ $codigo = $argv[1] ?? null;
 echo "=== Descartes API - diagnostico BD ===\n\n";
 
 try {
-  $pdo = Database::fromEnv();
+  $config = Database::resolveConfig();
+  $pdo = Database::createPdo($config);
   echo "[OK] Conexion PDO a SQL Server\n";
-  echo "     Servidor: " . ($_ENV['DB_SERVER'] ?? '?') . "\n";
-  echo "     BD:       " . ($_ENV['DB_NAME'] ?? '?') . "\n\n";
+  echo "     Servidor: " . $config['server'] . "\n";
+  echo "     BD:       " . $config['database'] . "\n\n";
 } catch (Throwable $e) {
   echo "[ERROR] No se pudo conectar a la BD\n";
   echo "        " . $e->getMessage() . "\n";
   exit(1);
 }
 
-$tables = ['Roles', 'RolPermisos', 'Usuarios'];
+$tables = ['Roles', 'RolPermisos', 'Usuarios_Ges'];
 foreach ($tables as $table) {
   $stmt = $pdo->query("SELECT COUNT(*) AS n FROM [{$table}]");
   $n = (int) ($stmt->fetch()['n'] ?? 0);
@@ -48,10 +49,10 @@ $stmt = $pdo->query(
             ELSE 'legacy_texto'
           END AS tipo_password,
           LEN([PassWord]) AS len_password
-   FROM [Usuarios]
+   FROM [Usuarios_Ges]
    ORDER BY [Codigo]"
 );
-echo "\n--- Usuarios ---\n";
+echo "\n--- Usuarios_Ges ---\n";
 printf("%-8s %-20s %-8s %-5s %-14s %s\n", 'Codigo', 'Nombre', 'Rol', 'Baja', 'TipoPass', 'Len');
 while ($row = $stmt->fetch()) {
   printf(
@@ -68,7 +69,7 @@ while ($row = $stmt->fetch()) {
 if ($codigo !== null) {
   echo "\n--- Prueba login (sin mostrar password) ---\n";
   $stmt = $pdo->prepare(
-    'SELECT [Codigo], [PassWord], [Baja] FROM [Usuarios] WHERE [Codigo] = :codigo'
+    'SELECT [Codigo], [PassWord], [Baja] FROM [Usuarios_Ges] WHERE [Codigo] = :codigo'
   );
   $stmt->execute(['codigo' => trim($codigo)]);
   $row = $stmt->fetch();
