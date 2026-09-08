@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import {
+  descargarAlbaranPendientePdf,
   descargarAlbaranesPendientesPdf,
   listarAlbaranesPendientesFacturar,
+  obtenerAlbaranPendiente,
 } from '@/api/facturacion'
 import { api } from '@/api/client'
 import type { FacturaManualPendiente } from '@/types/facturacion'
+import type { VentaDetalle } from '@/types/ventas'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { usePdfPreview } from '@/composables/usePdfPreview'
 import { usePermisos } from '@/composables/usePermisos'
@@ -33,6 +36,12 @@ const tiendas = ref<Opt[]>([])
 const buscarClienteOpen = ref(false)
 const buscarClienteCampo = ref<CampoCliente>('desde')
 const buscarClienteInicial = ref('')
+const detalleOpen = ref(false)
+const detalle = ref<VentaDetalle | null>(null)
+const detalleRef = ref<FacturaManualPendiente | null>(null)
+const detalleLoading = ref(false)
+const detalleError = ref<string | null>(null)
+const imprimiendo = ref(false)
 const { pdfOpen, pdfUrl, pdfTitulo, cerrarPdf, abrirPdf } = usePdfPreview(
   'Albaranes pendientes de facturar'
 )
@@ -132,6 +141,62 @@ async function buscar() {
   }
 }
 
+/** Valida que el blob sea un PDF real; si no, extrae el error JSON de la API. */
+async function asegurarPdf(blob: Blob, fallback: string) {
+  const head = await blob.slice(0, 5).text()
+  if (head.startsWith('%PDF')) return
+  let msg = fallback
+  try {
+    const j = JSON.parse(await blob.text()) as { error?: string }
+    if (j.error) msg = j.error
+  } catch {
+    /* ignore */
+  }
+  throw new Error(msg)
+}
+
+async function abrirDetalle(r: FacturaManualPendiente) {
+  detalleRef.value = r
+  detalle.value = null
+  detalleError.value = null
+  detalleOpen.value = true
+  detalleLoading.value = true
+  try {
+    detalle.value = await obtenerAlbaranPendiente(r.empresa, r.tipo, r.albaran)
+  } catch (e: unknown) {
+    detalleError.value = extractApiError(e, 'No se pudo cargar el albarán')
+  } finally {
+    detalleLoading.value = false
+  }
+}
+
+function cerrarDetalle() {
+  detalleOpen.value = false
+  detalle.value = null
+  detalleRef.value = null
+  detalleError.value = null
+}
+
+async function imprimirAlbaran() {
+  const r = detalleRef.value
+  if (!r) return
+  imprimiendo.value = true
+  detalleError.value = null
+  try {
+    const blob = await descargarAlbaranPendientePdf(r.empresa, r.tipo, r.albaran)
+    await asegurarPdf(blob, 'Error al generar el PDF del albarán')
+    abrirPdf(blob, `Albarán ${r.tipo}/${r.albaran}`)
+  } catch (e: unknown) {
+    detalleError.value = extractApiError(e, 'No se pudo generar el PDF del albarán')
+  } finally {
+    imprimiendo.value = false
+  }
+}
+
+function num(valor: number | null | undefined): string {
+  return Number(valor ?? 0).toFixed(2)
+}
+
 async function pdf() {
   if (!puede('facturacion-albaranes-pendientes', 'ver')) {
     error.value = 'Sin permiso'
@@ -150,17 +215,7 @@ async function pdf() {
   mensaje.value = null
   try {
     const blob = await descargarAlbaranesPendientesPdf(paramsConsulta())
-    const head = await blob.slice(0, 5).text()
-    if (!head.startsWith('%PDF')) {
-      let msg = 'Error al generar PDF'
-      try {
-        const j = JSON.parse(await blob.text()) as { error?: string }
-        if (j.error) msg = j.error
-      } catch {
-        /* ignore */
-      }
-      throw new Error(msg)
-    }
+    await asegurarPdf(blob, 'Error al generar PDF')
     abrirPdf(blob, 'Albaranes pendientes de facturar')
     mensaje.value = 'PDF listo para previsualizar'
   } catch (e: unknown) {
@@ -180,7 +235,9 @@ onMounted(async () => {
     <div class="toolbar">
       <div>
         <h2>Albaranes pendientes de facturar</h2>
-        <p class="hint">Informe de crédito pendiente (solo consulta).</p>
+        <p class="hint">
+          Informe de crédito pendiente (solo consulta). Pulse una línea para ver el albarán.
+        </p>
       </div>
       <div class="actions">
         <button type="button" class="btn primary" :disabled="loading || loadingOpts" @click="buscar">
@@ -291,7 +348,13 @@ onMounted(async () => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="r in items" :key="`${r.empresa}|${r.tipo}|${r.albaran}`">
+              <tr
+                v-for="r in items"
+                :key="`${r.empresa}|${r.tipo}|${r.albaran}`"
+                class="fila"
+                title="Ver albarán"
+                @click="abrirDetalle(r)"
+              >
                 <td>{{ r.fecha }}</td>
                 <td>{{ r.empresa }}</td>
                 <td>{{ r.albaran }}</td>
@@ -308,6 +371,88 @@ onMounted(async () => {
         <p v-else-if="!loading" class="empty">Configure filtros y pulse Buscar.</p>
       </div>
     </div>
+
+    <Teleport to="body">
+      <div v-if="detalleOpen" class="alb-overlay" @click.self="cerrarDetalle">
+        <div class="alb-modal" role="dialog" aria-modal="true" aria-label="Albarán">
+          <header class="alb-head">
+            <h3>
+              Albarán {{ detalleRef?.tipo }}/{{ detalleRef?.albaran }}
+              <span class="alb-sub">Tienda {{ detalleRef?.empresa }}</span>
+            </h3>
+            <div class="alb-acciones">
+              <button
+                type="button"
+                class="btn primary"
+                :disabled="imprimiendo || detalleLoading || !detalle"
+                @click="imprimirAlbaran"
+              >
+                {{ imprimiendo ? 'Imprimiendo…' : 'Imprimir' }}
+              </button>
+              <button type="button" class="btn" @click="cerrarDetalle">Cerrar</button>
+            </div>
+          </header>
+
+          <div class="alb-body">
+            <p v-if="detalleError" class="error">{{ detalleError }}</p>
+            <p v-if="detalleLoading" class="empty">Cargando albarán…</p>
+
+            <template v-if="detalle">
+              <dl class="alb-datos">
+                <div><dt>Fecha</dt><dd>{{ detalle.fecha }}</dd></div>
+                <div><dt>Cliente</dt><dd>{{ detalle.cliente }}</dd></div>
+                <div class="ancho"><dt>Razón social</dt><dd>{{ detalle.razonSocial }}</dd></div>
+                <div><dt>NIF</dt><dd>{{ detalle.nif }}</dd></div>
+                <div><dt>Puesto</dt><dd>{{ detalle.puesto }}</dd></div>
+                <div><dt>Vendedor</dt><dd>{{ detalle.vendedor }}</dd></div>
+                <div><dt>Estado</dt><dd>{{ detalle.estado }}</dd></div>
+                <div class="ancho"><dt>Dirección envío</dt><dd>{{ detalle.direccionEnvio }}</dd></div>
+                <div>
+                  <dt>Población</dt>
+                  <dd>{{ detalle.codigoPostalEnvio }} {{ detalle.poblacionEnvio }}</dd>
+                </div>
+                <div><dt>Prefactura</dt><dd>{{ detalleRef?.prefactura ? 'Sí' : 'No' }}</dd></div>
+              </dl>
+
+              <div class="alb-lineas">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Artículo</th>
+                      <th>Descripción</th>
+                      <th class="num">Cantidad</th>
+                      <th class="num">Precio</th>
+                      <th class="num">% Dto</th>
+                      <th class="num">Importe</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(l, i) in detalle.lineas" :key="l.nroLin ?? i">
+                      <td>{{ l.articulo }}</td>
+                      <td class="clip">{{ l.descripcion }}</td>
+                      <td class="num">{{ num(l.cantidad) }}</td>
+                      <td class="num">{{ num(l.precio) }}</td>
+                      <td class="num">{{ num(l.pjeDto) }}</td>
+                      <td class="num">{{ num(l.importe) }}</td>
+                    </tr>
+                    <tr v-if="!detalle.lineas.length">
+                      <td colspan="6" class="empty">El albarán no tiene líneas.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="alb-totales">
+                <span v-for="(iva, i) in detalle.importesIva" :key="i" class="tag">
+                  Base {{ num(iva.base) }} · IVA {{ num(iva.pjeIva) }}% · {{ num(iva.iva) }}
+                </span>
+                <strong>Total {{ num(detalle.importe) }} €</strong>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <EntidadBuscarModal
       :open="buscarClienteOpen"
@@ -501,6 +646,105 @@ th {
 .num {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+.fila {
+  cursor: pointer;
+}
+.fila:hover td {
+  background: #e0f2fe;
+}
+.alb-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.55);
+}
+.alb-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(1000px, 96vw);
+  max-height: 90vh;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.35);
+}
+.alb-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+.alb-head h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: #0f172a;
+}
+.alb-sub {
+  margin-left: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: #64748b;
+}
+.alb-acciones {
+  display: flex;
+  gap: 0.35rem;
+}
+.alb-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.75rem 0.85rem;
+  overflow: auto;
+}
+.alb-datos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.4rem 0.75rem;
+  margin: 0;
+}
+.alb-datos .ancho {
+  grid-column: span 2;
+}
+.alb-datos dt {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: #64748b;
+}
+.alb-datos dd {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #0f172a;
+}
+.alb-lineas {
+  overflow: auto;
+  max-height: 45vh;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+}
+.alb-totales {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  justify-content: flex-end;
+}
+.alb-totales .tag {
+  padding: 0.15rem 0.4rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #f8fafc;
+  font-size: 0.75rem;
+  color: #334155;
 }
 .clip {
   max-width: 12rem;

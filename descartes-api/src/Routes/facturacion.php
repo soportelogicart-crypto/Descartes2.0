@@ -57,6 +57,13 @@ return function (App $app): void {
       ->add($setPermiso('facturacion-albaranes-pendientes', 'ver'));
     $group->get('/albaranes-pendientes/pdf', [FacturacionController::class, 'pdfAlbaranesPendientes'])
       ->add($setPermiso('facturacion-albaranes-pendientes', 'ver'));
+    $group->get('/albaranes-pendientes/{empresa}/{tipo}/{albaran}', [FacturacionController::class, 'getAlbaranPendiente'])
+      ->add($setPermiso('facturacion-albaranes-pendientes', 'ver'));
+    $group->get(
+      '/albaranes-pendientes/{empresa}/{tipo}/{albaran}/pdf',
+      [FacturacionController::class, 'pdfAlbaranPendiente']
+    )
+      ->add($setPermiso('facturacion-albaranes-pendientes', 'ver'));
 
     $group->get('/retroceso/preview', [FacturacionController::class, 'previewRetroceso'])
       ->add($setPermiso('facturacion-retroceso', 'ver'));

@@ -1,5 +1,5 @@
 import { api } from '@/api/client'
-import type { VentaResumen } from '@/types/ventas'
+import type { VentaDetalle, VentaResumen } from '@/types/ventas'
 import type {
   AlbaranPeriodicoListItem,
   AlbaranPeriodicoWrite,
@@ -153,6 +153,30 @@ export async function descargarAlbaranesPendientesPdf(
 ): Promise<Blob> {
   const { data } = await api.get('/api/facturacion/albaranes-pendientes/pdf', {
     params,
+    responseType: 'blob',
+  })
+  return data as Blob
+}
+
+function rutaAlbaranPendiente(empresa: string, tipo: string, albaran: number): string {
+  return `/api/facturacion/albaranes-pendientes/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}`
+}
+
+export async function obtenerAlbaranPendiente(
+  empresa: string,
+  tipo: string,
+  albaran: number
+): Promise<VentaDetalle> {
+  const { data } = await api.get<VentaDetalle>(rutaAlbaranPendiente(empresa, tipo, albaran))
+  return data
+}
+
+export async function descargarAlbaranPendientePdf(
+  empresa: string,
+  tipo: string,
+  albaran: number
+): Promise<Blob> {
+  const { data } = await api.get(`${rutaAlbaranPendiente(empresa, tipo, albaran)}/pdf`, {
     responseType: 'blob',
   })
   return data as Blob

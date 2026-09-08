@@ -303,6 +303,50 @@ final class FacturacionController
     }
   }
 
+  public function getAlbaranPendiente(Request $request, Response $response, array $args): Response
+  {
+    try {
+      $item = $this->pendientes->detalle(
+        (string) ($args['empresa'] ?? ''),
+        (string) ($args['tipo'] ?? ''),
+        (int) ($args['albaran'] ?? 0)
+      );
+      if ($item === null) {
+        return ErrorResponse::json($response, 404, 'Albarán no encontrado', 'NO_ENCONTRADO');
+      }
+      return $this->json($response, 200, $item);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function pdfAlbaranPendiente(Request $request, Response $response, array $args): Response
+  {
+    try {
+      $empresa = (string) ($args['empresa'] ?? '');
+      $tipo = (string) ($args['tipo'] ?? '');
+      $albaran = (int) ($args['albaran'] ?? 0);
+      $pdf = $this->pendientes->documentoPdf($empresa, $tipo, $albaran);
+      $response->getBody()->write($pdf);
+      return $response
+        ->withHeader('Content-Type', 'application/pdf')
+        ->withHeader(
+          'Content-Disposition',
+          sprintf('inline; filename="albaran_%s_%s_%d.pdf"', $empresa, $tipo, $albaran)
+        )
+        ->withHeader('Content-Length', (string) strlen($pdf))
+        ->withStatus(200);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
   public function pdfAlbaranesPendientes(Request $request, Response $response): Response
   {
     try {

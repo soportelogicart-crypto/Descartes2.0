@@ -197,7 +197,10 @@ return function (App $app): void {
   ));
   $container->set(\Descartes\Api\Services\Facturacion\AlbaranesPeriodicosService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\AlbaranesPeriodicosService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Facturacion\DiarioFacturacionService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\DiarioFacturacionService($c->get(\Descartes\Api\Services\Facturacion\ImpresionFacturasService::class)));
-  $container->set(\Descartes\Api\Services\Facturacion\AlbaranesPendientesService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\AlbaranesPendientesService($c->get(\Descartes\Api\Services\Facturacion\GeneracionFacturasManualService::class)));
+  $container->set(\Descartes\Api\Services\Facturacion\AlbaranesPendientesService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\AlbaranesPendientesService(
+    $c->get(\Descartes\Api\Services\Facturacion\GeneracionFacturasManualService::class),
+    $c->get(\Descartes\Api\Services\Ventas\VentaConsultaService::class)
+  ));
   $container->set(\Descartes\Api\Services\Facturacion\RetrocesoFacturaService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\RetrocesoFacturaService(
     $c->get(PDO::class),
     $c->get(\Descartes\Api\Services\Facturacion\RecibosFacturaService::class)
