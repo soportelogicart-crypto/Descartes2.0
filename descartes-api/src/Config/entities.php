@@ -529,13 +529,34 @@ return [
       'Cuenta' => 23,
     ],
   ],
-  /** Plan contable (legacy consulta CuentasBan en ficha Proveedores → campo Banco). */
+  /** Plan contable completo. */
   'cuentas' => [
     'table' => 'Cuentas',
     'primaryKey' => 'Codigo',
     'modulo' => 'proveedores',
     'hardDelete' => true,
     'searchColumns' => ['Codigo', 'Descripcion'],
+    'fields' => [
+      'codigo' => 'Codigo',
+      'descripcion' => 'Descripcion',
+    ],
+    'stringMaxLengths' => [
+      'Codigo' => 10,
+      'Descripcion' => 40,
+    ],
+  ],
+  /**
+   * Cuentas de banco: equivalente a la consulta legacy "CuentasBan" (ficha
+   * Proveedores → campo Banco). Solo cuentas de ultimo nivel del subgrupo 572
+   * (bancos c/c a la vista del PGC), que es lo que lista el buscador legacy.
+   */
+  'cuentas-banco' => [
+    'table' => 'Cuentas',
+    'primaryKey' => 'Codigo',
+    'modulo' => 'proveedores',
+    'hardDelete' => true,
+    'searchColumns' => ['Codigo', 'Descripcion'],
+    'fixedWhere' => "[Codigo] LIKE '572%' AND ISNULL([UltNivel], 0) = 1",
     'fields' => [
       'codigo' => 'Codigo',
       'descripcion' => 'Descripcion',

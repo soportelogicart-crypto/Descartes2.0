@@ -7,6 +7,7 @@ namespace Descartes\Api\Controllers;
 use Descartes\Api\Http\ErrorResponse;
 use Descartes\Api\Repositories\ClientesContactosRepository;
 use Descartes\Api\Repositories\ClientesDireccionesRepository;
+use Descartes\Api\Repositories\ClientesEstadisticaRepository;
 use Descartes\Api\Services\MantenimientoService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -16,15 +17,18 @@ final class ClienteController
 {
   private ClientesDireccionesRepository $direccionesRepository;
   private ClientesContactosRepository $contactosRepository;
+  private ClientesEstadisticaRepository $estadisticaRepository;
   private MantenimientoService $mantenimientoService;
 
   public function __construct(
     ClientesDireccionesRepository $direccionesRepository,
     ClientesContactosRepository $contactosRepository,
+    ClientesEstadisticaRepository $estadisticaRepository,
     MantenimientoService $mantenimientoService
   ) {
     $this->direccionesRepository = $direccionesRepository;
     $this->contactosRepository = $contactosRepository;
+    $this->estadisticaRepository = $estadisticaRepository;
     $this->mantenimientoService = $mantenimientoService;
   }
 
@@ -216,6 +220,93 @@ final class ClienteController
     } catch (\Throwable $e) {
       return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
     }
+  }
+
+  public function estadistica(Request $request, Response $response, array $args): Response
+  {
+    $codigo = trim((string) ($args['codigo'] ?? ''));
+    if ($codigo === '') {
+      return ErrorResponse::json($response, 400, 'Codigo de cliente obligatorio', 'VALIDACION');
+    }
+    if (!$this->estadisticaRepository->clienteExiste($codigo)) {
+      return ErrorResponse::json($response, 404, 'Cliente no encontrado', 'NO_ENCONTRADO');
+    }
+
+    $anio = $this->anio($request->getQueryParams()['anio'] ?? null);
+    if ($anio === null) {
+      return ErrorResponse::json($response, 400, 'Ejercicio no valido', 'VALIDACION');
+    }
+
+    try {
+      return $this->json($response, 200, $this->estadisticaRepository->estadisticaAnual($codigo, $anio));
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function putPrevision(Request $request, Response $response, array $args): Response
+  {
+    $codigo = trim((string) ($args['codigo'] ?? ''));
+    $anio = $this->anio($args['anio'] ?? null);
+    $mes = (int) ($args['mes'] ?? 0);
+    if ($codigo === '' || $anio === null || $mes < 1 || $mes > 12) {
+      return ErrorResponse::json($response, 400, 'Identificador de periodo incompleto', 'VALIDACION');
+    }
+    if (!$this->estadisticaRepository->clienteExiste($codigo)) {
+      return ErrorResponse::json($response, 404, 'Cliente no encontrado', 'NO_ENCONTRADO');
+    }
+
+    $body = (array) json_decode((string) $request->getBody(), true);
+    $prevision = $body['prevision'] ?? null;
+    if (!is_numeric($prevision)) {
+      return ErrorResponse::json($response, 400, 'La prevision debe ser numerica', 'VALIDACION');
+    }
+
+    try {
+      $this->estadisticaRepository->guardarPrevision($codigo, $anio, $mes, (float) $prevision);
+      return $this->json($response, 200, $this->estadisticaRepository->estadisticaAnual($codigo, $anio));
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function consumo(Request $request, Response $response, array $args): Response
+  {
+    $codigo = trim((string) ($args['codigo'] ?? ''));
+    if ($codigo === '') {
+      return ErrorResponse::json($response, 400, 'Codigo de cliente obligatorio', 'VALIDACION');
+    }
+    if (!$this->estadisticaRepository->clienteExiste($codigo)) {
+      return ErrorResponse::json($response, 404, 'Cliente no encontrado', 'NO_ENCONTRADO');
+    }
+
+    $params = $request->getQueryParams();
+    $anio = $this->anio($params['anio'] ?? null);
+    if ($anio === null) {
+      return ErrorResponse::json($response, 400, 'Ejercicio no valido', 'VALIDACION');
+    }
+    $agrupacion = trim((string) ($params['agrupacion'] ?? 'macrofamilia'));
+    if (!in_array($agrupacion, ClientesEstadisticaRepository::agrupacionesValidas(), true)) {
+      return ErrorResponse::json($response, 400, 'Agrupacion no valida', 'VALIDACION');
+    }
+    $medida = trim((string) ($params['medida'] ?? 'importe'));
+
+    try {
+      return $this->json($response, 200, $this->estadisticaRepository->consumo($codigo, $anio, $agrupacion, $medida));
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  private function anio(mixed $valor): ?int
+  {
+    $anio = (int) $valor;
+    if ($anio < 1990 || $anio > 2100) {
+      return null;
+    }
+    return $anio;
   }
 
   private function json(Response $response, int $status, array $payload): Response

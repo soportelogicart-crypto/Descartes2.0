@@ -75,6 +75,21 @@ export type FacturasGeneracionBody = {
 
 export type FacturasGeneracionResponse = FacturasManualGenerarResponse & {
   omitidosImporteMinimo: number
+  emails: {
+    candidatas: number
+    enviadas: number
+    omitidas: number
+    errores: number
+    detalles: Array<{
+      empresa: string
+      facturaTipo: string
+      factura: number
+      cliente: string
+      estado: 'enviada' | 'omitida' | 'error'
+      destinatario?: string
+      motivo?: string
+    }>
+  }
 }
 
 export type FacturaImpresionItem = {

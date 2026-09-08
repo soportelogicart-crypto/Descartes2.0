@@ -1,3 +1,5 @@
+import { ibanValido } from '@/utils/iban'
+
 export type ProveedorFieldType = 'text' | 'number' | 'checkbox' | 'textarea' | 'select' | 'email'
 
 export type ProveedorFieldLayout = 'inline' | 'checkbox' | 'textarea' | 'dias-pago'
@@ -14,7 +16,7 @@ export type ProveedorField = {
   step?: string
   inputWidth?: string
   options?: { value: string; label: string }[]
-  optionsSource?: 'formas-pago'
+  optionsSource?: 'formas-pago' | 'cuentas' | 'cuentas-banco'
 
   lookup?: boolean
 }
@@ -63,7 +65,7 @@ export const proveedorTabs: ProveedorTab[] = [
           }),
           inline('nif', 'N.I.F.', { maxLength: 16, inputWidth: '9rem' }),
           inline('swift', 'Swift', { maxLength: 20, inputWidth: '10rem' }),
-          inline('iban', 'IBAN', { maxLength: 34, inputWidth: '100%' }),
+          inline('iban', 'IBAN', { span: 2, maxLength: 34, inputWidth: '100%' }),
         ],
       },
       {
@@ -160,15 +162,18 @@ export const proveedorTabs: ProveedorTab[] = [
         ],
       },
       {
+        // 3 columnas: Forma Pago (2) + Dias Pago en la primera fila y los tres
+        // descuentos alineados en la segunda.
         title: 'Pago y descuentos',
-        columns: 4,
+        columns: 3,
         fields: [
           inline('formaPago', 'Forma Pago', {
-            type: 'select',
+            span: 2,
+            maxLength: 3,
             optionsSource: 'formas-pago',
             required: true,
             lookup: true,
-            inputWidth: '5rem',
+            inputWidth: '3.4rem',
           }),
           inline('diaPago1', 'Dias Pago', {
             type: 'number',
@@ -184,18 +189,31 @@ export const proveedorTabs: ProveedorTab[] = [
         title: 'Importes y contabilidad',
         columns: 3,
         fields: [
-          inline('acumIva', 'Acumulado Iva', { type: 'number', step: '0.01', inputWidth: '7rem' }),
+          inline('acumIva', 'Acumulado Iva', {
+            type: 'number',
+            step: '0.01',
+            inputWidth: '7rem',
+            readOnly: true,
+          }),
           inline('minSinPortes', 'Minimo Sin Port.', { type: 'number', step: '0.01', inputWidth: '7rem' }),
           inline('coeficienteTransporte', 'Coef. Transporte', {
             type: 'number',
             step: '0.0001',
             inputWidth: '10rem',
           }),
-          inline('cuentaCtb', 'Cta. Ctb', { type: 'number', step: '1', inputWidth: '7rem' }),
+          inline('cuentaCtb', 'Cta. Ctb', {
+            span: 2,
+            maxLength: 10,
+            lookup: true,
+            optionsSource: 'cuentas',
+            inputWidth: '7rem',
+          }),
           inline('cuentaBanco', 'Banco', {
+            span: 2,
             type: 'text',
             maxLength: 10,
             lookup: true,
+            optionsSource: 'cuentas-banco',
             inputWidth: '7rem',
           }),
           inline('aecoc', 'A.E.C.O.C', { type: 'number', step: '1', inputWidth: '10rem' }),
@@ -292,6 +310,26 @@ export function validarProveedorObligatorios(ficha: Record<string, unknown>): {
       mensaje: 'Debe asignar una forma de pago al proveedor',
       campo: 'formaPago',
       tab: 'parametros',
+    }
+  }
+  return null
+}
+
+export type ProveedorValidacionUso = {
+  campo: string
+  tab: string
+  titulo: string
+  mensaje: string
+}
+
+/** Vacío permitido; si hay valor, formato ISO + MOD-97 (mismo criterio que Clientes). */
+export function validarUsoProveedor(ficha: Record<string, unknown>): ProveedorValidacionUso | null {
+  if (!ibanValido(ficha.iban)) {
+    return {
+      campo: 'iban',
+      tab: 'generales',
+      titulo: 'IBAN incorrecto',
+      mensaje: 'El IBAN no es válido. Revise el país, los dígitos de control y la longitud.',
     }
   }
   return null

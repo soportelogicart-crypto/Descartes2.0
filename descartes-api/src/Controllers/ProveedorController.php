@@ -6,6 +6,7 @@ namespace Descartes\Api\Controllers;
 
 use Descartes\Api\Http\ErrorResponse;
 use Descartes\Api\Repositories\ProveedoresContactosRepository;
+use Descartes\Api\Repositories\ProveedoresEstadisticaRepository;
 use Descartes\Api\Services\MantenimientoService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -14,13 +15,16 @@ use Slim\Psr7\Response as SlimResponse;
 final class ProveedorController
 {
   private ProveedoresContactosRepository $contactosRepository;
+  private ProveedoresEstadisticaRepository $estadisticaRepository;
   private MantenimientoService $mantenimientoService;
 
   public function __construct(
     ProveedoresContactosRepository $contactosRepository,
+    ProveedoresEstadisticaRepository $estadisticaRepository,
     MantenimientoService $mantenimientoService
   ) {
     $this->contactosRepository = $contactosRepository;
+    $this->estadisticaRepository = $estadisticaRepository;
     $this->mantenimientoService = $mantenimientoService;
   }
 
@@ -113,6 +117,28 @@ final class ProveedorController
       return new SlimResponse(204);
     } catch (\InvalidArgumentException $e) {
       return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function estadistica(Request $request, Response $response, array $args): Response
+  {
+    $codigo = trim((string) ($args['codigo'] ?? ''));
+    if ($codigo === '') {
+      return ErrorResponse::json($response, 400, 'Codigo de proveedor obligatorio', 'VALIDACION');
+    }
+    if (!$this->estadisticaRepository->proveedorExiste($codigo)) {
+      return ErrorResponse::json($response, 404, 'Proveedor no encontrado', 'NO_ENCONTRADO');
+    }
+
+    $anio = (int) ($request->getQueryParams()['anio'] ?? date('Y'));
+    if ($anio < 1990 || $anio > 2100) {
+      return ErrorResponse::json($response, 400, 'Ejercicio no valido', 'VALIDACION');
+    }
+
+    try {
+      return $this->json($response, 200, $this->estadisticaRepository->estadisticaAnual($codigo, $anio));
     } catch (\Throwable $e) {
       return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
     }

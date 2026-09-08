@@ -13,7 +13,8 @@ import {
   filtrosIniciales,
   type ColumnFilter,
 } from '@/composables/useGridColumnFilters'
-import { proveedorTabs, proveedorVacio, validarProveedorObligatorios } from '@/config/proveedores-tabs'
+import { proveedorTabs, proveedorVacio, validarProveedorObligatorios, validarUsoProveedor } from '@/config/proveedores-tabs'
+import { normalizarIban } from '@/utils/iban'
 import { extractApiError, useMantenimiento } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
@@ -24,6 +25,7 @@ import ProveedorToolbar from '@/components/proveedores/ProveedorToolbar.vue'
 import ProveedorTabForm from '@/components/proveedores/ProveedorTabForm.vue'
 import ProveedorInteresesModal from '@/components/proveedores/ProveedorInteresesModal.vue'
 import ProveedorContactosModal from '@/components/proveedores/ProveedorContactosModal.vue'
+import ProveedorEstadisticaModal from '@/components/proveedores/ProveedorEstadisticaModal.vue'
 import { api } from '@/api/client'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 
@@ -55,6 +57,7 @@ const ficha = ref<Record<string, unknown>>({})
 const indiceFicha = ref(-1)
 const mostrarIntereses = ref(false)
 const mostrarContactos = ref(false)
+const mostrarEstadistica = ref(false)
 const confirmBorrarFichaOpen = ref(false)
 const codigoAutomatico = ref(false)
 const avisoOpen = ref(false)
@@ -311,13 +314,17 @@ function onModificar() {
 }
 
 function payloadProveedor(): Record<string, unknown> {
-  const payload: Record<string, unknown> = { ...ficha.value }
+  const payload: Record<string, unknown> = {
+    ...ficha.value,
+    iban: normalizarIban(ficha.value.iban),
+  }
   const banco = String(payload.cuentaBanco ?? '').trim()
   if (!banco || banco === '0') {
     payload.cuentaBanco = 0
   } else if (/^-?\d+(\.\d+)?$/.test(banco)) {
     payload.cuentaBanco = Number(banco)
   }
+  delete payload.acumIva
   return payload
 }
 
@@ -327,6 +334,13 @@ async function onGuardarFicha() {
     camposInvalidos.value = [errorValidacion.campo]
     tabActiva.value = errorValidacion.tab
     await mostrarAviso('Campo obligatorio', errorValidacion.mensaje, errorValidacion.campo)
+    return
+  }
+  const validacionUso = validarUsoProveedor(ficha.value)
+  if (validacionUso) {
+    camposInvalidos.value = [validacionUso.campo]
+    tabActiva.value = validacionUso.tab
+    await mostrarAviso(validacionUso.titulo, validacionUso.mensaje, validacionUso.campo)
     return
   }
   camposInvalidos.value = []
@@ -392,6 +406,7 @@ function volverAlGrid() {
   ficha.value = {}
   mostrarIntereses.value = false
   mostrarContactos.value = false
+  mostrarEstadistica.value = false
   codigoAutomatico.value = false
 }
 
@@ -399,8 +414,12 @@ function actualizarFicha(value: Record<string, unknown>) {
   ficha.value = value
 }
 
-function onAccionPendiente(nombre: string) {
-  mensaje.value = `${nombre}: disponible en una siguiente iteracion`
+function onEstadistica() {
+  if (!String(ficha.value.codigo ?? '').trim()) {
+    mensaje.value = 'Guarde el proveedor antes de consultar la estadistica'
+    return
+  }
+  mostrarEstadistica.value = true
 }
 
 function onIntereses() {
@@ -554,8 +573,7 @@ async function onUltimo() {
             @anterior="onAnterior"
             @siguiente="onSiguiente"
             @ultimo="onUltimo"
-            @estadistica="onAccionPendiente('Estadistica')"
-            @excepciones="onAccionPendiente('Excepciones')"
+            @estadistica="onEstadistica"
             @contactos="onContactos"
             @intereses="onIntereses"
           />
@@ -619,6 +637,13 @@ async function onUltimo() {
           :proveedor-codigo="String(ficha.codigo)"
           :puede-editar="puedeEditar"
           @cerrar="mostrarContactos = false"
+        />
+
+        <ProveedorEstadisticaModal
+          :open="mostrarEstadistica"
+          :proveedor-codigo="String(ficha.codigo ?? '')"
+          :proveedor-nombre="String(ficha.nombre ?? '')"
+          @cerrar="mostrarEstadistica = false"
         />
       </template>
 

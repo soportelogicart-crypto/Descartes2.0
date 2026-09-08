@@ -3,11 +3,16 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import {
   fechaParaInput,
+  riesgoPendienteCliente,
   type ClienteField,
   type ClienteSection,
 } from '@/config/clientes-tabs'
 import { lookupCodigoPostal } from '@/composables/useCodigoPostalLookup'
 import DecimalInput from '@/components/common/DecimalInput.vue'
+import EntidadBuscarModal, {
+  type EntidadBuscarResultado,
+} from '@/components/common/EntidadBuscarModal.vue'
+import ToolIcon from '@/components/common/ToolIcon.vue'
 
 const props = defineProps<{
   sections: ClienteSection[]
@@ -215,11 +220,22 @@ function etiquetaMotorFidelizacion() {
 }
 
 function displayValue(field: ClienteField) {
+  if (field.key === 'riesgoPendiente') {
+    const pendiente = riesgoPendienteCliente(props.modelValue)
+    return pendiente === null ? '' : pendiente
+  }
   const value = props.modelValue[field.key]
   if (field.type === 'date') return fechaParaInput(value)
   if (field.type === 'checkbox') return Boolean(value)
   if (field.type === 'number') return value == null || value === '' ? '' : value
   return value ?? ''
+}
+
+function numberModel(field: ClienteField): number | null {
+  if (field.key === 'riesgoPendiente') return riesgoPendienteCliente(props.modelValue)
+  const value = props.modelValue[field.key]
+  if (value == null || value === '') return null
+  return Number(value)
 }
 
 /** Direccion fiscal → envio (mismo criterio que legacy PreAlta/copia). */
@@ -284,6 +300,95 @@ async function onCodigoPostalInput(field: ClienteField, raw: string) {
 
 function colsClass(section: ClienteSection) {
   return `cols-${section.columns ?? 4}`
+}
+
+type LookupEntidad = 'clientes' | 'cuentas'
+
+const LOOKUPS: Record<LookupEntidad, { titulo: string; etiqueta: (data: any) => string }> = {
+  clientes: {
+    titulo: 'Cliente de facturación',
+    etiqueta: (data) => String(data?.nombre ?? data?.razonSocial ?? '').trim(),
+  },
+  cuentas: {
+    titulo: 'Cuenta contable',
+    etiqueta: (data) => String(data?.descripcion ?? '').trim(),
+  },
+}
+
+const lookupOpen = ref(false)
+const lookupInicial = ref('')
+const lookupFieldKey = ref('')
+/** Descripcion resuelta de cada campo con lupa, indexada por clave de campo. */
+const lookupEtiquetas = ref<Record<string, string>>({})
+
+function lookupEntidad(field: ClienteField): LookupEntidad | null {
+  if (!field.lookup) return null
+  const fuente = field.optionsSource
+  return fuente === 'clientes' || fuente === 'cuentas' ? fuente : null
+}
+
+function lookupTitulo(field: ClienteField) {
+  const entidad = lookupEntidad(field)
+  return entidad ? LOOKUPS[entidad].titulo : ''
+}
+
+const camposLookup = computed(() =>
+  allFields.value.filter((f) => lookupEntidad(f) !== null)
+)
+
+const lookupEntidadActiva = computed<LookupEntidad>(() => {
+  const field = allFields.value.find((f) => f.key === lookupFieldKey.value)
+  return (field && lookupEntidad(field)) || 'clientes'
+})
+
+const lookupTituloActivo = computed(() => LOOKUPS[lookupEntidadActiva.value].titulo)
+
+async function resolverEtiqueta(field: ClienteField, codigo: string) {
+  const entidad = lookupEntidad(field)
+  const c = codigo.trim()
+  if (!entidad || !c) {
+    lookupEtiquetas.value = { ...lookupEtiquetas.value, [field.key]: '' }
+    return
+  }
+  try {
+    const { data } = await api.get(`/api/mantenimiento/${entidad}/${encodeURIComponent(c)}`)
+    lookupEtiquetas.value = {
+      ...lookupEtiquetas.value,
+      [field.key]: LOOKUPS[entidad].etiqueta(data),
+    }
+  } catch {
+    lookupEtiquetas.value = { ...lookupEtiquetas.value, [field.key]: '' }
+  }
+}
+
+watch(
+  () => camposLookup.value.map((f) => String(props.modelValue[f.key] ?? '')).join('\u0000'),
+  () => {
+    for (const field of camposLookup.value) {
+      void resolverEtiqueta(field, String(props.modelValue[field.key] ?? ''))
+    }
+  },
+  { immediate: true }
+)
+
+function abrirLookup(field: ClienteField) {
+  if (props.readonly) return
+  lookupFieldKey.value = field.key
+  lookupInicial.value = String(props.modelValue[field.key] ?? '').trim()
+  lookupOpen.value = true
+}
+
+function onLookupSeleccionado(sel: EntidadBuscarResultado) {
+  lookupOpen.value = false
+  const field = allFields.value.find((f) => f.key === lookupFieldKey.value)
+  if (!field) return
+  setValue(field, sel.codigo)
+  lookupEtiquetas.value = { ...lookupEtiquetas.value, [field.key]: sel.etiqueta }
+}
+
+async function onLookupBlur(field: ClienteField, raw: string) {
+  setValue(field, raw.trim())
+  await resolverEtiqueta(field, raw)
 }
 </script>
 
@@ -361,11 +466,36 @@ function colsClass(section: ClienteSection) {
               <DecimalInput
                 v-else-if="field.type === 'number'"
                 :field-key="field.key"
-                :model-value="(modelValue[field.key] as number | null) ?? null"
+                :model-value="numberModel(field)"
                 :empty-as-null="true"
                 :readonly="isReadOnly(field)"
                 @update:model-value="setValue(field, $event)"
               />
+
+              <div v-else-if="lookupEntidad(field)" class="lookup-row">
+                <input
+                  :data-field-key="field.key"
+                  type="text"
+                  class="lookup-codigo"
+                  :value="String(modelValue[field.key] ?? '')"
+                  :readonly="isReadOnly(field)"
+                  :maxlength="field.maxLength"
+                  @input="setValue(field, ($event.target as HTMLInputElement).value)"
+                  @blur="onLookupBlur(field, ($event.target as HTMLInputElement).value)"
+                />
+                <button
+                  type="button"
+                  class="btn-lupa"
+                  :title="`Buscar ${lookupTitulo(field).toLowerCase()}`"
+                  :disabled="isReadOnly(field)"
+                  @click="abrirLookup(field)"
+                >
+                  <ToolIcon name="buscar" />
+                </button>
+                <span v-if="lookupEtiquetas[field.key]" class="lookup-nombre">{{
+                  lookupEtiquetas[field.key]
+                }}</span>
+              </div>
 
               <input
                 v-else
@@ -388,6 +518,15 @@ function colsClass(section: ClienteSection) {
       </section>
     </div>
   </div>
+
+  <EntidadBuscarModal
+    :open="lookupOpen"
+    :entidad="lookupEntidadActiva"
+    :titulo="lookupTituloActivo"
+    :busqueda-inicial="lookupInicial"
+    @seleccionar="onLookupSeleccionado"
+    @cerrar="lookupOpen = false"
+  />
 </template>
 
 <style scoped>
@@ -525,6 +664,61 @@ textarea:read-only,
 select:disabled {
   background: #f1f5f9;
   color: #334155;
+}
+
+.lookup-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  /* Si el contenido desborda la celda, la etiqueta del campo vecino no debe
+     quedar por encima de la lupa: interceptaria los clics. */
+  position: relative;
+  z-index: 1;
+}
+
+.lookup-row input.lookup-codigo {
+  width: 7.5rem;
+  flex: 0 1 auto;
+}
+
+.lookup-nombre {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #334155;
+  font-size: 0.75rem;
+}
+
+.btn-lupa {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.7rem;
+  height: 1.55rem;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.btn-lupa :deep(.tool-icon) {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.btn-lupa:hover:not(:disabled) {
+  background: #e0f2fe;
+  border-color: #38bdf8;
+}
+
+.btn-lupa:disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+  cursor: default;
 }
 
 @media (max-width: 900px) {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import ToolIcon from '@/components/common/ToolIcon.vue'
 
@@ -25,8 +25,11 @@ const props = defineProps<{
     | 'formas-pago'
     | 'bancos'
     | 'cuentas'
+    | 'cuentas-banco'
   titulo?: string
   busquedaInicial?: string
+  /** Deja la fila de este codigo señalada, sin filtrar el listado. */
+  codigoActual?: string
 }>()
 
 const emit = defineEmits<{
@@ -37,6 +40,7 @@ const emit = defineEmits<{
 type Fila = { codigo: string; etiqueta: string }
 
 const q = ref('')
+const gridWrap = ref<HTMLElement | null>(null)
 const loading = ref(false)
 const items = ref<Fila[]>([])
 const indice = ref(0)
@@ -57,6 +61,7 @@ const tituloModal = () => {
   if (props.entidad === 'formas-pago') return 'Buscar forma de pago'
   if (props.entidad === 'bancos') return 'Buscar banco'
   if (props.entidad === 'cuentas') return 'Buscar cuenta'
+  if (props.entidad === 'cuentas-banco') return 'Buscar banco'
   return 'Buscar proveedor'
 }
 
@@ -68,8 +73,19 @@ watch(
     indice.value = 0
     error.value = null
     await buscar()
+    await posicionarEnActual()
   }
 )
+
+async function posicionarEnActual() {
+  const codigo = props.codigoActual?.trim()
+  if (!codigo) return
+  const i = items.value.findIndex((fila) => fila.codigo.trim() === codigo)
+  if (i < 0) return
+  indice.value = i
+  await nextTick()
+  gridWrap.value?.querySelector('tr.selected')?.scrollIntoView({ block: 'center' })
+}
 
 async function buscar() {
   loading.value = true
@@ -150,7 +166,7 @@ function aceptar(i?: number) {
         <p v-if="error" class="error">{{ error }}</p>
         <p v-else-if="loading" class="hint">Cargando...</p>
 
-        <div v-else class="grid-wrap">
+        <div v-else ref="gridWrap" class="grid-wrap">
           <table class="entidad-grid">
             <thead>
               <tr>
@@ -160,6 +176,11 @@ function aceptar(i?: number) {
                   {{
                     entidad === 'articulos' || entidad === 'puestos-trabajo'
                       ? 'Descripcion'
+                      : entidad === 'formas-pago' ||
+                          entidad === 'cuentas' ||
+                          entidad === 'cuentas-banco' ||
+                          entidad === 'bancos'
+                        ? 'Descripcion'
                       : entidad === 'trabajadores'
                         ? 'Nombre'
                         : 'Razon social'

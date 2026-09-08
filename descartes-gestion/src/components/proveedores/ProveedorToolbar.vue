@@ -25,7 +25,6 @@ defineEmits<{
   siguiente: []
   ultimo: []
   estadistica: []
-  excepciones: []
   contactos: []
   intereses: []
 }>()
@@ -102,10 +101,6 @@ defineEmits<{
       <button type="button" class="tool-btn" :disabled="loading || !hayProveedor" title="Intereses" @click="$emit('intereses')">
         <ToolIcon name="intereses" />
         <span>Intereses</span>
-      </button>
-      <button type="button" class="tool-btn" :disabled="loading || !hayProveedor" title="Excepciones" @click="$emit('excepciones')">
-        <ToolIcon name="excepciones" />
-        <span>Excepc.</span>
       </button>
     </div>
 

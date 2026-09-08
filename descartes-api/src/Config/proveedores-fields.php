@@ -67,4 +67,8 @@ return [
     'asociado',
   ],
   'hidden' => ['lUpdate'],
+  /** Acumulado de IVA: lo mantiene la operativa de compras, no la ficha. */
+  'readOnlyFields' => [
+    'acumIva',
+  ],
 ];

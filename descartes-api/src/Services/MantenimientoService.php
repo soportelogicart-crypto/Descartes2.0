@@ -6,6 +6,7 @@ namespace Descartes\Api\Services;
 
 use Descartes\Api\Config\EntityConfig;
 use Descartes\Api\Database\SqlPagination;
+use Descartes\Api\Repositories\ClientesRiesgoRepository;
 use PDO;
 use PDOException;
 
@@ -15,17 +16,20 @@ final class MantenimientoService
   private DependencyCheckService $dependencyCheckService;
   private TiendaAlmacenService $tiendaAlmacenService;
   private ArticuloService $articuloService;
+  private ClientesRiesgoRepository $clientesRiesgoRepository;
 
   public function __construct(
     PDO $pdo,
     DependencyCheckService $dependencyCheckService,
     TiendaAlmacenService $tiendaAlmacenService,
-    ArticuloService $articuloService
+    ArticuloService $articuloService,
+    ?ClientesRiesgoRepository $clientesRiesgoRepository = null
   ) {
     $this->pdo = $pdo;
     $this->dependencyCheckService = $dependencyCheckService;
     $this->tiendaAlmacenService = $tiendaAlmacenService;
     $this->articuloService = $articuloService;
+    $this->clientesRiesgoRepository = $clientesRiesgoRepository ?? new ClientesRiesgoRepository($pdo);
   }
 
   private function columnExists(string $table, string $column): bool
@@ -113,6 +117,10 @@ final class MantenimientoService
     $where = [];
     $params = [];
 
+    if (isset($config['fixedWhere'])) {
+      $where[] = '(' . $config['fixedWhere'] . ')';
+    }
+
     if (isset($query['q']) && $query['q'] !== '') {
       $searchCols = $config['searchColumns'] ?? [$pk];
       $parts = [];
@@ -173,7 +181,7 @@ final class MantenimientoService
 
     $items = [];
     while ($row = $stmt->fetch()) {
-      $items[] = $this->enrichItem($entidad, $this->mapRowToApi($config, $row));
+      $items[] = $this->enrichItem($entidad, $this->mapRowToApi($config, $row), false);
     }
 
     return [
@@ -188,13 +196,17 @@ final class MantenimientoService
   {
     $config = EntityConfig::assertExists($entidad);
 
+    $filtroFijo = isset($config['fixedWhere']) ? " AND ({$config['fixedWhere']})" : '';
+
     foreach ($this->codigoVariants($entidad, $codigo) as $variant) {
-      $stmt = $this->pdo->prepare("SELECT * FROM [{$config['table']}] WHERE [{$config['primaryKey']}] = :codigo");
+      $stmt = $this->pdo->prepare(
+        "SELECT * FROM [{$config['table']}] WHERE [{$config['primaryKey']}] = :codigo{$filtroFijo}"
+      );
       $this->bindPrimaryKey($stmt, ':codigo', $variant, $config);
       $stmt->execute();
       $row = $stmt->fetch();
       if ($row) {
-        return $this->enrichItem($entidad, $this->mapRowToApi($config, $row));
+        return $this->enrichItem($entidad, $this->mapRowToApi($config, $row), true);
       }
     }
 
@@ -238,6 +250,7 @@ final class MantenimientoService
       $this->validarClienteDatosObligatorios($data, true);
       $empresaCodigo = trim((string) ($data['tiendaCodigo'] ?? ''));
       $this->asignarCodigoClienteSiCorresponde($data, $empresaCodigo);
+      $this->prepararDatosCliente($data);
       $this->prepararFechaAltaFidelizacion($data);
       $this->validarCliente($data, null);
     }
@@ -278,6 +291,8 @@ final class MantenimientoService
       $empresaCodigo = trim((string) ($data['empresaCodigo'] ?? ''));
       unset($data['empresaCodigo']);
       $this->asignarCodigoProveedorSiCorresponde($data, $empresaCodigo);
+      $this->prepararIban($data);
+      $this->validarProveedorIban($data);
     }
     $table = $config['table'];
     $pk = $config['primaryKey'];
@@ -343,6 +358,7 @@ final class MantenimientoService
       $this->validarArticulo($data, $codigo);
     }
     if ($entidad === 'clientes') {
+      $this->prepararDatosCliente($data);
       $this->prepararFechaAltaFidelizacion($data);
       $this->validarCliente($data, $codigo);
     }
@@ -378,6 +394,10 @@ final class MantenimientoService
     }
     if ($entidad === 'subfamilias') {
       $this->validarSubfamilia($data, $codigo);
+    }
+    if ($entidad === 'proveedores') {
+      $this->prepararIban($data);
+      $this->validarProveedorIban($data);
     }
     $table = $config['table'];
     $pk = $config['primaryKey'];
@@ -1475,7 +1495,7 @@ final class MantenimientoService
     }
   }
 
-  private function enrichItem(string $entidad, array $item): array
+  private function enrichItem(string $entidad, array $item, bool $fichaCompleta = false): array
   {
     if ($entidad === 'almacenes' && isset($item['codigo'])) {
       $item['tiendasVinculadas'] = $this->tiendaAlmacenService->listTiendasPorAlmacen((int) $item['codigo']);
@@ -1483,6 +1503,18 @@ final class MantenimientoService
 
     if ($entidad === 'articulos') {
       $item = $this->articuloService->enrich($item);
+    }
+
+    if ($fichaCompleta && $entidad === 'clientes') {
+      $codigo = trim((string) ($item['codigo'] ?? ''));
+      if ($codigo !== '') {
+        $limite = (float) ($item['limiteCredito'] ?? 0);
+        $riesgo = $this->clientesRiesgoRepository->calcular($codigo, $limite);
+        $item['riesgoAcumulado'] = $riesgo['riesgoAcumulado'];
+        $item['riesgoPendiente'] = $riesgo['riesgoPendiente'];
+        // Legacy: «Riesgo comercial» no lee RiesgoActualAdonix, lo calcula.
+        $item['riesgoActualAdonix'] = $riesgo['riesgoComercial'];
+      }
     }
 
     if ($entidad === 'tiendas') {
@@ -1584,6 +1616,34 @@ final class MantenimientoService
     $fecha = trim((string) ($data['fechaAltaFidelizacion'] ?? ''));
     if ($fecha === '' || str_starts_with($fecha, '1995-01-01')) {
       $data['fechaAltaFidelizacion'] = date('Y-m-d');
+    }
+  }
+
+  private function prepararDatosCliente(array &$data): void
+  {
+    $this->prepararIban($data);
+    if (array_key_exists('referenciaMandato', $data)) {
+      $data['referenciaMandato'] = trim((string) ($data['referenciaMandato'] ?? ''));
+    }
+  }
+
+  private function prepararIban(array &$data): void
+  {
+    if (array_key_exists('iban', $data)) {
+      $data['iban'] = strtoupper((string) preg_replace('/\s+/', '', (string) ($data['iban'] ?? '')));
+    }
+  }
+
+  private function validarProveedorIban(array $data): void
+  {
+    if (!array_key_exists('iban', $data)) {
+      return;
+    }
+    $iban = strtoupper((string) preg_replace('/\s+/', '', (string) ($data['iban'] ?? '')));
+    if ($iban !== '' && !$this->ibanValido($iban)) {
+      throw new \InvalidArgumentException(
+        'El IBAN no es valido. Revise el pais, los digitos de control y la longitud.'
+      );
     }
   }
 
@@ -1718,6 +1778,7 @@ final class MantenimientoService
     }
 
     $this->validarClienteDatosObligatorios($data, $esAlta);
+    $this->validarClienteIbanMandatoEmail($data, $codigoActual, $esAlta);
 
     if (array_key_exists('pjeFidelizacion', $data)) {
       $porcentaje = (float) ($data['pjeFidelizacion'] ?? 0);
@@ -1737,6 +1798,95 @@ final class MantenimientoService
     if ($duplicado !== null) {
       throw new \InvalidArgumentException('Ya existe un cliente activo con ese NIF');
     }
+  }
+
+  private function validarClienteIbanMandatoEmail(
+    array $data,
+    string $codigo,
+    bool $esAlta
+  ): void {
+    $actual = [];
+    if (!$esAlta && $codigo !== '') {
+      $stmt = $this->pdo->prepare(
+        'SELECT TOP 1 [IBAN], [ReferenciaMandato], [FechaFirmaMandato],
+                [FacturasEmail], [EmailFacturacion], [Email]
+         FROM [Clientes] WHERE RTRIM([Codigo]) = :codigo'
+      );
+      $stmt->execute(['codigo' => $codigo]);
+      $actual = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    $valor = static function (string $api, string $sql) use ($data, $actual) {
+      return array_key_exists($api, $data) ? $data[$api] : ($actual[$sql] ?? null);
+    };
+
+    $iban = strtoupper((string) preg_replace('/\s+/', '', (string) $valor('iban', 'IBAN')));
+    if ($iban !== '' && !$this->ibanValido($iban)) {
+      throw new \InvalidArgumentException(
+        'El IBAN no es valido. Revise el pais, los digitos de control y la longitud'
+      );
+    }
+
+    $referencia = trim((string) $valor('referenciaMandato', 'ReferenciaMandato'));
+    if (
+      $referencia !== ''
+      && (strlen($referencia) > 35 || preg_match("~^[A-Z0-9/?:().,'+\\- ]+$~i", $referencia) !== 1)
+    ) {
+      throw new \InvalidArgumentException(
+        'La referencia del mandato contiene caracteres no admitidos por SEPA'
+      );
+    }
+
+    $fechaMandato = trim((string) $valor('fechaFirmaMandato', 'FechaFirmaMandato'));
+    $fechaAceptada = $fechaMandato !== ''
+      && !str_starts_with($fechaMandato, '1995-01-01');
+    if ($fechaAceptada && $referencia === '') {
+      throw new \InvalidArgumentException(
+        'Debe indicar la referencia del mandato SEPA'
+      );
+    }
+    if ($fechaAceptada && $iban === '') {
+      throw new \InvalidArgumentException(
+        'Debe indicar el IBAN del mandato SEPA'
+      );
+    }
+
+    $facturasEmail = filter_var(
+      $valor('facturasEmail', 'FacturasEmail'),
+      FILTER_VALIDATE_BOOL
+    );
+    if ($facturasEmail) {
+      $emailFacturacion = trim((string) $valor('emailFacturacion', 'EmailFacturacion'));
+      $email = trim((string) $valor('email', 'Email'));
+      $destinatario = $emailFacturacion !== '' ? $emailFacturacion : $email;
+      if ($destinatario === '') {
+        throw new \InvalidArgumentException(
+          'El cliente envia facturas por email, pero no tiene email de facturacion ni email general'
+        );
+      }
+      if (filter_var($destinatario, FILTER_VALIDATE_EMAIL) === false) {
+        throw new \InvalidArgumentException(
+          'El email usado para enviar las facturas no es valido'
+        );
+      }
+    }
+  }
+
+  private function ibanValido(string $iban): bool
+  {
+    if (preg_match('/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/', $iban) !== 1) {
+      return false;
+    }
+
+    $reordenado = substr($iban, 4) . substr($iban, 0, 4);
+    $resto = 0;
+    foreach (str_split($reordenado) as $char) {
+      $bloque = ctype_digit($char) ? $char : (string) (ord($char) - 55);
+      foreach (str_split($bloque) as $digito) {
+        $resto = (($resto * 10) + (int) $digito) % 97;
+      }
+    }
+    return $resto === 1;
   }
 
   /**

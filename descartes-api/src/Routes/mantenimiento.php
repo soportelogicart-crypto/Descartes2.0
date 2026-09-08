@@ -115,6 +115,13 @@ return function (App $app): void {
     $group->delete('/clientes/{codigo}/contactos/{num}/{nroLin}', [ClienteController::class, 'deleteContacto'])
       ->add($setPermisoModulo('clientes', 'editar'));
 
+    $group->get('/clientes/{codigo}/estadistica', [ClienteController::class, 'estadistica'])
+      ->add($setPermisoModulo('clientes', 'ver'));
+    $group->put('/clientes/{codigo}/estadistica/{anio}/{mes}', [ClienteController::class, 'putPrevision'])
+      ->add($setPermisoModulo('clientes', 'editar'));
+    $group->get('/clientes/{codigo}/consumo', [ClienteController::class, 'consumo'])
+      ->add($setPermisoModulo('clientes', 'ver'));
+
     $group->get('/proveedores/siguiente-codigo', [ProveedorController::class, 'siguienteCodigo'])
       ->add($setPermisoModulo('proveedores', 'crear'));
     $group->get('/proveedores/{codigo}/contactos', [ProveedorController::class, 'listContactos'])
@@ -125,6 +132,8 @@ return function (App $app): void {
       ->add($setPermisoModulo('proveedores', 'editar'));
     $group->delete('/proveedores/{codigo}/contactos/{num}/{nroLin}', [ProveedorController::class, 'deleteContacto'])
       ->add($setPermisoModulo('proveedores', 'editar'));
+    $group->get('/proveedores/{codigo}/estadistica', [ProveedorController::class, 'estadistica'])
+      ->add($setPermisoModulo('proveedores', 'ver'));
 
     $group->get('/campanas', [CampanaController::class, 'list'])
       ->add($setPermisoModulo('campanas', 'ver'));

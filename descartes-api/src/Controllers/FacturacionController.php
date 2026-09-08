@@ -8,6 +8,7 @@ use Descartes\Api\Http\ErrorResponse;
 use Descartes\Api\Services\Facturacion\AlbaranesPendientesService;
 use Descartes\Api\Services\Facturacion\AlbaranesPeriodicosService;
 use Descartes\Api\Services\Facturacion\DiarioFacturacionService;
+use Descartes\Api\Services\Facturacion\FacturaEmailService;
 use Descartes\Api\Services\Facturacion\GeneracionFacturasManualService;
 use Descartes\Api\Services\Facturacion\ImpresionFacturasService;
 use Descartes\Api\Services\Facturacion\RetrocesoFacturaService;
@@ -19,6 +20,7 @@ use Psr\Log\LoggerInterface;
 final class FacturacionController
 {
   private GeneracionFacturasManualService $manual;
+  private FacturaEmailService $facturaEmail;
   private ImpresionFacturasService $impresion;
   private TraspasoComercialService $traspaso;
   private AlbaranesPeriodicosService $periodicos;
@@ -29,6 +31,7 @@ final class FacturacionController
 
   public function __construct(
     GeneracionFacturasManualService $manual,
+    FacturaEmailService $facturaEmail,
     ImpresionFacturasService $impresion,
     TraspasoComercialService $traspaso,
     AlbaranesPeriodicosService $periodicos,
@@ -38,6 +41,7 @@ final class FacturacionController
     LoggerInterface $logger
   ) {
     $this->manual = $manual;
+    $this->facturaEmail = $facturaEmail;
     $this->impresion = $impresion;
     $this->traspaso = $traspaso;
     $this->periodicos = $periodicos;
@@ -74,11 +78,26 @@ final class FacturacionController
     $body = (array) json_decode((string) $request->getBody(), true);
     try {
       $result = $this->manual->generarAutomatico($body);
+      // Las prefacturas no son documentos fiscales y no se envían. En las
+      // facturas, cada fallo SMTP queda reflejado sin revertir la generación.
+      if (($result['tipoFacturacion'] ?? 'facturas') === 'facturas') {
+        $result['emails'] = $this->facturaEmail->enviarGeneradas($result['facturas'] ?? []);
+      } else {
+        $result['emails'] = [
+          'candidatas' => 0,
+          'enviadas' => 0,
+          'omitidas' => 0,
+          'errores' => 0,
+          'detalles' => [],
+        ];
+      }
       $this->logger->info('Facturas generadas (automatico)', [
         'source' => 'api',
         'action' => 'facturacion.generar',
         'facturas' => $result['totales']['facturas'] ?? 0,
         'albaranes' => $result['totales']['albaranes'] ?? 0,
+        'emailsEnviados' => $result['emails']['enviadas'] ?? 0,
+        'emailsErrores' => $result['emails']['errores'] ?? 0,
       ]);
       return $this->json($response, 200, $result);
     } catch (\InvalidArgumentException $e) {

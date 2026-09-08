@@ -25,9 +25,27 @@ const emit = defineEmits<{
   'update:modelValue': [value: Record<string, unknown>]
 }>()
 
-const formasPagoOptions = ref<{ value: string; label: string }[]>([])
+type FormaPagoOption = {
+  value: string
+  label: string
+  descripcion: string
+  cuentaCtb: string
+}
+
+type CuentaLookupField = 'cuentaCtb' | 'cuentaBanco'
+
+const formasPagoOptions = ref<FormaPagoOption[]>([])
 const formasPagoCargadas = ref(false)
+const descripcionFormaPagoApi = ref('')
 const buscarFormaPagoOpen = ref(false)
+const buscarFormaPagoInicial = ref('')
+const buscarCuentaOpen = ref(false)
+const buscarCuentaField = ref<CuentaLookupField>('cuentaCtb')
+const buscarCuentaInicial = ref('')
+const descripcionesCuenta = ref<Record<CuentaLookupField, string>>({
+  cuentaCtb: '',
+  cuentaBanco: '',
+})
 
 const seccionesVisibles = computed(() => {
   if (!props.ocultarCabecera) return props.sections
@@ -58,14 +76,81 @@ const filasSecciones = computed(() => {
 
 const allFields = computed(() => props.sections.flatMap((s) => s.fields))
 
-function codigoBancoDisplay(): string {
-  const v = props.modelValue.cuentaBanco
+function codigoCuenta(v: unknown): string {
   if (v == null || v === '') return ''
   const s = String(v).trim()
-  if (s === '0' || s === '0.0') return ''
   if (/^\d+\.0+$/.test(s)) return s.replace(/\.0+$/, '')
   return s
 }
+
+function cuentaLookupField(field: string): CuentaLookupField | null {
+  return field === 'cuentaCtb' || field === 'cuentaBanco' ? field : null
+}
+
+function codigoCuentaField(field: string): string {
+  const key = cuentaLookupField(field)
+  return key ? codigoCuenta(props.modelValue[key]) : ''
+}
+
+function descripcionCuentaField(field: string): string {
+  const key = cuentaLookupField(field)
+  return key ? descripcionesCuenta.value[key] : ''
+}
+
+const descripcionFormaPago = computed(() => {
+  const codigo = String(props.modelValue.formaPago ?? '').trim()
+  if (!codigo) return ''
+  const enLista = formasPagoOptions.value.find((opt) => opt.value === codigo)?.descripcion
+  return enLista || descripcionFormaPagoApi.value
+})
+
+/** Solo hace falta la API para formas de pago que no esten en el desplegable (inactivas). */
+async function resolverDescripcionFormaPago(codigo: string) {
+  const cod = codigo.trim()
+  descripcionFormaPagoApi.value = ''
+  if (!cod || formasPagoOptions.value.some((opt) => opt.value === cod)) return
+  try {
+    const { data } = await api.get(`/api/mantenimiento/formas-pago/${encodeURIComponent(cod)}`)
+    descripcionFormaPagoApi.value = String(data?.descripcion ?? '').trim()
+  } catch {
+    descripcionFormaPagoApi.value = ''
+  }
+}
+
+watch(
+  () => String(props.modelValue.formaPago ?? '').trim(),
+  (codigo) => {
+    void resolverDescripcionFormaPago(codigo)
+  },
+  { immediate: true }
+)
+
+async function resolverDescripcionCuenta(field: CuentaLookupField, value: unknown) {
+  const codigo = codigoCuenta(value)
+  if (!codigo) {
+    descripcionesCuenta.value = { ...descripcionesCuenta.value, [field]: '' }
+    return
+  }
+  const entidad = field === 'cuentaBanco' ? 'cuentas-banco' : 'cuentas'
+  try {
+    const { data } = await api.get(`/api/mantenimiento/${entidad}/${encodeURIComponent(codigo)}`)
+    descripcionesCuenta.value = {
+      ...descripcionesCuenta.value,
+      [field]: String(data?.descripcion ?? '').trim(),
+    }
+  } catch {
+    descripcionesCuenta.value = { ...descripcionesCuenta.value, [field]: '' }
+  }
+}
+
+watch(
+  () => `${codigoCuenta(props.modelValue.cuentaCtb)}\u0000${codigoCuenta(props.modelValue.cuentaBanco)}`,
+  () => {
+    void resolverDescripcionCuenta('cuentaCtb', props.modelValue.cuentaCtb)
+    void resolverDescripcionCuenta('cuentaBanco', props.modelValue.cuentaBanco)
+  },
+  { immediate: true }
+)
 
 async function cargarFormasPago() {
   if (formasPagoCargadas.value) return
@@ -74,10 +159,18 @@ async function cargarFormasPago() {
     const { data } = await api.get('/api/mantenimiento/formas-pago', {
       params: { activo: true, pageSize: 500 },
     })
-    formasPagoOptions.value = (data.items ?? []).map((f: { codigo: string; descripcion: string }) => {
-      const codigo = String(f.codigo).trim()
-      return { value: codigo, label: codigo }
-    })
+    formasPagoOptions.value = (data.items ?? []).map(
+      (f: { codigo: string; descripcion: string; cuentaCtb?: string | number }) => {
+        const codigo = String(f.codigo).trim()
+        const descripcion = String(f.descripcion ?? '').trim()
+        return {
+          value: codigo,
+          label: descripcion ? `${codigo} - ${descripcion}` : codigo,
+          descripcion,
+          cuentaCtb: codigoCuenta(f.cuentaCtb),
+        }
+      }
+    )
     formasPagoCargadas.value = true
   } catch {
     formasPagoOptions.value = []
@@ -203,20 +296,73 @@ async function onCodigoPostalInput(field: ProveedorField, raw: string) {
 
 function abrirBuscarFormaPago() {
   if (props.readonly) return
+  buscarFormaPagoInicial.value = String(props.modelValue.formaPago ?? '').trim()
   buscarFormaPagoOpen.value = true
 }
 
+async function aplicarFormaPago(codigoRaw: string) {
+  const codigo = codigoRaw.trim()
+  const next: Record<string, unknown> = { ...props.modelValue, formaPago: codigo }
+  if (codigo && !codigoCuenta(props.modelValue.cuentaBanco)) {
+    let cuenta = formasPagoOptions.value.find((opt) => opt.value === codigo)?.cuentaCtb ?? ''
+    if (!cuenta) {
+      try {
+        const { data } = await api.get(
+          `/api/mantenimiento/formas-pago/${encodeURIComponent(codigo)}`
+        )
+        cuenta = codigoCuenta(data?.cuentaCtb)
+      } catch {
+        // La forma sigue siendo válida aunque no pueda resolverse su cuenta.
+      }
+    }
+    if (cuenta) next.cuentaBanco = cuenta
+  }
+  emit('update:modelValue', next)
+}
+
 function onFormaPagoSeleccionada(resultado: EntidadBuscarResultado) {
-  emit('update:modelValue', { ...props.modelValue, formaPago: resultado.codigo })
+  void aplicarFormaPago(resultado.codigo)
   buscarFormaPagoOpen.value = false
 }
 
-function onFormaPagoSelect(value: string) {
-  emit('update:modelValue', { ...props.modelValue, formaPago: value })
+function onFormaPagoInput(raw: string) {
+  emit('update:modelValue', { ...props.modelValue, formaPago: raw })
 }
 
-function onBancoInput(raw: string) {
-  emit('update:modelValue', { ...props.modelValue, cuentaBanco: raw })
+/** Como el legacy: al salir del campo completa Banco si estaba vacio. */
+function onFormaPagoBlur(raw: string) {
+  void aplicarFormaPago(raw)
+}
+
+function abrirBuscarCuenta(fieldRaw: string) {
+  if (props.readonly) return
+  const field = cuentaLookupField(fieldRaw)
+  if (!field) return
+  buscarCuentaField.value = field
+  buscarCuentaInicial.value = codigoCuenta(props.modelValue[field])
+  buscarCuentaOpen.value = true
+}
+
+function onCuentaSeleccionada(resultado: EntidadBuscarResultado) {
+  const field = buscarCuentaField.value
+  emit('update:modelValue', { ...props.modelValue, [field]: resultado.codigo })
+  descripcionesCuenta.value = {
+    ...descripcionesCuenta.value,
+    [field]: resultado.etiqueta,
+  }
+  buscarCuentaOpen.value = false
+}
+
+function onCuentaInput(fieldRaw: string, raw: string) {
+  const field = cuentaLookupField(fieldRaw)
+  if (!field) return
+  emit('update:modelValue', { ...props.modelValue, [field]: raw })
+}
+
+function onCuentaBlur(fieldRaw: string, raw: string) {
+  const field = cuentaLookupField(fieldRaw)
+  if (!field) return
+  void resolverDescripcionCuenta(field, raw)
 }
 
 function setDiaPago(key: 'diaPago1' | 'diaPago2', value: number | null) {
@@ -293,55 +439,65 @@ function colsClass(section: ProveedorSection) {
               </div>
 
               <div
-                v-else-if="field.type === 'select' && field.lookup && field.optionsSource === 'formas-pago'"
-                class="lookup-row"
-              >
-                <select
-                  :value="String(modelValue[field.key] ?? '')"
-                  :disabled="isReadOnly(field)"
-                  :data-field-key="field.key"
-                  :style="controlStyle(field)"
-                  class="lookup-select"
-                  @change="onFormaPagoSelect(($event.target as HTMLSelectElement).value)"
-                >
-                  <option value="">--</option>
-                  <option v-for="opt in optionsFor(field)" :key="opt.value" :value="opt.value">
-                    {{ opt.label }}
-                  </option>
-                </select>
-                <button
-                  v-if="!isReadOnly(field)"
-                  type="button"
-                  class="btn-lupa"
-                  title="Buscar forma de pago"
-                  @click="abrirBuscarFormaPago"
-                >
-                  <ToolIcon name="buscar" />
-                </button>
-              </div>
-
-              <div
-                v-else-if="field.key === 'cuentaBanco'"
+                v-else-if="field.lookup && field.optionsSource === 'formas-pago'"
                 class="lookup-row"
               >
                 <input
                   type="text"
-                  :value="codigoBancoDisplay()"
+                  :value="String(modelValue[field.key] ?? '').trim()"
                   :readonly="isReadOnly(field)"
-                  :maxlength="field.maxLength ?? 10"
-                  data-field-key="cuentaBanco"
+                  :maxlength="field.maxLength ?? 3"
+                  :data-field-key="field.key"
                   :style="controlStyle(field)"
                   class="lookup-select input-banco"
-                  @input="onBancoInput(($event.target as HTMLInputElement).value)"
+                  @input="onFormaPagoInput(($event.target as HTMLInputElement).value)"
+                  @blur="onFormaPagoBlur(($event.target as HTMLInputElement).value)"
                 />
                 <button
-                  v-if="!isReadOnly(field)"
                   type="button"
                   class="btn-lupa"
-                  title="Buscar"
+                  title="Buscar forma de pago"
+                  :disabled="isReadOnly(field)"
+                  @click="abrirBuscarFormaPago"
                 >
                   <ToolIcon name="buscar" />
                 </button>
+                <span v-if="descripcionFormaPago" class="lookup-desc">{{
+                  descripcionFormaPago
+                }}</span>
+              </div>
+
+              <div
+                v-else-if="field.lookup && cuentaLookupField(field.key)"
+                class="lookup-row"
+              >
+                <input
+                  type="text"
+                  :value="codigoCuentaField(field.key)"
+                  :readonly="isReadOnly(field)"
+                  :maxlength="field.maxLength ?? 10"
+                  :data-field-key="field.key"
+                  :style="controlStyle(field)"
+                  class="lookup-select input-banco"
+                  @input="
+                    onCuentaInput(field.key, ($event.target as HTMLInputElement).value)
+                  "
+                  @blur="
+                    onCuentaBlur(field.key, ($event.target as HTMLInputElement).value)
+                  "
+                />
+                <button
+                  type="button"
+                  class="btn-lupa"
+                  :title="field.key === 'cuentaBanco' ? 'Buscar banco' : 'Buscar cuenta contable'"
+                  :disabled="isReadOnly(field)"
+                  @click="abrirBuscarCuenta(field.key)"
+                >
+                  <ToolIcon name="buscar" />
+                </button>
+                <span v-if="descripcionCuentaField(field.key)" class="lookup-desc">{{
+                  descripcionCuentaField(field.key)
+                }}</span>
               </div>
 
               <select
@@ -398,8 +554,17 @@ function colsClass(section: ProveedorSection) {
       :open="buscarFormaPagoOpen"
       entidad="formas-pago"
       titulo="Buscar forma de pago"
+      :codigo-actual="buscarFormaPagoInicial"
       @seleccionar="onFormaPagoSeleccionada"
       @cerrar="buscarFormaPagoOpen = false"
+    />
+    <EntidadBuscarModal
+      :open="buscarCuentaOpen"
+      :entidad="buscarCuentaField === 'cuentaBanco' ? 'cuentas-banco' : 'cuentas'"
+      :titulo="buscarCuentaField === 'cuentaBanco' ? 'Buscar banco' : 'Buscar cuenta contable'"
+      :codigo-actual="buscarCuentaInicial"
+      @seleccionar="onCuentaSeleccionada"
+      @cerrar="buscarCuentaOpen = false"
     />
   </div>
 </template>
@@ -556,10 +721,14 @@ function colsClass(section: ProveedorSection) {
   min-width: 0;
   width: fit-content;
   max-width: 100%;
+  /* Si el contenido desborda la celda, la etiqueta del campo vecino no debe
+     quedar por encima de la lupa: interceptaria los clics. */
+  position: relative;
+  z-index: 1;
 }
 
 .lookup-select {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   width: auto;
   min-width: 0;
   max-width: 100%;
@@ -567,12 +736,14 @@ function colsClass(section: ProveedorSection) {
 }
 
 .lookup-desc {
+  flex: 1 1 auto;
   font-size: 0.8rem;
   font-weight: 700;
   color: #0f172a;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
   max-width: 14rem;
   align-self: center;
 }

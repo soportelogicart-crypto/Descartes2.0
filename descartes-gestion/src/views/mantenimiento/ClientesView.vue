@@ -20,8 +20,10 @@ import {
   clienteTabs,
   clienteVacio,
   fechaParaInput,
+  normalizarIbanCliente,
   tabDeCampoCliente,
   validarClienteObligatorios,
+  validarUsoCliente,
 } from '@/config/clientes-tabs'
 import { extractApiError, useMantenimiento } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
@@ -34,6 +36,8 @@ import ClienteTabForm from '@/components/clientes/ClienteTabForm.vue'
 import ClienteInteresesModal from '@/components/clientes/ClienteInteresesModal.vue'
 import ClienteDireccionModal from '@/components/clientes/ClienteDireccionModal.vue'
 import ClienteContactosModal from '@/components/clientes/ClienteContactosModal.vue'
+import ClienteEstadisticaModal from '@/components/clientes/ClienteEstadisticaModal.vue'
+import ClienteConsumoModal from '@/components/clientes/ClienteConsumoModal.vue'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 
 const MODULO = 'clientes'
@@ -67,6 +71,8 @@ const indiceFicha = ref(-1)
 const mostrarIntereses = ref(false)
 const mostrarDireccion = ref(false)
 const mostrarContactos = ref(false)
+const mostrarEstadistica = ref(false)
+const mostrarConsumo = ref(false)
 const motorFidelizacion = ref<'NINGUNO' | 'EUROS' | 'PUNTOS'>('NINGUNO')
 const avisoModalOpen = ref(false)
 const avisoModalTitulo = ref('Campo obligatorio')
@@ -484,10 +490,21 @@ async function onGuardarFicha() {
     mostrarAvisoModal('Campo obligatorio', msg, key)
     return
   }
+
+  const validacionUso = validarUsoCliente(ficha.value)
+  if (validacionUso) {
+    mensaje.value = validacionUso.mensaje
+    tabActiva.value = tabDeCampoCliente(validacionUso.campo)
+    await nextTick()
+    mostrarAvisoModal(validacionUso.titulo, validacionUso.mensaje, validacionUso.campo)
+    return
+  }
+
   camposInvalidos.value = []
   // Asegurar copia fiscal → envio al guardar (por si envio quedo vacio).
   const payload = normalizarFechasFicha({
     ...ficha.value,
+    iban: normalizarIbanCliente(ficha.value.iban),
     direccionEnvio:
       String(ficha.value.direccionEnvio ?? '').trim() || String(ficha.value.direccion ?? '').trim(),
     codigoPostalEnvio:
@@ -573,11 +590,25 @@ function volverAlGrid() {
   codigoAutomatico.value = false
   ficha.value = {}
   mostrarIntereses.value = false
+  mostrarEstadistica.value = false
+  mostrarConsumo.value = false
   camposInvalidos.value = []
 }
 
-function onAccionPendiente(nombre: string) {
-  mensaje.value = `${nombre}: disponible en una siguiente iteracion`
+function onEstadistica() {
+  if (!String(ficha.value.codigo ?? '').trim()) {
+    mensaje.value = 'Guarde el cliente antes de consultar la estadistica'
+    return
+  }
+  mostrarEstadistica.value = true
+}
+
+function onConsumo() {
+  if (!String(ficha.value.codigo ?? '').trim()) {
+    mensaje.value = 'Guarde el cliente antes de consultar el consumo'
+    return
+  }
+  mostrarConsumo.value = true
 }
 
 function onIntereses() {
@@ -741,8 +772,8 @@ async function onUltimo() {
             @anterior="onAnterior"
             @siguiente="onSiguiente"
             @ultimo="onUltimo"
-            @estadistica="onAccionPendiente('Estadistica')"
-            @consumo="onAccionPendiente('Consumo')"
+            @estadistica="onEstadistica"
+            @consumo="onConsumo"
             @contactos="onContactos"
             @intereses="onIntereses"
             @direccion="onDireccion"
@@ -821,6 +852,21 @@ async function onUltimo() {
         :cliente-codigo="String(ficha.codigo ?? '')"
         :puede-editar="puedeEditar || puedeCrear"
         @cerrar="mostrarContactos = false"
+      />
+
+      <ClienteEstadisticaModal
+        :open="mostrarEstadistica"
+        :cliente-codigo="String(ficha.codigo ?? '')"
+        :cliente-nombre="String(ficha.nombre ?? '')"
+        :puede-editar="puedeEditar"
+        @cerrar="mostrarEstadistica = false"
+      />
+
+      <ClienteConsumoModal
+        :open="mostrarConsumo"
+        :cliente-codigo="String(ficha.codigo ?? '')"
+        :cliente-nombre="String(ficha.nombre ?? '')"
+        @cerrar="mostrarConsumo = false"
       />
 
       <ConfirmDialog

@@ -2,7 +2,11 @@
 import { onMounted, ref } from 'vue'
 import { generarFacturasAutomatico, previewGeneracionFacturas } from '@/api/facturacion'
 import { api } from '@/api/client'
-import type { FacturaManualGenerada, FacturasGeneracionPreviewResponse } from '@/types/facturacion'
+import type {
+  FacturaManualGenerada,
+  FacturasGeneracionPreviewResponse,
+  FacturasGeneracionResponse,
+} from '@/types/facturacion'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
@@ -20,6 +24,7 @@ const error = ref<string | null>(null)
 const mensaje = ref<string | null>(null)
 const preview = ref<FacturasGeneracionPreviewResponse | null>(null)
 const generadas = ref<FacturaManualGenerada[]>([])
+const emails = ref<FacturasGeneracionResponse['emails'] | null>(null)
 const tiendas = ref<Opt[]>([])
 const puestos = ref<Opt[]>([])
 
@@ -135,6 +140,7 @@ async function consultar() {
   error.value = null
   mensaje.value = null
   generadas.value = []
+  emails.value = null
   try {
     preview.value = await previewGeneracionFacturas(params())
     const t = preview.value.totales
@@ -202,9 +208,16 @@ async function ejecutar() {
       fpagoHasta: p.fpagoHasta !== undefined ? String(p.fpagoHasta) : undefined,
     })
     generadas.value = result.facturas
+    emails.value = result.emails
     mensaje.value = `Generadas ${result.totales.facturas} ${docLabel} · ${result.totales.albaranes} albaranes · ${result.totales.importe.toFixed(2)} €`
     if (result.omitidosImporteMinimo > 0) {
       mensaje.value += ` · omitidos ${result.omitidosImporteMinimo} por importe mínimo`
+    }
+    if (form.value.tipoFacturacion === 'facturas') {
+      mensaje.value += ` · emails: ${result.emails.enviadas} enviados, ${result.emails.omitidas} omitidos`
+      if (result.emails.errores > 0) {
+        mensaje.value += `, ${result.emails.errores} con error`
+      }
     }
     preview.value = null
   } catch (e: unknown) {
@@ -224,7 +237,10 @@ onMounted(async () => {
     <div class="toolbar">
       <div class="toolbar-title">
         <h2>Generación de facturas</h2>
-        <p class="hint">Factura automáticamente los albaranes de crédito pendientes según filtros.</p>
+        <p class="hint">
+          Factura automáticamente los albaranes de crédito pendientes y envía el PDF a los
+          clientes configurados para recibir facturas por email.
+        </p>
       </div>
       <div class="toolbar-actions">
         <button type="button" class="btn" :disabled="loading || loadingOpts" @click="consultar">
@@ -396,6 +412,15 @@ onMounted(async () => {
             <li v-for="(f, i) in generadas" :key="i">
               {{ f.facturaTipo }}/{{ f.factura }} · cliente {{ f.cliente }} ·
               {{ f.importe.toFixed(2) }} € · {{ f.albaranes.length }} alb.
+              <template v-if="emails?.detalles[i]">
+                · email {{ emails.detalles[i].estado }}
+                <span v-if="emails.detalles[i].destinatario">
+                  ({{ emails.detalles[i].destinatario }})
+                </span>
+                <span v-if="emails.detalles[i].motivo">
+                  — {{ emails.detalles[i].motivo }}
+                </span>
+              </template>
             </li>
           </ul>
         </div>

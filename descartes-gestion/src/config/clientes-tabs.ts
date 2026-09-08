@@ -12,7 +12,16 @@ export type ClienteField = {
   required?: boolean
   maxLength?: number
   options?: { value: string; label: string }[]
-  optionsSource?: 'tiendas' | 'actividades' | 'formas-pago' | 'almacenes' | 'trabajadores'
+  optionsSource?:
+    | 'tiendas'
+    | 'actividades'
+    | 'formas-pago'
+    | 'almacenes'
+    | 'trabajadores'
+    | 'clientes'
+    | 'cuentas'
+  /** Lupa de búsqueda (p. ej. cliente de facturación o cuenta contable). */
+  lookup?: boolean
 }
 
 export type ClienteSection = {
@@ -225,7 +234,13 @@ export const clienteTabs: ClienteTab[] = [
         columns: 2,
         row: 'fac1',
         fields: [
-          inline('cuentaCtb', 'Cuenta contable', { maxLength: 15 }),
+          // Legacy: el control «Cuenta Contable» graba CuentaCtb2 (CuentaCtb esta sin usar).
+          inline('cuentaCtb2', 'Cuenta contable', {
+            maxLength: 10,
+            span: 2,
+            lookup: true,
+            optionsSource: 'cuentas',
+          }),
           inline('agencia', 'Agencia bancaria', { maxLength: 40 }),
           inline('cuentaBancaria', 'Cuenta bancaria', { span: 2, maxLength: 20 }),
           inline('formaPago', 'Forma pago', {
@@ -256,6 +271,8 @@ export const clienteTabs: ClienteTab[] = [
           inline('saldo', 'Saldo', { type: 'number', readOnly: true }),
           inline('limiteCredito', 'Riesgo concedido', { type: 'number' }),
           inline('riesgoActualAdonix', 'Riesgo comercial', { type: 'number', readOnly: true }),
+          inline('riesgoAcumulado', 'Riesgo acumulado', { type: 'number', readOnly: true }),
+          inline('riesgoPendiente', 'Riesgo pendiente', { type: 'number', readOnly: true }),
           cb('transporteDomicilio', 'Entrega en domicilio'),
           inline('pjeTransporte', '% Inc. Transporte', { type: 'number' }),
           inline('pjeIVATransporte', '% Impuesto', { type: 'number' }),
@@ -280,8 +297,13 @@ export const clienteTabs: ClienteTab[] = [
           cb('generarTraspaso', 'Generar Traspaso en Pedidos Cliente', { span: 2 }),
           inline('almacenTraspaso', 'Al Almacen', { type: 'select', optionsSource: 'almacenes' }),
           cb('solicitarImpresionAlbaran', 'Solicitar Impresion Albaran', { span: 2 }),
-          cb('bloqueoVenta', 'Bloquear Facturacion Automatica', { span: 2 }),
-          inline('empresaFacturacion', 'Codigo Facturacion', { maxLength: 9 }),
+          cb('facturacionManual', 'Bloquear facturacion automatica', { span: 2 }),
+          inline('empresaFacturacion', 'Cliente facturacion', {
+            maxLength: 9,
+            span: 2,
+            lookup: true,
+            optionsSource: 'clientes',
+          }),
         ],
       },
     ],
@@ -303,12 +325,14 @@ export function clienteVacio(): Record<string, unknown> {
     propaganda: false,
     generarTraspaso: false,
     retIrpf: false,
+    // Sin campo en pantalla (legacy solo lo muestra en Tratecnica): se crea a 0.
     bloqueoVenta: false,
     solicitarImpresionAlbaran: false,
     preFacturacion: false,
     cobroContraSaldo: false,
     facturasEmail: false,
     facturacionManual: false,
+    empresaFacturacion: '',
     proponerFactura: false,
     copiaImpresa: false,
     certificarFacturas: false,
@@ -346,7 +370,16 @@ export function clienteVacio(): Record<string, unknown> {
     pjeFidelizacion: 0,
     copiasFactura: 0,
     copiasFContado: 0,
+    riesgoAcumulado: 0,
+    riesgoPendiente: null,
   }
+}
+
+/** Legacy: Riesgo pendiente = Riesgo concedido - Riesgo acumulado; vacio si no hay limite. */
+export function riesgoPendienteCliente(ficha: Record<string, unknown>): number | null {
+  const limite = Number(ficha.limiteCredito ?? 0)
+  if (!limite) return null
+  return Math.round((limite - Number(ficha.riesgoAcumulado ?? 0)) * 100) / 100
 }
 
 export const CLIENTE_CAMPOS_OBLIGATORIOS: { key: string; label: string; mensaje: string }[] = [
@@ -376,6 +409,75 @@ export function validarClienteObligatorios(ficha: Record<string, unknown>): stri
     CLIENTE_CAMPOS_OBLIGATORIOS.find((c) => c.key === key)?.mensaje ??
     `El campo "${key}" es obligatorio.`
   )
+}
+
+export { ibanValido as ibanClienteValido, normalizarIban as normalizarIbanCliente } from '@/utils/iban'
+
+export type ClienteValidacionUso = {
+  campo: string
+  titulo: string
+  mensaje: string
+}
+
+/** Validaciones de uso que evitan errores posteriores en SEPA y envío de facturas. */
+export function validarUsoCliente(ficha: Record<string, unknown>): ClienteValidacionUso | null {
+  if (!ibanClienteValido(ficha.iban)) {
+    return {
+      campo: 'iban',
+      titulo: 'IBAN incorrecto',
+      mensaje: 'El IBAN no es válido. Revise el país, los dígitos de control y la longitud.',
+    }
+  }
+
+  const referencia = String(ficha.referenciaMandato ?? '').trim()
+  if (referencia && !/^[A-Z0-9/?:().,'+\-\s]{1,35}$/i.test(referencia)) {
+    return {
+      campo: 'referenciaMandato',
+      titulo: 'Mandato SEPA incorrecto',
+      mensaje:
+        'La referencia del mandato contiene caracteres no admitidos por SEPA o supera 35 caracteres.',
+    }
+  }
+
+  const fechaMandato = fechaParaInput(ficha.fechaFirmaMandato)
+  const fechaAceptada = fechaMandato !== '' && fechaMandato !== '1995-01-01'
+  if (fechaAceptada && !referencia) {
+    return {
+      campo: 'referenciaMandato',
+      titulo: 'Mandato SEPA incompleto',
+      mensaje: 'Debe indicar la referencia del mandato SEPA.',
+    }
+  }
+  if (fechaAceptada && !normalizarIbanCliente(ficha.iban)) {
+    return {
+      campo: 'iban',
+      titulo: 'Mandato SEPA incompleto',
+      mensaje: 'Debe indicar el IBAN asociado al mandato SEPA.',
+    }
+  }
+
+  if (ficha.facturasEmail) {
+    const emailFacturacion = String(ficha.emailFacturacion ?? '').trim()
+    const email = String(ficha.email ?? '').trim()
+    if (!emailFacturacion && !email) {
+      return {
+        campo: 'emailFacturacion',
+        titulo: 'Falta el correo de facturación',
+        mensaje:
+          'El cliente tiene activado el envío de facturas por email, pero no tiene E-mail Fac. ni E-Mail.',
+      }
+    }
+    const destinatario = emailFacturacion || email
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(destinatario)) {
+      return {
+        campo: emailFacturacion ? 'emailFacturacion' : 'email',
+        titulo: 'Correo de facturación incorrecto',
+        mensaje: 'El correo que se utilizará para enviar las facturas no es válido.',
+      }
+    }
+  }
+
+  return null
 }
 
 export function tabDeCampoCliente(key: string): string {

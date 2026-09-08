@@ -117,6 +117,14 @@ return [
     'organoProponente' => 'OrganoProponente',
     'profesional' => 'Profesional',
   ],
+  /** CuentaCtb2 es float en [Clientes]; la cuenta contable no lleva decimales. */
+  'intFields' => [
+    'cuentaCtb2',
+  ],
+  /** No se persisten: el GET los sustituye por el calculo live de riesgo. */
+  'readOnlyFields' => [
+    'riesgoActualAdonix',
+  ],
   'booleanFields' => [
     'swIva',
     'swRec',
