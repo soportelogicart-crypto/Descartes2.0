@@ -266,7 +266,7 @@ final class TraspasoContableService
       'swift' => mb_substr(trim((string) ($f['Swift'] ?? '')), 0, 20),
       'iban' => mb_substr(trim((string) ($f['IBAN'] ?? '')), 0, 34),
       'mandato' => mb_substr(trim((string) ($f['ReferenciaMandato'] ?? '')), 0, 35),
-      'fechaMandato' => $f['FechaFirmaMandato'] ?? null,
+      'fechaMandato' => $this->fechaSql($f['FechaFirmaMandato'] ?? null),
       'email' => mb_substr(trim((string) ($f['EmailFacturacion'] ?? '')), 0, 200),
       'tratamiento' => mb_substr(trim((string) ($f['TratamientoFiscal'] ?? '')), 0, 1),
     ];
@@ -285,7 +285,7 @@ final class TraspasoContableService
            :codigo, :nivel, :descripcion, 1, 0, \'\', \'P\', :nif, :direccion, :poblacion,
            :cp, :provincia, :pais, :telefono, :fax, \'\', 0, \'\', :formaPago, :dia1,
            :dia2, :banco, :ctaBancaria, \'R\', 0, :codigoDestino, :tratamiento, :swift,
-           :iban, :mandato, :fechaMandato, :email
+           :iban, :mandato, CONVERT(datetime, :fechaMandato, 120), :email
          )'
       )->execute($datos + ['codigoDestino' => $cuenta]);
       return;
@@ -299,7 +299,7 @@ final class TraspasoContableService
          Telefono=:telefono, Fax=:fax, FormaPago=:formaPago, DiaPago1=:dia1,
          DiaPago2=:dia2, Banco=:banco, CtaBancaria=:ctaBancaria,
          TratamientoFiscal=:tratamiento, Swift=:swift, IBAN=:iban,
-         ReferenciaMandato=:mandato, FechaFirmaMandato=:fechaMandato,
+         ReferenciaMandato=:mandato, FechaFirmaMandato=CONVERT(datetime, :fechaMandato, 120),
          EmailFacturacion=:email
        WHERE Codigo=:codigo'
     )->execute($updateDatos);
@@ -321,13 +321,13 @@ final class TraspasoContableService
          TotalFact, Traspasado, Referencia, ImporteRetencion,
          FacturaContadoDiferida, FormasCobro, TrasSII, Observaciones, SujetoPasivo
        ) VALUES (
-         :serie, :numero, :fecha, :cliente, :nombre, :nif, :periodo, :ejercicio,
+         :serie, :numero, CONVERT(datetime, :fecha, 120), :cliente, :nombre, :nif, :periodo, :ejercicio,
          :total, 1, :referencia, :retencion, :diferida, :formaPago, 0, NULL, :sujetoPasivo
        )'
     )->execute([
       'serie' => $serie,
       'numero' => $numero,
-      'fecha' => $fecha,
+      'fecha' => $this->fechaSql($fecha),
       'cliente' => $cuentaCliente,
       'nombre' => mb_substr(trim((string) ($f['RazonSocial'] ?? '')), 0, 40),
       'nif' => mb_substr(trim((string) ($f['NIF'] ?? '')), 0, 16),
@@ -681,6 +681,16 @@ final class TraspasoContableService
     return preg_match('/^-?\d+(?:\.0+)?$/', $texto)
       ? (string) (int) round((float) $texto)
       : $texto;
+  }
+
+  /** Normaliza a 'Y-m-d H:i:s' para usar siempre CONVERT(datetime, ..., 120). */
+  private function fechaSql(mixed $valor): ?string
+  {
+    if ($valor === null || $valor === '') {
+      return null;
+    }
+    $ts = strtotime((string) $valor);
+    return $ts === false ? null : date('Y-m-d H:i:s', $ts);
   }
 
   private function fechaIso(mixed $valor): ?string

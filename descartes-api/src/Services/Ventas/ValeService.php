@@ -89,7 +89,8 @@ final class ValeService
     $formaPago = isset($body['formaPago']) ? substr(trim((string) $body['formaPago']), 0, 2) : null;
 
     $sql = 'INSERT INTO Vales (Empresa, Codigo, Liquidado, Fecha, Importe, Cliente, FormaPago, FechaCaducidad, TrasModem)
-            VALUES (:empresa, :codigo, 0, GETDATE(), :importe, :cliente, :formaPago, :fechaCad, 0)';
+            VALUES (:empresa, :codigo, 0, GETDATE(), :importe, :cliente, :formaPago,
+                    CONVERT(datetime, :fechaCad, 120), 0)';
     $stmt = $this->pdo->prepare($sql);
     $stmt->execute([
       'empresa' => $empresa,
@@ -134,7 +135,8 @@ final class ValeService
     }
 
     $upd = $this->pdo->prepare(
-      'UPDATE Vales SET Liquidado = 1, FechaLiquidacion = :fecha, TipoLiquidacion = :tipo
+      'UPDATE Vales SET Liquidado = 1, FechaLiquidacion = CONVERT(datetime, :fecha, 120),
+              TipoLiquidacion = :tipo
        WHERE Empresa = :empresa AND Codigo = :codigo AND Liquidado = 0'
     );
     $upd->execute([

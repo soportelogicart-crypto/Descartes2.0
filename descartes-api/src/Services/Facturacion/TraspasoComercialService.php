@@ -142,10 +142,10 @@ final class TraspasoComercialService
          Actualizado, AlbaranSalida, Transmitido, TrasModem, BloqueadoTrasModem,
          OrigenExterno, DestinoExterno, LUpdate, Cliente, Proyecto, GenAlbaranTraspaso, UltNum
        ) VALUES (
-         :empresa, :albaran, :su, :fecha, :origen, 0,
+         :empresa, :albaran, :su, CONVERT(datetime, :fecha, 120), :origen, 0,
          0, 0, 0, :obs,
          1, 1, 0, 0, 0,
-         0, 1, :lupdate, :cliente, :proyecto, 0, 0
+         0, 1, CONVERT(datetime, :lupdate, 120), :cliente, :proyecto, 0, 0
        )"
     );
     $insCab->execute([
