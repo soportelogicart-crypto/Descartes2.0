@@ -180,6 +180,7 @@ return function (App $app): void {
     $c->get(\Descartes\Api\Services\Facturacion\RecibosFacturaService::class)
   ));
   $container->set(\Descartes\Api\Services\Facturacion\ImpresionFacturasService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\ImpresionFacturasService($c->get(PDO::class)));
+  $container->set(\Descartes\Api\Services\Facturacion\ImpresionRecibosService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\ImpresionRecibosService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Facturacion\FacturaEmailService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\FacturaEmailService(
     $c->get(PDO::class),
     $c->get(\Descartes\Api\Services\Facturacion\ImpresionFacturasService::class)

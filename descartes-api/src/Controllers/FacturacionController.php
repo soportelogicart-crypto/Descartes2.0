@@ -11,6 +11,7 @@ use Descartes\Api\Services\Facturacion\DiarioFacturacionService;
 use Descartes\Api\Services\Facturacion\FacturaEmailService;
 use Descartes\Api\Services\Facturacion\GeneracionFacturasManualService;
 use Descartes\Api\Services\Facturacion\ImpresionFacturasService;
+use Descartes\Api\Services\Facturacion\ImpresionRecibosService;
 use Descartes\Api\Services\Facturacion\RetrocesoFacturaService;
 use Descartes\Api\Services\Facturacion\TraspasoComercialService;
 use Descartes\Api\Services\Facturacion\TraspasoContableService;
@@ -23,6 +24,7 @@ final class FacturacionController
   private GeneracionFacturasManualService $manual;
   private FacturaEmailService $facturaEmail;
   private ImpresionFacturasService $impresion;
+  private ImpresionRecibosService $impresionRecibos;
   private TraspasoComercialService $traspaso;
   private AlbaranesPeriodicosService $periodicos;
   private DiarioFacturacionService $diario;
@@ -35,6 +37,7 @@ final class FacturacionController
     GeneracionFacturasManualService $manual,
     FacturaEmailService $facturaEmail,
     ImpresionFacturasService $impresion,
+    ImpresionRecibosService $impresionRecibos,
     TraspasoComercialService $traspaso,
     AlbaranesPeriodicosService $periodicos,
     DiarioFacturacionService $diario,
@@ -46,6 +49,7 @@ final class FacturacionController
     $this->manual = $manual;
     $this->facturaEmail = $facturaEmail;
     $this->impresion = $impresion;
+    $this->impresionRecibos = $impresionRecibos;
     $this->traspaso = $traspaso;
     $this->periodicos = $periodicos;
     $this->diario = $diario;
@@ -177,6 +181,41 @@ final class FacturacionController
       return $this->json($response, 200, $this->impresion->marcar($body));
     } catch (\InvalidArgumentException $e) {
       return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function listRecibosImpresion(Request $request, Response $response): Response
+  {
+    try {
+      return $this->json(
+        $response,
+        200,
+        $this->impresionRecibos->listar($request->getQueryParams())
+      );
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function pdfRecibosImpresion(Request $request, Response $response): Response
+  {
+    $body = (array) json_decode((string) $request->getBody(), true);
+    try {
+      $pdf = $this->impresionRecibos->informePdf($body);
+      $response->getBody()->write($pdf);
+      return $response
+        ->withHeader('Content-Type', 'application/pdf')
+        ->withHeader('Content-Disposition', 'attachment; filename="recibos.pdf"')
+        ->withHeader('Content-Length', (string) strlen($pdf))
+        ->withStatus(200);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
     } catch (\Throwable $e) {
       return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
     }

@@ -338,11 +338,13 @@ final class ImpresionFacturasService
         f.PjeRec1, f.PjeRec2, f.PjeRec3, f.PjeRec4, f.PjeRec5, f.PjeRec6,
         f.ImporteRec1, f.ImporteRec2, f.ImporteRec3, f.ImporteRec4, f.ImporteRec5, f.ImporteRec6,
         c.RazonSocial, c.RazonSocial2, c.NIF, c.Direccion, c.Poblacion, c.CodigoPostal, c.Provincia,
+        fp.Descripcion AS FpagoDescripcion,
         e.Nombre AS EmpNombre, e.NombreFiscal AS EmpNombreFiscal, e.NIF AS EmpNif,
         e.Direccion AS EmpDireccion, e.Poblacion AS EmpPoblacion,
         e.CodigoPostal AS EmpCodigoPostal, e.Provincia AS EmpProvincia
       FROM Facturas f
       INNER JOIN Clientes c ON c.Codigo = f.Cliente
+      LEFT JOIN FormasPago fp ON fp.Codigo = f.Fpago
       INNER JOIN Empresas_Ges e ON e.Codigo = f.Empresa
       WHERE f.Empresa = :e AND f.FacturaTipo = :ft AND f.Factura = :f";
 
@@ -355,12 +357,27 @@ final class ImpresionFacturasService
 
     $lineas = $this->cargarLineas($empresa, $facturaTipo, $factura);
     $albaranes = $this->cargarAlbaranesResumen($empresa, $facturaTipo, $factura);
+    $recibos = $this->cargarRecibos($empresa, $facturaTipo, $factura);
 
     return [
       'cab' => $cab,
       'lineas' => $lineas,
       'albaranes' => $albaranes,
+      'recibos' => $recibos,
     ];
+  }
+
+  /** @return list<array<string, mixed>> */
+  private function cargarRecibos(string $empresa, string $facturaTipo, int $factura): array
+  {
+    $stmt = $this->pdo->prepare(
+      'SELECT Recibo, Vencimiento, Importe, ISNULL(Liquidado, 0) AS Liquidado
+       FROM Recibos
+       WHERE Empresa = :empresa AND FacturaTipo = :tipo AND Factura = :factura
+       ORDER BY Recibo'
+    );
+    $stmt->execute(['empresa' => $empresa, 'tipo' => $facturaTipo, 'factura' => $factura]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
   }
 
   /**
@@ -432,7 +449,14 @@ final class ImpresionFacturasService
     }
   }
 
-  /** @param array{cab: array<string, mixed>, lineas: list<array<string, mixed>>, albaranes: list<array<string, mixed>>} $doc */
+  /**
+   * @param array{
+   *   cab: array<string, mixed>,
+   *   lineas: list<array<string, mixed>>,
+   *   albaranes: list<array<string, mixed>>,
+   *   recibos: list<array<string, mixed>>
+   * } $doc
+   */
   private function renderFactura(SimplePdf $pdf, array $doc): void
   {
     $c = $doc['cab'];
@@ -468,7 +492,23 @@ final class ImpresionFacturasService
     }
     $fp = trim((string) ($c['Fpago'] ?? ''));
     if ($fp !== '') {
-      $pdf->text('Forma de pago: ' . $fp, 9);
+      $fpDescripcion = trim((string) ($c['FpagoDescripcion'] ?? ''));
+      $pdf->text(
+        'Forma de pago: ' . $fp . ($fpDescripcion !== '' ? ' - ' . $fpDescripcion : ''),
+        9
+      );
+    }
+    if ($doc['recibos'] !== []) {
+      $pdf->text('Vencimientos', 9, true);
+      $vencimientos = [];
+      foreach ($doc['recibos'] as $recibo) {
+        $vencimientos[] = [
+          (string) ($recibo['Recibo'] ?? ''),
+          $this->fmtFecha($recibo['Vencimiento'] ?? null),
+          $this->num((float) ($recibo['Importe'] ?? 0)),
+        ];
+      }
+      $pdf->table(['Nº', 'Fecha', 'Importe'], $vencimientos, [45, 80, 80]);
     }
     $pdf->spacer(8);
 

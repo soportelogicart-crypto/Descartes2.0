@@ -46,6 +46,12 @@ export const facturacionMenuItems: FacturacionMenuItem[] = [
     modulo: 'facturacion-impresion',
   },
   {
+    id: 'facturacion-recibos',
+    titulo: 'Impresión de recibos',
+    ruta: '/facturacion/recibos',
+    modulo: 'facturacion-impresion',
+  },
+  {
     id: 'facturacion-diario',
     titulo: 'Diario de facturación',
     ruta: '/facturacion/diario',

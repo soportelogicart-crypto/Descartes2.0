@@ -19,6 +19,28 @@ export type FacturasManualPendientesResponse = {
   totales: { albaranes: number; importe: number }
 }
 
+export type ReciboImpresionItem = {
+  empresa: string
+  facturaTipo: string
+  factura: number
+  recibo: number
+  fechaFactura: string
+  vencimiento: string
+  cliente: string
+  razonSocial: string
+  nif: string
+  formaPago: string
+  formaPagoDescripcion: string
+  importe: number
+  liquidado: boolean
+  remesado: boolean
+}
+
+export type RecibosImpresionResponse = {
+  items: ReciboImpresionItem[]
+  totales: { recibos: number; importe: number }
+}
+
 export type FacturaManualGenerada = {
   empresa: string
   facturaTipo: string

@@ -45,6 +45,7 @@ import AbcVentasView from '@/views/ventas/AbcVentasView.vue'
 import GeneracionFacturasManualView from '@/views/facturacion/GeneracionFacturasManualView.vue'
 import GeneracionFacturasView from '@/views/facturacion/GeneracionFacturasView.vue'
 import ImpresionFacturasView from '@/views/facturacion/ImpresionFacturasView.vue'
+import ImpresionRecibosView from '@/views/facturacion/ImpresionRecibosView.vue'
 import DiarioFacturacionView from '@/views/facturacion/DiarioFacturacionView.vue'
 import AlbaranesPendientesView from '@/views/facturacion/AlbaranesPendientesView.vue'
 import RetrocesoFacturaView from '@/views/facturacion/RetrocesoFacturaView.vue'
@@ -286,6 +287,16 @@ const router = createRouter({
           component: ImpresionFacturasView,
           meta: {
             titulo: 'Impresión de facturas',
+            modulo: 'facturacion-impresion',
+            accion: 'ver',
+          },
+        },
+        {
+          path: 'facturacion/recibos',
+          name: 'facturacion-recibos',
+          component: ImpresionRecibosView,
+          meta: {
+            titulo: 'Impresión de recibos',
             modulo: 'facturacion-impresion',
             accion: 'ver',
           },

@@ -175,6 +175,25 @@ async function resolverNombreVendedor(codigo: string) {
   }
 }
 
+/** Vendedor por defecto = trabajador del puesto (Mantenimiento → Puestos → Vendedor). */
+async function precargarVendedorDelPuesto() {
+  if (!ficha.value) return
+  const codigoPuesto = String(ficha.value.puesto || puesto.puestoCodigo || '').trim()
+  if (!codigoPuesto || String(ficha.value.vendedor ?? '').trim()) return
+  try {
+    const { data } = await api.get(
+      `/api/mantenimiento/puestos-trabajo/${encodeURIComponent(codigoPuesto)}`
+    )
+    const vendedor = String(data.trabajadorCodigo ?? '').trim()
+    // La ficha puede haber cambiado mientras se resolvía el puesto.
+    if (!vendedor || !ficha.value || String(ficha.value.vendedor ?? '').trim()) return
+    ficha.value = { ...ficha.value, vendedor }
+    await resolverNombreVendedor(vendedor)
+  } catch {
+    /* Sin vendedor por defecto: se introduce a mano en la cabecera. */
+  }
+}
+
 function abrirBuscarVendedor() {
   if (soloLectura.value) {
     if (!puedeEditar.value || bloqueado.value) return
@@ -763,6 +782,7 @@ function iniciarNuevaVenta() {
   vendedorNombre.value = ''
   ficha.value = vacia()
   lineas.value = [lineaVacia()]
+  void precargarVendedorDelPuesto()
   void nextTick(async () => {
     await cabeceraForm.value?.focusTienda()
     mensaje.value = esPlantillaAlta.value
@@ -1321,6 +1341,10 @@ async function confirmarBorrar() {
 async function onFinalizar() {
   if (!ficha.value || esPlantillaConsulta.value) return
   if (bloqueado.value && !esTicketCerrado.value) return
+  if (!String(ficha.value.vendedor ?? '').trim()) {
+    error.value = 'No se puede finalizar la venta sin vendedor. Selecciónelo en la cabecera.'
+    return
+  }
   const fpago =
     String(ficha.value.formasPago?.[0]?.codigo ?? '').trim() || formaPagoCliente.value
   if (fpago) {
@@ -1448,6 +1472,11 @@ async function enviarTrasFinalizar(email: string) {
 
 async function confirmarFinalizar() {
   if (!ficha.value) return
+  if (!String(ficha.value.vendedor ?? '').trim()) {
+    finalizarOpen.value = false
+    error.value = 'No se puede finalizar la venta sin vendedor. Selecciónelo en la cabecera.'
+    return
+  }
   if (mostrarSelectorFpago.value && !String(fpagoFinal.value).trim()) {
     error.value = 'Seleccione la forma de pago (cobro de arqueo / abrir cajon)'
     return

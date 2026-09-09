@@ -47,6 +47,10 @@ return function (App $app): void {
       ->add($setPermiso('facturacion-impresion', 'ver'));
     $group->post('/impresion/marcar', [FacturacionController::class, 'marcarImpresion'])
       ->add($setPermiso('facturacion-impresion', 'crear'));
+    $group->get('/recibos', [FacturacionController::class, 'listRecibosImpresion'])
+      ->add($setPermiso('facturacion-impresion', 'ver'));
+    $group->post('/recibos/pdf', [FacturacionController::class, 'pdfRecibosImpresion'])
+      ->add($setPermiso('facturacion-impresion', 'ver'));
 
     $group->get('/diario', [FacturacionController::class, 'listDiario'])
       ->add($setPermiso('facturacion-diario', 'ver'));

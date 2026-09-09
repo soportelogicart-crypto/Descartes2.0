@@ -89,6 +89,9 @@ final class VentaEscrituraService
       $puesto = '99';
     }
     $vendedor = $this->nullIfEmpty($body['vendedor'] ?? null);
+    if ($vendedor === null) {
+      $vendedor = $this->vendedorDelPuesto($puesto);
+    }
     $fecha = $this->normalizeFecha($body['fecha'] ?? null);
     $representante = $this->codigoCharOEspacio($body['representante'] ?? null);
     $transporte = $this->spaceIfEmpty($body['transporte'] ?? null);
@@ -352,6 +355,11 @@ final class VentaEscrituraService
     $esTicketAFactura = $this->esTicketCerrado($actual) && $opcion === 'F';
     if ($this->estaBloqueado($actual) && !$esTicketAFactura) {
       throw new \RuntimeException('Documento facturado: no se puede modificar', 409);
+    }
+    if (trim((string) ($actual['vendedor'] ?? '')) === '') {
+      throw new \InvalidArgumentException(
+        'No se puede finalizar la venta sin vendedor. Seleccione el vendedor en la cabecera.'
+      );
     }
     // Factura (directa o ticket→factura): datos fiscales reales.
     // Cliente ZZZZZZZZZ = venta sin nombre → solo Ticket/Presupuesto.
@@ -1040,23 +1048,8 @@ final class VentaEscrituraService
         'UPDATE Empresas_Ges SET UltAlbaranVen = :n WHERE Codigo = :e'
       )->execute(['n' => $albaran, 'e' => $empresa]);
 
-      $vendedor = null;
       $puestoLimpio = $puesto !== null ? trim($puesto) : '';
-      if ($puestoLimpio !== '') {
-        try {
-          $ps = $this->pdo->prepare(
-            'SELECT Trabajador FROM Puestos WHERE Puesto = :p'
-          );
-          $ps->execute(['p' => $puestoLimpio]);
-          $trab = $ps->fetchColumn();
-          if ($trab !== false && trim((string) $trab) !== '') {
-            $vendedor = trim((string) $trab);
-          }
-        } catch (\Throwable $e) {
-          // Columna Trabajador puede no existir si no se aplico la migracion
-          $vendedor = null;
-        }
-      }
+      $vendedor = $this->vendedorDelPuesto($puestoLimpio);
 
       $almacenRaw = $row['Almacen'] ?? null;
       $almacen = ($almacenRaw === null || $almacenRaw === '') ? null : (int) $almacenRaw;
@@ -1075,6 +1068,27 @@ final class VentaEscrituraService
       'vendedor' => $vendedor,
       'almacen' => $almacen,
     ];
+  }
+
+  private function vendedorDelPuesto(string $puesto): ?string
+  {
+    $puesto = trim($puesto);
+    if ($puesto === '' || $puesto === '99') {
+      return null;
+    }
+
+    try {
+      $stmt = $this->pdo->prepare(
+        'SELECT Trabajador FROM Puestos WHERE Puesto = :puesto'
+      );
+      $stmt->execute(['puesto' => $puesto]);
+      $vendedor = $stmt->fetchColumn();
+      $codigo = $vendedor !== false ? trim((string) $vendedor) : '';
+      return $codigo !== '' ? $codigo : null;
+    } catch (\Throwable $e) {
+      // Compatibilidad con instalaciones pendientes de la columna Trabajador.
+      return null;
+    }
   }
 
   private function nextAlbaran(string $empresa, string $tipo): int

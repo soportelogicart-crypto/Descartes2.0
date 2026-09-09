@@ -113,15 +113,21 @@ const {
 onMounted(async () => {
   if (!puedeVer.value) return
   try {
-    const { data } = await api.get('/api/mantenimiento/tiendas', { params: { pageSize: 500 } })
+    const [tiendasRes, trabajadoresRes] = await Promise.all([
+      api.get('/api/mantenimiento/tiendas', { params: { pageSize: 500 } }),
+      api.get('/api/mantenimiento/trabajadores', { params: { activo: true, pageSize: 500 } }),
+    ])
+    const opciones = (lista: { codigo: string; nombre: string }[]) =>
+      lista.map((x) => ({
+        value: String(x.codigo).trim(),
+        label: `${String(x.codigo).trim()} - ${x.nombre}`,
+      }))
     optionsMap.value = {
-      tiendas: (data.items ?? []).map((t: { codigo: string; nombre: string }) => ({
-        value: String(t.codigo).trim(),
-        label: `${String(t.codigo).trim()} - ${t.nombre}`,
-      })),
+      tiendas: opciones(tiendasRes.data.items ?? []),
+      trabajadores: opciones(trabajadoresRes.data.items ?? []),
     }
   } catch {
-    optionsMap.value = { tiendas: [] }
+    optionsMap.value = { tiendas: [], trabajadores: [] }
   }
   await cargar()
 })

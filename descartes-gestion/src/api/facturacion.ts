@@ -24,6 +24,7 @@ import type {
   FacturasRetrocesoResponse,
   FacturasTraspasoContableListResponse,
   FacturasTraspasoContableResponse,
+  RecibosImpresionResponse,
 } from '@/types/facturacion'
 
 export async function listarTraspasoContable(
@@ -155,6 +156,20 @@ export async function descargarAlbaranesPendientesPdf(
     params,
     responseType: 'blob',
   })
+  return data as Blob
+}
+
+export async function listarRecibosImpresion(
+  params: Record<string, string | number | undefined>
+): Promise<RecibosImpresionResponse> {
+  const { data } = await api.get<RecibosImpresionResponse>('/api/facturacion/recibos', { params })
+  return data
+}
+
+export async function descargarRecibosPdf(body: {
+  recibos: Array<{ empresa: string; facturaTipo: string; factura: number; recibo: number }>
+}): Promise<Blob> {
+  const { data } = await api.post('/api/facturacion/recibos/pdf', body, { responseType: 'blob' })
   return data as Blob
 }
 
