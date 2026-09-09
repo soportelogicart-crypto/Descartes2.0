@@ -141,9 +141,31 @@ defineEmits<{
 
   <div v-else-if="modoAlta" class="toolbar toolbar-alta">
     <strong>Nueva venta</strong>
-    <button type="button" class="tool-btn" :disabled="loading" @click="$emit('cancelar')">
-      Cancelar
-    </button>
+    <div class="toolbar-group">
+      <button
+        type="button"
+        class="tool-btn primary"
+        :disabled="loading || puedeFinalizar === false"
+        :title="
+          puedeFinalizar === false
+            ? 'Indique cliente, vendedor y al menos un artículo'
+            : 'Grabar la venta (se asigna el número) y tipificarla'
+        "
+        @click="$emit('finalizar')"
+      >
+        <ToolIcon name="guardar" />
+        <span>Guardar y finalizar</span>
+      </button>
+      <button
+        type="button"
+        class="tool-btn"
+        :disabled="loading"
+        title="Descartar la venta sin grabar"
+        @click="$emit('cancelar')"
+      >
+        Cancelar
+      </button>
+    </div>
   </div>
 
   <div v-else class="toolbar">

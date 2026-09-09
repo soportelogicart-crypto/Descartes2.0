@@ -226,7 +226,7 @@ onUnmounted(() => {
             <select
               ref="tiendaSelect"
               :value="ficha.empresa"
-              :disabled="readonly || !esNuevo"
+              :disabled="readonly || !esNuevo || pasoAlta !== 'tienda'"
               @change="patch('empresa', ($event.target as HTMLSelectElement).value)"
             >
               <option value="">--</option>
@@ -235,7 +235,18 @@ onUnmounted(() => {
           </label>
           <label class="field">
             <span class="label">N. albaran</span>
-            <DecimalInput :model-value="(ficha.albaran as number | null) ?? null" :integer="true" readonly />
+            <input
+              v-if="esNuevo && !(Number(ficha.albaran) > 0)"
+              value="Al finalizar"
+              readonly
+              title="El número se asigna al pulsar Guardar y finalizar"
+            />
+            <DecimalInput
+              v-else
+              :model-value="(ficha.albaran as number | null) ?? null"
+              :integer="true"
+              readonly
+            />
           </label>
           <label class="field">
             <span class="label">Fecha</span>

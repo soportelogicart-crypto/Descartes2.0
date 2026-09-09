@@ -9,7 +9,6 @@ import {
   enviarVentaPorEmail,
   finalizarVenta,
   obtenerVenta,
-  reservarAlbaran,
 } from '@/api/ventas'
 import { crearAlbaranPeriodico, eliminarAlbaranPeriodico } from '@/api/facturacion'
 import { resolverArticulo } from '@/api/articulos'
@@ -130,6 +129,8 @@ const cabeceraForm = ref<{
 const articuloInputRefs = ref<HTMLInputElement[]>([])
 const descripcionInputRefs = ref<HTMLInputElement[]>([])
 const vendedorNombre = ref('')
+/** Agente del cliente: se guarda al grabar la venta nueva (legacy Agente). */
+const agenteCliente = ref('')
 
 function setArticuloInputRef(el: unknown, index: number) {
   if (el instanceof HTMLInputElement) {
@@ -437,6 +438,10 @@ const puedeGuardar = computed(
 )
 /** Albaran listo: cabecera creada + al menos una linea de articulo. */
 const albaranCompleto = computed(() => Boolean(ficha.value) && !esNuevo.value && tieneLineas.value)
+/** Venta nueva aun sin grabar: lista para Guardar y finalizar. */
+const ventaNuevaLista = computed(
+  () => esNuevo.value && puedeCrear.value && tieneCliente.value && tieneLineas.value
+)
 /** Documento tipificado / cerrado (Finalizar): ticket, albarán con sesión, factura o presupuesto. */
 const documentoFinalizado = computed(() => {
   const f = ficha.value
@@ -463,7 +468,8 @@ const puedeFinalizar = computed(
   () =>
     !esPlantillaConsulta.value &&
     Boolean(String(ficha.value?.vendedor ?? '').trim()) &&
-    ((albaranCompleto.value && !bloqueado.value && !ticketNoEditable.value && puedeEditar.value) ||
+    (ventaNuevaLista.value ||
+      (albaranCompleto.value && !bloqueado.value && !ticketNoEditable.value && puedeEditar.value) ||
       puedePasarAFactura.value)
 )
 const esAbono = computed(() => {
@@ -567,7 +573,7 @@ const totales = computed(() => {
   }
 })
 
-async function cargarPreciosIvaIncluido(empresa: string) {
+async function cargarPreciosIvaIncluido(empresa: string, opts?: { aplicarAlmacen?: boolean }) {
   const cod = String(empresa ?? '').trim()
   if (!cod) {
     preciosIvaIncluido.value = false
@@ -576,6 +582,13 @@ async function cargarPreciosIvaIncluido(empresa: string) {
   try {
     const { data } = await api.get(`/api/mantenimiento/tiendas/${encodeURIComponent(cod)}`)
     preciosIvaIncluido.value = Boolean(data.swIva)
+    if (opts?.aplicarAlmacen && ficha.value) {
+      const alm = data.almacenCodigo
+      ficha.value = {
+        ...ficha.value,
+        almacen: alm === null || alm === undefined || alm === '' ? null : Number(alm),
+      }
+    }
   } catch {
     preciosIvaIncluido.value = false
   }
@@ -625,6 +638,28 @@ function resumenDesdeDetalle(d: VentaDetalle): VentaResumen {
     facturaTipo: d.facturaTipo,
     sesion: d.sesion,
     albaranOrigenAbono: d.albaranOrigenAbono ?? null,
+  }
+}
+
+/** Alta: cabecera completa (legacy PreGrabacion) para el INSERT; el nº lo asigna la API. */
+function payloadAltaCompleto(): VentaPayload {
+  const f = ficha.value!
+  const vendedorPuesto = String(f.vendedor ?? '').trim()
+  return {
+    ...payloadDesdeFicha(),
+    albaran: undefined,
+    representante: String(f.representante ?? '').trim() || ' ',
+    transporte: String(f.transporte ?? '').trim() || ' ',
+    fpago1: String(f.formasPago?.[0]?.codigo ?? '').trim() || ' ',
+    fpago2: '',
+    actividad: 0,
+    agente: agenteCliente.value || ' ',
+    facturaTipo: 'R',
+    empresaFacturacion: f.empresa,
+    vendedor: vendedorPuesto || null,
+    vendedorApertura: vendedorPuesto || null,
+    tarifa: f.tarifa ?? 0,
+    tipo: 'A',
   }
 }
 
@@ -785,6 +820,7 @@ function iniciarNuevaVenta() {
   clienteContado.value = false
   formaPagoCliente.value = ''
   vendedorNombre.value = ''
+  agenteCliente.value = ''
   ficha.value = vacia()
   lineas.value = [lineaVacia()]
   void precargarVendedorDelPuesto()
@@ -998,26 +1034,21 @@ async function onIntroCabecera() {
     }
     loading.value = true
     try {
-      const reserva = await reservarAlbaran({
-        empresa: ficha.value.empresa,
-        puesto: ficha.value.puesto || puesto.puestoCodigo || undefined,
-      })
+      // El numero de albaran se asigna al grabar (Guardar y finalizar), no al empezar:
+      // asi una venta abandonada no consume numeracion.
       ficha.value = {
         ...ficha.value,
         tipo: 'A',
-        albaran: reserva.albaran,
-        puesto: reserva.puesto || ficha.value.puesto,
-        // Solo trabajador del puesto (nunca codigo de usuario de login).
-        vendedor: reserva.vendedor || ficha.value.vendedor || '',
-        almacen: reserva.almacen,
+        albaran: 0,
+        puesto: ficha.value.puesto || puesto.puestoCodigo || '',
       }
-      void resolverNombreVendedor(ficha.value.vendedor || '')
-      void cargarPreciosIvaIncluido(ficha.value.empresa)
+      await cargarPreciosIvaIncluido(ficha.value.empresa, { aplicarAlmacen: true })
+      await precargarVendedorDelPuesto()
       pasoAlta.value = 'cliente'
-      mensaje.value = `Albarán ${reserva.albaran} reservado. Seleccione un cliente o use Venta rápida.`
+      mensaje.value = null
       await cabeceraForm.value?.focusCliente()
     } catch (e: unknown) {
-      error.value = extractApiError(e, 'No se pudo reservar el albaran')
+      error.value = extractApiError(e, 'No se pudo preparar la venta')
     } finally {
       loading.value = false
     }
@@ -1151,8 +1182,8 @@ async function onClienteSeleccionado(
 ) {
   buscarClienteOpen.value = false
   if (!ficha.value) return
-  if (esNuevo.value && pasoAlta.value !== 'cliente') {
-    error.value = 'Primero confirme la tienda para reservar el número de albarán.'
+  if (esNuevo.value && pasoAlta.value === 'tienda') {
+    error.value = 'Primero confirme la tienda.'
     await cabeceraForm.value?.focusTienda()
     return
   }
@@ -1161,89 +1192,34 @@ async function onClienteSeleccionado(
   try {
     const { sel: resolved, cli } = await cargarDatosCliente(sel.codigo)
     await aplicarClienteEnFicha(resolved, cli)
+    agenteCliente.value = String(cli.agenteOrigen ?? cli.agente ?? '').trim()
 
-    // Alta: tras reservar albarán, grabar cabecera. Si el documento ya existe, actualizar cliente.
-    const yaExisteEnBd = !esNuevo.value && Number(ficha.value.albaran) > 0
-    if (yaExisteEnBd) {
-      modoEdicion.value = true
-      const payload = payloadDesdeFicha()
-      const saved = await actualizarVenta(
-        ficha.value.empresa,
-        ficha.value.tipo,
-        ficha.value.albaran,
-        payload
-      )
-      aplicarDetalle(saved)
-      modoEdicion.value = true
-      mensaje.value = 'Cliente asignado. Puede editar líneas y Guardar.'
-      busqueda.upsertResumen(resumenDesdeDetalle(saved))
+    // Alta: la venta vive en memoria hasta Guardar y finalizar (no consume numeracion).
+    if (esNuevo.value) {
+      pasoAlta.value = 'listo'
+      mensaje.value = null
       await focusArticuloLinea(0)
       return
     }
 
-    const vendedorPuesto = String(ficha.value.vendedor ?? '').trim()
-    const representanteCli = String(ficha.value.representante ?? '').trim()
-    const transporteCli = String(ficha.value.transporte ?? '').trim()
-    const fpagoCli = String(ficha.value.formasPago?.[0]?.codigo ?? '').trim()
-
-    const payload: VentaPayload = {
-      ...payloadDesdeFicha(),
-      representante: representanteCli || ' ',
-      transporte: transporteCli || ' ',
-      fpago1: fpagoCli || ' ',
-      fpago2: '',
-      actividad: 0,
-      agente: String(cli.agenteOrigen ?? cli.agente ?? '').trim() || ' ',
-      facturaTipo: 'R',
-      empresaFacturacion: ficha.value.empresa,
-      vendedor: vendedorPuesto || null,
-      vendedorApertura: vendedorPuesto || null,
-      tarifa: ficha.value.tarifa ?? 0,
-      tipo: 'A',
-      lineas: [],
-    }
-
-    const saved = await crearVenta(payload)
-    aplicarDetalle(saved)
-    if (!saved.lineas?.length) {
-      lineas.value = [lineaVacia()]
-    }
-    esNuevo.value = false
     modoEdicion.value = true
-    pasoAlta.value = 'listo'
-    omitirProximaCarga.value = true
-    busqueda.marcarAbrirEnEdicion({
-      empresa: saved.empresa,
-      tipo: saved.tipo,
-      albaran: saved.albaran,
-    })
-    mensaje.value = esClienteSinNombre(saved.cliente)
-      ? 'Venta rapida (sin nombre). Introduzca articulos (escaner o Intro en codigo)'
-      : 'Cabecera guardada. Introduzca articulos (escaner o Intro en codigo)'
+    const saved = await actualizarVenta(
+      ficha.value.empresa,
+      ficha.value.tipo,
+      ficha.value.albaran,
+      payloadDesdeFicha()
+    )
+    aplicarDetalle(saved)
+    modoEdicion.value = true
+    mensaje.value = 'Cliente asignado. Puede editar líneas y Guardar.'
     busqueda.upsertResumen(resumenDesdeDetalle(saved))
-    const mismaRuta =
-      route.name === 'ventas-detalle' &&
-      String(route.params.empresa) === saved.empresa &&
-      String(route.params.tipo) === saved.tipo &&
-      Number(route.params.albaran) === saved.albaran
-    if (mismaRuta) {
-      omitirProximaCarga.value = false
-      busqueda.consumirAbrirEnEdicion({
-        empresa: saved.empresa,
-        tipo: saved.tipo,
-        albaran: saved.albaran,
-      })
-      await focusArticuloLinea(0)
-    } else {
-      await router.replace(destinoVenta(saved.empresa, saved.tipo, saved.albaran))
-      // cargar() del watch pondrá el foco en artículo al tener cliente.
-    }
+    await focusArticuloLinea(0)
   } catch (e: unknown) {
     if (opts?.abrirBusquedaSiNoExiste) {
       error.value = 'Cliente no encontrado. Selecciónelo en la búsqueda.'
       abrirBuscarCliente()
     } else {
-      error.value = extractApiError(e, 'No se pudo guardar la cabecera')
+      error.value = extractApiError(e, 'No se pudo asignar el cliente')
     }
   } finally {
     loading.value = false
@@ -1277,7 +1253,8 @@ function onCancelar() {
     return
   }
   if (esNuevo.value) {
-    if (Number(ficha.value?.albaran ?? 0) > 0) {
+    // Nada grabado todavia: solo confirmar si hay datos escritos que se perderian.
+    if (tieneCliente.value || tieneLineas.value) {
       confirmCancelarAlta.value = true
       return
     }
@@ -1312,10 +1289,14 @@ async function onGuardar() {
   error.value = null
   mensaje.value = null
   try {
-    const payload = payloadDesdeFicha()
     const saved = esNuevo.value
-      ? await crearVenta(payload)
-      : await actualizarVenta(ficha.value.empresa, ficha.value.tipo, ficha.value.albaran, payload)
+      ? await crearVenta(payloadAltaCompleto())
+      : await actualizarVenta(
+          ficha.value.empresa,
+          ficha.value.tipo,
+          ficha.value.albaran,
+          payloadDesdeFicha()
+        )
     aplicarDetalle(saved)
     esNuevo.value = false
     modoEdicion.value = false
@@ -1531,8 +1512,21 @@ async function confirmarFinalizar() {
     tipo: ficha.value.tipo,
     albaran: ficha.value.albaran,
   }
+  const eraNueva = esNuevo.value
   try {
-    if (modoEdicion.value) {
+    if (eraNueva) {
+      // Aqui se graba por primera vez: la API asigna el numero de albaran.
+      const payload = payloadAltaCompleto()
+      if (mostrarSelectorFpago.value && fpagoFinal.value) {
+        payload.fpago1 = fpagoFinal.value
+        payload.impFpago1 = totales.value.importe
+      }
+      const creada = await crearVenta(payload)
+      aplicarDetalle(creada)
+      esNuevo.value = false
+      pasoAlta.value = 'listo'
+      busqueda.upsertResumen(resumenDesdeDetalle(creada))
+    } else if (modoEdicion.value) {
       const payload = payloadDesdeFicha()
       if (mostrarSelectorFpago.value && fpagoFinal.value) {
         payload.fpago1 = fpagoFinal.value
@@ -1564,11 +1558,18 @@ async function confirmarFinalizar() {
         opcion
       }`
     }
-    if (prev.empresa !== done.empresa || prev.tipo !== done.tipo || prev.albaran !== done.albaran) {
+    if (
+      prev.albaran > 0 &&
+      (prev.empresa !== done.empresa || prev.tipo !== done.tipo || prev.albaran !== done.albaran)
+    ) {
       busqueda.quitar(prev)
     }
     busqueda.upsertResumen(resumenDesdeDetalle(done))
-    router.replace(destinoVenta(done.empresa, done.tipo, done.albaran))
+    // Venta recien creada: no navegar. La ruta /ventas/nuevo cambiaria de instancia
+    // (KeepAlive va por fullPath) y se perderia el dialogo de impresion / email.
+    if (!eraNueva) {
+      router.replace(destinoVenta(done.empresa, done.tipo, done.albaran))
+    }
     if (esPlantillaAlta.value) {
       plantillaPeriodicaForm.ultimaGeneracion = new Date().toISOString().slice(0, 10)
       plantillaPeriodicaOpen.value = true
@@ -1824,7 +1825,7 @@ onMounted(() => {
       </button>
     </div>
     <div v-else-if="esNuevo && pasoAlta === 'cliente'" class="paso-accion">
-      <span>Albarán <strong>{{ ficha?.albaran }}</strong> reservado. ¿A quién se realiza la venta?</span>
+      <span>¿A quién se realiza la venta?</span>
       <div class="paso-botones">
         <button type="button" class="btn-paso" :disabled="loading" @click="abrirBuscarCliente">
           Buscar cliente
@@ -1834,6 +1835,10 @@ onMounted(() => {
         </button>
       </div>
     </div>
+    <p v-else-if="esNuevo && pasoAlta === 'listo'" class="ok">
+      Introduzca los artículos: código + <strong>Intro</strong> (o F4 / … para buscar). La venta se graba
+      al pulsar <strong>Guardar y finalizar</strong>, que es cuando recibe el número de albarán.
+    </p>
     <p v-else-if="modoEdicion && !esNuevo && !tieneLineas" class="ok">
       Introduzca articulos: codigo + <strong>Intro</strong> (o F4 / … para buscar). Luego <strong>Guardar</strong>.
     </p>
@@ -1996,9 +2001,9 @@ onMounted(() => {
 
     <ConfirmDialog
       :open="confirmCancelarAlta"
-      title="Cancelar nueva venta"
-      :message="`El número de albarán ${ficha?.albaran ?? ''} ya está reservado y quedará sin utilizar. ¿Desea cancelar?`"
-      confirm-label="Cancelar venta"
+      title="Descartar la venta"
+      message="La venta no se ha grabado. Se perderán el cliente y las líneas introducidas. ¿Desea descartarla?"
+      confirm-label="Descartar"
       @confirm="confirmarCancelarVentaNueva"
       @cancel="confirmCancelarAlta = false"
     />
