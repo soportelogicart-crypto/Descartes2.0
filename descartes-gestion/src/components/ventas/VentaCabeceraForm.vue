@@ -21,6 +21,8 @@ const props = defineProps<{
   modelValue: VentaDetalle
   readonly?: boolean
   esNuevo?: boolean
+  pasoAlta?: 'tienda' | 'cliente' | 'listo'
+  compacto?: boolean
   vendedorNombre?: string
   totales: { bruto: number; descuento: number; iva: number; importe: number }
 }>()
@@ -36,6 +38,7 @@ const emit = defineEmits<{
 
 const tiendas = ref<{ value: string; label: string }[]>([])
 const tiendaSelect = ref<HTMLSelectElement | null>(null)
+const clienteInput = ref<HTMLInputElement | null>(null)
 const direccionesEnvio = ref<DireccionEnvioOpcion[]>([])
 const dirMenuOpen = ref(false)
 const cargandoDirs = ref(false)
@@ -49,6 +52,8 @@ const fechaBloqueada = computed(() => Boolean(props.readonly || props.esNuevo))
 const puedeElegirDireccion = computed(
   () => !props.readonly && !cargandoDirs.value && direccionesEnvio.value.length > 0
 )
+const mostrarCliente = computed(() => !props.esNuevo || props.pasoAlta !== 'tienda')
+const mostrarDetalles = computed(() => !props.esNuevo || props.pasoAlta === 'listo')
 
 function patch<K extends keyof VentaDetalle>(key: K, value: VentaDetalle[K]) {
   emit('update:modelValue', { ...props.modelValue, [key]: value })
@@ -102,7 +107,13 @@ async function focusTienda() {
   tiendaSelect.value?.focus()
 }
 
-defineExpose({ focusTienda })
+async function focusCliente() {
+  await nextTick()
+  clienteInput.value?.focus()
+  clienteInput.value?.select()
+}
+
+defineExpose({ focusTienda, focusCliente })
 
 async function cargarDireccionesEnvio(clienteCodigo: string) {
   const codigo = clienteCodigo.trim()
@@ -274,7 +285,7 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div class="section-row paired">
+    <div v-if="mostrarCliente" class="section-row paired single">
       <section class="section">
         <h3>Cliente</h3>
         <div class="fields cols-3">
@@ -282,6 +293,7 @@ onUnmounted(() => {
             <span class="label">Codigo</span>
             <div class="vendedor-row">
               <input
+                ref="clienteInput"
                 :value="ficha.cliente ?? ''"
                 maxlength="9"
                 :readonly="readonly"
@@ -333,6 +345,7 @@ onUnmounted(() => {
                 ...
               </button>
             </div>
+            <small v-if="vendedorNombre" class="field-help">{{ vendedorNombre }}</small>
           </label>
           <label class="field span-2">
             <span class="label">Razon social</span>
@@ -354,7 +367,10 @@ onUnmounted(() => {
           </label>
         </div>
       </section>
+    </div>
 
+    <details v-if="mostrarDetalles" class="detalles-adicionales" :open="!compacto">
+      <summary>Más datos de la venta</summary>
       <section class="section">
         <h3>Envio / contacto</h3>
         <div class="fields cols-3">
@@ -469,7 +485,6 @@ onUnmounted(() => {
           </label>
         </div>
       </section>
-    </div>
 
     <section class="section">
       <h3>Otros</h3>
@@ -573,6 +588,7 @@ onUnmounted(() => {
         </label>
       </div>
     </section>
+    </details>
   </div>
 </template>
 
@@ -604,6 +620,30 @@ onUnmounted(() => {
   grid-template-columns: 1fr 1fr;
   gap: 0.35rem;
   align-items: stretch;
+}
+
+.section-row.paired.single {
+  grid-template-columns: 1fr;
+}
+
+.detalles-adicionales {
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #f8fafc;
+  padding: 0.25rem;
+}
+
+.detalles-adicionales > summary {
+  cursor: pointer;
+  color: #1e40af;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.2rem 0.35rem;
+}
+
+.detalles-adicionales[open] {
+  display: grid;
+  gap: 0.35rem;
 }
 
 .section {
@@ -657,6 +697,14 @@ onUnmounted(() => {
 
 .label {
   color: #64748b;
+  white-space: nowrap;
+}
+
+.field-help {
+  color: #475569;
+  font-size: 0.66rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

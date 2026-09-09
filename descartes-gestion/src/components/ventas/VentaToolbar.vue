@@ -36,6 +36,8 @@ withDefaults(
     total?: number
     /** Ficha abierta como plantilla periódica desde Mantenimiento: toolbar reducida. */
     modoPlantillaConsulta?: boolean
+    /** Alta inicial: deja solo la acción de cancelar; el CTA está junto al paso activo. */
+    modoAlta?: boolean
   }>(),
   {
     buscarLabel: 'Buscar',
@@ -137,8 +139,15 @@ defineEmits<{
     </div>
   </div>
 
+  <div v-else-if="modoAlta" class="toolbar toolbar-alta">
+    <strong>Nueva venta</strong>
+    <button type="button" class="tool-btn" :disabled="loading" @click="$emit('cancelar')">
+      Cancelar
+    </button>
+  </div>
+
   <div v-else class="toolbar">
-    <div class="toolbar-group">
+    <div v-if="!modoEdicion" class="toolbar-group">
       <button
         type="button"
         class="tool-btn"
@@ -181,7 +190,7 @@ defineEmits<{
       </button>
     </div>
 
-    <div class="toolbar-group nav">
+    <div v-if="!modoEdicion" class="toolbar-group nav">
       <button
         type="button"
         class="nav-btn"
@@ -230,7 +239,7 @@ defineEmits<{
     </div>
 
     <div
-      v-if="puedeGenerarAlbaran || puedeRecuperar || puedeActualizarStock"
+      v-if="!modoEdicion && (puedeGenerarAlbaran || puedeRecuperar || puedeActualizarStock)"
       class="toolbar-group"
     >
       <button
@@ -270,6 +279,7 @@ defineEmits<{
 
     <div class="toolbar-group">
       <button
+        v-if="!modoEdicion"
         type="button"
         class="tool-btn"
         :disabled="loading || puedeImprimir === false"
@@ -291,9 +301,10 @@ defineEmits<{
         @click="$emit('finalizar')"
       >
         <ToolIcon name="guardar" />
-        <span>{{ esTicketCerrado ? 'A factura' : 'Finalizar' }}</span>
+        <span>{{ esTicketCerrado ? 'A factura' : modoEdicion ? 'Guardar y finalizar' : 'Finalizar' }}</span>
       </button>
       <button
+        v-if="!modoEdicion"
         type="button"
         class="tool-btn"
         :disabled="loading || !puedeAbonar"
@@ -341,6 +352,13 @@ defineEmits<{
   flex-wrap: wrap;
   gap: 0.35rem;
   align-items: center;
+}
+.toolbar-alta {
+  justify-content: space-between;
+}
+.toolbar-alta strong {
+  color: #1e3a8a;
+  font-size: 0.95rem;
 }
 .tool-btn {
   display: flex;

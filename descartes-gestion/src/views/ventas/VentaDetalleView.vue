@@ -87,6 +87,7 @@ const esNuevo = ref(false)
 const ficha = ref<VentaDetalle | null>(null)
 const lineas = ref<VentaLinea[]>([])
 const confirmBorrar = ref(false)
+const confirmCancelarAlta = ref(false)
 const finalizarOpen = ref(false)
 const abonoOpen = ref(false)
 const abonoNroLins = ref<number[]>([])
@@ -122,7 +123,10 @@ const lineaArticuloIdx = ref(0)
 const articuloBusquedaInicial = ref('')
 /** Tras alta de cabecera: no recargar (ya tenemos la ficha) y quedar en edicion. */
 const omitirProximaCarga = ref(false)
-const cabeceraForm = ref<{ focusTienda: () => Promise<void> } | null>(null)
+const cabeceraForm = ref<{
+  focusTienda: () => Promise<void>
+  focusCliente: () => Promise<void>
+} | null>(null)
 const articuloInputRefs = ref<HTMLInputElement[]>([])
 const descripcionInputRefs = ref<HTMLInputElement[]>([])
 const vendedorNombre = ref('')
@@ -274,7 +278,7 @@ const TIPOS_FINAL = [
 /** Contado = forma de pago con CobroDeArqueo → no Albarán. */
 const clienteContado = ref(false)
 const formaPagoCliente = ref('')
-/** Formas de pago con CobroDeArqueo + AbrirCajon (legacy ticket Frame1). */
+/** Formas de pago de contado: la regla de negocio es CobroDeArqueo. */
 const formasPagoContado = ref<{ codigo: string; descripcion: string }[]>([])
 const fpagoFinal = ref('')
 /** Empresas.SW_IVA: precios de linea con IVA incluido (yIVA). */
@@ -458,7 +462,8 @@ const puedePasarAFactura = computed(() => {
 const puedeFinalizar = computed(
   () =>
     !esPlantillaConsulta.value &&
-    ((albaranCompleto.value && !bloqueado.value && !ticketNoEditable.value && puedeEditar.value && !modoEdicion.value) ||
+    Boolean(String(ficha.value?.vendedor ?? '').trim()) &&
+    ((albaranCompleto.value && !bloqueado.value && !ticketNoEditable.value && puedeEditar.value) ||
       puedePasarAFactura.value)
 )
 const esAbono = computed(() => {
@@ -517,7 +522,6 @@ function importeLinea(l: VentaLinea): number {
 
 const totales = computed(() => {
   let bruto = 0
-  let descuento = 0
   const acumPorIva = new Map<number, number>()
   for (const l of lineas.value) {
     const art = String(l.articulo ?? '').trim()
@@ -526,7 +530,6 @@ const totales = computed(() => {
     const lineaDto = lineaBruto * (Number(l.pjeDto || 0) / 100)
     const neto = Math.round((lineaBruto - lineaDto) * 100) / 100
     bruto += lineaBruto
-    descuento += lineaDto
     const pje =
       Number(l.pjeIva) > 0
         ? Number(l.pjeIva)
@@ -538,24 +541,26 @@ const totales = computed(() => {
   let iva = 0
   let importe = 0
   let baseTotal = 0
+  let descuentoCabecera = 0
+  const pjeDtoCabecera = Number(ficha.value?.pjeDto ?? 0)
   for (const [pje, acum] of acumPorIva) {
     const total = Math.round(acum * 100) / 100
-    if (preciosIvaIncluido.value) {
-      const base = pje > 0 ? Math.round((total / (1 + pje / 100)) * 100) / 100 : total
-      const cuota = Math.round((total - base) * 100) / 100
-      baseTotal += base
-      iva += cuota
-      importe += total
-    } else {
-      const cuota = Math.round(total * (pje / 100) * 100) / 100
-      baseTotal += total
-      iva += cuota
-      importe += total + cuota
-    }
+    const baseInicial = preciosIvaIncluido.value && pje > 0
+      ? Math.round((total / (1 + pje / 100)) * 100) / 100
+      : total
+    const dtoBase = Math.round(baseInicial * (pjeDtoCabecera / 100) * 100) / 100
+    const base = Math.round((baseInicial - dtoBase) * 100) / 100
+    const cuota = pjeDtoCabecera !== 0 || !preciosIvaIncluido.value
+      ? Math.round(base * (pje / 100) * 100) / 100
+      : Math.round((total - baseInicial) * 100) / 100
+    descuentoCabecera += dtoBase
+    baseTotal += base
+    iva += cuota
+    importe += preciosIvaIncluido.value && pjeDtoCabecera === 0 ? total : base + cuota
   }
   return {
     bruto: Math.round(bruto * 100) / 100,
-    descuento: Math.round(descuento * 100) / 100,
+    descuento: Math.round(descuentoCabecera * 100) / 100,
     iva: Math.round(iva * 100) / 100,
     importe: Math.round(importe * 100) / 100,
     base: Math.round(baseTotal * 100) / 100,
@@ -583,8 +588,8 @@ async function cargarFormasPagoContado() {
     })
     const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : []
     formasPagoContado.value = items
-      .filter((f: { cobroDeArqueo?: boolean; abrirCajon?: boolean; codigo?: string }) =>
-        Boolean(f.cobroDeArqueo && f.abrirCajon && String(f.codigo ?? '').trim())
+      .filter((f: { cobroDeArqueo?: boolean; codigo?: string }) =>
+        Boolean(f.cobroDeArqueo && String(f.codigo ?? '').trim())
       )
       .map((f: { codigo: string; descripcion?: string }) => ({
         codigo: String(f.codigo).trim(),
@@ -1009,7 +1014,8 @@ async function onIntroCabecera() {
       void resolverNombreVendedor(ficha.value.vendedor || '')
       void cargarPreciosIvaIncluido(ficha.value.empresa)
       pasoAlta.value = 'cliente'
-      mensaje.value = `Albaran ${reserva.albaran} reservado. Intro en Cliente (vacío = venta rápida) o F4 para buscar`
+      mensaje.value = `Albarán ${reserva.albaran} reservado. Seleccione un cliente o use Venta rápida.`
+      await cabeceraForm.value?.focusCliente()
     } catch (e: unknown) {
       error.value = extractApiError(e, 'No se pudo reservar el albaran')
     } finally {
@@ -1025,6 +1031,11 @@ async function onIntroCabecera() {
 }
 
 function abrirBuscarCliente() {
+  if (esNuevo.value && pasoAlta.value === 'tienda') {
+    error.value = 'Primero confirme la tienda para reservar el número de albarán.'
+    void cabeceraForm.value?.focusTienda()
+    return
+  }
   if (soloLectura.value) {
     if (!puedeEditar.value || bloqueado.value || esTicketCerrado.value) return
     modoEdicion.value = true
@@ -1033,6 +1044,15 @@ function abrirBuscarCliente() {
 }
 
 async function onClienteKeydown(e: KeyboardEvent) {
+  if (esNuevo.value && pasoAlta.value !== 'cliente') {
+    if (e.key === 'Enter' || e.key === 'F4') {
+      e.preventDefault()
+      e.stopPropagation()
+      error.value = 'Primero confirme la tienda para reservar el número de albarán.'
+      await cabeceraForm.value?.focusTienda()
+    }
+    return
+  }
   if (soloLectura.value) {
     if (!puedeEditar.value || bloqueado.value || esTicketCerrado.value) return
     modoEdicion.value = true
@@ -1116,6 +1136,7 @@ async function aplicarClienteEnFicha(
     transporte: transporteCli,
     portes: '',
     vendedor: vendedorPuesto,
+    pjeDto: Number(cli.dto1 ?? 0),
     formasPago: fpagoCli
       ? [{ codigo: fpagoCli, importe: 0 }, { codigo: '', importe: 0 }]
       : ficha.value.formasPago ?? [],
@@ -1130,6 +1151,11 @@ async function onClienteSeleccionado(
 ) {
   buscarClienteOpen.value = false
   if (!ficha.value) return
+  if (esNuevo.value && pasoAlta.value !== 'cliente') {
+    error.value = 'Primero confirme la tienda para reservar el número de albarán.'
+    await cabeceraForm.value?.focusTienda()
+    return
+  }
   loading.value = true
   error.value = null
   try {
@@ -1214,6 +1240,7 @@ async function onClienteSeleccionado(
     }
   } catch (e: unknown) {
     if (opts?.abrirBusquedaSiNoExiste) {
+      error.value = 'Cliente no encontrado. Selecciónelo en la búsqueda.'
       abrirBuscarCliente()
     } else {
       error.value = extractApiError(e, 'No se pudo guardar la cabecera')
@@ -1221,6 +1248,11 @@ async function onClienteSeleccionado(
   } finally {
     loading.value = false
   }
+}
+
+async function usarVentaRapida() {
+  if (!esNuevo.value || pasoAlta.value !== 'cliente' || loading.value) return
+  await confirmarCliente(CLIENTE_SIN_NOMBRE)
 }
 
 function onModificar() {
@@ -1245,11 +1277,20 @@ function onCancelar() {
     return
   }
   if (esNuevo.value) {
+    if (Number(ficha.value?.albaran ?? 0) > 0) {
+      confirmCancelarAlta.value = true
+      return
+    }
     router.push('/ventas')
     return
   }
   modoEdicion.value = false
   cargar()
+}
+
+function confirmarCancelarVentaNueva() {
+  confirmCancelarAlta.value = false
+  router.push('/ventas')
 }
 
 async function onGuardar() {
@@ -1283,7 +1324,7 @@ async function onGuardar() {
       : esPlantillaAlta.value
         ? 'Documento guardado. Finalice como Presupuesto para registrar la plantilla periódica.'
         : tieneLineas.value
-          ? 'Albaran guardado. Ya puede Finalizar o Imprimir.'
+          ? 'Albarán guardado. Ya puede finalizarlo.'
           : 'Venta guardada'
     busqueda.upsertResumen(resumenDesdeDetalle(saved))
     if (
@@ -1478,7 +1519,7 @@ async function confirmarFinalizar() {
     return
   }
   if (mostrarSelectorFpago.value && !String(fpagoFinal.value).trim()) {
-    error.value = 'Seleccione la forma de pago (cobro de arqueo / abrir cajon)'
+    error.value = 'Seleccione una forma de pago de contado'
     return
   }
   const opcion = tipoFinal.value
@@ -1706,6 +1747,7 @@ onMounted(() => {
   <section class="ficha-venta" tabindex="-1" @keydown.enter="onKeyEnter">
     <VentaToolbar
       :modo-plantilla-consulta="esPlantillaConsulta"
+      :modo-alta="esNuevo && !esPlantillaConsulta"
       :puede-crear="puedeCrear"
       :puede-editar="puedeEditar"
       :puede-eliminar="puedeEliminar"
@@ -1740,7 +1782,7 @@ onMounted(() => {
     <ol v-if="esNuevo && !esPlantillaConsulta" class="pasos-alta" aria-label="Pasos alta albaran">
       <li :class="{ activo: pasoAlta === 'tienda', hecho: pasoAlta !== 'tienda' }">1. Tienda</li>
       <li :class="{ activo: pasoAlta === 'cliente', hecho: pasoAlta === 'listo' }">2. Cliente</li>
-      <li :class="{ activo: false, hecho: false }">3. Articulos</li>
+      <li :class="{ activo: pasoAlta === 'listo', hecho: false }">3. Artículos</li>
     </ol>
     <ol
       v-else-if="modoEdicion && ficha && !esPlantillaConsulta"
@@ -1775,24 +1817,34 @@ onMounted(() => {
       <strong>{{ ficha.origenDocumento?.etiqueta || `albarán ${ficha.albaranOrigenAbono}` }}</strong>.
       Pendiente de facturar como el resto.
     </p>
-    <p v-if="esNuevo && pasoAlta === 'tienda'" class="ok">
-      Elija la <strong>tienda</strong> y pulse <strong>Intro</strong> para reservar el numero de albaran.
-    </p>
-    <p v-else-if="esNuevo && pasoAlta === 'cliente'" class="ok">
-      Albaran <strong>{{ ficha?.albaran }}</strong> reservado.
-      <strong>Intro</strong> en Cliente vacío = venta rapida (sin nombre); <strong>F4</strong> / … para buscar cliente.
-    </p>
+    <div v-if="esNuevo && pasoAlta === 'tienda'" class="paso-accion">
+      <span>Confirme la <strong>tienda</strong> para comenzar.</span>
+      <button type="button" class="btn-paso primary" :disabled="loading" @click="onIntroCabecera">
+        Continuar
+      </button>
+    </div>
+    <div v-else-if="esNuevo && pasoAlta === 'cliente'" class="paso-accion">
+      <span>Albarán <strong>{{ ficha?.albaran }}</strong> reservado. ¿A quién se realiza la venta?</span>
+      <div class="paso-botones">
+        <button type="button" class="btn-paso" :disabled="loading" @click="abrirBuscarCliente">
+          Buscar cliente
+        </button>
+        <button type="button" class="btn-paso primary" :disabled="loading" @click="usarVentaRapida">
+          Venta rápida
+        </button>
+      </div>
+    </div>
     <p v-else-if="modoEdicion && !esNuevo && !tieneLineas" class="ok">
       Introduzca articulos: codigo + <strong>Intro</strong> (o F4 / … para buscar). Luego <strong>Guardar</strong>.
     </p>
     <p v-else-if="modoEdicion && !esNuevo && tieneLineas && !esPlantillaConsulta" class="ok">
-      Lineas listas. Pulse <strong>Guardar</strong> y despues podra <strong>Finalizar</strong> / <strong>Imprimir</strong>.
+      Líneas listas. Puede <strong>Guardar</strong> el borrador o <strong>Guardar y finalizar</strong>.
     </p>
     <p v-else-if="!modoEdicion && albaranCompleto && !bloqueado && !esTicketCerrado && !esPlantillaConsulta" class="ok">
       Albaran listo. Puede <strong>Finalizar</strong> (tipificar) o <strong>Imprimir</strong>.
     </p>
     <p v-if="error" class="error">{{ error }}</p>
-    <p v-if="mensaje" class="ok">{{ mensaje }}</p>
+    <p v-if="mensaje && !esNuevo" class="ok">{{ mensaje }}</p>
     <p v-if="loading && !ficha">Cargando...</p>
 
     <template v-if="ficha">
@@ -1801,6 +1853,8 @@ onMounted(() => {
         v-model="ficha"
         :readonly="soloLectura"
         :es-nuevo="esNuevo"
+        :paso-alta="pasoAlta"
+        :compacto="modoEdicion && !esPlantillaConsulta"
         :vendedor-nombre="vendedorNombre"
         :totales="totales"
         @buscar-vendedor="abrirBuscarVendedor"
@@ -1810,7 +1864,7 @@ onMounted(() => {
         @cliente-keydown="onClienteKeydown"
       />
 
-      <div class="lineas-panel">
+      <div v-if="!esNuevo || pasoAlta === 'listo'" class="lineas-panel">
         <div class="lineas-head">
           <h3>Lineas</h3>
           <button v-if="puedeEditarLineas" type="button" class="btn-add" @click="addLinea">+ Linea</button>
@@ -1940,6 +1994,15 @@ onMounted(() => {
       @cancel="confirmBorrar = false"
     />
 
+    <ConfirmDialog
+      :open="confirmCancelarAlta"
+      title="Cancelar nueva venta"
+      :message="`El número de albarán ${ficha?.albaran ?? ''} ya está reservado y quedará sin utilizar. ¿Desea cancelar?`"
+      confirm-label="Cancelar venta"
+      @confirm="confirmarCancelarVentaNueva"
+      @cancel="confirmCancelarAlta = false"
+    />
+
     <EntidadBuscarModal
       :open="buscarClienteOpen"
       entidad="clientes"
@@ -2011,7 +2074,7 @@ onMounted(() => {
               </select>
             </label>
             <p v-if="!formasPagoContado.length" class="warn">
-              No hay formas de pago con cobro de arqueo y abrir cajon.
+              No hay formas de pago configuradas con cobro de arqueo.
             </p>
           </div>
           <p v-if="tipoFinal === 'F'" class="warn">Factura: el documento quedara bloqueado.</p>
@@ -2217,6 +2280,40 @@ onMounted(() => {
   border-color: #86efac;
   background: #dcfce7;
   color: #166534;
+}
+.paso-accion {
+  max-width: 960px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+.paso-botones {
+  display: flex;
+  gap: 0.4rem;
+}
+.btn-paso {
+  border: 1px solid #64748b;
+  border-radius: 5px;
+  background: #fff;
+  color: #1e293b;
+  padding: 0.4rem 0.7rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+.btn-paso.primary {
+  border-color: #1d4ed8;
+  background: #2563eb;
+  color: #fff;
+}
+.btn-paso:disabled {
+  cursor: wait;
+  opacity: 0.55;
 }
 .banner-lock {
   background: #fef3c7;
