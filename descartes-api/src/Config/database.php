@@ -72,10 +72,16 @@ final class Database
     $dsnParts[] = 'TrustServerCertificate=' . ($trustCert ? 'yes' : 'no');
     $dsn = 'sqlsrv:' . implode(';', $dsnParts);
 
-    return new PDO($dsn, $user, $password, [
+    $pdo = new PDO($dsn, $user, $password, [
       PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
       PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     ]);
+
+    // El servidor suele estar en español (DATEFORMAT dmy): sin esto, un texto
+    // 'YYYY-MM-DD' con dia > 12 se lee como mes y falla al convertir a datetime.
+    $pdo->exec('SET DATEFORMAT ymd');
+
+    return $pdo;
   }
 
   public static function fromEnv(): PDO
