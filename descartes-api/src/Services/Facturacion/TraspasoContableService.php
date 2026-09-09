@@ -402,16 +402,20 @@ final class TraspasoContableService
     }
 
     $insert = $ctb->prepare(
+      // GastosDev, Impagado y RepercutirGastosDev son NOT NULL sin default: el efecto
+      // nace al corriente (sin gastos de devolucion) y los gestiona la contabilidad.
       'INSERT INTO EfectosCobro (
          Serie, UltNum, Efecto, Cliente, FormasCobro, FechaEmision, FechaVctos,
          Importe, DireccBanco, EfectoPrevision, CtaBancaria, Estado, Banco,
          Remesa, Gastos, Cuenta, Tipo, SelecEfecto, SelecRemesa, Pagare,
-         ImporteLetras, UltNumDestino, EfectoDestino, Swift, IBAN, ControlPagare
+         ImporteLetras, UltNumDestino, EfectoDestino, Swift, IBAN, ControlPagare,
+         GastosDev, Impagado, RepercutirGastosDev
        ) VALUES (
          :serie, :numero, :efecto, :cliente, :formaPago,
          CONVERT(datetime, :fecha, 120), CONVERT(datetime, :vencimiento, 120),
          :importe, :direccionBanco, 0, :ctaBancaria, 0, \'\',
-         0, 0, \'\', \'R\', 0, 0, \'\', NULL, 0, 0, :swift, :iban, 0
+         0, 0, \'\', \'R\', 0, 0, \'\', NULL, 0, 0, :swift, :iban, 0,
+         0, 0, 0
        )'
     );
     foreach ($rows as $row) {
@@ -487,7 +491,9 @@ final class TraspasoContableService
         2
       );
     }
+    // PHP convierte a int las claves numericas del array: la cuenta vuelve a texto.
     foreach ($impuestosPorCuenta as $cuenta => $importe) {
+      $cuenta = (string) $cuenta;
       $this->validarCuenta($ctb, $cuenta);
       $lineas[] = ['cuenta' => $cuenta, 'descripcion' => $nombre, 'debe' => 0.0, 'haber' => $importe];
     }
@@ -507,6 +513,7 @@ final class TraspasoContableService
     }
 
     foreach ($this->basesPorCuenta($f, round($baseTotal, 2)) as $cuenta => $importe) {
+      $cuenta = (string) $cuenta;
       $this->validarCuenta($ctb, $cuenta);
       $lineas[] = ['cuenta' => $cuenta, 'descripcion' => $nombre, 'debe' => 0.0, 'haber' => $importe];
     }
