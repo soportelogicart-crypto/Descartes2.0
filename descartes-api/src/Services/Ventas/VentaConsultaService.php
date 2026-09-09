@@ -20,7 +20,8 @@ final class VentaConsultaService
   public function listar(array $query): array
   {
     $page = max(1, (int) ($query['page'] ?? 1));
-    $pageSize = min(500, max(1, (int) ($query['pageSize'] ?? 50)));
+    // El listado de ventas se carga completo (sin paginacion en pantalla): admite bloques grandes.
+    $pageSize = min(5000, max(1, (int) ($query['pageSize'] ?? 50)));
     $offset = ($page - 1) * $pageSize;
 
     $where = ['1=1'];

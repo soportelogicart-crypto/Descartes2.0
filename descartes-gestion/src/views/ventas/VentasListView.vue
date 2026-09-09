@@ -1,15 +1,13 @@
 <script setup lang="ts">
-import { computed, onActivated, onMounted, ref } from 'vue'
+import { computed, onActivated, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import { listarVentas } from '@/api/ventas'
 import type { VentaResumen } from '@/types/ventas'
-import { leerGridPageSize } from '@/composables/useGridPageSize'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { useVentasBusquedaStore } from '@/stores/ventasBusqueda'
 import VentaToolbar from '@/components/ventas/VentaToolbar.vue'
-import ListPagination from '@/components/common/ListPagination.vue'
 import FiltroLupaField from '@/components/common/FiltroLupaField.vue'
 import EntidadBuscarModal, {
   type EntidadBuscarResultado,
@@ -37,12 +35,20 @@ const router = useRouter()
 const puestoContexto = usePuestoContextoStore()
 const busqueda = useVentasBusquedaStore()
 
+/** Filas por peticion al traer el listado completo (la API admite hasta 5000). */
+const BLOQUE_CARGA = 5000
+/** Tope de seguridad: evita agotar memoria si el filtro deja millones de filas. */
+const MAX_FILAS = 30000
+/** Filas montadas en el DOM; crecen al hacer scroll (el listado no tiene paginas). */
+const RENDER_INICIAL = 300
+const RENDER_PASO = 300
+
 const loading = ref(false)
 const error = ref<string | null>(null)
 const items = ref<VentaResumen[]>([])
 const total = ref(0)
-const page = ref(1)
-const pageSize = ref(leerGridPageSize())
+const gridEl = ref<HTMLDivElement | null>(null)
+const renderLimite = ref(RENDER_INICIAL)
 const tiendas = ref<{ value: string; label: string; corto: string }[]>([])
 const buscarOpen = ref(false)
 const buscarEntidad = ref<BuscarEntidad>('clientes')
@@ -98,30 +104,44 @@ async function cargarTiendas() {
   }
 }
 
+/** Trae el listado completo en bloques: en pantalla no hay paginacion. */
 async function cargar() {
   loading.value = true
   error.value = null
+  const acumulado: VentaResumen[] = []
   try {
-    const data = await listarVentas({
-      empresa: filtros.value.empresa ? normalizarEmpresaCodigo(filtros.value.empresa) : undefined,
-      fechaDesde: filtros.value.fechaDesde || undefined,
-      fechaHasta: filtros.value.fechaHasta || undefined,
-      puesto: filtros.value.puesto || undefined,
-      vendedor: filtros.value.vendedor || undefined,
-      cliente: filtros.value.cliente || undefined,
-      estado: filtros.value.estado || undefined,
-      claseDocumento: filtros.value.claseDocumento || undefined,
-      page: page.value,
-      pageSize: pageSize.value,
-    })
-    items.value = data.items
-    total.value = data.total
-    page.value = data.page
-    pageSize.value = data.pageSize
+    let pagina = 1
+    let totalServidor = 0
+    for (;;) {
+      const data = await listarVentas({
+        empresa: filtros.value.empresa ? normalizarEmpresaCodigo(filtros.value.empresa) : undefined,
+        fechaDesde: filtros.value.fechaDesde || undefined,
+        fechaHasta: filtros.value.fechaHasta || undefined,
+        puesto: filtros.value.puesto || undefined,
+        vendedor: filtros.value.vendedor || undefined,
+        cliente: filtros.value.cliente || undefined,
+        estado: filtros.value.estado || undefined,
+        claseDocumento: filtros.value.claseDocumento || undefined,
+        page: pagina,
+        pageSize: BLOQUE_CARGA,
+      })
+      acumulado.push(...data.items)
+      totalServidor = data.total
+      items.value = acumulado.slice()
+      total.value = totalServidor
+      if (
+        data.items.length === 0 ||
+        acumulado.length >= totalServidor ||
+        acumulado.length >= MAX_FILAS
+      ) {
+        break
+      }
+      pagina += 1
+    }
     busqueda.setResultado({
       filtros: { ...filtros.value },
-      items: data.items,
-      total: data.total,
+      items: acumulado,
+      total: totalServidor,
     })
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudieron cargar las ventas')
@@ -131,20 +151,106 @@ async function cargar() {
 }
 
 function buscar() {
-  page.value = 1
   return cargar()
 }
 
-function onPage(p: number) {
-  page.value = p
-  void cargar()
+type ColumnaKey =
+  | 'tienda'
+  | 'fecha'
+  | 'albaran'
+  | 'cliente'
+  | 'puesto'
+  | 'vendedor'
+  | 'estado'
+  | 'importe'
+  | 'factura'
+
+const COLUMNAS: { key: ColumnaKey; label: string; clase: string }[] = [
+  { key: 'tienda', label: 'Tienda', clase: 'col-tienda' },
+  { key: 'fecha', label: 'Fecha', clase: 'col-fecha' },
+  { key: 'albaran', label: 'Albarán', clase: 'col-alb' },
+  { key: 'cliente', label: 'Cliente', clase: 'col-cli' },
+  { key: 'puesto', label: 'Puesto', clase: 'col-puesto' },
+  { key: 'vendedor', label: 'Vendedor', clase: 'col-vend' },
+  { key: 'estado', label: 'Estado', clase: 'col-estado' },
+  { key: 'importe', label: 'Importe', clase: 'col-imp' },
+  { key: 'factura', label: 'Factura', clase: 'col-fact' },
+]
+
+/** Texto que ve el usuario en cada columna: es sobre el que se filtra al escribir. */
+const textoColumna: Record<ColumnaKey, (v: VentaResumen) => string> = {
+  tienda: (v) => `${v.empresa ?? ''} ${nombreTienda(v.empresa)}`,
+  fecha: (v) => fmtFecha(v.fecha),
+  albaran: (v) => `${v.tipo ?? ''}-${v.albaran} ${v.albaran}`,
+  cliente: (v) => `${v.cliente ?? ''} ${v.razonSocial ?? ''}`,
+  puesto: (v) => String(v.puesto ?? ''),
+  vendedor: (v) => String(v.vendedor ?? ''),
+  estado: (v) => String(v.estado ?? ''),
+  importe: (v) => Number(v.importe ?? 0).toFixed(2),
+  factura: (v) => fmtFactura(v),
 }
 
-function onPageSize(n: number) {
-  pageSize.value = n
-  page.value = 1
-  void cargar()
+function filtrosColumnaVacios(): Record<ColumnaKey, string> {
+  return {
+    tienda: '',
+    fecha: '',
+    albaran: '',
+    cliente: '',
+    puesto: '',
+    vendedor: '',
+    estado: '',
+    importe: '',
+    factura: '',
+  }
 }
+
+const filtrosColumna = ref<Record<ColumnaKey, string>>(filtrosColumnaVacios())
+
+/** Compara sin acentos ni mayusculas: "MARIA" encuentra "María". */
+function normalizar(texto: string): string {
+  return texto
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+const filtrosColumnaActivos = computed(() =>
+  (Object.entries(filtrosColumna.value) as [ColumnaKey, string][])
+    .map(([key, valor]) => ({ key, valor: normalizar(valor.trim()) }))
+    .filter((f) => f.valor !== '')
+)
+
+const hayFiltroColumna = computed(() => filtrosColumnaActivos.value.length > 0)
+
+const itemsFiltrados = computed(() => {
+  const activos = filtrosColumnaActivos.value
+  if (activos.length === 0) return items.value
+  return items.value.filter((v) =>
+    activos.every((f) => normalizar(textoColumna[f.key](v)).includes(f.valor))
+  )
+})
+
+/** Solo se montan las primeras filas; el resto entra al bajar el scroll. */
+const visibles = computed(() => itemsFiltrados.value.slice(0, renderLimite.value))
+
+function limpiarFiltrosColumna() {
+  filtrosColumna.value = filtrosColumnaVacios()
+}
+
+function onScrollGrid() {
+  const el = gridEl.value
+  if (!el) return
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 250) {
+    if (renderLimite.value < itemsFiltrados.value.length) {
+      renderLimite.value += RENDER_PASO
+    }
+  }
+}
+
+watch(itemsFiltrados, () => {
+  renderLimite.value = RENDER_INICIAL
+  if (gridEl.value) gridEl.value.scrollTop = 0
+})
 
 function abrir(v: VentaResumen) {
   router.push(`/ventas/${encodeURIComponent(v.empresa)}/${encodeURIComponent(v.tipo)}/${v.albaran}`)
@@ -212,10 +318,25 @@ onMounted(async () => {
   await cargar()
 })
 
+/** ¿La última búsqueda guardada corresponde a los filtros actuales? */
+function mismosFiltrosQueElStore(): boolean {
+  const guardados = busqueda.filtros
+  if (!guardados) return false
+  return (Object.keys(filtros.value) as (keyof typeof filtros.value)[]).every(
+    (k) => String(guardados[k] ?? '') === String(filtros.value[k] ?? '')
+  )
+}
+
 onActivated(() => {
   // El primer activated va junto al mount; no duplicar la carga.
   if (omitirProximoActivated.value) {
     omitirProximoActivated.value = false
+    return
+  }
+  // Al volver de una ficha no se recargan miles de filas: el store ya trae los cambios.
+  if (busqueda.items.length > 0 && mismosFiltrosQueElStore()) {
+    items.value = busqueda.items.map((i) => ({ ...i }))
+    total.value = busqueda.total
     return
   }
   void cargar()
@@ -238,8 +359,7 @@ onActivated(() => {
         <h2>Ventas</h2>
         <p class="hint">
           Tienda: <strong class="tienda-activa">{{ tiendaLabel }}</strong>
-          — Pulse <strong>Nuevo</strong> para iniciar una venta.
-          Deje fechas vacías para ver todos los albaranes (paginado).
+          — Escriba bajo cada columna para filtrar el listado.
         </p>
       </div>
       <button type="button" class="btn-nuevo" @click="nueva">Nueva venta</button>
@@ -311,30 +431,33 @@ onActivated(() => {
 
       <div class="panel-listado">
         <p v-if="error" class="error">{{ error }}</p>
-        <p v-if="loading" class="msg">Cargando...</p>
+        <p v-if="loading" class="msg">
+          Cargando ventas… {{ items.length }}<template v-if="total"> de {{ total }}</template>
+        </p>
 
-        <div class="grid-wrap">
+        <div ref="gridEl" class="grid-wrap" @scroll.passive="onScrollGrid">
           <table>
             <thead>
               <tr>
-                <th class="col-tienda">Tienda</th>
-                <th class="col-fecha">Fecha</th>
-                <th class="col-alb">Albarán</th>
-                <th>Cliente</th>
-                <th class="col-corto">Puesto</th>
-                <th class="col-corto">Vendedor</th>
-                <th class="col-corto">Estado</th>
-                <th class="num col-imp">Importe</th>
-                <th class="col-corto">Factura</th>
+                <th v-for="c in COLUMNAS" :key="c.key" :class="c.clase">
+                  <span class="th-titulo" :class="{ num: c.key === 'importe' }">{{ c.label }}</span>
+                  <input
+                    v-model="filtrosColumna[c.key]"
+                    type="search"
+                    class="filtro-col"
+                    :title="`Filtrar por ${c.label}`"
+                    :aria-label="`Filtrar por ${c.label}`"
+                  />
+                </th>
               </tr>
             </thead>
             <tbody>
               <tr
-                v-for="v in items"
+                v-for="v in visibles"
                 :key="`${v.empresa}-${v.tipo}-${v.albaran}`"
                 @dblclick="abrir(v)"
               >
-                <td class="tienda">{{ nombreTienda(v.empresa) }}</td>
+                <td class="tienda col-tienda">{{ nombreTienda(v.empresa) }}</td>
                 <td class="col-fecha">{{ fmtFecha(v.fecha) }}</td>
                 <td class="col-alb">
                   <button type="button" class="linkish" @click="abrir(v)">
@@ -345,26 +468,38 @@ onActivated(() => {
                   <span class="cli-cod">{{ v.cliente }}</span>
                   <span v-if="v.razonSocial" class="cli-nom">{{ v.razonSocial }}</span>
                 </td>
-                <td class="col-corto">{{ v.puesto || '—' }}</td>
-                <td class="col-corto">{{ v.vendedor || '—' }}</td>
-                <td class="col-corto">{{ v.estado || '—' }}</td>
+                <td class="col-puesto">{{ v.puesto || '—' }}</td>
+                <td class="col-vend">{{ v.vendedor || '—' }}</td>
+                <td class="col-estado">{{ v.estado || '—' }}</td>
                 <td class="num col-imp">{{ Number(v.importe ?? 0).toFixed(2) }}</td>
-                <td class="col-corto">{{ fmtFactura(v) }}</td>
+                <td class="col-fact">{{ fmtFactura(v) }}</td>
               </tr>
-              <tr v-if="!loading && items.length === 0">
-                <td colspan="9">Sin resultados</td>
+              <tr v-if="!loading && itemsFiltrados.length === 0">
+                <td :colspan="COLUMNAS.length">
+                  {{ hayFiltroColumna ? 'Ningún resultado con esos filtros' : 'Sin resultados' }}
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
-        <ListPagination
-          :page="page"
-          :page-size="pageSize"
-          :total="total"
-          :loading="loading"
-          @update:page="onPage"
-          @update:page-size="onPageSize"
-        />
+        <div class="pie-listado">
+          <span>
+            {{ itemsFiltrados.length }}
+            {{ itemsFiltrados.length === 1 ? 'venta' : 'ventas' }}
+            <template v-if="hayFiltroColumna">de {{ items.length }} cargadas</template>
+            <template v-else-if="total > items.length">
+              (de {{ total }}; límite {{ MAX_FILAS }})
+            </template>
+          </span>
+          <button
+            v-if="hayFiltroColumna"
+            type="button"
+            class="btn-limpiar"
+            @click="limpiarFiltrosColumna"
+          >
+            Limpiar filtros
+          </button>
+        </div>
       </div>
     </div>
 
@@ -411,11 +546,20 @@ onActivated(() => {
   white-space: nowrap;
 }
 
+/* La pagina no scrollea: el alto lo reparte el flex y el scroll va dentro del grid. */
+.ventas-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
 .layout-busqueda {
   display: grid;
   grid-template-columns: 16.5rem minmax(0, 1fr);
   gap: 0.85rem;
-  align-items: start;
+  flex: 1;
+  min-height: 0;
 }
 
 .panel-filtros {
@@ -427,7 +571,9 @@ onActivated(() => {
   border-radius: 6px;
   background: #f8fafc;
   min-width: 0;
-  overflow: hidden;
+  align-self: start;
+  max-height: 100%;
+  overflow-y: auto;
 }
 .panel-filtros h3 {
   margin: 0 0 0.15rem;
@@ -498,16 +644,34 @@ onActivated(() => {
 
 .panel-listado {
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
 }
 .grid-wrap {
+  flex: 1;
+  min-height: 8rem;
   overflow: auto;
   border: 1px solid #94a3b8;
   border-radius: 4px;
   background: #fff;
-  max-height: calc(100vh - 14rem);
+}
+.pie-listado {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.78rem;
+  color: #475569;
+}
+.btn-limpiar {
+  padding: 0.2rem 0.55rem;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+  background: #fff;
+  color: #1e293b;
+  cursor: pointer;
+  font: inherit;
 }
 table {
   width: 100%;
@@ -525,31 +689,73 @@ td {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Cabecera fija: titulo y, debajo, el input que filtra mientras se escribe. */
 th {
   background: #f1f5f9;
   font-weight: 600;
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 2;
+  padding: 0.2rem 0.25rem 0.25rem;
+  vertical-align: bottom;
 }
+.th-titulo {
+  display: block;
+  padding: 0 0.2rem 0.15rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.th-titulo.num {
+  text-align: right;
+}
+.filtro-col {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.76rem;
+}
+.filtro-col:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: -1px;
+}
+/* Anchos proporcionales (table-layout: fixed): el sobrante se reparte entre todas. */
 .col-tienda {
-  width: 4.5rem;
+  width: 5rem;
 }
 .col-fecha {
-  width: 6.5rem;
-}
-.col-alb {
   width: 7rem;
 }
-.col-corto {
-  width: 4.5rem;
+.col-alb {
+  width: 8.5rem;
 }
-th.col-corto,
-td.col-corto {
-  text-align: center;
+.col-cli {
+  width: 17rem;
+  white-space: nowrap;
+}
+.col-puesto {
+  width: 5.5rem;
+}
+.col-vend {
+  width: 6rem;
+}
+.col-estado {
+  width: 5.5rem;
 }
 .col-imp {
-  width: 6rem;
+  width: 8rem;
+}
+.col-fact {
+  width: 8.5rem;
+}
+td.col-puesto,
+td.col-vend,
+td.col-estado,
+td.col-fact {
+  text-align: center;
 }
 th.col-imp,
 td.col-imp,
@@ -557,14 +763,11 @@ td.col-imp,
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
-th:first-child,
+thead tr:first-child th:first-child,
 td.tienda {
   background: #eff6ff;
   font-weight: 700;
   color: #1e40af;
-}
-.col-cli {
-  white-space: nowrap;
 }
 .cli-cod {
   font-weight: 600;
@@ -598,11 +801,14 @@ tbody tr:hover {
 }
 
 @media (max-width: 900px) {
+  .ventas-view {
+    height: auto;
+  }
   .layout-busqueda {
     grid-template-columns: 1fr;
   }
   .grid-wrap {
-    max-height: none;
+    max-height: 70vh;
   }
 }
 </style>
