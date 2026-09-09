@@ -59,7 +59,7 @@
 }
 
 .titulo strong {
-  color: #14509b;
+  color: var(--block-accent, #14509b);
   font-size: 1.05rem;
   letter-spacing: 0.01em;
 }
@@ -67,7 +67,7 @@
 .titulo em {
   font-style: normal;
   font-weight: 700;
-  color: #14509b;
+  color: var(--block-accent, #14509b);
   font-size: 0.68rem;
 }
 
@@ -76,8 +76,8 @@
 .cli-cod .chip {
   align-self: flex-start;
   padding: 0.05rem 0.5rem;
-  background: #dbe4f2;
-  color: #14509b;
+  background: var(--block-accent-soft, #dbe4f2);
+  color: var(--block-accent-text, var(--block-accent, #14509b));
   font-weight: 700;
   font-size: 0.6rem;
   white-space: nowrap;
@@ -165,8 +165,8 @@
 .lineas th {
   text-align: left;
   padding: 0.08rem 0.15rem;
-  background: #dbe4f2;
-  color: #14509b;
+  background: var(--block-accent, #dbe4f2);
+  color: var(--block-accent-text, #14509b);
   border-top: 1px solid #9fb4d4;
   border-bottom: 1px solid #9fb4d4;
   font-weight: 700;
@@ -180,8 +180,8 @@
 
 .lineas .cab-alb td {
   padding-top: 0.12rem;
-  background: #eef2fa;
-  color: #14509b;
+  background: var(--block-accent-soft, #eef2fa);
+  color: var(--block-accent, #14509b);
   font-weight: 700;
   font-style: italic;
 }
@@ -213,8 +213,13 @@
 }
 
 .venc-h {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.35rem;
+  padding: 0.08rem 0.3rem;
+  background: var(--block-accent, transparent);
+  color: var(--block-accent-text, inherit);
   font-weight: 600;
-  margin-bottom: 0.15rem;
 }
 
 .qr {

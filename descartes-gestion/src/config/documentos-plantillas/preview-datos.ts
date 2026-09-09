@@ -1,4 +1,5 @@
 import type { DocumentoTipo } from './types'
+import { LOGICART_EMBLEMA_URL } from '@/assets/logicart-emblema'
 
 export type DocumentoPreviewLinea = {
   articulo: string
@@ -41,6 +42,9 @@ export type DocumentoPreviewDatos = {
     pais: string
     cif: string
     telefono: string
+    cuentaBancaria: string
+    iban: string
+    swift: string
   }
   documento: {
     numero: string
@@ -54,6 +58,7 @@ export type DocumentoPreviewDatos = {
     transportista: string
     portes: string
     observaciones: string
+    formaPago: string
     codigoBarras: string
     pagina: string
   }
@@ -116,7 +121,7 @@ const baseEmpresa = {
   telefono: '977652547',
   fax: '',
   email: 'administracio@gruplarasa.cat',
-  emblemaUrl: EMBLEMA_PLACEHOLDER,
+  emblemaUrl: LOGICART_EMBLEMA_URL,
   banco: 'La Caixa 2100-0106-70-0200347786',
   iban: 'ES10 2100 0106 7002 0034 7786',
   swift: 'CAIXESBBXXX',
@@ -132,6 +137,9 @@ const baseCliente = {
   pais: 'España',
   cif: 'G43301498',
   telefono: '',
+  cuentaBancaria: '0081730519000136XXXX',
+  iban: 'ES49 0081 7305 1900 0136 XXXX',
+  swift: 'BSABESBBXXX',
 }
 
 const baseTienda = {
@@ -170,6 +178,7 @@ export function datosPreviewPorTipo(tipo: DocumentoTipo): DocumentoPreviewDatos 
       transportista: '',
       portes: '',
       observaciones: 'hola 3',
+      formaPago: 'RECIBO DOMICILIADO',
       codigoBarras: '*$60001026021571*',
       pagina: '1/1',
     },

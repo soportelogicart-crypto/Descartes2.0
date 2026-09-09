@@ -1,6 +1,9 @@
-import type { DocumentoPreviewDatos } from '@/config/documentos-plantillas/preview-datos'
-import { EMBLEMA_PLACEHOLDER } from '@/config/documentos-plantillas/preview-datos'
+import type {
+  DocumentoPreviewDatos,
+  DocumentoPreviewLinea,
+} from '@/config/documentos-plantillas/preview-datos'
 import type { VentaDetalle } from '@/types/ventas'
+import { LOGICART_EMBLEMA_URL } from '@/assets/logicart-emblema'
 
 function fmtFecha(iso: string | null | undefined): string {
   if (!iso) return ''
@@ -12,6 +15,13 @@ function fmtFecha(iso: string | null | undefined): string {
 
 function redondear2(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100
+}
+
+/** En factura solo se muestran los 16 primeros dígitos de la cuenta del cliente. */
+function cuentaBancariaEnmascarada(valor: string | null | undefined): string {
+  const cuenta = String(valor ?? '').replace(/\s+/g, '')
+  if (cuenta.length <= 4) return cuenta
+  return `${cuenta.slice(0, -4)}XXXX`
 }
 
 /** Mapea una venta real a los datos de plantilla (preview / ticket / A4). */
@@ -50,6 +60,45 @@ export function ventaAPreviewDatos(
 
   const nLit = Math.max(0, Math.min(9, Number(extras.literalTicket ?? 3) || 0))
   const lits = (extras.literalesPuesto ?? []).slice(0, nLit)
+  const lineas: DocumentoPreviewLinea[] = (venta.lineas ?? [])
+    .filter((l) => {
+      const art = String(l.articulo ?? '').trim()
+      return art !== '' && art.toUpperCase() !== 'NO'
+    })
+    .map((l) => {
+      const precio = Number(l.precio) || 0
+      const pje = Number(l.pjeIva) || 0
+      const factor = 1 + pje / 100
+      // P.V.P. es la tarifa con IVA y "precio sin IVA" la base, como en el
+      // formato legacy; según SW_IVA hay que quitar o añadir la cuota.
+      const conIva = extras.preciosIvaIncluido || pje <= 0
+      return {
+        articulo: String(l.articulo ?? ''),
+        descripcion: String(l.descripcion ?? ''),
+        unidades: Number(l.cantidad) || 0,
+        precio,
+        precioSinIva: conIva ? redondear2(precio / factor) : precio,
+        dto: Number(l.pjeDto) || 0,
+        pjeIva: pje,
+        importe: Number(l.importe) || 0,
+        pvp: conIva ? precio : redondear2(precio * factor),
+      }
+    })
+
+  if (Number(venta.factura) > 0 && Number(venta.albaran) > 0 && lineas.length > 0) {
+    lineas.unshift({
+      articulo: '',
+      descripcion: '',
+      unidades: 0,
+      precio: 0,
+      precioSinIva: 0,
+      dto: 0,
+      pjeIva: 0,
+      importe: 0,
+      pvp: 0,
+      albaranCabecera: `Albarán ${venta.empresa}-${venta.albaran} de Fecha ${fmtFecha(venta.fecha)}`,
+    })
+  }
 
   return {
     empresa: {
@@ -63,7 +112,7 @@ export function ventaAPreviewDatos(
       telefono: extras.empresaTelefono || '',
       fax: '',
       email: extras.empresaEmail || '',
-      emblemaUrl: EMBLEMA_PLACEHOLDER,
+      emblemaUrl: LOGICART_EMBLEMA_URL,
       banco: '',
       iban: '',
       swift: '',
@@ -78,6 +127,9 @@ export function ventaAPreviewDatos(
       pais: String(venta.paisEnvio ?? ''),
       cif: String(venta.nif ?? ''),
       telefono: String(venta.telefono ?? ''),
+      cuentaBancaria: cuentaBancariaEnmascarada(venta.clienteCuentaBancaria),
+      iban: String(venta.clienteIban ?? ''),
+      swift: String(venta.clienteSwift ?? ''),
     },
     documento: {
       numero: numDoc,
@@ -91,39 +143,20 @@ export function ventaAPreviewDatos(
       transportista: String(venta.transporte ?? ''),
       portes: String(venta.portes ?? ''),
       observaciones: '',
+      formaPago: String(venta.formaPagoDescripcion ?? venta.formasPago?.[0]?.codigo ?? ''),
       codigoBarras: `*${venta.empresa || ''}${venta.albaran || ''}*`,
       pagina: '1/1',
     },
-    lineas: (venta.lineas ?? [])
-      .filter((l) => {
-        const art = String(l.articulo ?? '').trim()
-        return art !== '' && art.toUpperCase() !== 'NO'
-      })
-      .map((l) => {
-        const precio = Number(l.precio) || 0
-        const pje = Number(l.pjeIva) || 0
-        const factor = 1 + pje / 100
-        // P.V.P. es la tarifa con IVA y "precio sin IVA" la base, como en el
-        // formato legacy; según SW_IVA hay que quitar o añadir la cuota.
-        const conIva = extras.preciosIvaIncluido || pje <= 0
-        return {
-          articulo: String(l.articulo ?? ''),
-          descripcion: String(l.descripcion ?? ''),
-          unidades: Number(l.cantidad) || 0,
-          precio,
-          precioSinIva: conIva ? redondear2(precio / factor) : precio,
-          dto: Number(l.pjeDto) || 0,
-          pjeIva: pje,
-          importe: Number(l.importe) || 0,
-          pvp: conIva ? precio : redondear2(precio * factor),
-        }
-      }),
+    lineas,
     totales: {
       base: redondear2(base),
       ivas,
       importe: redondear2(Number(venta.importe) || 0),
     },
-    vencimientos: [],
+    vencimientos: (venta.vencimientos ?? []).map((v) => ({
+      fecha: fmtFecha(v.fecha),
+      importe: redondear2(v.importe),
+    })),
     verifactu: { qrPayload: '', url: '' },
     tienda: {
       literalFacturaDiferida: extras.literalFacturaDiferida || '',

@@ -185,9 +185,81 @@ final class VentaConsultaService
     $detalle['importesIva'] = $this->mapImportesIva($cab);
     $detalle['impreso'] = !empty($cab['Impreso']);
     $detalle['lineas'] = $lineas;
+    $this->enriquecerDatosImpresion($detalle);
     $this->enriquecerFacturaAbono($detalle);
 
     return $detalle;
+  }
+
+  /**
+   * Datos específicos de la plantilla de factura diferida: cuenta bancaria
+   * del cliente, literal de forma de pago y vencimientos de la factura.
+   *
+   * @param array<string, mixed> $detalle
+   */
+  private function enriquecerDatosImpresion(array &$detalle): void
+  {
+    $detalle['clienteCuentaBancaria'] = null;
+    $detalle['clienteIban'] = null;
+    $detalle['clienteSwift'] = null;
+    $detalle['formaPagoDescripcion'] = null;
+    $detalle['vencimientos'] = [];
+
+    $cliente = trim((string) ($detalle['cliente'] ?? ''));
+    if ($cliente !== '') {
+      try {
+        $st = $this->pdo->prepare(
+          'SELECT TOP 1 CuentaBancaria, IBAN, Swift
+           FROM Clientes WHERE Codigo = :cliente'
+        );
+        $st->execute(['cliente' => $cliente]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if ($row !== false) {
+          $detalle['clienteCuentaBancaria'] = trim((string) ($row['CuentaBancaria'] ?? ''));
+          $detalle['clienteIban'] = trim((string) ($row['IBAN'] ?? ''));
+          $detalle['clienteSwift'] = trim((string) ($row['Swift'] ?? ''));
+        }
+      } catch (\Throwable $e) {
+        // Los datos bancarios no deben impedir abrir la ficha.
+      }
+    }
+
+    $factura = (int) ($detalle['factura'] ?? 0);
+    $facturaTipo = strtoupper(trim((string) ($detalle['facturaTipo'] ?? '')));
+    $empresa = trim((string) ($detalle['empresa'] ?? ''));
+    if ($empresa === '' || $factura <= 0 || !in_array($facturaTipo, ['F', 'A'], true)) {
+      return;
+    }
+
+    try {
+      $st = $this->pdo->prepare(
+        'SELECT TOP 1 fp.Descripcion
+         FROM Facturas f
+         LEFT JOIN FormasPago fp ON fp.Codigo = f.Fpago
+         WHERE f.Empresa = :empresa AND f.FacturaTipo = :tipo AND f.Factura = :factura'
+      );
+      $st->execute(['empresa' => $empresa, 'tipo' => $facturaTipo, 'factura' => $factura]);
+      $descripcion = $st->fetchColumn();
+      $detalle['formaPagoDescripcion'] = $descripcion !== false
+        ? trim((string) $descripcion)
+        : null;
+
+      $st = $this->pdo->prepare(
+        'SELECT Vencimiento, Importe
+         FROM Recibos
+         WHERE Empresa = :empresa AND FacturaTipo = :tipo AND Factura = :factura
+         ORDER BY Recibo'
+      );
+      $st->execute(['empresa' => $empresa, 'tipo' => $facturaTipo, 'factura' => $factura]);
+      while ($row = $st->fetch(PDO::FETCH_ASSOC)) {
+        $detalle['vencimientos'][] = [
+          'fecha' => $this->fmtDate($row['Vencimiento'] ?? null),
+          'importe' => round((float) ($row['Importe'] ?? 0), 2),
+        ];
+      }
+    } catch (\Throwable $e) {
+      // La impresión mantiene los datos básicos aunque falle este enriquecimiento.
+    }
   }
 
   /**

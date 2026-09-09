@@ -78,6 +78,12 @@ export type VentaDetalle = VentaResumen & {
   iva?: number
   pjeIva1?: number
   pjeDto?: number
+  /** Datos de impresión de factura diferida. */
+  clienteCuentaBancaria?: string | null
+  clienteIban?: string | null
+  clienteSwift?: string | null
+  formaPagoDescripcion?: string | null
+  vencimientos?: { fecha: string | null; importe: number }[]
   formasPago: { codigo: string; importe: number }[]
   importesIva: { pjeIva: number; base: number; iva: number }[]
   lineas: VentaLinea[]

@@ -36,12 +36,24 @@ const pageStyle = computed(() => ({
 }))
 
 function blockStyle(b: PlantillaBloque) {
-  return {
+  const style: Record<string, string> = {
     left: `${b.x * pxPerMm.value}px`,
     top: `${b.y * pxPerMm.value}px`,
     width: `${b.w * pxPerMm.value}px`,
     height: `${b.h * pxPerMm.value}px`,
   }
+  const rotate = Number(b.props?.rotateDeg)
+  if (Number.isFinite(rotate) && rotate !== 0) {
+    style.transform = `rotate(${rotate}deg)`
+    style.transformOrigin = String(b.props?.transformOrigin ?? 'top left')
+  }
+  const accent = String(b.props?.accentColor ?? '').trim()
+  if (accent) style['--block-accent'] = accent
+  const accentSoft = String(b.props?.accentSoftColor ?? '').trim()
+  if (accentSoft) style['--block-accent-soft'] = accentSoft
+  const accentText = String(b.props?.accentTextColor ?? '').trim()
+  if (accentText) style['--block-accent-text'] = accentText
+  return style
 }
 
 /** Tamaño de fuente en px de pantalla a partir de fontSizeMm (impresión real en mm). */
@@ -403,7 +415,7 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
           <!-- Vencimientos -->
           <template v-else-if="b.type === 'vencimientos'">
             <div class="venc">
-              <div class="venc-h">Vencimiento · Importe</div>
+              <div class="venc-h"><span>Vencimiento</span><span>Importe</span></div>
               <div v-for="(v, i) in datos.vencimientos" :key="i" class="tot-row">
                 <span>{{ v.fecha }}</span>
                 <strong>{{ formatImporte(v.importe) }}</strong>
