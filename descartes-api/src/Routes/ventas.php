@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Descartes\Api\Controllers\CodigoPostalController;
 use Descartes\Api\Controllers\VentasController;
 use Descartes\Api\Middleware\AuthMiddleware;
 use Descartes\Api\Middleware\PermissionMiddleware;
@@ -22,6 +23,8 @@ return function (App $app): void {
   };
 
   $app->group('/api/ventas', function (RouteCollectorProxy $group) use ($setPermiso) {
+    $group->get('/codigos-postales/{codigo}', [CodigoPostalController::class, 'lookup'])
+      ->add($setPermiso('ventas', 'ver'));
     $group->get('/albaranes', [VentasController::class, 'listVentas'])
       ->add($setPermiso('ventas', 'ver'));
     $group->post('/albaranes', [VentasController::class, 'createVenta'])

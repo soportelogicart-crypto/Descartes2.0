@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import type { VentaDetalle } from '@/types/ventas'
+import { lookupCodigoPostal } from '@/composables/useCodigoPostalLookup'
 import DecimalInput from '@/components/common/DecimalInput.vue'
 import EntidadBuscarModal, {
   type EntidadBuscarResultado,
@@ -26,6 +27,8 @@ const props = defineProps<{
   esNuevo?: boolean
   pasoAlta?: 'tienda' | 'cliente' | 'listo'
   compacto?: boolean
+  /** Ticket cerrado: solo cliente / NIF / razón / contacto. */
+  soloDatosFiscales?: boolean
   vendedorNombre?: string
   totales: { bruto: number; descuento: number; iva: number; importe: number }
 }>()
@@ -53,12 +56,16 @@ const ficha = computed({
   set: (v) => emit('update:modelValue', v),
 })
 
-const fechaBloqueada = computed(() => Boolean(props.readonly || props.esNuevo))
+const fechaBloqueada = computed(() =>
+  Boolean(props.readonly || props.esNuevo || props.soloDatosFiscales)
+)
+const docBloqueado = computed(() => Boolean(props.readonly || props.soloDatosFiscales))
+const extraBloqueado = computed(() => Boolean(props.readonly || props.soloDatosFiscales))
 const puedeElegirDireccion = computed(
   () => !props.readonly && !cargandoDirs.value && direccionesEnvio.value.length > 0
 )
 const mostrarCliente = computed(() => !props.esNuevo || props.pasoAlta !== 'tienda')
-const mostrarDetalles = computed(() => !props.esNuevo || props.pasoAlta === 'listo')
+const mostrarDetalles = computed(() => !props.esNuevo || props.pasoAlta !== 'tienda')
 
 function patch<K extends keyof VentaDetalle>(key: K, value: VentaDetalle[K]) {
   emit('update:modelValue', { ...props.modelValue, [key]: value })
@@ -66,6 +73,29 @@ function patch<K extends keyof VentaDetalle>(key: K, value: VentaDetalle[K]) {
 
 function patchMany(partial: Partial<VentaDetalle>) {
   emit('update:modelValue', { ...props.modelValue, ...partial })
+}
+
+let cpLookupSeq = 0
+
+async function onCodigoPostalEnvio(raw: string) {
+  emit('update:modelValue', { ...props.modelValue, codigoPostalEnvio: raw })
+  if (props.readonly) return
+  const cp = raw.trim()
+  if (cp.replace(/\D/g, '').length < 4 && cp.length < 4) return
+  const seq = ++cpLookupSeq
+  try {
+    const data = await lookupCodigoPostal(cp)
+    if (seq !== cpLookupSeq || !data) return
+    if (!data.poblacion && !data.provincia) return
+    emit('update:modelValue', {
+      ...props.modelValue,
+      codigoPostalEnvio: raw,
+      ...(data.poblacion ? { poblacionEnvio: data.poblacion } : {}),
+      ...(data.provincia ? { provinciaEnvio: data.provincia } : {}),
+    })
+  } catch {
+    // Sin tabla, sin permiso o CP desconocido: el usuario puede rellenar a mano
+  }
 }
 
 function fechaInput(): string {
@@ -264,7 +294,7 @@ onUnmounted(() => {
             <select
               ref="tiendaSelect"
               :value="ficha.empresa"
-              :disabled="readonly || !esNuevo || pasoAlta !== 'tienda'"
+              :disabled="docBloqueado || !esNuevo || pasoAlta !== 'tienda'"
               @change="patch('empresa', ($event.target as HTMLSelectElement).value)"
             >
               <option value="">--</option>
@@ -302,7 +332,7 @@ onUnmounted(() => {
               :model-value="(ficha.pedido as number | null) ?? null"
               :empty-as-null="true"
               :integer="true"
-              :readonly="readonly"
+              :readonly="docBloqueado"
               @update:model-value="patch('pedido', $event)"
             />
           </label>
@@ -311,7 +341,7 @@ onUnmounted(() => {
             <input
               :value="ficha.puesto ?? ''"
               maxlength="2"
-              :readonly="readonly"
+              :readonly="docBloqueado"
               @input="patch('puesto', ($event.target as HTMLInputElement).value)"
             />
           </label>
@@ -319,7 +349,7 @@ onUnmounted(() => {
             <input
               type="checkbox"
               :checked="!!ficha.sujetoPasivo"
-              :disabled="readonly"
+              :disabled="docBloqueado"
               @change="patch('sujetoPasivo', ($event.target as HTMLInputElement).checked)"
             />
             <span>Sujeto pasivo</span>
@@ -373,17 +403,19 @@ onUnmounted(() => {
           </label>
           <label class="field">
             <span class="label">Vendedor</span>
-            <div class="vendedor-row">
+            <div class="combo-input" :class="{ locked: readonly }">
               <input
+                class="combo-codigo"
                 :value="ficha.vendedor ?? ''"
                 maxlength="4"
-                placeholder="Código"
+                placeholder="Cód."
                 :readonly="readonly"
                 :title="vendedorNombre || 'Vendedor (trabajador). Por defecto el del puesto. Intro / F4 para buscar.'"
                 @input="patch('vendedor', ($event.target as HTMLInputElement).value)"
                 @keydown="emit('vendedor-keydown', $event)"
                 @blur="emit('vendedor-blur')"
               />
+              <span class="combo-nombre" :title="vendedorNombre">{{ vendedorNombre }}</span>
               <button
                 type="button"
                 class="btn-buscar"
@@ -394,30 +426,30 @@ onUnmounted(() => {
                 ...
               </button>
             </div>
-            <small v-if="vendedorNombre" class="field-help">{{ vendedorNombre }}</small>
           </label>
           <label class="field">
             <span class="label">Forma de pago</span>
-            <div class="vendedor-row">
+            <div class="combo-input" :class="{ locked: readonly || soloDatosFiscales }">
               <input
+                class="combo-codigo"
                 :value="fpagoCodigo(0)"
                 readonly
-                placeholder="Seleccionar"
+                placeholder="Cód."
                 :title="fpagoDescripcion || 'Buscar forma de pago'"
               />
+              <span class="combo-nombre" :title="fpagoDescripcion">{{ fpagoDescripcion }}</span>
               <button
                 type="button"
                 class="btn-buscar"
-                :disabled="readonly"
+                :disabled="readonly || soloDatosFiscales"
                 title="Buscar forma de pago"
                 @click="abrirBuscarFpago"
               >
                 ...
               </button>
             </div>
-            <small v-if="fpagoDescripcion" class="field-help">{{ fpagoDescripcion }}</small>
           </label>
-          <label class="field span-2">
+          <label class="field">
             <span class="label">Razon social</span>
             <input
               :value="ficha.razonSocial ?? ''"
@@ -439,74 +471,82 @@ onUnmounted(() => {
       </section>
     </div>
 
+    <section v-if="mostrarDetalles" class="section">
+      <h3>Envío</h3>
+      <div class="fields cols-3">
+        <div class="field span-2 dir-envio">
+          <span class="label">Direccion</span>
+          <div class="dir-row">
+            <input
+              :value="ficha.direccionEnvio ?? ''"
+              maxlength="50"
+              :readonly="readonly"
+              @input="patch('direccionEnvio', ($event.target as HTMLInputElement).value)"
+            />
+            <button
+              type="button"
+              class="btn-dirs"
+              :disabled="!puedeElegirDireccion"
+              :title="
+                puedeElegirDireccion
+                  ? 'Elegir otra direccion de envio del cliente'
+                  : 'Este cliente no tiene direcciones en ClientesDirecciones'
+              "
+              @click.stop="toggleDirMenu"
+            >
+              ▾
+            </button>
+          </div>
+          <ul v-if="dirMenuOpen && puedeElegirDireccion" class="dir-menu" role="listbox">
+            <li
+              v-for="d in direccionesEnvio"
+              :key="d.key"
+              role="option"
+              @click="aplicarDireccion(d)"
+            >
+              <strong v-if="d.departamento">{{ d.departamento }}</strong>
+              <span>{{ d.direccion || '—' }}</span>
+              <small>{{ [d.codigoPostal, d.poblacion, d.provincia].filter(Boolean).join(' · ') }}</small>
+            </li>
+          </ul>
+        </div>
+        <label class="field">
+          <span class="label">C.P.</span>
+          <input
+            :value="ficha.codigoPostalEnvio ?? ''"
+            maxlength="8"
+            inputmode="numeric"
+            :readonly="readonly"
+            @input="onCodigoPostalEnvio(($event.target as HTMLInputElement).value)"
+            @blur="onCodigoPostalEnvio(($event.target as HTMLInputElement).value)"
+          />
+        </label>
+        <label class="field">
+          <span class="label">Poblacion</span>
+          <input
+            :value="ficha.poblacionEnvio ?? ''"
+            maxlength="50"
+            :readonly="readonly"
+            @input="patch('poblacionEnvio', ($event.target as HTMLInputElement).value)"
+          />
+        </label>
+        <label class="field">
+          <span class="label">Provincia</span>
+          <input
+            :value="ficha.provinciaEnvio ?? ''"
+            maxlength="50"
+            :readonly="readonly"
+            @input="patch('provinciaEnvio', ($event.target as HTMLInputElement).value)"
+          />
+        </label>
+      </div>
+    </section>
+
     <details v-if="mostrarDetalles" class="detalles-adicionales" :open="!compacto">
       <summary>Más datos de la venta</summary>
       <section class="section">
-        <h3>Envio / contacto</h3>
+        <h3>Contacto</h3>
         <div class="fields cols-3">
-          <div class="field span-2 dir-envio">
-            <span class="label">Direccion</span>
-            <div class="dir-row">
-              <input
-                :value="ficha.direccionEnvio ?? ''"
-                maxlength="50"
-                :readonly="readonly"
-                @input="patch('direccionEnvio', ($event.target as HTMLInputElement).value)"
-              />
-              <button
-                type="button"
-                class="btn-dirs"
-                :disabled="!puedeElegirDireccion"
-                :title="
-                  puedeElegirDireccion
-                    ? 'Elegir otra direccion de envio del cliente'
-                    : 'Este cliente no tiene direcciones en ClientesDirecciones'
-                "
-                @click.stop="toggleDirMenu"
-              >
-                ▾
-              </button>
-            </div>
-            <ul v-if="dirMenuOpen && puedeElegirDireccion" class="dir-menu" role="listbox">
-              <li
-                v-for="d in direccionesEnvio"
-                :key="d.key"
-                role="option"
-                @click="aplicarDireccion(d)"
-              >
-                <strong v-if="d.departamento">{{ d.departamento }}</strong>
-                <span>{{ d.direccion || '—' }}</span>
-                <small>{{ [d.codigoPostal, d.poblacion, d.provincia].filter(Boolean).join(' · ') }}</small>
-              </li>
-            </ul>
-          </div>
-          <label class="field">
-            <span class="label">C.P.</span>
-            <input
-              :value="ficha.codigoPostalEnvio ?? ''"
-              maxlength="8"
-              :readonly="readonly"
-              @input="patch('codigoPostalEnvio', ($event.target as HTMLInputElement).value)"
-            />
-          </label>
-          <label class="field">
-            <span class="label">Poblacion</span>
-            <input
-              :value="ficha.poblacionEnvio ?? ''"
-              maxlength="50"
-              :readonly="readonly"
-              @input="patch('poblacionEnvio', ($event.target as HTMLInputElement).value)"
-            />
-          </label>
-          <label class="field">
-            <span class="label">Provincia</span>
-            <input
-              :value="ficha.provinciaEnvio ?? ''"
-              maxlength="50"
-              :readonly="readonly"
-              @input="patch('provinciaEnvio', ($event.target as HTMLInputElement).value)"
-            />
-          </label>
           <label class="field">
             <span class="label">Pais</span>
             <input
@@ -564,7 +604,7 @@ onUnmounted(() => {
           <input
             :value="ficha.transporte ?? ''"
             maxlength="40"
-            :readonly="readonly"
+            :readonly="extraBloqueado"
             @input="patch('transporte', ($event.target as HTMLInputElement).value)"
           />
         </label>
@@ -573,7 +613,7 @@ onUnmounted(() => {
           <input
             :value="ficha.referencia1 ?? ''"
             maxlength="40"
-            :readonly="readonly"
+            :readonly="extraBloqueado"
             @input="patch('referencia1', ($event.target as HTMLInputElement).value)"
           />
         </label>
@@ -582,7 +622,7 @@ onUnmounted(() => {
           <input
             :value="ficha.referencia2 ?? ''"
             maxlength="40"
-            :readonly="readonly"
+            :readonly="extraBloqueado"
             @input="patch('referencia2', ($event.target as HTMLInputElement).value)"
           />
         </label>
@@ -591,7 +631,7 @@ onUnmounted(() => {
           <input
             :value="ficha.numeroDeSerie ?? ''"
             maxlength="20"
-            :readonly="readonly"
+            :readonly="extraBloqueado"
             @input="patch('numeroDeSerie', ($event.target as HTMLInputElement).value)"
           />
         </label>
@@ -601,7 +641,7 @@ onUnmounted(() => {
             :model-value="(ficha.almacen as number | null) ?? null"
             :empty-as-null="true"
             :integer="true"
-            :readonly="readonly"
+            :readonly="extraBloqueado"
             @update:model-value="patch('almacen', $event)"
           />
         </label>
@@ -610,7 +650,7 @@ onUnmounted(() => {
           <input
             :value="ficha.representante ?? ''"
             maxlength="4"
-            :readonly="readonly"
+            :readonly="extraBloqueado"
             @input="patch('representante', ($event.target as HTMLInputElement).value)"
           />
         </label>
@@ -625,7 +665,7 @@ onUnmounted(() => {
           <DecimalInput
             :model-value="fpagoImporte(0)"
             :empty-as-null="false"
-            :readonly="readonly"
+            :readonly="extraBloqueado"
             @update:model-value="setImpFpago(0, $event ?? 0)"
           />
         </label>
@@ -634,7 +674,7 @@ onUnmounted(() => {
           <input
             :value="fpagoCodigo(1)"
             maxlength="2"
-            :readonly="readonly"
+            :readonly="extraBloqueado"
             @input="setFpago(1, ($event.target as HTMLInputElement).value)"
           />
         </label>
@@ -643,7 +683,7 @@ onUnmounted(() => {
           <DecimalInput
             :model-value="fpagoImporte(1)"
             :empty-as-null="false"
-            :readonly="readonly"
+            :readonly="extraBloqueado"
             @update:model-value="setImpFpago(1, $event ?? 0)"
           />
         </label>
@@ -770,18 +810,12 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-.field-help {
-  color: #475569;
-  font-size: 0.66rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 input,
 select {
   width: 100%;
   min-width: 0;
+  height: 1.65rem;
+  box-sizing: border-box;
   padding: 0.12rem 0.25rem;
   border: 1px solid #94a3b8;
   border-radius: 2px;
@@ -820,15 +854,69 @@ select:disabled {
   display: flex;
   gap: 0.2rem;
   align-items: stretch;
+  height: 1.65rem;
 }
 
 .vendedor-row input {
   flex: 1;
   min-width: 0;
+  height: 100%;
+}
+
+.combo-input {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  height: 1.65rem;
+  box-sizing: border-box;
+  border: 1px solid #94a3b8;
+  border-radius: 2px;
+  background: #fff;
+}
+
+.combo-input.locked {
+  background: #f1f5f9;
+}
+
+.combo-input:focus-within {
+  border-color: #2563eb;
+}
+
+.combo-codigo {
+  flex: 0 0 2.6rem;
+  width: 2.6rem;
+  height: 100%;
+  border: none !important;
+  border-right: 1px solid #e2e8f0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.combo-nombre {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 0.3rem;
+  font-size: 0.75rem;
+  line-height: 1.65rem;
+  color: #334155;
+}
+
+.combo-input .btn-buscar {
+  flex: 0 0 1.7rem;
+  height: auto;
+  border: none;
+  border-left: 1px solid #e2e8f0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .btn-buscar {
   flex: 0 0 1.7rem;
+  height: 1.65rem;
+  box-sizing: border-box;
   border: 1px solid #64748b;
   border-radius: 2px;
   background: #fff;

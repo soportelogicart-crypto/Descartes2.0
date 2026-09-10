@@ -29,7 +29,6 @@ import { extractApiError, useMantenimiento } from '@/composables/useMantenimient
 import { usePermisos } from '@/composables/usePermisos'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import ListPagination from '@/components/common/ListPagination.vue'
 import EntidadGrid, { type GridOptionsMap } from '@/components/mantenimiento/EntidadGrid.vue'
 import ClienteToolbar from '@/components/clientes/ClienteToolbar.vue'
 import ClienteTabForm from '@/components/clientes/ClienteTabForm.vue'
@@ -42,7 +41,6 @@ import { usePuestoContextoStore } from '@/stores/puestoContexto'
 
 const MODULO = 'clientes'
 const FILTER_KEYS = ['codigo', 'tiendaCodigo', 'nombre', 'nif', 'telefono1']
-const SERVER_SEARCH_KEYS = ['nombre', 'codigo', 'nif', 'telefono1']
 const columns = getGridColumns('clientes')
 
 const { puede } = usePermisos()
@@ -275,65 +273,12 @@ async function cargarTiendas() {
   }
 }
 
-async function cargar(opts?: { silent?: boolean }) {
+async function cargar() {
   mensaje.value = null
-  const q = textoBusquedaServidor()
-  ultimaQServidor = q
-  const seq = ++cargaSeq
-  await listar({ page: page.value, pageSize: pageSize.value, ...(q ? { q } : {}) }, { silent: opts?.silent === true })
-  if (seq !== cargaSeq) return
+  await listar()
   filasTodas.value = items.value.map((item) => clonarFilaGrid(item, columns))
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
 }
-
-function onPage(p: number) {
-  page.value = p
-  void cargar()
-}
-
-function onPageSize(n: number) {
-  pageSize.value = n
-  page.value = 1
-  void cargar()
-}
-
-function textoBusquedaServidor(): string {
-  const opsConBusqueda = new Set(['contiene', 'comienza', 'finaliza', 'igual'])
-  for (const key of SERVER_SEARCH_KEYS) {
-    const f = filtros.value[key]
-    if (!f || !opsConBusqueda.has(f.operador)) continue
-    const v = String(f.valor ?? '').trim()
-    if (v) return v
-  }
-  return ''
-}
-
-let ultimaQServidor = ''
-let cargaSeq = 0
-let debounceFiltros: ReturnType<typeof setTimeout> | null = null
-
-function buscarServidorAhora() {
-  if (debounceFiltros) clearTimeout(debounceFiltros)
-  page.value = 1
-  void cargar({ silent: true })
-}
-
-watch(
-  () =>
-    SERVER_SEARCH_KEYS.map((k) => {
-      const f = filtros.value[k]
-      return `${f?.operador ?? ''}|${f?.valor ?? ''}`
-    }).join('||'),
-  () => {
-    if (debounceFiltros) clearTimeout(debounceFiltros)
-    debounceFiltros = setTimeout(() => {
-      const q = textoBusquedaServidor()
-      if (q === ultimaQServidor) return
-      page.value = 1
-      void cargar({ silent: true })
-    }, 500)
-  }
-)
 
 function seleccionar(index: number) {
   indiceSeleccionado.value = index
@@ -728,21 +673,11 @@ async function onUltimo() {
           @actualizar="actualizarFila"
           @abrir="abrirFicha"
           @nuevo="onNuevo"
-          @search="buscarServidorAhora"
-        />
-
-        <ListPagination
-          :page="page"
-          :page-size="pageSize"
-          :total="total"
-          :loading="loading"
-          @update:page="onPage"
-          @update:page-size="onPageSize"
         />
 
         <p class="hint">
           Filtra por <strong>Codigo</strong>, <strong>Tienda</strong>, <strong>Razon social</strong>,
-          <strong>NIF</strong> y <strong>Telefono</strong> con el embudo. Doble clic o <strong>Ficha</strong> abre el
+          <strong>NIF</strong> y <strong>Telefono</strong> escribiendo bajo cada columna. Doble clic o <strong>Ficha</strong> abre el
           detalle.
         </p>
         </div>

@@ -90,8 +90,8 @@ return function (App $app): void {
     $group->get('/fichas-botanicas/{codigo}', [ArticuloController::class, 'getPlanta'])
       ->add($setPermisoModulo('articulos', 'ver'));
 
-    $group->get('/codigos-postales/{codigo}', [CodigoPostalController::class, 'lookup'])
-      ->add($setPermisoModulo('mantenimiento', 'ver'));
+    // Referencia geográfica: cualquier usuario autenticado (ventas, clientes, etc.).
+    $group->get('/codigos-postales/{codigo}', [CodigoPostalController::class, 'lookup']);
 
     $group->get('/clientes/siguiente-codigo', [ClienteController::class, 'siguienteCodigo'])
       ->add($setPermisoModulo('clientes', 'crear'));

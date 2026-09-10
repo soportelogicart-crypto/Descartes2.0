@@ -7,8 +7,7 @@ import {
   getGridColumns,
   type GridFila,
 } from '@/config/entidad-grid-columns'
-import { leerGridPageSize } from '@/composables/useGridPageSize'
-import { extractApiError } from '@/composables/useMantenimiento'
+import { extractApiError, listarEntidadCompleta } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
 import {
   aplicarFiltrosColumnas,
@@ -16,7 +15,6 @@ import {
   type ColumnFilter,
 } from '@/composables/useGridColumnFilters'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import ListPagination from '@/components/common/ListPagination.vue'
 import EntidadBuscarModal, {
   type EntidadBuscarResultado,
 } from '@/components/common/EntidadBuscarModal.vue'
@@ -76,8 +74,6 @@ const vista = ref<'grid' | 'ficha'>('grid')
 const filasTodas = ref<GridFila[]>([])
 const filtros = ref<Record<string, ColumnFilter>>(filtrosIniciales(FILTER_KEYS))
 const total = ref(0)
-const page = ref(1)
-const pageSize = ref(leerGridPageSize())
 const loading = ref(false)
 const saving = ref(false)
 const error = ref<string | null>(null)
@@ -249,12 +245,9 @@ async function cargar() {
   loading.value = true
   error.value = null
   try {
-    const { data } = await api.get('/api/mantenimiento/oferta-clientes', {
-      params: { page: page.value, pageSize: pageSize.value },
-    })
-    const items = (data.items ?? []) as OfertaFila[]
-    total.value = data.total ?? 0
-    filasTodas.value = items.map(aFilaGrid)
+    const { items, total: t } = await listarEntidadCompleta('oferta-clientes')
+    total.value = t
+    filasTodas.value = (items as OfertaFila[]).map(aFilaGrid)
     indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
   } catch (e: unknown) {
     error.value = extractApiError(e, 'Error al cargar ofertas')
@@ -265,16 +258,6 @@ async function cargar() {
   }
 }
 
-function onPage(p: number) {
-  page.value = p
-  void cargar()
-}
-
-function onPageSize(n: number) {
-  pageSize.value = n
-  page.value = 1
-  void cargar()
-}
 
 function seleccionar(index: number) {
   indiceSeleccionado.value = index
@@ -560,15 +543,6 @@ function fmtNum(n: number): string {
             @seleccionar="seleccionar"
             @abrir="abrirFicha"
             @nuevo="onNuevo"
-          />
-
-          <ListPagination
-            :page="page"
-            :page-size="pageSize"
-            :total="total"
-            :loading="loading"
-            @update:page="onPage"
-            @update:page-size="onPageSize"
           />
 
           <p class="hint">

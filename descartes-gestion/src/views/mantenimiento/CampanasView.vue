@@ -14,8 +14,7 @@ import {
   type CampanaLinea,
 } from '@/config/campanas-columns'
 import { getGridColumns, type GridFila } from '@/config/entidad-grid-columns'
-import { leerGridPageSize } from '@/composables/useGridPageSize'
-import { extractApiError } from '@/composables/useMantenimiento'
+import { extractApiError, listarEntidadCompleta } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
 import {
   aplicarFiltrosColumnas,
@@ -24,7 +23,6 @@ import {
 } from '@/composables/useGridColumnFilters'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import ListPagination from '@/components/common/ListPagination.vue'
 import EntidadBuscarModal, {
   type EntidadBuscarResultado,
 } from '@/components/common/EntidadBuscarModal.vue'
@@ -120,8 +118,6 @@ const vista = ref<'grid' | 'ficha'>('grid')
 const filasTodas = ref<CampanaFilaGrid[]>([])
 const filtros = ref<Record<string, ColumnFilter>>(filtrosIniciales(FILTER_KEYS))
 const total = ref(0)
-const page = ref(1)
-const pageSize = ref(leerGridPageSize())
 const loading = ref(false)
 const saving = ref(false)
 const error = ref<string | null>(null)
@@ -369,11 +365,8 @@ async function cargar() {
   loading.value = true
   error.value = null
   try {
-    const { data } = await api.get('/api/mantenimiento/campanas', {
-      params: { empresa: emp, page: page.value, pageSize: pageSize.value },
-    })
-    const items = (data.items ?? []) as Record<string, unknown>[]
-    total.value = data.total ?? 0
+    const { items, total: t } = await listarEntidadCompleta('campanas', { empresa: emp })
+    total.value = t
     filasTodas.value = items.map(aFilaGrid)
     indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
   } catch (e: unknown) {
@@ -385,16 +378,6 @@ async function cargar() {
   }
 }
 
-function onPage(p: number) {
-  page.value = p
-  void cargar()
-}
-
-function onPageSize(n: number) {
-  pageSize.value = n
-  page.value = 1
-  void cargar()
-}
 
 function seleccionar(index: number) {
   indiceSeleccionado.value = index
@@ -698,15 +681,6 @@ async function resolverClienteLinea(lin: CampanaLinea) {
             @seleccionar="seleccionar"
             @abrir="abrirFicha"
             @nuevo="onNuevo"
-          />
-
-          <ListPagination
-            :page="page"
-            :page-size="pageSize"
-            :total="total"
-            :loading="loading"
-            @update:page="onPage"
-            @update:page-size="onPageSize"
           />
 
           <p class="hint">

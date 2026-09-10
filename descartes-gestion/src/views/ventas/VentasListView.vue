@@ -203,7 +203,10 @@ function filtrosColumnaVacios(): Record<ColumnaKey, string> {
   }
 }
 
-const filtrosColumna = ref<Record<ColumnaKey, string>>(filtrosColumnaVacios())
+const filtrosColumna = ref<Record<ColumnaKey, string>>({
+  ...filtrosColumnaVacios(),
+  ...(busqueda.filtrosColumna as Record<ColumnaKey, string>),
+})
 
 /** Compara sin acentos ni mayusculas: "MARIA" encuentra "María". */
 function normalizar(texto: string): string {
@@ -246,12 +249,22 @@ function onScrollGrid() {
   }
 }
 
-watch(itemsFiltrados, () => {
+watch(itemsFiltrados, (lista) => {
   renderLimite.value = RENDER_INICIAL
   if (gridEl.value) gridEl.value.scrollTop = 0
+  busqueda.setNavegacion(lista)
 })
 
+watch(
+  filtrosColumna,
+  (f) => {
+    busqueda.setFiltrosColumna(f)
+  },
+  { deep: true }
+)
+
 function abrir(v: VentaResumen) {
+  busqueda.setNavegacion(itemsFiltrados.value)
   router.push(`/ventas/${encodeURIComponent(v.empresa)}/${encodeURIComponent(v.tipo)}/${v.albaran}`)
 }
 
@@ -333,9 +346,13 @@ onActivated(() => {
     return
   }
   // Al volver de una ficha no se recargan miles de filas: el store ya trae los cambios.
-  if (busqueda.items.length > 0 && mismosFiltrosQueElStore()) {
-    items.value = busqueda.items.map((i) => ({ ...i }))
-    total.value = busqueda.total
+  if (busqueda.itemsCargados.length > 0 && mismosFiltrosQueElStore()) {
+    items.value = busqueda.itemsCargados.map((i) => ({ ...i }))
+    total.value = busqueda.totalCargados
+    filtrosColumna.value = {
+      ...filtrosColumnaVacios(),
+      ...(busqueda.filtrosColumna as Record<ColumnaKey, string>),
+    }
     return
   }
   void cargar()

@@ -13,6 +13,7 @@ import {
 import { resolverArticulo } from '@/api/articulos'
 import { createBarcodeScanWatcher } from '@/composables/useBarcodeScanWatcher'
 import type { PedidoDetalle, PedidoLinea, PedidoResumen } from '@/types/ventas'
+import { lookupCodigoPostal } from '@/composables/useCodigoPostalLookup'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
@@ -622,6 +623,24 @@ function ultimo() {
   if (v) irA(v)
 }
 
+let cpLookupSeq = 0
+
+async function onCodigoPostalEnvio(raw: string) {
+  editForm.value.codigoPostalEnvio = raw
+  if (!editando.value || (esNuevo.value && pasoAlta.value !== 'listo')) return
+  const cp = raw.trim()
+  if (cp.length < 4) return
+  const seq = ++cpLookupSeq
+  try {
+    const data = await lookupCodigoPostal(cp)
+    if (seq !== cpLookupSeq || !data) return
+    if (data.poblacion) editForm.value.poblacionEnvio = data.poblacion
+    if (data.provincia) editForm.value.provinciaEnvio = data.provincia
+  } catch {
+    // Sin tabla o CP desconocido: el usuario puede rellenar a mano
+  }
+}
+
 function empezarEditar() {
   if (!detalle.value?.editable || !(puedeEditar.value || puedeCrear.value)) return
   cargarEnForm(detalle.value)
@@ -1178,8 +1197,12 @@ onActivated(() => {
           <label>
             C.P.
             <input
-              v-model="editForm.codigoPostalEnvio"
+              :value="editForm.codigoPostalEnvio"
               :disabled="!editando || (esNuevo && pasoAlta !== 'listo')"
+              maxlength="8"
+              inputmode="numeric"
+              @input="onCodigoPostalEnvio(($event.target as HTMLInputElement).value)"
+              @blur="onCodigoPostalEnvio(($event.target as HTMLInputElement).value)"
             />
           </label>
           <label>

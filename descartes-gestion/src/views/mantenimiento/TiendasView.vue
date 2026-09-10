@@ -26,7 +26,6 @@ import { extractApiError, useMantenimiento } from '@/composables/useMantenimient
 import { usePermisos } from '@/composables/usePermisos'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import ListPagination from '@/components/common/ListPagination.vue'
 import EntidadGrid from '@/components/mantenimiento/EntidadGrid.vue'
 import TiendaToolbar from '@/components/tiendas/TiendaToolbar.vue'
 import TiendaTabForm from '@/components/tiendas/TiendaTabForm.vue'
@@ -223,16 +222,6 @@ async function cargar() {
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
 }
 
-function onPage(p: number) {
-  page.value = p
-  void cargar()
-}
-
-function onPageSize(n: number) {
-  pageSize.value = n
-  page.value = 1
-  void cargar()
-}
 
 async function onCambioFiltroActivo() {
   page.value = 1
@@ -607,18 +596,9 @@ function tabTieneErrores(tabId: string): boolean {
           @nuevo="onNuevo"
         />
 
-        <ListPagination
-          :page="page"
-          :page-size="pageSize"
-          :total="total"
-          :loading="loading"
-          @update:page="onPage"
-          @update:page-size="onPageSize"
-        />
-
         <p class="hint">
           Filtra por <strong>Codigo</strong>, <strong>Nombre</strong>, <strong>NIF</strong>,
-          <strong>Poblacion</strong> y <strong>Telefono</strong> con el embudo. Doble clic o
+          <strong>Poblacion</strong> y <strong>Telefono</strong> escribiendo bajo cada columna. Doble clic o
           <strong>Ficha</strong> abre el detalle.
         </p>
         </div>

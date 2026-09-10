@@ -24,7 +24,6 @@ import {
 import AlmacenesGrid from '@/components/almacenes/AlmacenesGrid.vue'
 import AlmacenTabForm from '@/components/almacenes/AlmacenTabForm.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import ListPagination from '@/components/common/ListPagination.vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
 import DecimalInput from '@/components/common/DecimalInput.vue'
 
@@ -222,16 +221,6 @@ async function cargar() {
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
 }
 
-function onPage(p: number) {
-  page.value = p
-  void cargar()
-}
-
-function onPageSize(n: number) {
-  pageSize.value = n
-  page.value = 1
-  void cargar()
-}
 
 function seleccionar(index: number) {
   indiceSeleccionado.value = index
@@ -511,15 +500,6 @@ async function onUltimo() {
           @actualizar="actualizarFila"
           @abrir="abrirFicha"
           @nuevo="onNuevo"
-        />
-
-        <ListPagination
-          :page="page"
-          :page-size="pageSize"
-          :total="total"
-          :loading="loading"
-          @update:page="onPage"
-          @update:page-size="onPageSize"
         />
 
         <p class="hint">

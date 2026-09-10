@@ -24,29 +24,31 @@ export type PrepImpresionResult =
   | { kind: 'ticket'; message: string }
   | { kind: 'a4'; prep: PrepImpresionA4 }
 
+const META_ALBARAN_A4 = {
+  esTicket: false,
+  plantillaTipo: 'albaran',
+  formatoKey: 'formatoAlbaranes',
+  nombreKey: 'impAlbaranes',
+  indiceKey: 'impresoraAlbaranes',
+  label: 'Albarán',
+} as const
+
 /** A4 al forzar folio: un ticket recuperado se imprime como albarán. */
 function metaA4Forzado(venta: VentaDetalle) {
   const meta = tipoPlantillaDesdeVenta(venta)
   if (!meta.esTicket) return meta
-  return {
-    esTicket: false,
-    plantillaTipo: 'albaran',
-    formatoKey: 'formatoAlbaranes',
-    nombreKey: 'impAlbaranes',
-    indiceKey: 'impresoraAlbaranes',
-    label: 'Albarán',
-  }
+  return { ...META_ALBARAN_A4 }
 }
 
 /** Construye datos + plantilla / o imprime ticket térmico (sin elegir impresora). */
 export async function prepararOImprimirVenta(
   venta: VentaDetalle,
-  opciones: { puestoCodigo: string; formato?: 'auto' | 'ticket' | 'a4' }
+  opciones: { puestoCodigo: string; formato?: 'auto' | 'ticket' | 'a4' | 'albaran' }
 ): Promise<PrepImpresionResult> {
   const formato = opciones.formato ?? 'auto'
   const metaAuto = tipoPlantillaDesdeVenta(venta)
   const comoTicket = formato === 'ticket' || (formato === 'auto' && metaAuto.esTicket)
-  const meta = comoTicket ? metaAuto : metaA4Forzado(venta)
+  const meta = formato === 'albaran' ? { ...META_ALBARAN_A4 } : comoTicket ? metaAuto : metaA4Forzado(venta)
   const puestoCodigo =
     String(opciones.puestoCodigo || venta.puesto || '').trim() || ''
   if (!puestoCodigo) {

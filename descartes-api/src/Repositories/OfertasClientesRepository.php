@@ -21,7 +21,7 @@ final class OfertasClientesRepository
   public function list(array $query): array
   {
     $page = max(1, (int) ($query['page'] ?? 1));
-    $pageSize = min(500, max(1, (int) ($query['pageSize'] ?? 100)));
+    $pageSize = min(5000, max(1, (int) ($query['pageSize'] ?? 100)));
     $offset = ($page - 1) * $pageSize;
 
     $where = [];

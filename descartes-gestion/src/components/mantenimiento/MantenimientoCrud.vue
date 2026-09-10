@@ -37,7 +37,9 @@ const { items, loading, error, listar, obtener, crear, actualizar, eliminar } = 
 )
 
 const columns = computed(() => getGridColumns(props.entidad))
-const filterKeys = computed(() => ENTITY_FILTER_KEYS[props.entidad] ?? [])
+const filterKeys = computed(
+  () => ENTITY_FILTER_KEYS[props.entidad] ?? columns.value.map((c) => c.key)
+)
 const tieneFiltrosColumnas = computed(() => filterKeys.value.length > 0)
 const tieneColumnaActivo = computed(() => columns.value.some((c) => c.key === 'activo'))
 const busqueda = ref('')
@@ -371,7 +373,7 @@ function cancelarFormulario() {
         <p v-else class="error">No hay columnas de rejilla configuradas para esta entidad.</p>
 
         <p v-if="tieneFiltrosColumnas" class="hint">
-          Filtra por columnas con el embudo. La fila <strong>*</strong> no se edita aqui: use
+          Escriba bajo cada columna para filtrar. La fila <strong>*</strong> no se edita aqui: use
           <strong>Nuevo</strong> o doble clic para crear en ficha.
         </p>
         <p v-else class="hint">

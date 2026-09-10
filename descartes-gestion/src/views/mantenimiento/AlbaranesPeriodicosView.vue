@@ -7,15 +7,12 @@ import {
   eliminarAlbaranPeriodico,
   generarAlbaranPeriodico,
   buscarPlantillasAlbaranPeriodico,
-  listarAlbaranesPeriodicos,
 } from '@/api/facturacion'
 import { getGridColumns, type GridFila } from '@/config/entidad-grid-columns'
-import { leerGridPageSize } from '@/composables/useGridPageSize'
-import { extractApiError } from '@/composables/useMantenimiento'
+import { extractApiError, listarEntidadCompleta } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
 import {
   aplicarFiltrosColumnas,
-  filtroVacio,
   filtrosIniciales,
   type ColumnFilter,
 } from '@/composables/useGridColumnFilters'
@@ -24,7 +21,6 @@ import { usePlantillaPeriodicaStore } from '@/stores/plantillaPeriodica'
 import type { AlbaranPeriodicoListItem } from '@/types/facturacion'
 import type { VentaResumen } from '@/types/ventas'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import ListPagination from '@/components/common/ListPagination.vue'
 import EntidadBuscarModal, {
   type EntidadBuscarResultado,
 } from '@/components/common/EntidadBuscarModal.vue'
@@ -82,8 +78,6 @@ const empresaCodigo = computed(() => String(puestoContexto.empresaCodigo ?? '').
 const filasTodas = ref<GridFila[]>([])
 const filtros = ref<Record<string, ColumnFilter>>(filtrosIniciales(FILTER_KEYS))
 const total = ref(0)
-const page = ref(1)
-const pageSize = ref(leerGridPageSize())
 const loading = ref(false)
 const saving = ref(false)
 const generando = ref(false)
@@ -136,16 +130,22 @@ const editForm = reactive({
   ultimaGeneracion: '',
 })
 
+function normalizarTexto(texto: string) {
+  return texto
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
 const filas = computed(() => {
-  const q = textoBusquedaServidor()
-  let filtrosLocal = filtros.value
-  if (q) {
-    filtrosLocal = { ...filtros.value }
-    for (const k of SERVER_SEARCH_KEYS) {
-      filtrosLocal[k] = filtroVacio()
-    }
-  }
-  return aplicarFiltrosColumnas(filasTodas.value, filtrosLocal, { dateKeys: DATE_KEYS }) as GridFila[]
+  const porColumna = aplicarFiltrosColumnas(filasTodas.value, filtros.value, {
+    dateKeys: DATE_KEYS,
+  }) as GridFila[]
+  const q = normalizarTexto(busqueda.value.trim())
+  if (!q) return porColumna
+  return porColumna.filter((f) =>
+    SERVER_SEARCH_KEYS.some((k) => normalizarTexto(String(f[k] ?? '')).includes(q))
+  )
 })
 
 watch(filas, (lista) => {
@@ -248,53 +248,8 @@ onMounted(async () => {
 })
 
 watch(empresaCodigo, () => {
-  page.value = 1
   void cargar()
 })
-
-let ultimaQServidor = ''
-let cargaSeq = 0
-let debounceFiltros: ReturnType<typeof setTimeout> | null = null
-
-function textoBusquedaServidor(): string {
-  const toolbar = busqueda.value.trim()
-  if (toolbar) return toolbar
-  const opsConBusqueda = new Set(['contiene', 'comienza', 'finaliza', 'igual'])
-  for (const key of SERVER_SEARCH_KEYS) {
-    const f = filtros.value[key]
-    if (!f || !opsConBusqueda.has(f.operador)) continue
-    const v = String(f.valor ?? '').trim()
-    if (v) return v
-  }
-  return ''
-}
-
-function buscarServidorAhora() {
-  if (debounceFiltros) clearTimeout(debounceFiltros)
-  page.value = 1
-  void cargar()
-}
-
-function programarBusquedaServidor() {
-  if (debounceFiltros) clearTimeout(debounceFiltros)
-  debounceFiltros = setTimeout(() => {
-    const q = textoBusquedaServidor()
-    if (q === ultimaQServidor) return
-    page.value = 1
-    void cargar()
-  }, 500)
-}
-
-watch(
-  () =>
-    SERVER_SEARCH_KEYS.map((k) => {
-      const f = filtros.value[k]
-      return `${f?.operador ?? ''}|${f?.valor ?? ''}`
-    }).join('||'),
-  () => programarBusquedaServidor()
-)
-
-watch(busqueda, () => programarBusquedaServidor())
 
 async function cargar() {
   const emp = exigirEmpresa()
@@ -305,19 +260,10 @@ async function cargar() {
   }
   loading.value = true
   error.value = null
-  const q = textoBusquedaServidor()
-  ultimaQServidor = q
-  const seq = ++cargaSeq
   try {
-    const data = await listarAlbaranesPeriodicos({
-      empresa: emp,
-      q: q || undefined,
-      page: page.value,
-      pageSize: pageSize.value,
-    })
-    if (seq !== cargaSeq) return
-    filasTodas.value = (data.items ?? []).map(aFilaGrid)
-    total.value = data.total ?? 0
+    const { items, total: t } = await listarEntidadCompleta('albaranes-periodicos', { empresa: emp })
+    filasTodas.value = items.map(aFilaGrid)
+    total.value = t
     indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
   } catch (e: unknown) {
     error.value = extractApiError(e, 'Error al cargar albaranes periódicos')
@@ -328,16 +274,6 @@ async function cargar() {
   }
 }
 
-function onPage(p: number) {
-  page.value = p
-  void cargar()
-}
-
-function onPageSize(n: number) {
-  pageSize.value = n
-  page.value = 1
-  void cargar()
-}
 
 function seleccionar(index: number) {
   indiceSeleccionado.value = index
@@ -665,13 +601,9 @@ async function generarAhora() {
               v-model="busqueda"
               type="search"
               placeholder="Cliente, razón social o nº"
-              @keydown.enter.prevent="buscarServidorAhora()"
             />
           </label>
-          <button type="button" class="tool-btn primary" @click="buscarServidorAhora()">
-            Buscar
-          </button>
-          <button type="button" class="tool-btn" :disabled="loading" @click="page = 1; cargar()">
+          <button type="button" class="tool-btn" :disabled="loading" @click="cargar()">
             Actualizar
           </button>
           <button
@@ -696,22 +628,12 @@ async function generarAhora() {
           v-model:filters="filtros"
           @seleccionar="seleccionar"
           @abrir="onEditar"
-          @search="buscarServidorAhora"
-        />
-
-        <ListPagination
-            :page="page"
-            :page-size="pageSize"
-            :total="total"
-            :loading="loading"
-            @update:page="onPage"
-            @update:page-size="onPageSize"
         />
 
         <p class="hint">
           Tienda activa: <strong>{{ empresaCodigo || '—' }}</strong>.
-          Filtro cliente / razón social / nº albarán busca en <strong>todos</strong> los registros (Enter en columna).
-          Doble clic abre edición. Gen.Alb por lotes sigue en Facturación → Generador manual.
+          Escriba bajo cada columna o en Buscar para filtrar. Doble clic abre edición.
+          Gen.Alb por lotes sigue en Facturación → Generador manual.
         </p>
       </div>
 

@@ -11,10 +11,10 @@ export type AppTab = {
 const MAX_TABS = 8
 
 /**
- * Rutas de ficha de venta (/ventas/{empresa}/{tipo}/{albaran}) comparten una sola
- * pestaña; al pasar Anterior/Siguiente no se abren pestañas nuevas.
- * Igual para albarán de compra, pedido a proveedor y factura de proveedor.
- * Compras: listado y ficha comparten pestaña para volver al grid sin pestaña extra.
+ * Listado y ficha de venta (/ventas, /ventas/nuevo, /ventas/{emp}/{tipo}/{n})
+ * comparten pestaña, igual que albaranes de compra.
+ * Pedidos de cliente: alta y ficha juntas (el listado sigue aparte).
+ * Compras: listado y ficha de albarán / pedido / factura comparten pestaña.
  */
 function tabIdFromPath(fullPath: string): string {
   const path = (fullPath.split('?')[0] || '/').replace(/\/+$/, '') || '/'
@@ -24,9 +24,12 @@ function tabIdFromPath(fullPath: string): string {
   if (path === '/ventas/pedidos/nuevo') {
     return '/ventas/pedidos/ficha'
   }
+  if (path === '/ventas' || path === '/ventas/nuevo') {
+    return '/ventas'
+  }
   // Ficha venta: /ventas/{empresa}/{tipo}/{albaran} — excluye /ventas/pedidos/...
   if (/^\/ventas\/(?!pedidos(?:\/|$))[^/]+\/[^/]+\/\d+$/.test(path)) {
-    return '/ventas/ficha'
+    return '/ventas'
   }
   if (path === '/compras/albaranes' || path.startsWith('/compras/albaranes/')) {
     return '/compras/albaranes'

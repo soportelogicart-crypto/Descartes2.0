@@ -1,15 +1,24 @@
 <script setup lang="ts">
+export type FormatoImpresionElegido = 'ticket' | 'a4' | 'albaran'
+
 withDefaults(
   defineProps<{
     open: boolean
-    /** Segunda opción A4: Albarán, Factura o Presupuesto. */
+    /** Opción principal A4 (Factura, Albarán, Presupuesto). */
     etiquetaA4?: string
+    /** Segunda opción (Ticket o Albarán). */
+    etiquetaSecundaria?: string
+    valorSecundario?: FormatoImpresionElegido
   }>(),
-  { etiquetaA4: 'Albarán' }
+  {
+    etiquetaA4: 'Albarán',
+    etiquetaSecundaria: 'Ticket',
+    valorSecundario: 'ticket',
+  }
 )
 
 const emit = defineEmits<{
-  elegir: [formato: 'ticket' | 'a4']
+  elegir: [formato: FormatoImpresionElegido]
   cancelar: []
 }>()
 </script>
@@ -28,7 +37,9 @@ const emit = defineEmits<{
         <h3>Imprimir</h3>
         <p>¿Qué documento quiere imprimir?</p>
         <div class="acciones">
-          <button type="button" class="btn" @click="emit('elegir', 'ticket')">Ticket</button>
+          <button type="button" class="btn" @click="emit('elegir', valorSecundario)">
+            {{ etiquetaSecundaria }}
+          </button>
           <button type="button" class="btn primary" @click="emit('elegir', 'a4')">
             {{ etiquetaA4 }}
           </button>
@@ -53,6 +64,7 @@ const emit = defineEmits<{
 .modal {
   width: min(22rem, 100%);
   display: flex;
+  flex-wrap: wrap;
   flex-direction: column;
   gap: 0.65rem;
   padding: 1rem 1.1rem;

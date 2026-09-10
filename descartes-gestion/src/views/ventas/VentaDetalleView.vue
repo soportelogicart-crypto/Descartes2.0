@@ -297,12 +297,7 @@ const preciosIvaIncluido = ref(false)
 /** Legacy: cliente anónimo / venta rápida sin datos fiscales. */
 const CLIENTE_SIN_NOMBRE = 'ZZZZZZZZZ'
 
-/** Datos fiscales mínimos para tipificar Factura (contado o ticket→factura). */
-function esClienteSinNombre(codigo: string | null | undefined): boolean {
-  const c = String(codigo ?? '').trim().toUpperCase()
-  return !c || c === CLIENTE_SIN_NOMBRE
-}
-
+/** Datos fiscales mínimos para tipificar Factura (contado ZZZZZZZZZ o ticket→factura). */
 function nifValidoParaFactura(nif: string | null | undefined): boolean {
   const n = String(nif ?? '')
     .trim()
@@ -314,13 +309,19 @@ function nifValidoParaFactura(nif: string | null | undefined): boolean {
   return true
 }
 
-const tieneDatosFactura = computed(() => {
+function faltanteDatosFactura(): string | null {
   const f = ficha.value
-  if (!f) return false
-  if (esClienteSinNombre(f.cliente)) return false
-  if (!nifValidoParaFactura(f.nif)) return false
-  return Boolean(String(f.razonSocial ?? '').trim())
-})
+  if (!f) return 'No hay documento'
+  if (!nifValidoParaFactura(f.nif)) {
+    return 'El NIF no es válido para factura (mínimo 7 caracteres, sin ceros o X de relleno).'
+  }
+  if (!String(f.razonSocial ?? '').trim()) {
+    return 'Falta la razón social para facturar.'
+  }
+  return null
+}
+
+const tieneDatosFactura = computed(() => faltanteDatosFactura() === null)
 
 const tiposFinalDisponibles = computed(() => {
   if (esPlantillaAlta.value) {
@@ -335,7 +336,7 @@ const tiposFinalDisponibles = computed(() => {
   }
   return TIPOS_FINAL.filter((t) => {
     if (clienteContado.value && t.codigo === 'A') return false
-    // Sin cliente/NIF/razón: solo Ticket o Presupuesto (no Factura).
+    // Sin NIF/razón: solo Ticket o Presupuesto (no Factura). ZZZZZZZZZ sí vale si hay datos.
     if (t.codigo === 'F' && !tieneDatosFactura.value) return false
     return true
   })
@@ -426,7 +427,7 @@ const esTicketCerrado = computed(() => {
 })
 const ticketNoEditable = computed(() => esTicketCerrado.value)
 const soloLectura = computed(
-  () => !(modoEdicion.value || esNuevo.value) || bloqueado.value || ticketNoEditable.value
+  () => !(modoEdicion.value || esNuevo.value) || bloqueado.value
 )
 const tieneLineas = computed(() =>
   lineas.value.some((l) => {
@@ -435,15 +436,16 @@ const tieneLineas = computed(() =>
   })
 )
 const tieneCliente = computed(() => Boolean(String(ficha.value?.cliente ?? '').trim()))
-/** Líneas solo tras tener cliente (evita alta sin cabecera usable). */
-const puedeEditarLineas = computed(() => !soloLectura.value && tieneCliente.value)
+/** Líneas solo tras tener cliente. Un ticket cerrado no cambia artículos. */
+const puedeEditarLineas = computed(
+  () => !soloLectura.value && tieneCliente.value && !esTicketCerrado.value
+)
 const puedeGuardar = computed(
   () =>
     (esNuevo.value ? puedeCrear.value : puedeEditar.value) &&
     !bloqueado.value &&
-    !ticketNoEditable.value &&
     tieneCliente.value &&
-    tieneLineas.value
+    (esTicketCerrado.value || tieneLineas.value)
 )
 /** Albaran listo: cabecera creada + al menos una linea de articulo. */
 const albaranCompleto = computed(() => Boolean(ficha.value) && !esNuevo.value && tieneLineas.value)
@@ -453,6 +455,63 @@ const ventaNuevaLista = computed(
 )
 /** Imprimir en cualquier documento recuperado con líneas (también albarán periódico, sin sesión). */
 const puedeImprimir = computed(() => !modoEdicion.value && albaranCompleto.value)
+
+type DocKind = 'ticket' | 'albaran' | 'factura' | 'presupuesto'
+
+const esConsultaRecuperada = computed(
+  () => Boolean(ficha.value) && !esNuevo.value && !esPlantillaConsulta.value && !esPlantillaAlta.value
+)
+
+const docKind = computed<DocKind | null>(() => {
+  const f = ficha.value
+  if (!f || esNuevo.value) return null
+  if (esTicketCerrado.value) return 'ticket'
+  const ft = String(f.facturaTipo ?? '').trim().toUpperCase()
+  if (ft === 'R') return 'presupuesto'
+  if ((ft === 'F' || ft === 'A') && (Number(f.factura) || 0) > 0) return 'factura'
+  return 'albaran'
+})
+
+const docAviso = computed(() => {
+  const kind = docKind.value
+  if (kind === 'ticket') {
+    return puedePasarAFactura.value
+      ? 'Las líneas no se pueden cambiar. Puede pasarlo a factura o imprimirlo.'
+      : `${faltanteDatosFactura() ?? 'Faltan datos fiscales.'} Pulse Modificar y luego A factura.`
+  }
+  if (kind === 'factura') {
+    return esFacturaContado.value
+      ? 'Solo consulta. Puede imprimir o generar un abono.'
+      : 'Solo consulta. Puede imprimir el documento.'
+  }
+  if (kind === 'presupuesto') {
+    return 'Presupuesto. Puede imprimir o modificar las líneas.'
+  }
+  if (esAbono.value && ficha.value) {
+    const origen = ficha.value.origenDocumento?.etiqueta || `albarán ${ficha.value.albaranOrigenAbono}`
+    return `Albarán de abono de ${origen}. Pendiente de facturar.`
+  }
+  return 'Pendiente de facturar. Puede tipificar (ticket, factura o presupuesto) o imprimir.'
+})
+
+const mostrarModificarToolbar = computed(() => {
+  if (!esConsultaRecuperada.value || modoEdicion.value) return true
+  return docKind.value === 'albaran' || docKind.value === 'presupuesto' || docKind.value === 'ticket'
+})
+
+const mostrarFinalizarToolbar = computed(() => {
+  if (esPlantillaConsulta.value) return false
+  if (modoEdicion.value && esTicketCerrado.value) return false
+  if (!esConsultaRecuperada.value || modoEdicion.value) return true
+  return docKind.value === 'ticket' || docKind.value === 'albaran'
+})
+
+const etiquetaFinalizarToolbar = computed(() => {
+  if (esTicketCerrado.value) return 'A factura'
+  if (modoEdicion.value || esNuevo.value) return ''
+  if (docKind.value === 'albaran') return 'Tipificar'
+  return ''
+})
 const puedePasarAFactura = computed(() => {
   if (!esTicketCerrado.value || !puedeEditar.value || modoEdicion.value) return false
   return tieneDatosFactura.value
@@ -1061,7 +1120,7 @@ function abrirBuscarCliente() {
     return
   }
   if (soloLectura.value) {
-    if (!puedeEditar.value || bloqueado.value || esTicketCerrado.value) return
+    if (!puedeEditar.value || bloqueado.value) return
     modoEdicion.value = true
   }
   buscarClienteOpen.value = true
@@ -1078,7 +1137,7 @@ async function onClienteKeydown(e: KeyboardEvent) {
     return
   }
   if (soloLectura.value) {
-    if (!puedeEditar.value || bloqueado.value || esTicketCerrado.value) return
+    if (!puedeEditar.value || bloqueado.value) return
     modoEdicion.value = true
   }
   if (e.key === 'F4') {
@@ -1147,11 +1206,6 @@ async function aplicarClienteEnFicha(
     razonSocial: String(cli.nombre ?? sel.etiqueta ?? '').trim(),
     razonSocial2: cli.razonSocial2 != null ? String(cli.razonSocial2) : '',
     nif: cli.nif != null ? String(cli.nif) : '',
-    direccionEnvio: String(cli.direccion ?? ''),
-    poblacionEnvio: String(cli.poblacion ?? ''),
-    codigoPostalEnvio: String(cli.codigoPostal ?? ''),
-    provinciaEnvio: String(cli.provincia ?? ''),
-    paisEnvio: String(cli.pais ?? ''),
     telefono: cli.telefono1 != null ? String(cli.telefono1) : '',
     telefono2: cli.telefono2 != null ? String(cli.telefono2) : '',
     fax: cli.fax != null ? String(cli.fax) : '',
@@ -1203,6 +1257,19 @@ async function onClienteSeleccionado(
       payloadDesdeFicha()
     )
     aplicarDetalle(saved)
+    if (esTicketCerrado.value) {
+      if (tieneDatosFactura.value) {
+        modoEdicion.value = false
+        mensaje.value = 'Datos fiscales guardados. Ya puede pasarlo a factura.'
+      } else {
+        modoEdicion.value = true
+        mensaje.value = faltanteDatosFactura()
+          ? `Cliente asignado. ${faltanteDatosFactura()}`
+          : 'Cliente asignado. Pulse Guardar.'
+      }
+      busqueda.upsertResumen(resumenDesdeDetalle(saved))
+      return
+    }
     modoEdicion.value = true
     mensaje.value = 'Cliente asignado. Puede editar líneas y Guardar.'
     busqueda.upsertResumen(resumenDesdeDetalle(saved))
@@ -1225,10 +1292,8 @@ async function usarVentaRapida() {
 }
 
 function onModificar() {
-  if (bloqueado.value || esTicketCerrado.value) {
-    error.value = esTicketCerrado.value
-      ? 'Ticket cerrado: no se puede modificar. Use Finalizar para pasarlo a factura.'
-      : 'Documento facturado: no se puede modificar'
+  if (bloqueado.value) {
+    error.value = 'Documento facturado: no se puede modificar'
     return
   }
   modoEdicion.value = true
@@ -1274,7 +1339,7 @@ async function onGuardar() {
     abrirBuscarCliente()
     return
   }
-  if (!tieneLineas.value) {
+  if (!tieneLineas.value && !esTicketCerrado.value) {
     error.value = 'Introduzca al menos un articulo antes de guardar'
     return
   }
@@ -1297,9 +1362,13 @@ async function onGuardar() {
       ? 'Plantilla actualizada.'
       : esPlantillaAlta.value
         ? 'Documento guardado. Finalice como Presupuesto para registrar la plantilla periódica.'
-        : tieneLineas.value
-          ? 'Albarán guardado. Ya puede finalizarlo.'
-          : 'Venta guardada'
+        : esTicketCerrado.value
+          ? tieneDatosFactura.value
+            ? 'Datos fiscales guardados. Ya puede pasarlo a factura.'
+            : `Datos guardados. ${faltanteDatosFactura()}`
+          : tieneLineas.value
+            ? 'Albarán guardado. Ya puede finalizarlo.'
+            : 'Venta guardada'
     busqueda.upsertResumen(resumenDesdeDetalle(saved))
     if (
       route.params.empresa !== saved.empresa ||
@@ -1316,7 +1385,7 @@ async function onGuardar() {
 }
 
 function onBorrar() {
-  if (!ficha.value || bloqueado.value) return
+  if (!ficha.value || bloqueado.value || esTicketCerrado.value) return
   confirmBorrar.value = true
 }
 
@@ -1402,16 +1471,23 @@ function onImprimir() {
   if (!puedeImprimir.value || !ficha.value) return
   error.value = null
   mensaje.value = null
+  if (docKind.value === 'presupuesto') {
+    void onElegirFormatoImpresion('a4')
+    return
+  }
   formatoImpresionOpen.value = true
 }
 
-async function onElegirFormatoImpresion(formato: 'ticket' | 'a4') {
+async function onElegirFormatoImpresion(formato: 'ticket' | 'a4' | 'albaran') {
   formatoImpresionOpen.value = false
   if (!puedeImprimir.value || !ficha.value) return
   error.value = null
   mensaje.value = null
-  if (formato === 'a4') {
-    const titulo = `${etiquetaA4Impresion.value} · Alb. ${ficha.value.albaran}`
+  if (formato === 'a4' || formato === 'albaran') {
+    const titulo =
+      formato === 'albaran'
+        ? `Albarán · Alb. ${ficha.value.albaran}`
+        : `${etiquetaA4Impresion.value} · Alb. ${ficha.value.albaran}`
     if (!preview.abrir(titulo)) {
       error.value = 'Permita las ventanas emergentes para previsualizar el documento'
       return
@@ -1787,10 +1863,13 @@ onMounted(() => {
       :puede-imprimir="puedeImprimir"
       :puede-finalizar="puedeFinalizar"
       :puede-abonar="puedeAbonar"
+      :mostrar-modificar="mostrarModificarToolbar"
+      :mostrar-finalizar="mostrarFinalizarToolbar"
+      :etiqueta-finalizar="etiquetaFinalizarToolbar"
       :puede-buscar="esPlantillaConsulta || puedeBuscar"
       :puede-navegar="puedeNavegar"
       :modo-edicion="modoEdicion || esNuevo"
-      :bloqueado="bloqueado || esTicketCerrado"
+      :bloqueado="bloqueado"
       :es-ticket-cerrado="esTicketCerrado"
       :hay-documento="!!ficha && !esNuevo"
       :loading="loading"
@@ -1836,19 +1915,7 @@ onMounted(() => {
       <button type="button" class="link-inline" @click="onCancelar">Volver a Albaranes periódicos</button>
     </p>
 
-    <p v-if="bloqueado && ficha && !esTicketCerrado" class="banner-lock">
-      Documento facturado / tipo Factura - solo consulta
-    </p>
-    <p v-else-if="esTicketCerrado && ficha" class="banner-lock">
-      Ticket {{ ficha.factura }} — no editable.
-      <template v-if="puedePasarAFactura"> Puede <strong>Finalizar</strong> para pasarlo a factura.</template>
-      <template v-else> Indique Cliente, NIF y razon social para pasarlo a factura.</template>
-    </p>
-    <p v-else-if="esAbono && ficha" class="banner-lock">
-      Albarán de abono de
-      <strong>{{ ficha.origenDocumento?.etiqueta || `albarán ${ficha.albaranOrigenAbono}` }}</strong>.
-      Pendiente de facturar como el resto.
-    </p>
+    <p v-if="esConsultaRecuperada && !modoEdicion && docKind" class="banner-doc">{{ docAviso }}</p>
     <div v-if="esNuevo && pasoAlta === 'tienda'" class="paso-accion">
       <span>Confirme la <strong>tienda</strong> para comenzar.</span>
       <button type="button" class="btn-paso primary" :disabled="loading" @click="onIntroCabecera">
@@ -1876,7 +1943,21 @@ onMounted(() => {
     <p v-else-if="modoEdicion && !esNuevo && tieneLineas && !esPlantillaConsulta" class="ok">
       Líneas listas. Puede <strong>Guardar</strong> el borrador o <strong>Guardar y finalizar</strong>.
     </p>
-    <p v-else-if="!modoEdicion && albaranCompleto && !bloqueado && !esTicketCerrado && !esPlantillaConsulta" class="ok">
+    <p v-else-if="modoEdicion && esTicketCerrado" class="ok">
+      Complete <strong>cliente, NIF y razón social</strong> y pulse <strong>Guardar</strong>. Las
+      líneas del ticket no se pueden cambiar.
+    </p>
+    <p
+      v-else-if="
+        !esConsultaRecuperada &&
+        !modoEdicion &&
+        albaranCompleto &&
+        !bloqueado &&
+        !esTicketCerrado &&
+        !esPlantillaConsulta
+      "
+      class="ok"
+    >
       Albaran listo. Puede <strong>Finalizar</strong> (tipificar) o <strong>Imprimir</strong>.
     </p>
     <p v-if="error" class="error">{{ error }}</p>
@@ -1888,6 +1969,7 @@ onMounted(() => {
         ref="cabeceraForm"
         v-model="ficha"
         :readonly="soloLectura"
+        :solo-datos-fiscales="esTicketCerrado && modoEdicion"
         :es-nuevo="esNuevo"
         :paso-alta="pasoAlta"
         :compacto="modoEdicion && !esPlantillaConsulta"
@@ -2090,8 +2172,7 @@ onMounted(() => {
             con cobro de arqueo): no se puede cerrar como albaran.
           </p>
           <p v-if="!tieneDatosFactura && !esTicketCerrado" class="warn">
-            Venta sin datos fiscales (p. ej. cliente ZZZZZZZZZ / sin NIF válido): solo Ticket o
-            Presupuesto. Para Factura indique Cliente, NIF y razón social reales.
+            {{ faltanteDatosFactura() }} Solo Ticket o Presupuesto.
           </p>
           <div class="tipos">
             <label v-for="t in tiposFinalDisponibles" :key="t.codigo" class="tipo-opt">
@@ -2181,7 +2262,9 @@ onMounted(() => {
 
     <ElegirFormatoImpresionModal
       :open="formatoImpresionOpen"
-      :etiqueta-a4="etiquetaA4Impresion"
+      :etiqueta-a4="docKind === 'factura' ? 'Factura' : etiquetaA4Impresion"
+      :etiqueta-secundaria="docKind === 'factura' ? 'Albarán' : 'Ticket'"
+      :valor-secundario="docKind === 'factura' ? 'albaran' : 'ticket'"
       @elegir="onElegirFormatoImpresion"
       @cancelar="formatoImpresionOpen = false"
     />
@@ -2367,6 +2450,16 @@ onMounted(() => {
   border-radius: 6px;
   margin: 0;
   font-size: 0.85rem;
+}
+.banner-doc {
+  max-width: 960px;
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  background: #fff;
+  color: #334155;
+  font-size: 0.78rem;
 }
 .banner-plantilla {
   margin: 0.5rem 0;
@@ -2706,6 +2799,7 @@ tr.comentario td input {
 
   .ficha-venta :deep(.toolbar),
   .banner-lock,
+  .banner-doc,
   .ok,
   .error,
   .hint,

@@ -1,14 +1,12 @@
 <script setup lang="ts">
-import { computed, onActivated, onMounted, ref } from 'vue'
+import { computed, onActivated, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import { listarAlbaranesCompra } from '@/api/compras'
 import type { AlbaranCompraResumen } from '@/types/compras'
-import { leerGridPageSize } from '@/composables/useGridPageSize'
 import { extractApiError } from '@/composables/extractApiError'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
-import ListPagination from '@/components/common/ListPagination.vue'
 import FiltroLupaField from '@/components/common/FiltroLupaField.vue'
 import EntidadBuscarModal, {
   type EntidadBuscarResultado,
@@ -19,21 +17,36 @@ const puestoContexto = usePuestoContextoStore()
 const { puede } = usePermisos()
 const puedeCrear = computed(() => puede('compras', 'crear'))
 
+/** Filas por peticion al traer el listado completo (la API admite hasta 5000). */
+const BLOQUE_CARGA = 5000
+const MAX_FILAS = 30000
+const RENDER_INICIAL = 300
+const RENDER_PASO = 300
+
+const anioVigor = new Date().getFullYear()
+const inicioAnio = `${anioVigor}-01-01`
+const finAnio = `${anioVigor}-12-31`
+
 const loading = ref(false)
 const error = ref<string | null>(null)
 const items = ref<AlbaranCompraResumen[]>([])
 const total = ref(0)
-const page = ref(1)
-const pageSize = ref(leerGridPageSize())
+const gridEl = ref<HTMLDivElement | null>(null)
+const renderLimite = ref(RENDER_INICIAL)
 const tiendas = ref<{ value: string; label: string; corto: string }[]>([])
 const almacenes = ref<{ value: string; label: string }[]>([])
 const buscarOpen = ref(false)
 
-const hoy = new Date().toISOString().slice(0, 10)
+function normalizarEmpresaCodigo(v: string): string {
+  const t = v.trim()
+  if (/^\d+$/.test(t)) return String(Number.parseInt(t, 10))
+  return t
+}
+
 const filtros = ref({
-  empresa: puestoContexto.empresaCodigo || '',
-  fechaDesde: hoy,
-  fechaHasta: hoy,
+  empresa: normalizarEmpresaCodigo(puestoContexto.empresaCodigo || ''),
+  fechaDesde: inicioAnio,
+  fechaHasta: finAnio,
   proveedor: '',
   almacen: '' as string,
   albaran: '' as string,
@@ -45,6 +58,97 @@ const tiendaLabel = computed(() => {
   if (!codigo) return 'Todas'
   const t = tiendas.value.find((x) => x.value === codigo)
   return t?.corto ?? codigo
+})
+
+type ColumnaKey =
+  | 'tienda'
+  | 'fecha'
+  | 'albaran'
+  | 'suAlbaran'
+  | 'proveedor'
+  | 'almacen'
+  | 'importe'
+  | 'flags'
+
+const COLUMNAS: { key: ColumnaKey; label: string; clase: string }[] = [
+  { key: 'tienda', label: 'Tienda', clase: 'col-tienda' },
+  { key: 'fecha', label: 'Fecha', clase: 'col-fecha' },
+  { key: 'albaran', label: 'Albarán', clase: 'col-alb' },
+  { key: 'suAlbaran', label: 'Su alb.', clase: 'col-su' },
+  { key: 'proveedor', label: 'Proveedor', clase: 'col-prov' },
+  { key: 'almacen', label: 'Almacén', clase: 'col-corto' },
+  { key: 'importe', label: 'Importe', clase: 'col-imp' },
+  { key: 'flags', label: 'Flags', clase: 'col-flags' },
+]
+
+const textoColumna: Record<ColumnaKey, (a: AlbaranCompraResumen) => string> = {
+  tienda: (a) => `${a.empresa ?? ''} ${nombreTienda(a.empresa)}`,
+  fecha: (a) => fmtFecha(a.fechaAlbaran),
+  albaran: (a) => String(a.albaran ?? ''),
+  suAlbaran: (a) => String(a.suAlbaran ?? ''),
+  proveedor: (a) => `${a.proveedor ?? ''} ${a.razonSocial ?? ''}`,
+  almacen: (a) => String(a.almacen ?? ''),
+  importe: (a) => Number(a.importeAlb ?? 0).toFixed(2),
+  flags: (a) => flags(a),
+}
+
+function filtrosColumnaVacios(): Record<ColumnaKey, string> {
+  return {
+    tienda: '',
+    fecha: '',
+    albaran: '',
+    suAlbaran: '',
+    proveedor: '',
+    almacen: '',
+    importe: '',
+    flags: '',
+  }
+}
+
+const filtrosColumna = ref<Record<ColumnaKey, string>>(filtrosColumnaVacios())
+
+function normalizar(texto: string): string {
+  return texto
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+const filtrosColumnaActivos = computed(() =>
+  (Object.entries(filtrosColumna.value) as [ColumnaKey, string][])
+    .map(([key, valor]) => ({ key, valor: normalizar(valor.trim()) }))
+    .filter((f) => f.valor !== '')
+)
+
+const hayFiltroColumna = computed(() => filtrosColumnaActivos.value.length > 0)
+
+const itemsFiltrados = computed(() => {
+  const activos = filtrosColumnaActivos.value
+  if (activos.length === 0) return items.value
+  return items.value.filter((a) =>
+    activos.every((f) => normalizar(textoColumna[f.key](a)).includes(f.valor))
+  )
+})
+
+const visibles = computed(() => itemsFiltrados.value.slice(0, renderLimite.value))
+
+function limpiarFiltrosColumna() {
+  filtrosColumna.value = filtrosColumnaVacios()
+}
+
+function onScrollGrid() {
+  const el = gridEl.value
+  if (!el) return
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 250) {
+    if (renderLimite.value < itemsFiltrados.value.length) {
+      renderLimite.value += RENDER_PASO
+    }
+  }
+}
+
+watch(itemsFiltrados, () => {
+  renderLimite.value = RENDER_INICIAL
+  if (gridEl.value) gridEl.value.scrollTop = 0
 })
 
 async function cargarTiendas() {
@@ -61,7 +165,7 @@ async function cargarTiendas() {
       }
     })
     if (!filtros.value.empresa && puestoContexto.empresaCodigo) {
-      filtros.value.empresa = puestoContexto.empresaCodigo
+      filtros.value.empresa = normalizarEmpresaCodigo(puestoContexto.empresaCodigo)
     }
   } catch {
     tiendas.value = []
@@ -90,28 +194,39 @@ async function cargarAlmacenes() {
 async function cargar() {
   loading.value = true
   error.value = null
+  const acumulado: AlbaranCompraResumen[] = []
   try {
-    const albaranNum = filtros.value.albaran.trim()
-      ? Number(filtros.value.albaran)
-      : undefined
-    const almacenNum = filtros.value.almacen.trim()
-      ? Number(filtros.value.almacen)
-      : undefined
-    const data = await listarAlbaranesCompra({
-      empresa: filtros.value.empresa || undefined,
-      fechaDesde: filtros.value.fechaDesde || undefined,
-      fechaHasta: filtros.value.fechaHasta || undefined,
-      proveedor: filtros.value.proveedor || undefined,
-      almacen: Number.isFinite(almacenNum) ? almacenNum : undefined,
-      albaran: Number.isFinite(albaranNum) ? albaranNum : undefined,
-      suAlbaran: filtros.value.suAlbaran || undefined,
-      page: page.value,
-      pageSize: pageSize.value,
-    })
-    items.value = data.items
-    total.value = data.total
-    page.value = data.page
-    pageSize.value = data.pageSize
+    const albaranNum = filtros.value.albaran.trim() ? Number(filtros.value.albaran) : undefined
+    const almacenNum = filtros.value.almacen.trim() ? Number(filtros.value.almacen) : undefined
+    let pagina = 1
+    let totalServidor = 0
+    for (;;) {
+      const data = await listarAlbaranesCompra({
+        empresa: filtros.value.empresa
+          ? normalizarEmpresaCodigo(filtros.value.empresa)
+          : undefined,
+        fechaDesde: filtros.value.fechaDesde || undefined,
+        fechaHasta: filtros.value.fechaHasta || undefined,
+        proveedor: filtros.value.proveedor || undefined,
+        almacen: Number.isFinite(almacenNum) ? almacenNum : undefined,
+        albaran: Number.isFinite(albaranNum) ? albaranNum : undefined,
+        suAlbaran: filtros.value.suAlbaran || undefined,
+        page: pagina,
+        pageSize: BLOQUE_CARGA,
+      })
+      acumulado.push(...data.items)
+      totalServidor = data.total
+      items.value = acumulado.slice()
+      total.value = totalServidor
+      if (
+        data.items.length === 0 ||
+        acumulado.length >= totalServidor ||
+        acumulado.length >= MAX_FILAS
+      ) {
+        break
+      }
+      pagina += 1
+    }
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudieron cargar los albaranes de compra')
   } finally {
@@ -120,19 +235,7 @@ async function cargar() {
 }
 
 function buscar() {
-  page.value = 1
   return cargar()
-}
-
-function onPage(p: number) {
-  page.value = p
-  void cargar()
-}
-
-function onPageSize(n: number) {
-  pageSize.value = n
-  page.value = 1
-  void cargar()
 }
 
 function abrir(a: AlbaranCompraResumen) {
@@ -192,7 +295,7 @@ onActivated(() => {
         <h2>Albaranes de compra</h2>
         <p class="hint">
           Tienda: <strong class="tienda-activa">{{ tiendaLabel }}</strong>
-          — Doble clic o el nº de albarán para abrir el detalle
+          — Escriba bajo cada columna para filtrar el listado.
         </p>
       </div>
       <button v-if="puedeCrear" type="button" class="btn-nuevo" @click="nuevo">
@@ -248,34 +351,40 @@ onActivated(() => {
           <input v-model="filtros.suAlbaran" type="text" placeholder="Nº proveedor" />
         </label>
 
-        <button type="submit" class="btn-buscar" :disabled="loading">Buscar</button>
+        <button type="submit" class="btn-buscar" :disabled="loading">
+          {{ loading ? 'Buscando…' : 'Buscar' }}
+        </button>
       </form>
 
       <div class="panel-listado">
         <p v-if="error" class="error">{{ error }}</p>
-        <p v-if="loading" class="msg">Cargando...</p>
+        <p v-if="loading" class="msg">
+          Cargando albaranes… {{ items.length }}<template v-if="total"> de {{ total }}</template>
+        </p>
 
-        <div class="grid-wrap">
+        <div ref="gridEl" class="grid-wrap" @scroll.passive="onScrollGrid">
           <table>
             <thead>
               <tr>
-                <th class="col-tienda">Tienda</th>
-                <th class="col-fecha">Fecha</th>
-                <th class="col-alb">Albarán</th>
-                <th class="col-su">Su alb.</th>
-                <th>Proveedor</th>
-                <th class="col-corto">Almacén</th>
-                <th class="num col-imp">Importe</th>
-                <th class="col-flags">Flags</th>
+                <th v-for="c in COLUMNAS" :key="c.key" :class="c.clase">
+                  <span class="th-titulo" :class="{ num: c.key === 'importe' }">{{ c.label }}</span>
+                  <input
+                    v-model="filtrosColumna[c.key]"
+                    type="search"
+                    class="filtro-col"
+                    :title="`Filtrar por ${c.label}`"
+                    :aria-label="`Filtrar por ${c.label}`"
+                  />
+                </th>
               </tr>
             </thead>
             <tbody>
               <tr
-                v-for="a in items"
+                v-for="a in visibles"
                 :key="`${a.empresa}-${a.albaran}`"
                 @dblclick="abrir(a)"
               >
-                <td class="tienda">{{ nombreTienda(a.empresa) }}</td>
+                <td class="tienda col-tienda">{{ nombreTienda(a.empresa) }}</td>
                 <td class="col-fecha">{{ fmtFecha(a.fechaAlbaran) }}</td>
                 <td class="col-alb">
                   <button type="button" class="linkish" @click="abrir(a)">
@@ -291,20 +400,32 @@ onActivated(() => {
                 <td class="num col-imp">{{ Number(a.importeAlb ?? 0).toFixed(2) }}</td>
                 <td class="col-flags">{{ flags(a) }}</td>
               </tr>
-              <tr v-if="!loading && items.length === 0">
-                <td colspan="8">Sin resultados</td>
+              <tr v-if="!loading && itemsFiltrados.length === 0">
+                <td :colspan="COLUMNAS.length">
+                  {{ hayFiltroColumna ? 'Ningún resultado con esos filtros' : 'Sin resultados' }}
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
-        <ListPagination
-          :page="page"
-          :page-size="pageSize"
-          :total="total"
-          :loading="loading"
-          @update:page="onPage"
-          @update:page-size="onPageSize"
-        />
+        <div class="pie-listado">
+          <span>
+            {{ itemsFiltrados.length }}
+            {{ itemsFiltrados.length === 1 ? 'albarán' : 'albaranes' }}
+            <template v-if="hayFiltroColumna">de {{ items.length }} cargados</template>
+            <template v-else-if="total > items.length">
+              (de {{ total }}; límite {{ MAX_FILAS }})
+            </template>
+          </span>
+          <button
+            v-if="hayFiltroColumna"
+            type="button"
+            class="btn-limpiar"
+            @click="limpiarFiltrosColumna"
+          >
+            Limpiar filtros
+          </button>
+        </div>
       </div>
     </div>
 
@@ -351,11 +472,19 @@ onActivated(() => {
   white-space: nowrap;
 }
 
+.compras-albaranes-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
 .layout-busqueda {
   display: grid;
   grid-template-columns: 16.5rem minmax(0, 1fr);
   gap: 0.85rem;
-  align-items: start;
+  flex: 1;
+  min-height: 0;
 }
 
 .panel-filtros {
@@ -367,7 +496,9 @@ onActivated(() => {
   border-radius: 6px;
   background: #f8fafc;
   min-width: 0;
-  overflow: hidden;
+  align-self: start;
+  max-height: 100%;
+  overflow-y: auto;
 }
 .panel-filtros h3 {
   margin: 0 0 0.15rem;
@@ -438,16 +569,34 @@ onActivated(() => {
 
 .panel-listado {
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
 }
 .grid-wrap {
+  flex: 1;
+  min-height: 8rem;
   overflow: auto;
   border: 1px solid #94a3b8;
   border-radius: 4px;
   background: #fff;
-  max-height: calc(100vh - 14rem);
+}
+.pie-listado {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.78rem;
+  color: #475569;
+}
+.btn-limpiar {
+  padding: 0.2rem 0.55rem;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+  background: #fff;
+  color: #1e293b;
+  cursor: pointer;
+  font: inherit;
 }
 table {
   width: 100%;
@@ -470,7 +619,32 @@ th {
   font-weight: 600;
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 2;
+  padding: 0.2rem 0.25rem 0.25rem;
+  vertical-align: bottom;
+}
+.th-titulo {
+  display: block;
+  padding: 0 0.2rem 0.15rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.th-titulo.num {
+  text-align: right;
+}
+.filtro-col {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.76rem;
+}
+.filtro-col:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: -1px;
 }
 .col-tienda {
   width: 4.5rem;
@@ -503,7 +677,7 @@ td.col-imp,
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
-th:first-child,
+thead tr:first-child th:first-child,
 td.tienda {
   background: #eff6ff;
   font-weight: 700;
@@ -544,11 +718,14 @@ tbody tr:hover {
 }
 
 @media (max-width: 900px) {
+  .compras-albaranes-view {
+    height: auto;
+  }
   .layout-busqueda {
     grid-template-columns: 1fr;
   }
   .grid-wrap {
-    max-height: none;
+    max-height: 70vh;
   }
 }
 </style>

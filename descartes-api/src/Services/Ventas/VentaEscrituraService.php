@@ -232,6 +232,9 @@ final class VentaEscrituraService
     if ($actual === null) {
       throw new \RuntimeException('Venta no encontrada', 404);
     }
+    if ($this->esTicketCerrado($actual)) {
+      return $this->actualizarDatosFiscalesTicket($empresa, $tipo, $albaran, $actual, $body);
+    }
     if ($this->estaBloqueado($actual)) {
       throw new \RuntimeException('Documento facturado: no se puede modificar', 409);
     }
@@ -334,6 +337,62 @@ final class VentaEscrituraService
   }
 
   /**
+   * Ticket cerrado: solo cliente / NIF / razón / contacto (para poder pasarlo a factura).
+   * No toca líneas ni importes.
+   *
+   * @param array<string, mixed> $actual
+   * @param array<string, mixed> $body
+   * @return array<string, mixed>
+   */
+  private function actualizarDatosFiscalesTicket(
+    string $empresa,
+    string $tipo,
+    int $albaran,
+    array $actual,
+    array $body
+  ): array {
+    $this->pdo->beginTransaction();
+    try {
+      $sql = 'UPDATE AlbaranesVentasCab SET
+          Cliente = :cliente, RazonSocial = :razonSocial, RazonSocial2 = :razonSocial2,
+          NIF = :nif, Vendedor = :vendedor,
+          DireccionEnvio = :direccionEnvio, PoblacionEnvio = :poblacionEnvio,
+          CodigoPostalEnvio = :codigoPostalEnvio, ProvinciaEnvio = :provinciaEnvio, PaisEnvio = :paisEnvio,
+          Telefono = :telefono, Telefono2 = :telefono2, Fax = :fax, Email = :email
+        WHERE Empresa = :empresa AND Tipo = :tipo AND Albaran = :albaran';
+      $this->pdo->prepare($sql)->execute([
+        'empresa' => $empresa,
+        'tipo' => $tipo,
+        'albaran' => $albaran,
+        'cliente' => $this->nullIfEmpty($body['cliente'] ?? $actual['cliente'] ?? null),
+        'razonSocial' => $this->nullIfEmpty($body['razonSocial'] ?? $actual['razonSocial'] ?? null),
+        'razonSocial2' => $this->blankIfEmpty($body['razonSocial2'] ?? $actual['razonSocial2'] ?? null),
+        'nif' => $this->blankIfEmpty($body['nif'] ?? $actual['nif'] ?? null),
+        'vendedor' => $this->nullIfEmpty($body['vendedor'] ?? $actual['vendedor'] ?? null),
+        'direccionEnvio' => $this->spaceIfEmpty($body['direccionEnvio'] ?? $actual['direccionEnvio'] ?? null),
+        'poblacionEnvio' => $this->spaceIfEmpty($body['poblacionEnvio'] ?? $actual['poblacionEnvio'] ?? null),
+        'codigoPostalEnvio' => $this->spaceIfEmpty($body['codigoPostalEnvio'] ?? $actual['codigoPostalEnvio'] ?? null),
+        'provinciaEnvio' => $this->spaceIfEmpty($body['provinciaEnvio'] ?? $actual['provinciaEnvio'] ?? null),
+        'paisEnvio' => $this->spaceIfEmpty($body['paisEnvio'] ?? $actual['paisEnvio'] ?? null),
+        'telefono' => $this->blankIfEmpty($body['telefono'] ?? $actual['telefono'] ?? null),
+        'telefono2' => $this->blankIfEmpty($body['telefono2'] ?? $actual['telefono2'] ?? null),
+        'fax' => $this->blankIfEmpty($body['fax'] ?? $actual['fax'] ?? null),
+        'email' => $this->blankIfEmpty($body['email'] ?? $actual['email'] ?? null),
+      ]);
+      $this->pdo->commit();
+    } catch (\Throwable $e) {
+      $this->pdo->rollBack();
+      throw $e;
+    }
+
+    $detalle = $this->consulta->obtenerFicha($empresa, $tipo, $albaran);
+    if ($detalle === null) {
+      throw new \RuntimeException('No se pudo releer la venta');
+    }
+    return $detalle;
+  }
+
+  /**
    * Al finalizar (legacy): el Tipo del albaran permanece "A".
    * Se tipifica con FacturaTipo (T ticket, A albaran cerrado, P presupuesto, F factura)
    * y contadores UltTicket / UltFactura.
@@ -361,17 +420,14 @@ final class VentaEscrituraService
         'No se puede finalizar la venta sin vendedor. Seleccione el vendedor en la cabecera.'
       );
     }
-    // Factura (directa o ticket→factura): datos fiscales reales.
-    // Cliente ZZZZZZZZZ = venta sin nombre → solo Ticket/Presupuesto.
+    // Factura (directa o ticket→factura): NIF y razón. Contado ZZZZZZZZZ vale si están.
     if ($opcion === 'F') {
-      $cliente = trim((string) ($actual['cliente'] ?? ''));
       $nif = strtoupper(preg_replace('/[\s.\-]/', '', trim((string) ($actual['nif'] ?? ''))) ?? '');
       $razon = trim((string) ($actual['razonSocial'] ?? ''));
-      $sinNombre = $cliente === '' || strtoupper($cliente) === 'ZZZZZZZZZ';
       $nifInvalido = strlen($nif) < 7 || (bool) preg_match('/^[0X]+$/', $nif);
-      if ($sinNombre || $nifInvalido || $razon === '') {
+      if ($nifInvalido || $razon === '') {
         throw new \InvalidArgumentException(
-          'Para factura hacen falta Cliente real, NIF válido y Razón social. Use Ticket o Presupuesto.'
+          'Para factura hacen falta NIF válido y razón social. Use Ticket o Presupuesto.'
         );
       }
     }

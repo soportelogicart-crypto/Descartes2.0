@@ -38,6 +38,12 @@ withDefaults(
     modoPlantillaConsulta?: boolean
     /** Alta inicial: deja solo la acción de cancelar; el CTA está junto al paso activo. */
     modoAlta?: boolean
+    /** Consulta recuperada: ocultar Modificar en factura. */
+    mostrarModificar?: boolean
+    /** Consulta recuperada: ocultar Finalizar en factura/presupuesto. */
+    mostrarFinalizar?: boolean
+    /** Sustituye la etiqueta de Finalizar / A factura / Tipificar. */
+    etiquetaFinalizar?: string
   }>(),
   {
     buscarLabel: 'Buscar',
@@ -45,6 +51,9 @@ withDefaults(
     generarAlbaranLabel: 'Albarán',
     generarAlbaranTitle:
       'Generar albarán de venta al cliente desde las cantidades a servir del pedido',
+    mostrarModificar: true,
+    mostrarFinalizar: true,
+    etiquetaFinalizar: '',
   }
 )
 
@@ -74,7 +83,7 @@ defineEmits<{
       <button
         type="button"
         class="tool-btn"
-        :disabled="loading || !puedeEliminar || !hayDocumento || bloqueado || modoEdicion"
+        :disabled="loading || !puedeEliminar || !hayDocumento || bloqueado || esTicketCerrado || modoEdicion"
         title="Borrar documento"
         @click="$emit('borrar')"
       >
@@ -181,6 +190,7 @@ defineEmits<{
         <span>Nuevo</span>
       </button>
       <button
+        v-if="mostrarModificar"
         type="button"
         class="tool-btn"
         :disabled="loading || !puedeEditar || modoEdicion || !hayDocumento || bloqueado"
@@ -193,7 +203,7 @@ defineEmits<{
       <button
         type="button"
         class="tool-btn"
-        :disabled="loading || !puedeEliminar || !hayDocumento || bloqueado || modoEdicion"
+        :disabled="loading || !puedeEliminar || !hayDocumento || bloqueado || esTicketCerrado || modoEdicion"
         title="Borrar"
         @click="$emit('borrar')"
       >
@@ -312,18 +322,22 @@ defineEmits<{
         <span>Imprimir</span>
       </button>
       <button
+        v-if="mostrarFinalizar"
         type="button"
         class="tool-btn"
         :disabled="loading || puedeFinalizar === false"
         :title="
           esTicketCerrado
             ? 'Pasar ticket a factura'
-            : 'Finalizar: tipificar cuando el albaran tenga lineas'
+            : etiquetaFinalizar || 'Finalizar: tipificar cuando el albaran tenga lineas'
         "
         @click="$emit('finalizar')"
       >
         <ToolIcon name="guardar" />
-        <span>{{ esTicketCerrado ? 'A factura' : modoEdicion ? 'Guardar y finalizar' : 'Finalizar' }}</span>
+        <span>{{
+          etiquetaFinalizar ||
+          (esTicketCerrado ? 'A factura' : modoEdicion ? 'Guardar y finalizar' : 'Finalizar')
+        }}</span>
       </button>
       <button
         v-if="!modoEdicion"

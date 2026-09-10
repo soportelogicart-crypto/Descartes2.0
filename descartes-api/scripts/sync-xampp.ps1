@@ -18,7 +18,7 @@ function Read-SourceText([string]$path) {
   return [System.IO.File]::ReadAllText($path, $utf8)
 }
 
-function Sync-Tree([string]$relativeDir, [string[]]$include = @('*.php', '*.htaccess')) {
+function Sync-Tree([string]$relativeDir, [string[]]$include = @('*.php', '*.htaccess', '*.json')) {
   $srcDir = Join-Path $apiRoot $relativeDir
   if (-not (Test-Path $srcDir)) {
     Write-Warning "No existe $srcDir"

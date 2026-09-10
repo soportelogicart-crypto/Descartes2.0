@@ -30,7 +30,6 @@ import ArticuloEansModal from '@/components/articulos/ArticuloEansModal.vue'
 import ArticuloEscandalloModal from '@/components/articulos/ArticuloEscandalloModal.vue'
 import ArticuloEtiquetasRapidaModal from '@/components/articulos/ArticuloEtiquetasRapidaModal.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import ListPagination from '@/components/common/ListPagination.vue'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { resolverArticulo } from '@/api/articulos'
@@ -39,8 +38,6 @@ import { createBarcodeScanWatcher } from '@/composables/useBarcodeScanWatcher'
 const MODULO = 'articulos'
 const ENTIDAD = 'articulos'
 const FILTER_KEYS = ['codigo', 'descripcion', 'familia', 'impuestoCodigo', 'proveedorHabitual', 'precioVen1']
-/** Campos de texto cuyo valor se envía al API como `q` (no solo filtra lo cargado en pantalla). */
-const SERVER_SEARCH_KEYS = ['descripcion', 'codigo', 'familia', 'proveedorHabitual', 'impuestoCodigo']
 
 const route = useRoute()
 const router = useRouter()
@@ -284,57 +281,20 @@ function mapFilasDesdeApi() {
   filasTodas.value = items.value.map((item) => clonarArticuloFila(item))
 }
 
-/** Texto activo del embudo para buscar en servidor (Codigo / Descripcion / Alternativo). */
-function textoBusquedaServidor(): string {
-  const opsConBusqueda = new Set(['contiene', 'comienza', 'finaliza', 'igual'])
-  for (const key of SERVER_SEARCH_KEYS) {
-    const f = filtros.value[key]
-    if (!f || !opsConBusqueda.has(f.operador)) continue
-    const v = String(f.valor ?? '').trim()
-    if (v) return v
-  }
-  return ''
-}
-
-let ultimaQServidor = ''
-let cargaSeq = 0
-
-async function cargar(opts?: { silent?: boolean }) {
+async function cargar() {
   mensaje.value = null
-  const q = textoBusquedaServidor()
-  ultimaQServidor = q
-  const seq = ++cargaSeq
-  await listar({ page: page.value, pageSize: pageSize.value, ...(q ? { q } : {}) }, {
-    silent: opts?.silent === true,
-  })
-  if (seq !== cargaSeq) return
+  await listar()
   mapFilasDesdeApi()
   filaNuevaDraft.value = articuloFilaVacia()
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
 }
 
-function onPage(p: number) {
-  page.value = p
-  void cargar()
+function onFiltroSearch() {
+  const q = String(filtros.value.codigo?.valor ?? '').trim()
+  if (q) void intentarAbrirFichaPorReferencia(q)
 }
 
-function onPageSize(n: number) {
-  pageSize.value = n
-  page.value = 1
-  void cargar()
-}
-
-function buscarServidorAhora() {
-  if (debounceFiltros) clearTimeout(debounceFiltros)
-  page.value = 1
-  void (async () => {
-    const q = textoBusquedaServidor().trim()
-    if (q && (await intentarAbrirFichaPorReferencia(q))) return
-    await cargar({ silent: true })
-  })()
-}
-
-/** Abre ficha si `q` es código, alternativo o EAN (escáner / Intro en embudo). */
+/** Abre ficha si `q` es código, alternativo o EAN (escáner / Intro). */
 async function intentarAbrirFichaPorReferencia(raw: string): Promise<boolean> {
   const q = String(raw ?? '').trim()
   if (q.length < 4 || /\s/.test(q) || !/^[0-9A-Za-z\-]+$/.test(q)) return false
@@ -392,24 +352,6 @@ function onScanKeydown(e: KeyboardEvent) {
   scanWatcher.cancel()
   void abrirPorEscaneo(scanCodigo.value)
 }
-
-let debounceFiltros: ReturnType<typeof setTimeout> | null = null
-watch(
-  () =>
-    SERVER_SEARCH_KEYS.map((k) => {
-      const f = filtros.value[k]
-      return `${f?.operador ?? ''}|${f?.valor ?? ''}`
-    }).join('||'),
-  () => {
-    if (debounceFiltros) clearTimeout(debounceFiltros)
-    debounceFiltros = setTimeout(() => {
-      const q = textoBusquedaServidor()
-      if (q === ultimaQServidor) return
-      page.value = 1
-      void cargar({ silent: true })
-    }, 500)
-  }
-)
 
 const {
   confirmOpen,
@@ -735,21 +677,11 @@ const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
           @seleccionar="seleccionar"
           @abrir="abrirFicha"
           @nuevo="onNuevoFicha"
-          @search="buscarServidorAhora"
-        />
-
-        <ListPagination
-          :page="page"
-          :page-size="pageSize"
-          :total="total"
-          :loading="loading"
-          @update:page="onPage"
-          @update:page-size="onPageSize"
+          @search="onFiltroSearch"
         />
 
         <p class="hint">
-          <strong>Escanear</strong> código o EAN abre la ficha. También puede filtrar con el embudo (Intro en
-          código/EAN exacto abre ficha). Doble clic en una fila o en <strong>*</strong> para crear.
+          <strong>Escanear</strong> código o EAN abre la ficha. Escriba bajo cada columna para filtrar. Doble clic en una fila o en <strong>*</strong> para crear.
         </p>
         </div>
       </template>

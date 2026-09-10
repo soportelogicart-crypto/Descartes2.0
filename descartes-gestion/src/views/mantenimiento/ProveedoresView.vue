@@ -19,7 +19,6 @@ import { extractApiError, useMantenimiento } from '@/composables/useMantenimient
 import { usePermisos } from '@/composables/usePermisos'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import ListPagination from '@/components/common/ListPagination.vue'
 import EntidadGrid from '@/components/mantenimiento/EntidadGrid.vue'
 import ProveedorToolbar from '@/components/proveedores/ProveedorToolbar.vue'
 import ProveedorTabForm from '@/components/proveedores/ProveedorTabForm.vue'
@@ -31,7 +30,6 @@ import { usePuestoContextoStore } from '@/stores/puestoContexto'
 
 const MODULO = 'proveedores'
 const FILTER_KEYS = ['codigo', 'nombre', 'nif']
-const SERVER_SEARCH_KEYS = ['nombre', 'codigo', 'nif']
 const columns = getGridColumns('proveedores')
 
 const { puede } = usePermisos()
@@ -149,65 +147,12 @@ onMounted(async () => {
   await cargar()
 })
 
-async function cargar(opts?: { silent?: boolean }) {
+async function cargar() {
   mensaje.value = null
-  const q = textoBusquedaServidor()
-  ultimaQServidor = q
-  const seq = ++cargaSeq
-  await listar({ page: page.value, pageSize: pageSize.value, ...(q ? { q } : {}) }, { silent: opts?.silent === true })
-  if (seq !== cargaSeq) return
+  await listar()
   filasTodas.value = items.value.map((item) => clonarFilaGrid(item, columns))
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
 }
-
-function onPage(p: number) {
-  page.value = p
-  void cargar()
-}
-
-function onPageSize(n: number) {
-  pageSize.value = n
-  page.value = 1
-  void cargar()
-}
-
-function textoBusquedaServidor(): string {
-  const opsConBusqueda = new Set(['contiene', 'comienza', 'finaliza', 'igual'])
-  for (const key of SERVER_SEARCH_KEYS) {
-    const f = filtros.value[key]
-    if (!f || !opsConBusqueda.has(f.operador)) continue
-    const v = String(f.valor ?? '').trim()
-    if (v) return v
-  }
-  return ''
-}
-
-let ultimaQServidor = ''
-let cargaSeq = 0
-let debounceFiltros: ReturnType<typeof setTimeout> | null = null
-
-function buscarServidorAhora() {
-  if (debounceFiltros) clearTimeout(debounceFiltros)
-  page.value = 1
-  void cargar({ silent: true })
-}
-
-watch(
-  () =>
-    SERVER_SEARCH_KEYS.map((k) => {
-      const f = filtros.value[k]
-      return `${f?.operador ?? ''}|${f?.valor ?? ''}`
-    }).join('||'),
-  () => {
-    if (debounceFiltros) clearTimeout(debounceFiltros)
-    debounceFiltros = setTimeout(() => {
-      const q = textoBusquedaServidor()
-      if (q === ultimaQServidor) return
-      page.value = 1
-      void cargar({ silent: true })
-    }, 500)
-  }
-)
 
 function seleccionar(index: number) {
   indiceSeleccionado.value = index
@@ -529,21 +474,10 @@ async function onUltimo() {
             @actualizar="actualizarFila"
             @abrir="abrirFicha"
             @nuevo="onNuevo"
-            @search="buscarServidorAhora"
-          />
-
-          <ListPagination
-            class="paginacion"
-            :page="page"
-            :page-size="pageSize"
-            :total="total"
-            :loading="loading"
-            @update:page="onPage"
-            @update:page-size="onPageSize"
           />
 
           <p class="hint">
-            Filtra por <strong>Codigo</strong>, <strong>Razon social</strong> y <strong>NIF</strong> con el embudo.
+            Filtra por <strong>Codigo</strong>, <strong>Razon social</strong> y <strong>NIF</strong> escribiendo bajo cada columna.
             Doble clic o <strong>Ficha</strong> abre el detalle.
           </p>
         </div>
