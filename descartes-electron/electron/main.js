@@ -74,6 +74,14 @@ async function createWindow() {
   bindWindowMenu(win)
 
   win.webContents.setWindowOpenHandler(({ url: target }) => {
+    // window.open('') → ventana propia de la app (previsualización de documentos).
+    // El tamaño llega en las features de window.open.
+    if (!target || target === 'about:blank') {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: { autoHideMenuBar: true, title: 'Descartes 2.0' },
+      }
+    }
     shell.openExternal(target)
     return { action: 'deny' }
   })

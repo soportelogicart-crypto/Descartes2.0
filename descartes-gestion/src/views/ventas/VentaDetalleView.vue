@@ -25,7 +25,10 @@ import {
   prepararOImprimirVenta,
   type PrepImpresionA4,
 } from '@/composables/useImpresionVentaDocumento'
+import { etiquetaA4ImpresionRecuperado } from '@/composables/ventaDocumentoPreview'
+import { useVentanaPreviewDocumento } from '@/composables/previewDocumentoVentana'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import ElegirFormatoImpresionModal from '@/components/common/ElegirFormatoImpresionModal.vue'
 import EntidadBuscarModal from '@/components/common/EntidadBuscarModal.vue'
 import DecimalInput from '@/components/common/DecimalInput.vue'
 import VentaToolbar from '@/components/ventas/VentaToolbar.vue'
@@ -39,6 +42,8 @@ const { puede } = usePermisos()
 const puesto = usePuestoContextoStore()
 const busqueda = useVentasBusquedaStore()
 const plantillaPeriodica = usePlantillaPeriodicaStore()
+/** Ventana aparte con la previsualización A4 (sustituye al modal). */
+const preview = useVentanaPreviewDocumento({ imprimir: () => onImprimirA4Confirmado() })
 
 const PERIODICIDAD_PRESETS = [
   { value: 7, label: 'Semanal (7 días)' },
@@ -94,6 +99,10 @@ const abonoObservacion = ref('')
 const tipoFinal = ref('A')
 const a4Open = ref(false)
 const a4Prep = ref<PrepImpresionA4 | null>(null)
+const formatoImpresionOpen = ref(false)
+const etiquetaA4Impresion = computed(() =>
+  ficha.value ? etiquetaA4ImpresionRecuperado(ficha.value) : 'Albarán'
+)
 const a4Imprimiendo = ref(false)
 const a4ModalRef = ref<{ capturarHtmlFolio: () => Promise<string> } | null>(null)
 const postVentaOpen = ref(false)
@@ -442,24 +451,8 @@ const albaranCompleto = computed(() => Boolean(ficha.value) && !esNuevo.value &&
 const ventaNuevaLista = computed(
   () => esNuevo.value && puedeCrear.value && tieneCliente.value && tieneLineas.value
 )
-/** Documento tipificado / cerrado (Finalizar): ticket, albarán con sesión, factura o presupuesto. */
-const documentoFinalizado = computed(() => {
-  const f = ficha.value
-  if (!f || esNuevo.value || modoEdicion.value) return false
-  if (esTicketCerrado.value) return true
-  if (albaranFinalizado.value) return true
-  const ft = String(f.facturaTipo ?? '').trim().toUpperCase()
-  if (ft === 'R') return true
-  if (ft === 'F' && (Number(f.factura) || 0) > 0) return true
-  if (ft === 'A' && (Number(f.factura) || 0) > 0) return true
-  return false
-})
-/** Imprimir solo tras Finalizar (no en borrador abierto). En plantilla periódica, basta con líneas. */
-const puedeImprimir = computed(() => {
-  if (modoEdicion.value) return false
-  if (esPlantillaConsulta.value) return albaranCompleto.value
-  return documentoFinalizado.value
-})
+/** Imprimir en cualquier documento recuperado con líneas (también albarán periódico, sin sesión). */
+const puedeImprimir = computed(() => !modoEdicion.value && albaranCompleto.value)
 const puedePasarAFactura = computed(() => {
   if (!esTicketCerrado.value || !puedeEditar.value || modoEdicion.value) return false
   return tieneDatosFactura.value
@@ -1168,9 +1161,9 @@ async function aplicarClienteEnFicha(
     portes: '',
     vendedor: vendedorPuesto,
     pjeDto: Number(cli.dto1 ?? 0),
-    formasPago: fpagoCli
-      ? [{ codigo: fpagoCli, importe: 0 }, { codigo: '', importe: 0 }]
-      : ficha.value.formasPago ?? [],
+    // La forma de pago pertenece al cliente seleccionado. Si el nuevo cliente
+    // no tiene ninguna, no conservar la del cliente anterior.
+    formasPago: [{ codigo: fpagoCli, importe: 0 }, { codigo: '', importe: 0 }],
     tarifa: cli.tarifa != null && cli.tarifa !== '' ? Number(cli.tarifa) : null,
   }
   await resolverFormaPagoContado(fpagoCli)
@@ -1405,14 +1398,30 @@ async function onFinalizar() {
   finalizarOpen.value = true
 }
 
-async function onImprimir() {
-  if (!ficha.value || esNuevo.value || !documentoFinalizado.value) return
+function onImprimir() {
+  if (!puedeImprimir.value || !ficha.value) return
   error.value = null
   mensaje.value = null
+  formatoImpresionOpen.value = true
+}
+
+async function onElegirFormatoImpresion(formato: 'ticket' | 'a4') {
+  formatoImpresionOpen.value = false
+  if (!puedeImprimir.value || !ficha.value) return
+  error.value = null
+  mensaje.value = null
+  if (formato === 'a4') {
+    const titulo = `${etiquetaA4Impresion.value} · Alb. ${ficha.value.albaran}`
+    if (!preview.abrir(titulo)) {
+      error.value = 'Permita las ventanas emergentes para previsualizar el documento'
+      return
+    }
+  }
   loading.value = true
   try {
     const res = await prepararOImprimirVenta(ficha.value, {
       puestoCodigo: String(puesto.puestoCodigo || ficha.value.puesto || ''),
+      formato,
     })
     if (res.kind === 'ticket') {
       const updated = await obtenerVenta(ficha.value.empresa, ficha.value.tipo, ficha.value.albaran)
@@ -1420,13 +1429,33 @@ async function onImprimir() {
       mensaje.value = res.message
       return
     }
-    a4Prep.value = res.prep
-    a4Open.value = true
+    await completarPreviewA4(res.prep)
   } catch (e: unknown) {
+    preview.cerrar()
     error.value = extractApiError(e, 'No se pudo imprimir')
   } finally {
     loading.value = false
   }
+}
+
+/** Previsualización en ventana aparte: el modal solo renderiza el folio oculto. */
+async function mostrarPreviewA4(prep: PrepImpresionA4) {
+  if (!preview.abrir(prep.titulo)) {
+    throw new Error('Permita las ventanas emergentes para previsualizar el documento')
+  }
+  await completarPreviewA4(prep)
+}
+
+async function completarPreviewA4(prep: PrepImpresionA4) {
+  a4Prep.value = prep
+  a4Open.value = true
+  await nextTick()
+  const html = (await a4ModalRef.value?.capturarHtmlFolio()) || ''
+  if (!html) {
+    preview.cerrar()
+    throw new Error('No hay plantilla configurada para este documento en el puesto')
+  }
+  preview.mostrar(html, { impresoraNombre: prep.impresoraNombre })
 }
 
 async function onImprimirA4Confirmado() {
@@ -1439,9 +1468,12 @@ async function onImprimirA4Confirmado() {
     const updated = await obtenerVenta(ficha.value.empresa, ficha.value.tipo, ficha.value.albaran)
     aplicarDetalle(updated)
     mensaje.value = msg
+    preview.cerrar()
     a4Open.value = false
   } catch (e: unknown) {
-    error.value = extractApiError(e, 'No se pudo imprimir el documento A4')
+    const msg = extractApiError(e, 'No se pudo imprimir el documento A4')
+    error.value = msg
+    preview.notificarError(msg)
   } finally {
     a4Imprimiendo.value = false
   }
@@ -1468,8 +1500,7 @@ async function imprimirTrasFinalizar() {
     if (res.kind === 'ticket') {
       mensaje.value = `${mensaje.value ? mensaje.value + ' · ' : ''}${res.message}`
     } else {
-      a4Prep.value = res.prep
-      a4Open.value = true
+      await mostrarPreviewA4(res.prep)
     }
   } catch (e: unknown) {
     error.value = extractApiError(e, 'Documento finalizado, pero no se pudo imprimir')
@@ -2148,6 +2179,13 @@ onMounted(() => {
       </div>
     </Teleport>
 
+    <ElegirFormatoImpresionModal
+      :open="formatoImpresionOpen"
+      :etiqueta-a4="etiquetaA4Impresion"
+      @elegir="onElegirFormatoImpresion"
+      @cancelar="formatoImpresionOpen = false"
+    />
+
     <VentaImpresionA4Modal
       ref="a4ModalRef"
       :open="a4Open"
@@ -2156,6 +2194,7 @@ onMounted(() => {
       :datos="a4Prep?.datos ?? null"
       :impresora-nombre="a4Prep?.impresoraNombre || ''"
       :imprimiendo="a4Imprimiendo"
+      oculto
       @cerrar="a4Open = false"
       @imprimir="onImprimirA4Confirmado"
     />

@@ -305,7 +305,7 @@ defineEmits<{
         type="button"
         class="tool-btn"
         :disabled="loading || puedeImprimir === false"
-        title="Imprimir (solo tras Finalizar: ticket térmico o A4 según tipo)"
+        title="Imprimir ticket o albarán / factura / presupuesto"
         @click="$emit('imprimir')"
       >
         <ToolIcon name="listado" />

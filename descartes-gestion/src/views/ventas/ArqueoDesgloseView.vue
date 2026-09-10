@@ -2,12 +2,12 @@
 import { onMounted, ref } from 'vue'
 import {
   descargarDesgloseArqueoPdf,
-  imprimirTermicaDispositivo,
   obtenerDesgloseArqueoTextoTermico,
   obtenerDesgloseArqueoVentas,
 } from '@/api/ventas'
 import type { DesgloseArqueoVentasResponse } from '@/types/ventas'
 import { extractApiError } from '@/composables/useMantenimiento'
+import { imprimirTicketTermica } from '@/composables/impresionTicketTermica'
 import { usePdfPreview } from '@/composables/usePdfPreview'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
@@ -235,17 +235,12 @@ async function imprimirTermica() {
     const { texto } = await obtenerDesgloseArqueoTextoTermico(paramsConsulta())
     const puesto =
       String(form.value.puestoDesde || puestoContexto.puestoCodigo || '').trim() || '00'
-    const res = await imprimirTermicaDispositivo(puesto, {
+    const res = await imprimirTicketTermica({
+      puestoCodigo: puesto,
       texto,
       tipo: 'desglose-arqueo',
     })
-    if (!res.agenteOnline) {
-      error.value = res.message || 'Agente local no disponible (Descartes Electron)'
-      return
-    }
-    mensaje.value = res.stub
-      ? `Térmica (stub / Registradora): ${res.message || ''}`
-      : res.message || 'Enviado a térmica'
+    mensaje.value = res.stub ? `Térmica (stub / Registradora): ${res.message}` : res.message
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudo imprimir en térmica')
   } finally {

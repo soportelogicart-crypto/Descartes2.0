@@ -41,6 +41,7 @@ Nueva fila **`AlbaranesVentasCab`**:
 
 - `Tipo = 'A'`
 - `Factura = 0`, `FacturaTipo` null
+- `Estado` null (cerrado y pendiente de facturar; no hereda `B` de un presupuesto)
 - `Fecha` = fecha generación
 - Copia resto campos de plantilla (excepto skip list en servicio)
 - Línea texto en `AlbaranesVentasLin`: `Articulo = 'NO'`, descripción periodo

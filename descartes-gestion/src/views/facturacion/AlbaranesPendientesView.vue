@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   descargarAlbaranPendientePdf,
   descargarAlbaranesPendientesPdf,
@@ -10,13 +10,12 @@ import { api } from '@/api/client'
 import type { FacturaManualPendiente } from '@/types/facturacion'
 import type { VentaDetalle } from '@/types/ventas'
 import { extractApiError } from '@/composables/useMantenimiento'
-import { usePdfPreview } from '@/composables/usePdfPreview'
+import { abrirVentanaPreview, escribirVentanaPdf } from '@/composables/previewDocumentoVentana'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import EntidadBuscarModal, {
   type EntidadBuscarResultado,
 } from '@/components/common/EntidadBuscarModal.vue'
-import PdfPreviewModal from '@/components/common/PdfPreviewModal.vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
 import DecimalInput from '@/components/common/DecimalInput.vue'
 
@@ -42,9 +41,6 @@ const detalleRef = ref<FacturaManualPendiente | null>(null)
 const detalleLoading = ref(false)
 const detalleError = ref<string | null>(null)
 const imprimiendo = ref(false)
-const { pdfOpen, pdfUrl, pdfTitulo, cerrarPdf, abrirPdf } = usePdfPreview(
-  'Albaranes pendientes de facturar'
-)
 
 const form = ref({
   empresaDesde: '',
@@ -57,6 +53,73 @@ const form = ref({
   albaranHasta: '' as string | number,
   seleccion: 'todos' as 'todos' | 'con_prefactura' | 'sin_prefactura',
 })
+
+/** Columnas del grid con su texto filtrable (búsqueda mientras se escribe). */
+const COLUMNAS = [
+  { key: 'fecha', label: 'Fecha', clase: 'col-fecha' },
+  { key: 'albaran', label: 'Albarán', clase: 'col-alb' },
+  { key: 'puesto', label: 'Pto', clase: 'col-pto' },
+  { key: 'cliente', label: 'Cliente', clase: 'col-cliente' },
+  { key: 'razonSocial', label: 'Razón social', clase: 'col-razon' },
+  { key: 'nif', label: 'NIF', clase: 'col-nif' },
+  { key: 'importe', label: 'Importe', clase: 'col-importe', num: true },
+  { key: 'prefactura', label: 'Pref.', clase: 'col-pref' },
+] as const
+
+type ColumnaKey = (typeof COLUMNAS)[number]['key']
+
+const textoColumna: Record<ColumnaKey, (r: FacturaManualPendiente) => string> = {
+  fecha: (r) => String(r.fecha ?? ''),
+  albaran: (r) => String(r.albaran ?? ''),
+  puesto: (r) => String(r.puesto ?? ''),
+  cliente: (r) => String(r.cliente ?? ''),
+  razonSocial: (r) => String(r.razonSocial ?? ''),
+  nif: (r) => String(r.nif ?? ''),
+  importe: (r) => Number(r.importe ?? 0).toFixed(2),
+  prefactura: (r) => (r.prefactura ? 'Sí' : ''),
+}
+
+function filtrosColumnaVacios(): Record<ColumnaKey, string> {
+  return {
+    fecha: '',
+    albaran: '',
+    puesto: '',
+    cliente: '',
+    razonSocial: '',
+    nif: '',
+    importe: '',
+    prefactura: '',
+  }
+}
+
+const filtrosColumna = ref<Record<ColumnaKey, string>>(filtrosColumnaVacios())
+
+function normalizar(texto: string) {
+  return texto
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+const filtrosColumnaActivos = computed(() =>
+  (Object.entries(filtrosColumna.value) as [ColumnaKey, string][])
+    .map(([key, valor]) => ({ key, valor: normalizar(valor.trim()) }))
+    .filter((f) => f.valor !== '')
+)
+
+const hayFiltroColumna = computed(() => filtrosColumnaActivos.value.length > 0)
+
+const itemsFiltrados = computed(() => {
+  const activos = filtrosColumnaActivos.value
+  if (activos.length === 0) return items.value
+  return items.value.filter((r) =>
+    activos.every((f) => normalizar(textoColumna[f.key](r)).includes(f.valor))
+  )
+})
+
+function limpiarFiltrosColumna() {
+  filtrosColumna.value = filtrosColumnaVacios()
+}
 
 function paramsConsulta(): Record<string, string | number | undefined> {
   const f = form.value
@@ -183,9 +246,16 @@ async function imprimirAlbaran() {
   imprimiendo.value = true
   detalleError.value = null
   try {
-    const blob = await descargarAlbaranPendientePdf(r.empresa, r.tipo, r.albaran)
-    await asegurarPdf(blob, 'Error al generar el PDF del albarán')
-    abrirPdf(blob, `Albarán ${r.tipo}/${r.albaran}`)
+    const ventana = abrirVentanaPreview(`Albarán ${r.tipo}/${r.albaran}`)
+    if (!ventana) throw new Error('Permita las ventanas emergentes para previsualizar el PDF')
+    try {
+      const blob = await descargarAlbaranPendientePdf(r.empresa, r.tipo, r.albaran)
+      await asegurarPdf(blob, 'Error al generar el PDF del albarán')
+      escribirVentanaPdf(ventana, blob, `Albarán ${r.tipo}/${r.albaran}`)
+    } catch (e) {
+      if (!ventana.closed) ventana.close()
+      throw e
+    }
   } catch (e: unknown) {
     detalleError.value = extractApiError(e, 'No se pudo generar el PDF del albarán')
   } finally {
@@ -210,15 +280,21 @@ async function pdf() {
     error.value = 'Busque primero'
     return
   }
+  const ventana = abrirVentanaPreview('Albaranes pendientes de facturar')
+  if (!ventana) {
+    error.value = 'Permita las ventanas emergentes para previsualizar el PDF'
+    return
+  }
   saving.value = true
   error.value = null
   mensaje.value = null
   try {
     const blob = await descargarAlbaranesPendientesPdf(paramsConsulta())
     await asegurarPdf(blob, 'Error al generar PDF')
-    abrirPdf(blob, 'Albaranes pendientes de facturar')
+    escribirVentanaPdf(ventana, blob, 'Albaranes pendientes de facturar')
     mensaje.value = 'PDF listo para previsualizar'
   } catch (e: unknown) {
+    if (!ventana.closed) ventana.close()
     error.value = extractApiError(e, 'No se pudo generar el PDF')
   } finally {
     saving.value = false
@@ -227,29 +303,31 @@ async function pdf() {
 
 onMounted(async () => {
   await cargarOpciones()
+  await buscar()
 })
 </script>
 
 <template>
   <section class="page">
     <div class="toolbar">
-      <div>
+      <div class="toolbar-title">
         <h2>Albaranes pendientes de facturar</h2>
         <p class="hint">
           Informe de crédito pendiente (solo consulta). Pulse una línea para ver el albarán.
         </p>
       </div>
-      <div class="actions">
-        <button type="button" class="btn primary" :disabled="loading || loadingOpts" @click="buscar">
+      <div class="toolbar-actions">
+        <button type="button" class="btn" :disabled="loading || loadingOpts" @click="buscar">
           {{ loading ? 'Buscando…' : 'Buscar' }}
         </button>
-        <button type="button" class="btn" :disabled="saving || !items.length" @click="pdf">
+        <button type="button" class="btn primary" :disabled="saving || !items.length" @click="pdf">
           {{ saving ? 'PDF…' : 'Previsualizar PDF' }}
         </button>
       </div>
     </div>
 
     <div class="layout">
+      <aside class="sidebar">
       <form class="panel" @submit.prevent="buscar">
         <fieldset class="intervalos">
           <legend>Intervalos</legend>
@@ -327,36 +405,49 @@ onMounted(async () => {
             </select>
           </label>
         </fieldset>
+
+        <div class="resumen">
+          <div>
+            <span>Listadas</span>
+            <strong>{{ itemsFiltrados.length }}</strong>
+          </div>
+          <div>
+            <span>Total</span>
+            <strong>{{ items.length }}</strong>
+          </div>
+        </div>
       </form>
+      </aside>
 
       <div class="resultado">
         <p v-if="error" class="error">{{ error }}</p>
         <p v-if="mensaje && !error" class="ok">{{ mensaje }}</p>
+        <p v-if="loading" class="hint">Cargando…</p>
         <div v-if="items.length" class="grid-wrap">
           <table>
             <thead>
               <tr>
-                <th>Fecha</th>
-                <th>Tie.</th>
-                <th>Albarán</th>
-                <th>Pto</th>
-                <th>Cliente</th>
-                <th>Razón social</th>
-                <th>NIF</th>
-                <th class="num">Importe</th>
-                <th>Pref.</th>
+                <th v-for="c in COLUMNAS" :key="c.key" :class="c.clase">
+                  <span class="th-titulo" :class="{ num: c.num }">{{ c.label }}</span>
+                  <input
+                    v-model="filtrosColumna[c.key]"
+                    type="search"
+                    class="filtro-col"
+                    :title="`Filtrar por ${c.label}`"
+                    :aria-label="`Filtrar por ${c.label}`"
+                  />
+                </th>
               </tr>
             </thead>
             <tbody>
               <tr
-                v-for="r in items"
+                v-for="r in itemsFiltrados"
                 :key="`${r.empresa}|${r.tipo}|${r.albaran}`"
                 class="fila"
                 title="Ver albarán"
                 @click="abrirDetalle(r)"
               >
                 <td>{{ r.fecha }}</td>
-                <td>{{ r.empresa }}</td>
                 <td>{{ r.albaran }}</td>
                 <td>{{ r.puesto }}</td>
                 <td>{{ r.cliente }}</td>
@@ -365,10 +456,19 @@ onMounted(async () => {
                 <td class="num">{{ r.importe.toFixed(2) }}</td>
                 <td>{{ r.prefactura ? 'Sí' : '' }}</td>
               </tr>
+              <tr v-if="!itemsFiltrados.length">
+                <td :colspan="COLUMNAS.length" class="empty">Ningún albarán con esos filtros</td>
+              </tr>
             </tbody>
           </table>
         </div>
-        <p v-else-if="!loading" class="empty">Configure filtros y pulse Buscar.</p>
+        <p v-else-if="!loading && !error" class="empty">
+          No hay albaranes pendientes con estas opciones e intervalos.
+        </p>
+        <div v-if="hayFiltroColumna" class="pie-grid">
+          <span class="listadas">{{ itemsFiltrados.length }} de {{ items.length }}</span>
+          <button type="button" class="btn" @click="limpiarFiltrosColumna">Limpiar filtros</button>
+        </div>
       </div>
     </div>
 
@@ -463,12 +563,6 @@ onMounted(async () => {
       @cerrar="buscarClienteOpen = false"
     />
 
-    <PdfPreviewModal
-      :open="pdfOpen"
-      :url="pdfUrl"
-      :titulo="pdfTitulo"
-      @cerrar="cerrarPdf"
-    />
   </section>
 </template>
 
@@ -477,84 +571,105 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  height: 100%;
   min-height: 0;
+  height: 100%;
+  box-sizing: border-box;
 }
 .toolbar {
   display: flex;
   flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 0.5rem;
   align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-shrink: 0;
 }
-.toolbar h2 {
+.toolbar-title h2 {
   margin: 0;
+  font-size: 1.15rem;
 }
 .hint {
-  margin: 0.15rem 0 0;
+  margin: 0.2rem 0 0;
   color: #64748b;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
+}
+.toolbar-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
 }
 .btn {
-  padding: 0.4rem 0.75rem;
   border: 1px solid #94a3b8;
-  border-radius: 6px;
   background: #fff;
+  border-radius: 4px;
+  padding: 0.4rem 0.85rem;
+  font: inherit;
+  font-size: 0.875rem;
   cursor: pointer;
 }
-.btn.primary {
-  background: #2563eb;
-  border-color: #1d4ed8;
-  color: #fff;
-}
 .btn:disabled {
-  opacity: 0.5;
+  opacity: 0.55;
+  cursor: not-allowed;
 }
-.actions {
-  display: flex;
-  gap: 0.35rem;
-  flex-wrap: wrap;
+.btn.primary {
+  background: #0f172a;
+  color: #fff;
+  border-color: #0f172a;
 }
 .layout {
   display: grid;
-  grid-template-columns: minmax(16rem, 20rem) 1fr;
-  gap: 0.75rem;
+  grid-template-columns: 21rem minmax(0, 1fr);
+  gap: 0.85rem;
+  align-items: stretch;
   min-height: 0;
   flex: 1;
+}
+.sidebar {
+  width: 21rem;
+  max-width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 .panel {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
   padding: 0.65rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
   background: #f8fafc;
-  align-self: start;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  overflow: auto;
+  min-height: 0;
 }
 .panel fieldset {
   margin: 0;
-  padding: 0.45rem 0.5rem 0.55rem;
+  padding: 0.55rem 0.55rem 0.65rem;
   border: 1px solid #cbd5e1;
   border-radius: 4px;
   background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
 }
 .panel legend {
   padding: 0 0.3rem;
-  font-size: 0.75rem;
+  font-size: 0.78rem;
   font-weight: 600;
   color: #334155;
 }
 .rango-head,
 .rango-row {
   display: grid;
-  grid-template-columns: 4.2rem 1fr 1fr;
-  gap: 0.3rem;
+  grid-template-columns: 4.4rem minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.25rem;
   align-items: center;
+  min-width: 0;
 }
 .rango-head {
-  margin-bottom: 0.2rem;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   color: #64748b;
   text-align: center;
 }
@@ -563,7 +678,8 @@ onMounted(async () => {
 }
 .rango-label {
   font-size: 0.75rem;
-  color: #475569;
+  color: #334155;
+  white-space: nowrap;
 }
 .rango-row input,
 .rango-row select,
@@ -571,27 +687,30 @@ onMounted(async () => {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  padding: 0.3rem 0.35rem;
+  padding: 0.2rem 0.3rem;
   border: 1px solid #94a3b8;
-  border-radius: 4px;
+  border-radius: 3px;
+  height: 1.65rem;
   font: inherit;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
+  background: #fff;
 }
 .con-lupa {
   display: flex;
   align-items: center;
-  gap: 0.2rem;
+  gap: 0.15rem;
   min-width: 0;
 }
 .con-lupa input {
   flex: 1;
+  min-width: 0;
 }
 .btn-lupa {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.7rem;
-  height: 1.7rem;
+  width: 1.65rem;
+  height: 1.65rem;
   padding: 0;
   border: 1px solid #94a3b8;
   border-radius: 3px;
@@ -604,15 +723,29 @@ onMounted(async () => {
   background: #e0f2fe;
   border-color: #38bdf8;
 }
-.opciones {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
 .opciones label {
   display: grid;
-  gap: 0.15rem;
+  grid-template-columns: 6.2rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  color: #334155;
+}
+.resumen {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+  padding: 0.45rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #fff;
   font-size: 0.78rem;
+  margin-top: auto;
+}
+.resumen strong {
+  display: block;
+  color: #94a3b8;
+  font-size: 1rem;
 }
 .resultado {
   min-width: 0;
@@ -620,28 +753,92 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  overflow: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 0.65rem;
+  background: #fff;
+  box-sizing: border-box;
 }
 .grid-wrap {
   overflow: auto;
-  border: 1px solid #cbd5e1;
+  border: 1px solid #e2e8f0;
   border-radius: 4px;
-  background: #fff;
+  min-height: 0;
   flex: 1;
 }
 table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
 }
 th,
 td {
-  border: 1px solid #e2e8f0;
-  padding: 0.25rem 0.35rem;
+  padding: 0.3rem 0.4rem;
+  border-bottom: 1px solid #f1f5f9;
+  text-align: left;
+  white-space: nowrap;
 }
 th {
   background: #f1f5f9;
+  font-weight: 600;
   position: sticky;
   top: 0;
+  z-index: 1;
+  vertical-align: top;
+}
+.th-titulo {
+  display: block;
+  padding: 0 0.1rem 0.15rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.th-titulo.num {
+  text-align: right;
+}
+.filtro-col {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 400;
+  height: auto;
+}
+.filtro-col:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: -1px;
+}
+.col-fecha {
+  width: 6.5rem;
+}
+.col-alb {
+  width: 6rem;
+}
+.col-pto,
+.col-pref {
+  width: 4rem;
+}
+.col-cliente,
+.col-nif {
+  width: 7rem;
+}
+.col-importe {
+  width: 6.5rem;
+}
+.pie-grid {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+.listadas {
+  font-size: 0.78rem;
+  color: #64748b;
 }
 .num {
   text-align: right;
@@ -754,15 +951,17 @@ th {
 }
 .error {
   color: #b91c1c;
+  margin: 0;
 }
 .ok {
   color: #047857;
+  margin: 0;
 }
 .empty {
   color: #64748b;
-  font-size: 0.9rem;
+  margin: 1rem 0;
 }
-@media (max-width: 900px) {
+@media (max-width: 960px) {
   .layout {
     grid-template-columns: 1fr;
   }

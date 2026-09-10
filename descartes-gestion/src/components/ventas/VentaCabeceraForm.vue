@@ -3,6 +3,9 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import type { VentaDetalle } from '@/types/ventas'
 import DecimalInput from '@/components/common/DecimalInput.vue'
+import EntidadBuscarModal, {
+  type EntidadBuscarResultado,
+} from '@/components/common/EntidadBuscarModal.vue'
 
 type DireccionEnvioOpcion = {
   key: string
@@ -42,6 +45,8 @@ const clienteInput = ref<HTMLInputElement | null>(null)
 const direccionesEnvio = ref<DireccionEnvioOpcion[]>([])
 const dirMenuOpen = ref(false)
 const cargandoDirs = ref(false)
+const buscarFpagoOpen = ref(false)
+const fpagoDescripcion = ref('')
 
 const ficha = computed({
   get: () => props.modelValue,
@@ -94,6 +99,31 @@ function setFpago(index: number, codigo: string) {
   const formas = ensureFormas()
   formas[index] = { ...formas[index], codigo }
   patch('formasPago', formas)
+}
+
+function abrirBuscarFpago() {
+  if (props.readonly) return
+  buscarFpagoOpen.value = true
+}
+
+function onFpagoSeleccionado(sel: EntidadBuscarResultado) {
+  buscarFpagoOpen.value = false
+  setFpago(0, sel.codigo)
+  fpagoDescripcion.value = sel.etiqueta
+}
+
+async function cargarDescripcionFpago(codigo: string) {
+  const c = codigo.trim()
+  if (!c) {
+    fpagoDescripcion.value = ''
+    return
+  }
+  try {
+    const { data } = await api.get(`/api/mantenimiento/formas-pago/${encodeURIComponent(c)}`)
+    fpagoDescripcion.value = String(data.descripcion ?? data.nombre ?? '').trim()
+  } catch {
+    fpagoDescripcion.value = ''
+  }
 }
 
 function setImpFpago(index: number, importe: number) {
@@ -191,6 +221,14 @@ watch(
   () => props.modelValue.cliente,
   (cli) => {
     void cargarDireccionesEnvio(String(cli ?? ''))
+  },
+  { immediate: true }
+)
+
+watch(
+  () => fpagoCodigo(0),
+  (codigo) => {
+    void cargarDescripcionFpago(codigo)
   },
   { immediate: true }
 )
@@ -357,6 +395,27 @@ onUnmounted(() => {
               </button>
             </div>
             <small v-if="vendedorNombre" class="field-help">{{ vendedorNombre }}</small>
+          </label>
+          <label class="field">
+            <span class="label">Forma de pago</span>
+            <div class="vendedor-row">
+              <input
+                :value="fpagoCodigo(0)"
+                readonly
+                placeholder="Seleccionar"
+                :title="fpagoDescripcion || 'Buscar forma de pago'"
+              />
+              <button
+                type="button"
+                class="btn-buscar"
+                :disabled="readonly"
+                title="Buscar forma de pago"
+                @click="abrirBuscarFpago"
+              >
+                ...
+              </button>
+            </div>
+            <small v-if="fpagoDescripcion" class="field-help">{{ fpagoDescripcion }}</small>
           </label>
           <label class="field span-2">
             <span class="label">Razon social</span>
@@ -559,17 +618,8 @@ onUnmounted(() => {
     </section>
 
     <section class="section">
-      <h3>Formas de pago</h3>
+      <h3>Desglose de cobro</h3>
       <div class="fields cols-6">
-        <label class="field">
-          <span class="label">Fpago 1</span>
-          <input
-            :value="fpagoCodigo(0)"
-            maxlength="2"
-            :readonly="readonly"
-            @input="setFpago(0, ($event.target as HTMLInputElement).value)"
-          />
-        </label>
         <label class="field">
           <span class="label">Importe 1</span>
           <DecimalInput
@@ -600,6 +650,15 @@ onUnmounted(() => {
       </div>
     </section>
     </details>
+
+    <EntidadBuscarModal
+      :open="buscarFpagoOpen"
+      entidad="formas-pago"
+      titulo="Seleccionar forma de pago"
+      :codigo-actual="fpagoCodigo(0)"
+      @seleccionar="onFpagoSeleccionado"
+      @cerrar="buscarFpagoOpen = false"
+    />
   </div>
 </template>
 

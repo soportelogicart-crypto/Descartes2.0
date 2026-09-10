@@ -1,20 +1,23 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import {
-  descargarFacturasPdf,
-  listarFacturasImpresion,
-  marcarFacturasImpresas,
-} from '@/api/facturacion'
+import { computed, nextTick, onMounted, ref } from 'vue'
+import { listarFacturasImpresion, marcarFacturasImpresas } from '@/api/facturacion'
 import { api } from '@/api/client'
 import type { FacturaImpresionItem } from '@/types/facturacion'
 import { extractApiError } from '@/composables/useMantenimiento'
-import { usePdfPreview } from '@/composables/usePdfPreview'
+import {
+  imprimirFacturasPreparadas,
+  imprimirFacturasTicket,
+  prepararImpresionFacturas,
+  type PrepImpresionFacturas,
+} from '@/composables/useImpresionFacturaDocumento'
+import { useVentanaPreviewDocumento } from '@/composables/previewDocumentoVentana'
+import ElegirFormatoImpresionModal from '@/components/common/ElegirFormatoImpresionModal.vue'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import EntidadBuscarModal, {
   type EntidadBuscarResultado,
 } from '@/components/common/EntidadBuscarModal.vue'
-import PdfPreviewModal from '@/components/common/PdfPreviewModal.vue'
+import FacturasImpresionA4Modal from '@/components/facturacion/FacturasImpresionA4Modal.vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
 import DecimalInput from '@/components/common/DecimalInput.vue'
 
@@ -33,10 +36,15 @@ const items = ref<FacturaImpresionItem[]>([])
 const selected = ref<Record<string, boolean>>({})
 const tiendas = ref<Opt[]>([])
 const actividades = ref<Opt[]>([])
-const { pdfOpen, pdfUrl, pdfTitulo, cerrarPdf, abrirPdf } = usePdfPreview('Impresión de facturas')
+const a4Open = ref(false)
+const a4Prep = ref<PrepImpresionFacturas | null>(null)
+const formatoImpresionOpen = ref(false)
+const a4ModalRef = ref<{ capturarHtmlFolio: () => Promise<string> } | null>(null)
 const buscarClienteOpen = ref(false)
 const buscarClienteCampo = ref<CampoCliente>('desde')
 const buscarClienteInicial = ref('')
+/** Ventana aparte con la previsualización A4 (sustituye al modal). */
+const preview = useVentanaPreviewDocumento({ imprimir: () => imprimirDocumentos() })
 
 function hoyIso() {
   const d = new Date()
@@ -73,14 +81,83 @@ const form = ref({
   actividadHasta: '',
 })
 
-const seleccionados = computed(() => items.value.filter((r) => selected.value[rowKey(r)]))
+/** Columnas del grid con su texto filtrable (búsqueda mientras se escribe). */
+const COLUMNAS = [
+  { key: 'fecha', label: 'Fecha', clase: 'col-fecha' },
+  { key: 'factura', label: 'Factura', clase: 'col-factura' },
+  { key: 'cliente', label: 'Cliente', clase: 'col-cliente' },
+  { key: 'razonSocial', label: 'Razón social', clase: 'col-razon' },
+  { key: 'nif', label: 'NIF', clase: 'col-nif' },
+  { key: 'importe', label: 'Importe', clase: 'col-importe', num: true },
+  { key: 'cobro', label: 'Cobro', clase: 'col-cobro' },
+  { key: 'impresa', label: 'Imp.', clase: 'col-imp' },
+] as const
+
+type ColumnaKey = (typeof COLUMNAS)[number]['key']
+
+const textoColumna: Record<ColumnaKey, (r: FacturaImpresionItem) => string> = {
+  fecha: (r) => String(r.fecha ?? ''),
+  factura: (r) => String(r.factura ?? ''),
+  cliente: (r) => String(r.cliente ?? ''),
+  razonSocial: (r) => String(r.razonSocial ?? ''),
+  nif: (r) => String(r.nif ?? ''),
+  importe: (r) => Number(r.importe ?? 0).toFixed(2),
+  cobro: (r) => (r.tipoCobro === 'diferida' ? 'Diferida' : 'Contado'),
+  impresa: (r) => (r.impresa ? 'Sí' : 'No'),
+}
+
+function filtrosColumnaVacios(): Record<ColumnaKey, string> {
+  return {
+    fecha: '',
+    factura: '',
+    cliente: '',
+    razonSocial: '',
+    nif: '',
+    importe: '',
+    cobro: '',
+    impresa: '',
+  }
+}
+
+const filtrosColumna = ref<Record<ColumnaKey, string>>(filtrosColumnaVacios())
+
+/** Compara sin acentos ni mayúsculas: "MARIA" encuentra "María". */
+function normalizar(texto: string): string {
+  return texto
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+const filtrosColumnaActivos = computed(() =>
+  (Object.entries(filtrosColumna.value) as [ColumnaKey, string][])
+    .map(([key, valor]) => ({ key, valor: normalizar(valor.trim()) }))
+    .filter((f) => f.valor !== '')
+)
+
+const hayFiltroColumna = computed(() => filtrosColumnaActivos.value.length > 0)
+
+const itemsFiltrados = computed(() => {
+  const activos = filtrosColumnaActivos.value
+  if (activos.length === 0) return items.value
+  return items.value.filter((r) =>
+    activos.every((f) => normalizar(textoColumna[f.key](r)).includes(f.valor))
+  )
+})
+
+function limpiarFiltrosColumna() {
+  filtrosColumna.value = filtrosColumnaVacios()
+}
+
+// Solo se imprime lo que se ve: los filtros de columna acotan la selección.
+const seleccionados = computed(() => itemsFiltrados.value.filter((r) => selected.value[rowKey(r)]))
 const todosMarcados = computed(
-  () => items.value.length > 0 && items.value.every((r) => selected.value[rowKey(r)])
+  () => itemsFiltrados.value.length > 0 && itemsFiltrados.value.every((r) => selected.value[rowKey(r)])
 )
 
 function toggleTodos(v: boolean) {
   const next: Record<string, boolean> = { ...selected.value }
-  for (const r of items.value) next[rowKey(r)] = v
+  for (const r of itemsFiltrados.value) next[rowKey(r)] = v
   selected.value = next
 }
 
@@ -190,7 +267,7 @@ async function buscar() {
       data.items.length >= 500 ? ' (máx. 500; afine filtros si faltan)' : ''
     if (data.items.length === 0 && form.value.estadoImpresion === 'pendientes') {
       mensaje.value =
-        '0 facturas pendientes de imprimir. Pruebe Estado = Todas o Impresas (pueden haberse marcado al previsualizar el PDF).'
+        '0 facturas pendientes de imprimir. Pruebe Estado = Todas o Impresas.'
     } else {
       mensaje.value = `${data.totales.facturas} facturas · ${data.totales.importe.toFixed(2)} €${trunc}`
     }
@@ -202,7 +279,30 @@ async function buscar() {
   }
 }
 
-async function imprimirPdf() {
+function onImprimir() {
+  if (!puede('facturacion-impresion', 'ver')) {
+    error.value = 'Sin permiso'
+    return
+  }
+  if (seleccionados.value.length === 0) {
+    error.value = 'Seleccione al menos una factura'
+    return
+  }
+  error.value = null
+  mensaje.value = null
+  formatoImpresionOpen.value = true
+}
+
+async function onElegirFormatoImpresion(formato: 'ticket' | 'a4') {
+  formatoImpresionOpen.value = false
+  if (formato === 'ticket') {
+    await imprimirTickets()
+    return
+  }
+  await previsualizar()
+}
+
+async function imprimirTickets() {
   if (!puede('facturacion-impresion', 'ver')) {
     error.value = 'Sin permiso'
     return
@@ -216,22 +316,95 @@ async function imprimirPdf() {
   error.value = null
   mensaje.value = null
   try {
-    const blob = await descargarFacturasPdf({
-      facturas: sel.map((r) => ({
+    const claves = sel.map((r) => ({
+      empresa: r.empresa,
+      facturaTipo: r.facturaTipo,
+      factura: r.factura,
+    }))
+    mensaje.value = await imprimirFacturasTicket(claves, {
+      puestoCodigo: String(puestoContexto.puestoCodigo ?? ''),
+    })
+    if (form.value.marcarImpresa) {
+      await marcarFacturasImpresas({ facturas: claves })
+      await buscar()
+    }
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo imprimir el ticket')
+  } finally {
+    saving.value = false
+  }
+}
+
+/** Previsualiza con la plantilla del diseñador activa en una ventana aparte. */
+async function previsualizar() {
+  if (!puede('facturacion-impresion', 'ver')) {
+    error.value = 'Sin permiso'
+    return
+  }
+  const sel = seleccionados.value
+  if (sel.length === 0) {
+    error.value = 'Seleccione al menos una factura'
+    return
+  }
+  // La ventana debe abrirse dentro del gesto del clic o el navegador la bloquea.
+  const abierta = preview.abrir(
+    sel.length === 1 ? `Factura ${sel[0].facturaTipo}-${sel[0].factura}` : 'Facturas'
+  )
+  if (!abierta) {
+    error.value = 'Permita las ventanas emergentes para previsualizar la factura'
+    return
+  }
+
+  saving.value = true
+  error.value = null
+  mensaje.value = null
+  try {
+    a4Prep.value = await prepararImpresionFacturas(
+      sel.map((r) => ({
         empresa: r.empresa,
         facturaTipo: r.facturaTipo,
         factura: r.factura,
       })),
-      marcarImpresa: form.value.marcarImpresa,
-    })
-    if (blob.type && blob.type.includes('json')) {
-      throw new Error('Error al generar PDF')
+      { puestoCodigo: String(puestoContexto.puestoCodigo ?? '') }
+    )
+    a4Open.value = true
+    await nextTick()
+    const html = (await a4ModalRef.value?.capturarHtmlFolio()) || ''
+    if (!html) {
+      throw new Error('No hay plantilla configurada para estas facturas en el puesto')
     }
-    abrirPdf(blob, `Facturas (${sel.length})`)
-    mensaje.value = `PDF de ${sel.length} factura(s) listo para previsualizar`
+    preview.mostrar(html, {
+      impresoraNombre: a4Prep.value.impresoraNombre,
+      puedeImprimir: puede('facturacion-impresion', 'crear'),
+    })
+  } catch (e: unknown) {
+    preview.cerrar()
+    a4Open.value = false
+    error.value = extractApiError(e, 'No se pudo preparar la impresión')
+  } finally {
+    saving.value = false
+  }
+}
+
+/** Imprime lo que muestra la ventana de previsualización. */
+async function imprimirDocumentos() {
+  const prep = a4Prep.value
+  if (!prep || saving.value) return
+  saving.value = true
+  error.value = null
+  try {
+    const html = (await a4ModalRef.value?.capturarHtmlFolio()) || ''
+    mensaje.value = await imprimirFacturasPreparadas(prep, html)
+    if (form.value.marcarImpresa) {
+      await marcarFacturasImpresas({ facturas: prep.documentos.map((d) => d.clave) })
+    }
+    preview.cerrar()
+    a4Open.value = false
     if (form.value.marcarImpresa) await buscar()
   } catch (e: unknown) {
-    error.value = extractApiError(e, 'No se pudo generar el PDF')
+    const msg = extractApiError(e, 'No se pudo imprimir')
+    error.value = msg
+    preview.notificarError(msg)
   } finally {
     saving.value = false
   }
@@ -268,6 +441,8 @@ async function marcarSolo() {
 
 onMounted(async () => {
   await cargarOpciones()
+  // Al entrar se listan las facturas con los filtros por defecto, sin pulsar Buscar.
+  await buscar()
 })
 </script>
 
@@ -277,8 +452,8 @@ onMounted(async () => {
       <div class="toolbar-title">
         <h2>Impresión de facturas</h2>
         <p class="hint">
-          Diferidas = crédito (Estado G). Si no salen, revise Estado impresión (Todas / Impresas):
-          previsualizar el PDF pudo marcarlas.
+          Diferidas = crédito (Estado G). Imprimir pregunta ticket o factura A4 (plantilla del
+          diseñador del puesto). Solo se marcan como impresas si activa «Marcar al imprimir».
         </p>
       </div>
       <div class="toolbar-actions">
@@ -289,7 +464,7 @@ onMounted(async () => {
           type="button"
           class="btn primary"
           :disabled="saving || loading || seleccionados.length === 0"
-          @click="imprimirPdf"
+          @click="onImprimir"
         >
           {{ saving ? 'Generando…' : 'Imprimir' }}
         </button>
@@ -447,7 +622,7 @@ onMounted(async () => {
             </div>
             <div>
               <span>Listadas</span>
-              <strong>{{ items.length }}</strong>
+              <strong>{{ itemsFiltrados.length }}</strong>
             </div>
           </div>
         </form>
@@ -458,7 +633,7 @@ onMounted(async () => {
         <p v-if="mensaje && !error" class="ok">{{ mensaje }}</p>
         <p v-if="loading" class="hint">Cargando…</p>
         <p v-if="!items.length && !loading && !error" class="empty">
-          Configure opciones e intervalos y pulse <strong>Buscar</strong>.
+          No hay facturas con estas opciones e intervalos.
         </p>
 
         <div v-if="items.length" class="grid-wrap">
@@ -472,22 +647,21 @@ onMounted(async () => {
                     @change="toggleTodos(($event.target as HTMLInputElement).checked)"
                   />
                 </th>
-                <th>Fecha</th>
-                <th>Tie.</th>
-                <th>Tipo</th>
-                <th>Factura</th>
-                <th>Cliente</th>
-                <th>Razón social</th>
-                <th>NIF</th>
-                <th class="num">Importe</th>
-                <th>Est.</th>
-                <th>Cobro</th>
-                <th>Imp.</th>
+                <th v-for="c in COLUMNAS" :key="c.key" :class="c.clase">
+                  <span class="th-titulo" :class="{ num: c.num }">{{ c.label }}</span>
+                  <input
+                    v-model="filtrosColumna[c.key]"
+                    type="search"
+                    class="filtro-col"
+                    :title="`Filtrar por ${c.label}`"
+                    :aria-label="`Filtrar por ${c.label}`"
+                  />
+                </th>
               </tr>
             </thead>
             <tbody>
               <tr
-                v-for="r in items"
+                v-for="r in itemsFiltrados"
                 :key="rowKey(r)"
                 :class="{ checked: selected[rowKey(r)] }"
                 @click="selected[rowKey(r)] = !selected[rowKey(r)]"
@@ -496,19 +670,26 @@ onMounted(async () => {
                   <input v-model="selected[rowKey(r)]" type="checkbox" />
                 </td>
                 <td>{{ r.fecha }}</td>
-                <td>{{ r.empresa }}</td>
-                <td>{{ r.facturaTipo }}</td>
                 <td>{{ r.factura }}</td>
                 <td>{{ r.cliente }}</td>
                 <td class="clip">{{ r.razonSocial }}</td>
                 <td>{{ r.nif }}</td>
                 <td class="num">{{ r.importe.toFixed(2) }}</td>
-                <td :title="r.facturaContadoDiferida ? 'Contado diferido TPV' : ''">{{ r.estado || '—' }}</td>
-                <td>{{ r.tipoCobro === 'diferida' ? 'Diferida' : 'Contado' }}</td>
+                <td :title="r.facturaContadoDiferida ? 'Contado diferido TPV' : ''">
+                  {{ r.tipoCobro === 'diferida' ? 'Diferida' : 'Contado' }}
+                </td>
                 <td>{{ r.impresa ? 'Sí' : 'No' }}</td>
+              </tr>
+              <tr v-if="!itemsFiltrados.length">
+                <td :colspan="COLUMNAS.length + 1" class="sin-filtro">
+                  Ninguna factura con esos filtros
+                </td>
               </tr>
             </tbody>
           </table>
+        </div>
+        <div v-if="hayFiltroColumna" class="pie-grid">
+          <button type="button" class="btn" @click="limpiarFiltrosColumna">Limpiar filtros</button>
         </div>
       </div>
     </div>
@@ -522,11 +703,22 @@ onMounted(async () => {
       @cerrar="buscarClienteOpen = false"
     />
 
-    <PdfPreviewModal
-      :open="pdfOpen"
-      :url="pdfUrl"
-      :titulo="pdfTitulo"
-      @cerrar="cerrarPdf"
+    <ElegirFormatoImpresionModal
+      :open="formatoImpresionOpen"
+      etiqueta-a4="Factura"
+      @elegir="onElegirFormatoImpresion"
+      @cancelar="formatoImpresionOpen = false"
+    />
+
+    <FacturasImpresionA4Modal
+      ref="a4ModalRef"
+      :open="a4Open"
+      :documentos="a4Prep?.documentos ?? []"
+      :impresora-nombre="a4Prep?.impresoraNombre || ''"
+      :imprimiendo="saving"
+      oculto
+      @cerrar="a4Open = false"
+      @imprimir="imprimirDocumentos"
     />
   </section>
 </template>
@@ -582,7 +774,7 @@ onMounted(async () => {
 }
 .layout {
   display: grid;
-  grid-template-columns: 16.5rem minmax(0, 1fr);
+  grid-template-columns: 21rem minmax(0, 1fr);
   gap: 0.85rem;
   align-items: stretch;
   min-height: 0;
@@ -594,7 +786,7 @@ onMounted(async () => {
   }
 }
 .sidebar {
-  width: 16.5rem;
+  width: 21rem;
   max-width: 100%;
   min-width: 0;
   display: flex;
@@ -637,7 +829,7 @@ legend {
 }
 .opciones label:not(.check) {
   display: grid;
-  grid-template-columns: 5rem minmax(0, 1fr);
+  grid-template-columns: 6.2rem minmax(0, 1fr);
   align-items: center;
   gap: 0.3rem;
   font-size: 0.75rem;
@@ -669,7 +861,7 @@ legend {
 .rango-head,
 .rango-row {
   display: grid;
-  grid-template-columns: 3.6rem minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: 4.4rem minmax(0, 1fr) minmax(0, 1fr);
   gap: 0.25rem;
   align-items: center;
   min-width: 0;
@@ -782,11 +974,67 @@ th {
   position: sticky;
   top: 0;
   z-index: 1;
+  vertical-align: top;
 }
 th.sel,
 td.sel {
   width: 2rem;
   text-align: center;
+}
+.th-titulo {
+  display: block;
+  padding: 0 0.1rem 0.15rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.th-titulo.num {
+  text-align: right;
+}
+.filtro-col {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 400;
+}
+.filtro-col:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: -1px;
+}
+.col-fecha {
+  width: 6.5rem;
+}
+.col-factura {
+  width: 6rem;
+}
+.col-cliente {
+  width: 7rem;
+}
+.col-nif {
+  width: 7rem;
+}
+.col-importe {
+  width: 6rem;
+}
+.col-cobro {
+  width: 6rem;
+}
+.col-imp {
+  width: 4rem;
+}
+.sin-filtro {
+  color: #64748b;
+  text-align: center;
+  padding: 0.8rem;
+}
+.pie-grid {
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
 }
 td.num,
 th.num {

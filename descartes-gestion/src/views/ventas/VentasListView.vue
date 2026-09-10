@@ -7,7 +7,6 @@ import type { VentaResumen } from '@/types/ventas'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { useVentasBusquedaStore } from '@/stores/ventasBusqueda'
-import VentaToolbar from '@/components/ventas/VentaToolbar.vue'
 import FiltroLupaField from '@/components/common/FiltroLupaField.vue'
 import EntidadBuscarModal, {
   type EntidadBuscarResultado,
@@ -345,15 +344,6 @@ onActivated(() => {
 
 <template>
   <section class="ventas-view">
-    <VentaToolbar
-      :puede-crear="true"
-      :loading="loading"
-      :indice="-1"
-      :total="0"
-      @nuevo="nueva"
-      @buscar="buscar"
-    />
-
     <div class="head">
       <div>
         <h2>Ventas</h2>

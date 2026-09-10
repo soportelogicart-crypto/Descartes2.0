@@ -8,6 +8,7 @@ import type {
   FacturasGeneracionBody,
   FacturasGeneracionPreviewResponse,
   FacturasGeneracionResponse,
+  FacturaDocumento,
   FacturasImpresionListResponse,
   FacturasImpresionPdfBody,
   FacturasManualGenerarBody,
@@ -93,11 +94,15 @@ export async function listarFacturasImpresion(
   return data
 }
 
-export async function descargarFacturasPdf(body: FacturasImpresionPdfBody): Promise<Blob> {
-  const { data } = await api.post('/api/facturacion/impresion/pdf', body, {
-    responseType: 'blob',
-  })
-  return data as Blob
+export async function obtenerFacturaDocumento(
+  empresa: string,
+  facturaTipo: string,
+  factura: number
+): Promise<FacturaDocumento> {
+  const { data } = await api.get<FacturaDocumento>(
+    `/api/facturacion/impresion/documento/${encodeURIComponent(empresa)}/${encodeURIComponent(facturaTipo)}/${factura}`
+  )
+  return data
 }
 
 export async function marcarFacturasImpresas(

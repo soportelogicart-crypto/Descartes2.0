@@ -23,9 +23,10 @@ import TicketPlantillaPreview from '@/components/documentos/TicketPlantillaPrevi
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { textoTicketDesdePlantilla } from '@/config/documentos-plantillas/ticket-texto'
-import { imprimirTermicaDispositivo } from '@/api/ventas'
+import { imprimirTicketTermica } from '@/composables/impresionTicketTermica'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { listarImpresorasSistema } from '@/composables/useImpresorasSistema'
+import { cargarPuesto } from '@/composables/impresionDocumentoA4Shared'
 
 const TIPOS_TODOS: { value: DocumentoTipo; label: string }[] = [
   { value: 'albaran', label: 'Albarán' },
@@ -81,10 +82,23 @@ async function cargarImpresorasPrueba() {
       name: p.name,
       label: p.displayName || p.name,
     }))
-    if (!impresoraPrueba.value && impresorasPrueba.value.length) {
-      const def = res.printers.find((p) => p.isDefault)
-      impresoraPrueba.value = def?.name || impresorasPrueba.value[0].name
+    if (impresoraPrueba.value || impresorasPrueba.value.length === 0) return
+    const names = impresorasPrueba.value.map((p) => p.name)
+    let delPuesto = ''
+    const pue = String(puestoContexto.puestoCodigo ?? '').trim()
+    if (pue) {
+      try {
+        const puesto = await cargarPuesto(pue)
+        delPuesto = String(puesto.impresoraTickets || puesto.impresoraTicketsF || '').trim()
+      } catch {
+        /* ignore */
+      }
     }
+    const termica = names.find((n) => /^ticket/i.test(n))
+    impresoraPrueba.value =
+      (delPuesto && names.includes(delPuesto) ? delPuesto : '') ||
+      termica ||
+      impresorasPrueba.value[0].name
   } catch {
     impresorasPrueba.value = []
   }
@@ -409,7 +423,7 @@ async function onActivar() {
   mensaje.value = res.message
 }
 
-/** Prueba ESC/POS vía API → agente Electron (impresora térmica del puesto). */
+/** Prueba 80 mm por el driver Windows (misma ruta GDI que el A4). */
 async function onProbarTicket() {
   if (!draft.value || !esPlantillaTicket(draft.value)) return
   const puesto = String(puestoContexto.puestoCodigo ?? '').trim()
@@ -430,23 +444,14 @@ async function onProbarTicket() {
   imprimiendo.value = true
   try {
     const texto = textoTicketDesdePlantilla(draft.value)
-    const res = await imprimirTermicaDispositivo(puesto, {
+    const res = await imprimirTicketTermica({
+      puestoCodigo: puesto,
       texto,
       tipo: 'ticket',
       empresa: empresaCodigo.value,
       impresora: impresoraPrueba.value,
     })
-    if (!res.agenteOnline) {
-      errorMsg.value = res.message || 'Agente Electron no disponible. Ejecute Descartes Electron.'
-      return
-    }
-    if (!res.ok) {
-      errorMsg.value = res.message || 'La impresora no aceptó el ticket'
-      return
-    }
-    mensaje.value = res.stub
-      ? `Stub: ${res.message}`
-      : res.message || 'Ticket enviado a la térmica'
+    mensaje.value = res.stub ? `Stub: ${res.message}` : res.message
   } catch (e: unknown) {
     errorMsg.value = extractApiError(e, 'No se pudo imprimir el ticket')
   } finally {

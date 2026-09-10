@@ -1,11 +1,97 @@
 /**
  * Drivers / stubs de periféricos.
- * ESC-POS tickets: escpos-encode + raw-print-win (cola Windows RAW).
+ * Tickets: ESC/POS RAW (Epson TM TICKETU/TICKETW, datatype RAW).
+ * A4/etiquetas: GDI vía webContents.print.
  */
 
 const { BrowserWindow } = require('electron')
+const { execFile } = require('child_process')
+const { promisify } = require('util')
 const { buildTicketBuffer } = require('./escpos-encode')
 const { isWindows, printRawWindows } = require('./raw-print-win')
+
+const execFileAsync = promisify(execFile)
+
+function psQuote(value) {
+  return String(value || '').replace(/'/g, "''")
+}
+
+async function runPs(command, timeout = 15000) {
+  const { stdout, stderr } = await execFileAsync(
+    'powershell.exe',
+    ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command],
+    { windowsHide: true, timeout, maxBuffer: 1024 * 1024 }
+  )
+  return { stdout: String(stdout || ''), stderr: String(stderr || '') }
+}
+
+/** El monitor Epson ESDPRT retiene trabajos si BIDI espera estado y la cola está NotAvailable. */
+async function disablePrinterBidi(printerName) {
+  try {
+    await execFileAsync(
+      'rundll32.exe',
+      [`printui.dll,PrintUIEntry /Xs /n "${printerName}" attributes -enablebidi`],
+      { windowsHide: true, timeout: 10000 }
+    )
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Evita que el spooler deje el ticket en «Printing, Retained» sin enviarlo al USB. */
+async function enableDirectPrint(printerName) {
+  try {
+    await execFileAsync(
+      'rundll32.exe',
+      [`printui.dll,PrintUIEntry /Xs /n "${printerName}" attributes +direct`],
+      { windowsHide: true, timeout: 10000 }
+    )
+  } catch {
+    /* ignore */
+  }
+}
+
+async function purgeRetainedJobs(printerName) {
+  const n = psQuote(printerName)
+  try {
+    await runPs(
+      `Get-PrintJob -PrinterName '${n}' -ErrorAction SilentlyContinue | ForEach-Object {` +
+        ` $st = [string]$_.JobStatus;` +
+        ` if ($st -match 'Retain|Error|Offline|Paused') {` +
+        `   Remove-PrintJob -PrinterName '${n}' -ID $_.Id -ErrorAction SilentlyContinue` +
+        ` }` +
+        `}`
+    )
+  } catch {
+    /* ignore */
+  }
+}
+
+async function printerStatusName(printerName) {
+  const n = psQuote(printerName)
+  try {
+    const { stdout } = await runPs(
+      `$p = Get-Printer -Name '${n}' -ErrorAction SilentlyContinue; if ($p) { $p.PrinterStatus.ToString() }`
+    )
+    return stdout.trim()
+  } catch {
+    return ''
+  }
+}
+
+async function hasStuckJob(printerName) {
+  const n = psQuote(printerName)
+  try {
+    const { stdout } = await runPs(
+      `$j = Get-PrintJob -PrinterName '${n}' -ErrorAction SilentlyContinue |` +
+        ` Where-Object { $_.PagesPrinted -eq 0 -and ([string]$_.JobStatus) -match 'Print|Retain|Error' };` +
+        ` if ($j) { 'YES' } else { 'NO' }`
+    )
+    return stdout.trim() === 'YES'
+  } catch {
+    return false
+  }
+}
 
 /**
  * Impresoras del sistema Windows/macOS/Linux detectadas por Electron.
@@ -128,8 +214,8 @@ function resolvePrinterName(payload, printers) {
 }
 
 /**
- * Imprime ticket térmico ESC/POS (RAW) en Windows.
- * payload: { texto, impresora?, impresoraId?, cortar?, abrirCajon?, ancho?, feed? }
+ * Ticket ESC/POS RAW. TICKETU/TICKETW (Epson TM Receipt) tienen datatype RAW;
+ * un HTML/GDI (EMF) se queda detrás o retenido en ESDPRT.
  */
 async function printTicket(payload) {
   const texto = payload && typeof payload.texto === 'string' ? payload.texto : ''
@@ -161,6 +247,10 @@ async function printTicket(payload) {
   }
   const printerName = resolved.name
 
+  await disablePrinterBidi(printerName)
+  await enableDirectPrint(printerName)
+  await purgeRetainedJobs(printerName)
+
   const buffer = buildTicketBuffer({
     texto,
     cortar: payload && payload.cortar !== false,
@@ -169,7 +259,7 @@ async function printTicket(payload) {
     feed: payload && payload.feed != null ? Number(payload.feed) : 4,
   })
 
-  console.log('[peripherals] printTicket', {
+  console.log('[peripherals] printTicket RAW', {
     printerName,
     bytes: buffer.length,
     tipo: payload && payload.tipo,
@@ -183,11 +273,29 @@ async function printTicket(payload) {
       impresora: printerName,
       message:
         `OpenPrinter 1801: nombre de impresora no válido («${printerName}»). ` +
-        'En el puesto, campo Tickets, elija el nombre exacto de Windows (no «TICKETS»).',
+        'En el puesto, campo Tickets, elija el nombre exacto de Windows (TICKETU / TICKETW).',
     }
   }
+  if (!result.ok) {
+    return { ok: false, stub: false, impresora: printerName, message: result.message }
+  }
+
+  await new Promise((r) => setTimeout(r, 8000))
+  if (await hasStuckJob(printerName)) {
+    const status = await printerStatusName(printerName)
+    return {
+      ok: false,
+      stub: false,
+      impresora: printerName,
+      message:
+        `El ticket sigue en la cola de «${printerName}» sin imprimirse (Windows: ${status || '?'}). ` +
+        'Abra esa impresora en Windows, cancele todos los documentos, apague y encienda la TM-T88IV ' +
+        'y vuelva a probar. El reinicio de la cola ya no hace falta.',
+    }
+  }
+
   return {
-    ok: !!result.ok,
+    ok: true,
     stub: false,
     impresora: printerName,
     message: result.message,

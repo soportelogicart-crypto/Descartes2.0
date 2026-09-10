@@ -189,6 +189,52 @@ export type FacturaImpresionItem = {
   tipoCobro?: 'diferida' | 'contado'
 }
 
+/** Datos de una factura para pintarla con la plantilla del diseñador. */
+export type FacturaDocumento = {
+  empresa: string
+  facturaTipo: string
+  factura: number
+  fecha: string
+  estado: string
+  facturaContadoDiferida: boolean
+  tipoCobro: 'diferida' | 'contado'
+  formaPago: { codigo: string; descripcion: string }
+  cliente: {
+    codigo: string
+    razonSocial: string
+    razonSocial2: string
+    nif: string
+    direccion: string
+    codigoPostal: string
+    poblacion: string
+    provincia: string
+    pais: string
+    telefono: string
+    cuentaBancaria: string
+    iban: string
+    swift: string
+  }
+  lineas: Array<{
+    albaran: number
+    albaranFecha: string
+    articulo: string
+    descripcion: string
+    unidades: number
+    precio: number
+    dto: number
+    pjeIva: number
+    importe: number
+  }>
+  vencimientos: Array<{ recibo: number; fecha: string; importe: number }>
+  totales: {
+    base: number
+    ivas: Array<{ pje: number; base: number; cuota: number; recargo: number }>
+    descuento: number
+    pjeDto: number
+    importe: number
+  }
+}
+
 export type FacturasImpresionListResponse = {
   items: FacturaImpresionItem[]
   totales: { facturas: number; importe: number }
@@ -238,7 +284,23 @@ export type FacturasManualPeriodicosResponse = {
     plantillaTipo: string
     fechaPeriodo: string
   }>
-  totales: { generados: number; omitidos: number }
+  /** Bases que no han generado, con el motivo (las próximas primero). */
+  omisiones?: Array<{
+    empresa: string
+    tipo: string
+    albaran: number
+    cliente: string
+    razonSocial: string
+    periodicidad: number
+    proximaGeneracion: string | null
+    motivo: string
+  }>
+  totales: {
+    generados: number
+    omitidos: number
+    fueraDeRango?: number
+    bases?: number
+  }
 }
 
 export type FacturaDiarioItem = FacturaImpresionItem

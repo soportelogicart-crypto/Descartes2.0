@@ -23,6 +23,7 @@ import {
   prepararImpresionPedidoProveedor,
   type PrepImpresionA4,
 } from '@/composables/useImpresionCompraDocumento'
+import { useVentanaPreviewDocumento } from '@/composables/previewDocumentoVentana'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import VentaToolbar from '@/components/ventas/VentaToolbar.vue'
@@ -40,6 +41,8 @@ const route = useRoute()
 const router = useRouter()
 const { puede } = usePermisos()
 const puesto = usePuestoContextoStore()
+/** Ventana aparte con la previsualización A4 (sustituye al modal). */
+const preview = useVentanaPreviewDocumento({ imprimir: () => onImprimirA4Confirmado() })
 
 const pathInstancia = route.fullPath
 
@@ -716,15 +719,32 @@ async function onImprimir() {
   mensaje.value = null
   loading.value = true
   try {
-    a4Prep.value = await prepararImpresionPedidoProveedor(ficha.value, {
-      puestoCodigo: String(puesto.puestoCodigo || ''),
-    })
-    a4Open.value = true
+    await mostrarPreviewA4(
+      await prepararImpresionPedidoProveedor(ficha.value, {
+        puestoCodigo: String(puesto.puestoCodigo || ''),
+      })
+    )
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudo preparar la impresión A4')
   } finally {
     loading.value = false
   }
+}
+
+/** Previsualización en ventana aparte: el modal solo renderiza el folio oculto. */
+async function mostrarPreviewA4(prep: PrepImpresionA4) {
+  if (!preview.abrir(prep.titulo)) {
+    throw new Error('Permita las ventanas emergentes para previsualizar el documento')
+  }
+  a4Prep.value = prep
+  a4Open.value = true
+  await nextTick()
+  const html = (await a4ModalRef.value?.capturarHtmlFolio()) || ''
+  if (!html) {
+    preview.cerrar()
+    throw new Error('No hay plantilla configurada para este documento en el puesto')
+  }
+  preview.mostrar(html, { impresoraNombre: prep.impresoraNombre })
 }
 
 async function onImprimirA4Confirmado() {
@@ -734,9 +754,12 @@ async function onImprimirA4Confirmado() {
   try {
     const html = (await a4ModalRef.value?.capturarHtmlFolio()) || ''
     mensaje.value = await imprimirA4CompraPreparado(a4Prep.value, html)
+    preview.cerrar()
     a4Open.value = false
   } catch (e: unknown) {
-    error.value = extractApiError(e, 'No se pudo imprimir el pedido a proveedor')
+    const msg = extractApiError(e, 'No se pudo imprimir el pedido a proveedor')
+    error.value = msg
+    preview.notificarError(msg)
   } finally {
     a4Imprimiendo.value = false
   }
@@ -1143,6 +1166,7 @@ watch(
       :datos="a4Prep?.datos ?? null"
       :impresora-nombre="a4Prep?.impresoraNombre || ''"
       :imprimiendo="a4Imprimiendo"
+      oculto
       @cerrar="a4Open = false"
       @imprimir="onImprimirA4Confirmado"
     />

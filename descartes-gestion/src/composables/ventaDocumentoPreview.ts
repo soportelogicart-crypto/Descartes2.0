@@ -18,7 +18,7 @@ function redondear2(n: number): number {
 }
 
 /** En factura solo se muestran los 16 primeros dígitos de la cuenta del cliente. */
-function cuentaBancariaEnmascarada(valor: string | null | undefined): string {
+export function cuentaBancariaEnmascarada(valor: string | null | undefined): string {
   const cuenta = String(valor ?? '').replace(/\s+/g, '')
   if (cuenta.length <= 4) return cuenta
   return `${cuenta.slice(0, -4)}XXXX`
@@ -234,4 +234,12 @@ export function tipoPlantillaDesdeVenta(venta: VentaDetalle): {
     indiceKey: 'impresoraAlbaranes',
     label: 'Albarán',
   }
+}
+
+/** Segunda opción del diálogo al reimprimir un documento recuperado. */
+export function etiquetaA4ImpresionRecuperado(venta: VentaDetalle): string {
+  const ft = String(venta.facturaTipo ?? '').trim().toUpperCase()
+  if (ft === 'F' || ft === 'A') return 'Factura'
+  if (ft === 'R') return 'Presupuesto'
+  return 'Albarán'
 }

@@ -33,6 +33,7 @@ const tiendas = ref<Opt[]>([])
 const formasPago = ref<Opt[]>([])
 const generadas = ref<FacturaManualGenerada[]>([])
 const periodicosGenerados = ref<FacturasManualPeriodicosResponse['generados']>([])
+const periodicosOmitidos = ref<NonNullable<FacturasManualPeriodicosResponse['omisiones']>>([])
 const modalPeriodicos = ref(false)
 const periodoDesde = ref('')
 const periodoHasta = ref('')
@@ -65,21 +66,87 @@ const form = ref({
   albaranHasta: '' as string | number,
 })
 
-const seleccionados = computed(() => items.value.filter((r) => selected.value[rowKey(r)]))
+/** Columnas del grid con su texto filtrable (búsqueda mientras se escribe). */
+const COLUMNAS = [
+  { key: 'fecha', label: 'Fecha', clase: 'col-fecha' },
+  { key: 'albaran', label: 'Albarán', clase: 'col-alb' },
+  { key: 'puesto', label: 'Pto', clase: 'col-pto' },
+  { key: 'cliente', label: 'Cliente', clase: 'col-cliente' },
+  { key: 'razonSocial', label: 'Razón social', clase: 'col-razon' },
+  { key: 'nif', label: 'NIF', clase: 'col-nif' },
+  { key: 'importe', label: 'Importe', clase: 'col-importe', num: true },
+  { key: 'pagoACuenta', label: 'A cuenta', clase: 'col-acuento', num: true },
+] as const
+
+type ColumnaKey = (typeof COLUMNAS)[number]['key']
+
+const textoColumna: Record<ColumnaKey, (r: FacturaManualPendiente) => string> = {
+  fecha: (r) => String(r.fecha ?? ''),
+  albaran: (r) => String(r.albaran ?? ''),
+  puesto: (r) => String(r.puesto ?? ''),
+  cliente: (r) => String(r.cliente ?? ''),
+  razonSocial: (r) => String(r.razonSocial ?? ''),
+  nif: (r) => String(r.nif ?? ''),
+  importe: (r) => Number(r.importe ?? 0).toFixed(2),
+  pagoACuenta: (r) => Number(r.pagoACuenta ?? 0).toFixed(2),
+}
+
+function filtrosColumnaVacios(): Record<ColumnaKey, string> {
+  return {
+    fecha: '',
+    albaran: '',
+    puesto: '',
+    cliente: '',
+    razonSocial: '',
+    nif: '',
+    importe: '',
+    pagoACuenta: '',
+  }
+}
+
+const filtrosColumna = ref<Record<ColumnaKey, string>>(filtrosColumnaVacios())
+
+function normalizar(texto: string) {
+  return texto
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+const filtrosColumnaActivos = computed(() =>
+  (Object.entries(filtrosColumna.value) as [ColumnaKey, string][])
+    .map(([key, valor]) => ({ key, valor: normalizar(valor.trim()) }))
+    .filter((f) => f.valor !== '')
+)
+
+const hayFiltroColumna = computed(() => filtrosColumnaActivos.value.length > 0)
+
+const itemsFiltrados = computed(() => {
+  const activos = filtrosColumnaActivos.value
+  if (activos.length === 0) return items.value
+  return items.value.filter((r) =>
+    activos.every((f) => normalizar(textoColumna[f.key](r)).includes(f.valor))
+  )
+})
+
+function limpiarFiltrosColumna() {
+  filtrosColumna.value = filtrosColumnaVacios()
+}
+
+const seleccionados = computed(() => itemsFiltrados.value.filter((r) => selected.value[rowKey(r)]))
 const totalSel = computed(() => seleccionados.value.length)
-const importeSel = computed(() =>
-  Math.round(seleccionados.value.reduce((s, r) => s + r.importe, 0) * 100) / 100
+const importeSel = computed(
+  () => Math.round(seleccionados.value.reduce((s, r) => s + r.importe, 0) * 100) / 100
 )
 
 const todosMarcados = computed(
-  () => items.value.length > 0 && items.value.every((r) => selected.value[rowKey(r)])
+  () =>
+    itemsFiltrados.value.length > 0 && itemsFiltrados.value.every((r) => selected.value[rowKey(r)])
 )
 
 function toggleTodos(v: boolean) {
   const next: Record<string, boolean> = { ...selected.value }
-  for (const r of items.value) {
-    next[rowKey(r)] = v
-  }
+  for (const r of itemsFiltrados.value) next[rowKey(r)] = v
   selected.value = next
 }
 
@@ -162,6 +229,7 @@ async function buscar() {
   mensaje.value = null
   generadas.value = []
   periodicosGenerados.value = []
+  periodicosOmitidos.value = []
   try {
     const data = await listarFacturasManualPendientes(paramsConsulta())
     items.value = data.items
@@ -257,6 +325,7 @@ async function onTraspaso() {
   mensaje.value = null
   generadas.value = []
   periodicosGenerados.value = []
+  periodicosOmitidos.value = []
   try {
     const result = await traspasoFacturasManual({
       empresa: form.value.empresa.trim(),
@@ -302,6 +371,7 @@ async function confirmarGenAlb() {
   mensaje.value = null
   generadas.value = []
   periodicosGenerados.value = []
+  periodicosOmitidos.value = []
   try {
     const result = await generarAlbaranesPeriodicos({
       empresa: form.value.empresa.trim(),
@@ -309,13 +379,20 @@ async function confirmarGenAlb() {
       fechaHasta: periodoHasta.value,
     })
     modalPeriodicos.value = false
-    periodicosGenerados.value = result.generados ?? []
-    mensaje.value =
+    const generadosAhora = result.generados ?? []
+    const omitidosAhora = result.omisiones ?? []
+    const mensajeGeneracion =
       result.totales.generados > 0
         ? `Generados ${result.totales.generados} albarán(es) periódico(s)` +
           (result.totales.omitidos ? ` · ${result.totales.omitidos} omitido(s)` : '')
-        : 'No había albaranes periódicos pendientes en ese rango'
+        : `Ninguna de las ${result.totales.bases ?? 0} base(s) periódica(s) vence entre ` +
+          `${fmtFechaIso(periodoDesde.value)} y ${fmtFechaIso(periodoHasta.value)}`
+    // Refrescar los pendientes borra los resultados y el mensaje. Restaurarlos
+    // después para que el usuario vea qué albaranes acaba de crear Gen.Alb.
     await buscar()
+    periodicosGenerados.value = generadosAhora
+    periodicosOmitidos.value = omitidosAhora
+    mensaje.value = mensajeGeneracion
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudieron generar los albaranes periódicos')
   } finally {
@@ -325,6 +402,7 @@ async function confirmarGenAlb() {
 
 onMounted(async () => {
   await cargarOpciones()
+  await buscar()
 })
 </script>
 
@@ -486,6 +564,10 @@ onMounted(async () => {
               <strong :class="{ sel: totalSel > 0 }">{{ totalSel }}</strong>
             </div>
             <div>
+              <span>Listadas</span>
+              <strong>{{ itemsFiltrados.length }}</strong>
+            </div>
+            <div class="importe">
               <span>Importe</span>
               <strong :class="{ sel: totalSel > 0 }">{{ importeSel.toFixed(2) }} €</strong>
             </div>
@@ -498,7 +580,7 @@ onMounted(async () => {
         <p v-if="mensaje && !error" class="ok">{{ mensaje }}</p>
         <p v-if="loading" class="hint">Cargando pendientes…</p>
         <p v-if="!items.length && !loading && !error" class="empty">
-          Configure filtros y pulse <strong>Buscar</strong>.
+          No hay albaranes pendientes con estas opciones e intervalos.
         </p>
 
         <div v-if="items.length" class="grid-wrap">
@@ -513,20 +595,21 @@ onMounted(async () => {
                     @change="toggleTodos(($event.target as HTMLInputElement).checked)"
                   />
                 </th>
-                <th>Fecha</th>
-                <th>Tie.</th>
-                <th>Albarán</th>
-                <th>Pto</th>
-                <th>Cliente</th>
-                <th>Razón social</th>
-                <th>NIF</th>
-                <th class="num">Importe</th>
-                <th class="num">A cuenta</th>
+                <th v-for="c in COLUMNAS" :key="c.key" :class="c.clase">
+                  <span class="th-titulo" :class="{ num: c.num }">{{ c.label }}</span>
+                  <input
+                    v-model="filtrosColumna[c.key]"
+                    type="search"
+                    class="filtro-col"
+                    :title="`Filtrar por ${c.label}`"
+                    :aria-label="`Filtrar por ${c.label}`"
+                  />
+                </th>
               </tr>
             </thead>
             <tbody>
               <tr
-                v-for="r in items"
+                v-for="r in itemsFiltrados"
                 :key="rowKey(r)"
                 :class="{ checked: selected[rowKey(r)] }"
                 @click="selected[rowKey(r)] = !selected[rowKey(r)]"
@@ -535,7 +618,6 @@ onMounted(async () => {
                   <input v-model="selected[rowKey(r)]" type="checkbox" />
                 </td>
                 <td>{{ r.fecha }}</td>
-                <td>{{ r.empresa }}</td>
                 <td>{{ r.albaran }}</td>
                 <td>{{ r.puesto }}</td>
                 <td>{{ r.cliente }}</td>
@@ -544,8 +626,15 @@ onMounted(async () => {
                 <td class="num">{{ r.importe.toFixed(2) }}</td>
                 <td class="num">{{ r.pagoACuenta.toFixed(2) }}</td>
               </tr>
+              <tr v-if="!itemsFiltrados.length">
+                <td :colspan="COLUMNAS.length + 1" class="empty">Ningún albarán con esos filtros</td>
+              </tr>
             </tbody>
           </table>
+        </div>
+        <div v-if="hayFiltroColumna" class="pie-grid">
+          <span class="listadas">{{ itemsFiltrados.length }} de {{ items.length }}</span>
+          <button type="button" class="btn" @click="limpiarFiltrosColumna">Limpiar filtros</button>
         </div>
 
         <div v-if="periodicosGenerados.length" class="generadas periodicos">
@@ -560,6 +649,32 @@ onMounted(async () => {
               · periodo {{ fmtFechaIso(g.fechaPeriodo) }}
             </li>
           </ul>
+        </div>
+
+        <div v-if="periodicosOmitidos.length" class="generadas omitidos">
+          <h3>Bases periódicas que no han generado</h3>
+          <p class="nota">
+            Una base genera cuando su <strong>próxima generación</strong> cae dentro del rango
+            indicado. La próxima fecha es la fecha base más un periodo.
+          </p>
+          <table class="tabla-omitidos">
+            <thead>
+              <tr>
+                <th>Plantilla</th>
+                <th>Cliente</th>
+                <th>Próxima</th>
+                <th>Motivo</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(o, i) in periodicosOmitidos" :key="i">
+                <td>{{ o.tipo }}-{{ o.albaran }}</td>
+                <td class="clip">{{ o.razonSocial || o.cliente }}</td>
+                <td>{{ o.proximaGeneracion ? fmtFechaIso(o.proximaGeneracion) : '—' }}</td>
+                <td>{{ o.motivo }}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
 
         <div v-if="generadas.length" class="generadas">
@@ -670,7 +785,7 @@ onMounted(async () => {
 
 .layout {
   display: grid;
-  grid-template-columns: 16.5rem minmax(0, 1fr);
+  grid-template-columns: 21rem minmax(0, 1fr);
   gap: 0.85rem;
   align-items: stretch;
   min-height: 0;
@@ -683,7 +798,7 @@ onMounted(async () => {
 }
 
 .sidebar {
-  width: 16.5rem;
+  width: 21rem;
   max-width: 100%;
   min-width: 0;
   align-self: stretch;
@@ -729,7 +844,7 @@ legend {
 .opciones label,
 .campo-simple {
   display: grid;
-  grid-template-columns: 4.6rem minmax(0, 1fr);
+  grid-template-columns: 6.2rem minmax(0, 1fr);
   align-items: center;
   gap: 0.3rem;
   font-size: 0.75rem;
@@ -756,7 +871,7 @@ legend {
 .rango-head,
 .rango-row {
   display: grid;
-  grid-template-columns: 3.6rem minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: 4.4rem minmax(0, 1fr) minmax(0, 1fr);
   gap: 0.25rem;
   align-items: center;
   min-width: 0;
@@ -827,6 +942,9 @@ legend {
 .resumen strong.sel {
   color: #b91c1c;
 }
+.resumen .importe {
+  grid-column: 1 / -1;
+}
 
 .resultado {
   min-width: 0;
@@ -879,11 +997,73 @@ th {
   position: sticky;
   top: 0;
   z-index: 1;
+  vertical-align: top;
 }
 th.sel,
 td.sel {
   width: 2rem;
   text-align: center;
+}
+th.sel input[type='checkbox'],
+td.sel input[type='checkbox'] {
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  vertical-align: middle;
+}
+.th-titulo {
+  display: block;
+  padding: 0 0.1rem 0.15rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.th-titulo.num {
+  text-align: right;
+}
+.filtro-col {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 400;
+  height: auto;
+}
+.filtro-col:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: -1px;
+}
+.col-fecha {
+  width: 6.5rem;
+}
+.col-alb {
+  width: 6rem;
+}
+.col-pto {
+  width: 4rem;
+}
+.col-cliente,
+.col-nif {
+  width: 7rem;
+}
+.col-importe,
+.col-acuento {
+  width: 6.5rem;
+}
+.pie-grid {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+.listadas {
+  font-size: 0.78rem;
+  color: #64748b;
 }
 td.num,
 th.num {
@@ -923,6 +1103,22 @@ tbody tr.checked {
 .generadas.periodicos {
   border-color: #bfdbfe;
   background: #eff6ff;
+}
+.generadas.omitidos {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+.generadas .nota {
+  margin: 0 0 0.4rem;
+  font-size: 0.8rem;
+  color: #78350f;
+}
+.tabla-omitidos {
+  font-size: 0.8rem;
+}
+.tabla-omitidos th {
+  background: #fef3c7;
+  position: static;
 }
 .link-venta {
   font-weight: 600;

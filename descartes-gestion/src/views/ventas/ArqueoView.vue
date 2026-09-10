@@ -4,7 +4,6 @@ import {
   cerrarSesionArqueo,
   descargarInformeArqueoPdf,
   entradaCajaArqueo,
-  imprimirTermicaDispositivo,
   introducirArqueo,
   leerCajonDispositivo,
   obtenerArqueo,
@@ -12,6 +11,7 @@ import {
 } from '@/api/ventas'
 import type { ArqueoLinea, ArqueoResponse } from '@/types/ventas'
 import { extractApiError } from '@/composables/useMantenimiento'
+import { imprimirTicketTermica } from '@/composables/impresionTicketTermica'
 import { usePdfPreview } from '@/composables/usePdfPreview'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
@@ -605,19 +605,14 @@ async function imprimirTermica() {
   error.value = null
   mensaje.value = null
   try {
-    const res = await imprimirTermicaDispositivo(pue, {
+    const res = await imprimirTicketTermica({
+      puestoCodigo: pue,
       texto,
       tipo: 'arqueo',
       empresa: data.value.empresa,
       sesion: data.value.sesion,
     })
-    if (!res.agenteOnline) {
-      error.value = res.message || 'Agente local no disponible para térmica'
-      return
-    }
-    mensaje.value = res.stub
-      ? `Térmica (stub): ${res.message || 'enviado al agente'}`
-      : res.message || 'Impresión térmica enviada'
+    mensaje.value = res.stub ? `Térmica (stub): ${res.message}` : res.message
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudo imprimir en térmica')
   } finally {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { descargarDiarioPdf, listarDiarioFacturacion } from '@/api/facturacion'
 import { api } from '@/api/client'
 import type { FacturaDiarioItem } from '@/types/facturacion'
@@ -9,10 +9,9 @@ import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import EntidadBuscarModal, {
   type EntidadBuscarResultado,
 } from '@/components/common/EntidadBuscarModal.vue'
-import PdfPreviewModal from '@/components/common/PdfPreviewModal.vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
 import DecimalInput from '@/components/common/DecimalInput.vue'
-import { usePdfPreview } from '@/composables/usePdfPreview'
+import { abrirVentanaPreview, escribirVentanaPdf } from '@/composables/previewDocumentoVentana'
 
 type Opt = { value: string; label: string }
 type CampoCliente = 'desde' | 'hasta'
@@ -30,7 +29,6 @@ const tiendas = ref<Opt[]>([])
 const buscarClienteOpen = ref(false)
 const buscarClienteCampo = ref<CampoCliente>('desde')
 const buscarClienteInicial = ref('')
-const { pdfOpen, pdfUrl, pdfTitulo, cerrarPdf, abrirPdf } = usePdfPreview('Diario de facturación')
 
 function hoyIso() {
   const d = new Date()
@@ -52,6 +50,86 @@ const form = ref({
   facturaTipo: '',
   estado: '',
 })
+
+/** Columnas del grid con su texto filtrable (búsqueda mientras se escribe). */
+const COLUMNAS = [
+  { key: 'fecha', label: 'Fecha', clase: 'col-fecha' },
+  { key: 'empresa', label: 'Tie.', clase: 'col-tie' },
+  { key: 'facturaTipo', label: 'Tipo', clase: 'col-tipo' },
+  { key: 'factura', label: 'Factura', clase: 'col-factura' },
+  { key: 'cliente', label: 'Cliente', clase: 'col-cliente' },
+  { key: 'razonSocial', label: 'Razón social', clase: 'col-razon' },
+  { key: 'nif', label: 'NIF', clase: 'col-nif' },
+  { key: 'importe', label: 'Importe', clase: 'col-importe', num: true },
+  { key: 'cobro', label: 'Cobro', clase: 'col-cobro' },
+  { key: 'fpago', label: 'F.P.', clase: 'col-fpago' },
+  { key: 'impresa', label: 'Imp.', clase: 'col-imp' },
+] as const
+
+type ColumnaKey = (typeof COLUMNAS)[number]['key']
+
+function textoCobro(r: FacturaDiarioItem) {
+  return r.tipoCobro === 'diferida' ? 'Dif.' : 'Con.'
+}
+
+const textoColumna: Record<ColumnaKey, (r: FacturaDiarioItem) => string> = {
+  fecha: (r) => String(r.fecha ?? ''),
+  empresa: (r) => String(r.empresa ?? ''),
+  facturaTipo: (r) => String(r.facturaTipo ?? ''),
+  factura: (r) => String(r.factura ?? ''),
+  cliente: (r) => String(r.cliente ?? ''),
+  razonSocial: (r) => String(r.razonSocial ?? ''),
+  nif: (r) => String(r.nif ?? ''),
+  importe: (r) => Number(r.importe ?? 0).toFixed(2),
+  cobro: (r) => textoCobro(r),
+  fpago: (r) => String(r.fpago || '—'),
+  impresa: (r) => (r.impresa ? 'Sí' : ''),
+}
+
+function filtrosColumnaVacios(): Record<ColumnaKey, string> {
+  return {
+    fecha: '',
+    empresa: '',
+    facturaTipo: '',
+    factura: '',
+    cliente: '',
+    razonSocial: '',
+    nif: '',
+    importe: '',
+    cobro: '',
+    fpago: '',
+    impresa: '',
+  }
+}
+
+const filtrosColumna = ref<Record<ColumnaKey, string>>(filtrosColumnaVacios())
+
+function normalizar(texto: string) {
+  return texto
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+const filtrosColumnaActivos = computed(() =>
+  (Object.entries(filtrosColumna.value) as [ColumnaKey, string][])
+    .map(([key, valor]) => ({ key, valor: normalizar(valor.trim()) }))
+    .filter((f) => f.valor !== '')
+)
+
+const hayFiltroColumna = computed(() => filtrosColumnaActivos.value.length > 0)
+
+const itemsFiltrados = computed(() => {
+  const activos = filtrosColumnaActivos.value
+  if (activos.length === 0) return items.value
+  return items.value.filter((r) =>
+    activos.every((f) => normalizar(textoColumna[f.key](r)).includes(f.valor))
+  )
+})
+
+function limpiarFiltrosColumna() {
+  filtrosColumna.value = filtrosColumnaVacios()
+}
 
 function paramsConsulta(): Record<string, string | number | undefined> {
   const f = form.value
@@ -151,6 +229,11 @@ async function pdf() {
     error.value = 'Indique la tienda'
     return
   }
+  const ventana = abrirVentanaPreview('Diario de facturación')
+  if (!ventana) {
+    error.value = 'Permita las ventanas emergentes para previsualizar el PDF'
+    return
+  }
   saving.value = true
   error.value = null
   mensaje.value = null
@@ -161,20 +244,80 @@ async function pdf() {
     if (blob.type && blob.type.includes('json')) {
       throw new Error('Error al generar PDF')
     }
-    abrirPdf(blob, 'Diario de facturación')
+    escribirVentanaPdf(ventana, blob, 'Diario de facturación')
     mensaje.value =
       items.value.length >= 500
         ? 'PDF del diario (máx. 500 filas) listo'
         : 'PDF del diario listo para previsualizar'
   } catch (e: unknown) {
+    if (!ventana.closed) ventana.close()
     error.value = extractApiError(e, 'No se pudo generar el PDF')
   } finally {
     saving.value = false
   }
 }
 
+function exportarExcel() {
+  const filas = itemsFiltrados.value
+  if (!filas.length) {
+    error.value = 'No hay filas para exportar'
+    return
+  }
+  const esc = (v: string | number) => {
+    const s = String(v ?? '')
+    if (/[;"\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`
+    return s
+  }
+  const num = (n: number) => (Math.round(n * 100) / 100).toFixed(2).replace('.', ',')
+  const cabecera = [
+    'Fecha',
+    'Tienda',
+    'Tipo',
+    'Factura',
+    'Cliente',
+    'Razón social',
+    'NIF',
+    'Importe',
+    'Cobro',
+    'Forma de pago',
+    'Impresa',
+  ]
+  const lines = [cabecera.map(esc).join(';')]
+  for (const r of filas) {
+    lines.push(
+      [
+        r.fecha,
+        r.empresa,
+        r.facturaTipo,
+        r.factura,
+        r.cliente,
+        r.razonSocial,
+        r.nif,
+        num(r.importe),
+        r.tipoCobro === 'diferida' ? 'Diferida' : 'Contado',
+        r.fpago || '',
+        r.impresa ? 'Sí' : 'No',
+      ]
+        .map(esc)
+        .join(';')
+    )
+  }
+  const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'diario-facturacion.csv'
+  a.rel = 'noopener'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 2000)
+  mensaje.value = `Excel (CSV) de ${filas.length} factura(s)`
+}
+
 onMounted(async () => {
   await cargarOpciones()
+  await buscar()
 })
 </script>
 
@@ -191,6 +334,14 @@ onMounted(async () => {
         </button>
         <button type="button" class="btn primary" :disabled="saving || loadingOpts" @click="pdf">
           {{ saving ? 'PDF…' : 'Previsualizar PDF' }}
+        </button>
+        <button
+          type="button"
+          class="btn"
+          :disabled="loading || !itemsFiltrados.length"
+          @click="exportarExcel"
+        >
+          Exportar Excel
         </button>
       </div>
     </div>
@@ -286,25 +437,25 @@ onMounted(async () => {
       <div class="resultado">
         <p v-if="error" class="error">{{ error }}</p>
         <p v-if="mensaje && !error" class="ok">{{ mensaje }}</p>
+        <p v-if="loading" class="hint">Cargando…</p>
         <div v-if="items.length" class="grid-wrap">
           <table>
             <thead>
               <tr>
-                <th>Fecha</th>
-                <th>Tie.</th>
-                <th>Tipo</th>
-                <th>Factura</th>
-                <th>Cliente</th>
-                <th>Razón social</th>
-                <th>NIF</th>
-                <th class="num">Importe</th>
-                <th>Cobro</th>
-                <th>F.P.</th>
-                <th>Imp.</th>
+                <th v-for="c in COLUMNAS" :key="c.key" :class="c.clase">
+                  <span class="th-titulo" :class="{ num: c.num }">{{ c.label }}</span>
+                  <input
+                    v-model="filtrosColumna[c.key]"
+                    type="search"
+                    class="filtro-col"
+                    :title="`Filtrar por ${c.label}`"
+                    :aria-label="`Filtrar por ${c.label}`"
+                  />
+                </th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="r in items" :key="`${r.empresa}|${r.facturaTipo}|${r.factura}`">
+              <tr v-for="r in itemsFiltrados" :key="`${r.empresa}|${r.facturaTipo}|${r.factura}`">
                 <td>{{ r.fecha }}</td>
                 <td>{{ r.empresa }}</td>
                 <td>{{ r.facturaTipo }}</td>
@@ -313,14 +464,23 @@ onMounted(async () => {
                 <td class="clip">{{ r.razonSocial }}</td>
                 <td>{{ r.nif }}</td>
                 <td class="num">{{ r.importe.toFixed(2) }}</td>
-                <td>{{ r.tipoCobro === 'diferida' ? 'Dif.' : 'Con.' }}</td>
+                <td>{{ textoCobro(r) }}</td>
                 <td>{{ r.fpago || '—' }}</td>
                 <td>{{ r.impresa ? 'Sí' : '' }}</td>
+              </tr>
+              <tr v-if="!itemsFiltrados.length">
+                <td :colspan="COLUMNAS.length" class="empty">Ninguna factura con esos filtros</td>
               </tr>
             </tbody>
           </table>
         </div>
-        <p v-else-if="!loading" class="empty">Configure filtros y pulse Buscar.</p>
+        <p v-else-if="!loading && !error" class="empty">
+          No hay facturas con estas opciones e intervalos.
+        </p>
+        <div v-if="hayFiltroColumna" class="pie-grid">
+          <span class="listadas">{{ itemsFiltrados.length }} de {{ items.length }}</span>
+          <button type="button" class="btn" @click="limpiarFiltrosColumna">Limpiar filtros</button>
+        </div>
       </div>
     </div>
 
@@ -331,13 +491,6 @@ onMounted(async () => {
       :busqueda-inicial="buscarClienteInicial"
       @seleccionar="onClienteSeleccionado"
       @cerrar="buscarClienteOpen = false"
-    />
-
-    <PdfPreviewModal
-      :open="pdfOpen"
-      :url="pdfUrl"
-      :titulo="pdfTitulo"
-      @cerrar="cerrarPdf"
     />
   </section>
 </template>
@@ -512,6 +665,65 @@ th {
   background: #f1f5f9;
   position: sticky;
   top: 0;
+  z-index: 1;
+  vertical-align: top;
+  font-weight: 600;
+}
+.th-titulo {
+  display: block;
+  padding: 0 0.1rem 0.15rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.th-titulo.num {
+  text-align: right;
+}
+.filtro-col {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 400;
+  height: auto;
+}
+.filtro-col:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: -1px;
+}
+.col-fecha {
+  width: 6.5rem;
+}
+.col-tie,
+.col-tipo,
+.col-imp {
+  width: 4rem;
+}
+.col-factura,
+.col-cobro,
+.col-fpago {
+  width: 5.5rem;
+}
+.col-cliente,
+.col-nif {
+  width: 7rem;
+}
+.col-importe {
+  width: 6rem;
+}
+.pie-grid {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+.listadas {
+  font-size: 0.78rem;
+  color: #64748b;
 }
 .num {
   text-align: right;

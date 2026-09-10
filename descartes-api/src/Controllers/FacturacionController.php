@@ -174,6 +174,23 @@ final class FacturacionController
     }
   }
 
+  public function documentoImpresion(Request $request, Response $response, array $args): Response
+  {
+    try {
+      return $this->json($response, 200, $this->impresion->documento(
+        (string) ($args['empresa'] ?? ''),
+        strtoupper((string) ($args['facturaTipo'] ?? '')),
+        (int) ($args['factura'] ?? 0)
+      ));
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
   public function marcarImpresion(Request $request, Response $response): Response
   {
     $body = (array) json_decode((string) $request->getBody(), true);

@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { nextTick, onUnmounted, ref, watch } from 'vue'
 import { api } from '@/api/client'
-import ToolIcon from '@/components/common/ToolIcon.vue'
 
 export type EntidadBuscarResultado = {
   codigo: string
@@ -65,17 +64,49 @@ const tituloModal = () => {
   return 'Buscar proveedor'
 }
 
+/** Espera entre pulsaciones antes de consultar, para no lanzar una peticion por tecla. */
+const RETARDO_TECLEO = 250
+let temporizador: ReturnType<typeof setTimeout> | null = null
+/** La busqueda inicial ya la lanza el watch de open; el de q no debe repetirla. */
+let omitirBusquedaDeQ = false
+
+function cancelarBusquedaPendiente() {
+  if (temporizador === null) return
+  clearTimeout(temporizador)
+  temporizador = null
+}
+
 watch(
   () => props.open,
   async (abierto) => {
+    cancelarBusquedaPendiente()
     if (!abierto) return
-    q.value = props.busquedaInicial?.trim() ?? ''
+    const inicial = props.busquedaInicial?.trim() ?? ''
+    omitirBusquedaDeQ = inicial !== q.value
+    q.value = inicial
     indice.value = 0
     error.value = null
     await buscar()
     await posicionarEnActual()
   }
 )
+
+// Busca mientras se escribe: no hay boton de lupa.
+watch(q, () => {
+  if (omitirBusquedaDeQ) {
+    omitirBusquedaDeQ = false
+    return
+  }
+  if (!props.open) return
+  cancelarBusquedaPendiente()
+  temporizador = setTimeout(() => {
+    temporizador = null
+    indice.value = 0
+    void buscar()
+  }, RETARDO_TECLEO)
+})
+
+onUnmounted(cancelarBusquedaPendiente)
 
 async function posicionarEnActual() {
   const codigo = props.codigoActual?.trim()
@@ -87,13 +118,18 @@ async function posicionarEnActual() {
   gridWrap.value?.querySelector('tr.selected')?.scrollIntoView({ block: 'center' })
 }
 
+/** Descarta respuestas de consultas que ya han quedado atras al seguir tecleando. */
+let ultimaPeticion = 0
+
 async function buscar() {
+  const peticion = ++ultimaPeticion
   loading.value = true
   error.value = null
   try {
     const { data } = await api.get(`/api/mantenimiento/${props.entidad}`, {
       params: { q: q.value, page: 1, pageSize: 200 },
     })
+    if (peticion !== ultimaPeticion) return
     items.value = (data.items ?? []).map((item: Record<string, unknown>) => {
       const codigo = String(item.codigo ?? item.puesto ?? '').trim()
       let etiqueta = ''
@@ -114,10 +150,11 @@ async function buscar() {
     })
     indice.value = Math.min(indice.value, Math.max(0, items.value.length - 1))
   } catch {
+    if (peticion !== ultimaPeticion) return
     error.value = 'No se pudo cargar el listado'
     items.value = []
   } finally {
-    loading.value = false
+    if (peticion === ultimaPeticion) loading.value = false
   }
 }
 
@@ -156,17 +193,14 @@ function aceptar(i?: number) {
                     : 'Codigo o descripcion...'
             "
             autofocus
-            @keyup.enter="buscar"
+            @keyup.enter="aceptar()"
           />
-          <button type="button" class="btn-buscar" title="Buscar" @click="buscar">
-            <ToolIcon name="buscar" />
-          </button>
         </div>
 
         <p v-if="error" class="error">{{ error }}</p>
-        <p v-else-if="loading" class="hint">Cargando...</p>
+        <p v-else class="hint">{{ loading ? 'Buscando...' : `${items.length} resultado(s)` }}</p>
 
-        <div v-else ref="gridWrap" class="grid-wrap">
+        <div ref="gridWrap" class="grid-wrap">
           <table class="entidad-grid">
             <thead>
               <tr>
@@ -201,7 +235,7 @@ function aceptar(i?: number) {
                 <td>{{ item.etiqueta }}</td>
               </tr>
               <tr v-if="items.length === 0">
-                <td colspan="3">Sin resultados</td>
+                <td colspan="3">{{ loading ? 'Buscando...' : 'Sin resultados' }}</td>
               </tr>
             </tbody>
           </table>
@@ -275,17 +309,6 @@ function aceptar(i?: number) {
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   font-size: 0.85rem;
-}
-
-.btn-buscar {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.1rem;
-  border: 1px solid #94a3b8;
-  border-radius: 6px;
-  background: #f8fafc;
-  cursor: pointer;
 }
 
 .grid-wrap {
@@ -362,6 +385,10 @@ function aceptar(i?: number) {
 .error {
   margin: 0;
   font-size: 0.85rem;
+}
+
+.hint {
+  color: #64748b;
 }
 
 .error {

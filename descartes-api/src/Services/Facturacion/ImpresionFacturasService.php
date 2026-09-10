@@ -123,6 +123,105 @@ final class ImpresionFacturasService
   }
 
   /**
+   * Datos de una factura para pintarla con la plantilla del diseñador
+   * (Configuración → Documentos). La empresa la resuelve el cliente desde la
+   * ficha de tienda, igual que en la impresión de ventas.
+   *
+   * @return array<string, mixed>
+   */
+  public function documento(string $empresa, string $facturaTipo, int $factura): array
+  {
+    $doc = $this->cargarFactura($empresa, $facturaTipo, $factura);
+    if ($doc === null) {
+      throw new \RuntimeException('Factura no encontrada', 404);
+    }
+
+    $c = $doc['cab'];
+    $estado = strtoupper(trim((string) ($c['Estado'] ?? '')));
+    $contadoDif = !empty($c['FacturaContadoDiferida']);
+
+    $ivas = [];
+    for ($i = 1; $i <= 6; $i++) {
+      $base = (float) ($c["ImporteBase{$i}"] ?? 0);
+      if (abs($base) < 0.0001) {
+        continue;
+      }
+      $ivas[] = [
+        'pje' => round((float) ($c["PjeIva{$i}"] ?? 0), 2),
+        'base' => round($base, 2),
+        'cuota' => round((float) ($c["ImporteIva{$i}"] ?? 0), 2),
+        'recargo' => round((float) ($c["ImporteRec{$i}"] ?? 0), 2),
+      ];
+    }
+    $base = 0.0;
+    foreach ($ivas as $iva) {
+      $base += $iva['base'];
+    }
+
+    $lineas = [];
+    foreach ($doc['lineas'] as $l) {
+      $lineas[] = [
+        'albaran' => (int) ($l['Albaran'] ?? 0),
+        'albaranFecha' => $this->fmtFecha($l['FechaAlb'] ?? null),
+        'articulo' => trim((string) ($l['Articulo'] ?? '')),
+        'descripcion' => trim((string) ($l['Descripcion'] ?? '')),
+        'unidades' => (float) ($l['Cantidad'] ?? 0),
+        'precio' => (float) ($l['Precio'] ?? 0),
+        'dto' => (float) ($l['PjeDto'] ?? 0),
+        'pjeIva' => (float) ($l['PjeIva'] ?? 0),
+        'importe' => (float) ($l['Importe'] ?? 0),
+      ];
+    }
+
+    $vencimientos = [];
+    foreach ($doc['recibos'] as $r) {
+      $vencimientos[] = [
+        'recibo' => (int) ($r['Recibo'] ?? 0),
+        'fecha' => $this->fmtFecha($r['Vencimiento'] ?? null),
+        'importe' => round((float) ($r['Importe'] ?? 0), 2),
+      ];
+    }
+
+    return [
+      'empresa' => trim((string) ($c['Empresa'] ?? '')),
+      'facturaTipo' => trim((string) ($c['FacturaTipo'] ?? '')),
+      'factura' => (int) ($c['Factura'] ?? 0),
+      'fecha' => $this->fmtFecha($c['Fecha'] ?? null),
+      'estado' => $estado,
+      'facturaContadoDiferida' => $contadoDif,
+      'tipoCobro' => ($estado === 'G' || $contadoDif) ? 'diferida' : 'contado',
+      'formaPago' => [
+        'codigo' => trim((string) ($c['Fpago'] ?? '')),
+        'descripcion' => trim((string) ($c['FpagoDescripcion'] ?? '')),
+      ],
+      'cliente' => [
+        'codigo' => trim((string) ($c['Cliente'] ?? '')),
+        'razonSocial' => trim((string) ($c['RazonSocial'] ?? '')),
+        'razonSocial2' => trim((string) ($c['RazonSocial2'] ?? '')),
+        'nif' => trim((string) ($c['NIF'] ?? '')),
+        'direccion' => trim((string) ($c['Direccion'] ?? '')),
+        'codigoPostal' => trim((string) ($c['CodigoPostal'] ?? '')),
+        'poblacion' => trim((string) ($c['Poblacion'] ?? '')),
+        'provincia' => trim((string) ($c['Provincia'] ?? '')),
+        'pais' => trim((string) ($c['Pais'] ?? '')),
+        'telefono' => trim((string) ($c['Telefono1'] ?? '')),
+        'cuentaBancaria' => trim((string) ($c['CuentaBancaria'] ?? '')),
+        'iban' => trim((string) ($c['IBAN'] ?? '')),
+        'swift' => trim((string) ($c['Swift'] ?? '')),
+      ],
+      'lineas' => $lineas,
+      'vencimientos' => $vencimientos,
+      'totales' => [
+        'base' => round($base, 2),
+        'ivas' => $ivas,
+        'descuento' => round((float) ($c['ImporteDtos'] ?? 0), 2),
+        'pjeDto' => round((float) ($c['PjeDto'] ?? 0), 2),
+        'importe' => round((float) ($c['Importe'] ?? 0), 2),
+      ],
+    ];
+  }
+
+  /**
    * @param array<string, mixed> $body
    * @return array{marcadas: int}
    */
@@ -331,6 +430,7 @@ final class ImpresionFacturasService
   {
     $sql = "SELECT
         f.Empresa, f.FacturaTipo, f.Factura, f.Fecha, f.Cliente, f.Fpago, f.Estado,
+        ISNULL(f.FacturaContadoDiferida, 0) AS FacturaContadoDiferida,
         f.Importe, f.ImporteDtos, f.PjeDto, f.PagoACuenta,
         f.ImporteBase1, f.ImporteBase2, f.ImporteBase3, f.ImporteBase4, f.ImporteBase5, f.ImporteBase6,
         f.PjeIva1, f.PjeIva2, f.PjeIva3, f.PjeIva4, f.PjeIva5, f.PjeIva6,
@@ -338,6 +438,7 @@ final class ImpresionFacturasService
         f.PjeRec1, f.PjeRec2, f.PjeRec3, f.PjeRec4, f.PjeRec5, f.PjeRec6,
         f.ImporteRec1, f.ImporteRec2, f.ImporteRec3, f.ImporteRec4, f.ImporteRec5, f.ImporteRec6,
         c.RazonSocial, c.RazonSocial2, c.NIF, c.Direccion, c.Poblacion, c.CodigoPostal, c.Provincia,
+        c.Pais, c.Telefono1, c.CuentaBancaria, c.IBAN, c.Swift,
         fp.Descripcion AS FpagoDescripcion,
         e.Nombre AS EmpNombre, e.NombreFiscal AS EmpNombreFiscal, e.NIF AS EmpNif,
         e.Direccion AS EmpDireccion, e.Poblacion AS EmpPoblacion,
@@ -388,7 +489,7 @@ final class ImpresionFacturasService
     try {
       $sql = "SELECT TOP 2000
           a.Albaran, a.Fecha AS FechaAlb,
-          l.NroLin, l.Articulo, l.Descripcion, l.Cantidad, l.Precio, l.PjeDto, l.Importe
+          l.NroLin, l.Articulo, l.Descripcion, l.Cantidad, l.Precio, l.PjeDto, l.PjeIva, l.Importe
         FROM AlbaranesVentasCab a
         INNER JOIN AlbaranesVentasLin l
           ON l.Empresa = a.Empresa AND l.Tipo = a.Tipo AND l.Albaran = a.Albaran
@@ -404,7 +505,7 @@ final class ImpresionFacturasService
       try {
         $sql = "SELECT TOP 2000
             a.Albaran, a.Fecha AS FechaAlb,
-            l.NroLin, l.Articulo, l.Descripcion, l.Cantidad, l.Precio, l.PjeDto, l.Importe
+            l.NroLin, l.Articulo, l.Descripcion, l.Cantidad, l.Precio, l.PjeDto, l.PjeIva, l.Importe
           FROM AlbaranesVentasCab a
           INNER JOIN AlbaranesVentasLin l
             ON l.Empresa = a.Empresa AND l.Tipo = a.Tipo AND l.Albaran = a.Albaran

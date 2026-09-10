@@ -27,6 +27,7 @@ import {
   prepararOImprimirVenta,
   type PrepImpresionA4,
 } from '@/composables/useImpresionVentaDocumento'
+import { useVentanaPreviewDocumento } from '@/composables/previewDocumentoVentana'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { useTpvVentaStore } from '@/stores/tpvVenta'
@@ -44,6 +45,8 @@ const router = useRouter()
 const { puede } = usePermisos()
 const puestoStore = usePuestoContextoStore()
 const tpv = useTpvVentaStore()
+/** Ventana aparte con la previsualización A4 (sustituye al modal). */
+const preview = useVentanaPreviewDocumento({ imprimir: () => imprimirDocumentoA4() })
 
 const initError = ref<string | null>(null)
 const nivelData = ref<TpvNivel | null>(null)
@@ -557,8 +560,7 @@ async function prepararDocumentoA4(venta: VentaDetalle) {
       puestoCodigo: puestoStore.puestoCodigo ?? '',
     })
     if (res.kind === 'a4') {
-      a4Prep.value = res.prep
-      a4Open.value = true
+      await mostrarPreviewA4(res.prep)
     }
   } catch (e: unknown) {
     errorImpresion.value = extractApiError(e, 'No se pudo preparar el documento')
@@ -567,15 +569,34 @@ async function prepararDocumentoA4(venta: VentaDetalle) {
   }
 }
 
+/** Previsualización en ventana aparte: el modal solo renderiza el folio oculto. */
+async function mostrarPreviewA4(prep: PrepImpresionA4) {
+  if (!preview.abrir(prep.titulo)) {
+    throw new Error('Permita las ventanas emergentes para previsualizar el documento')
+  }
+  a4Prep.value = prep
+  a4Open.value = true
+  await nextTick()
+  const html = (await a4ModalRef.value?.capturarHtmlFolio()) || ''
+  if (!html) {
+    preview.cerrar()
+    throw new Error('No hay plantilla configurada para este documento en el puesto')
+  }
+  preview.mostrar(html, { impresoraNombre: prep.impresoraNombre })
+}
+
 async function imprimirDocumentoA4() {
   if (!ultimoTicket.value || !a4Prep.value || imprimiendo.value) return
   imprimiendo.value = true
   try {
     const html = (await a4ModalRef.value?.capturarHtmlFolio()) || ''
     await imprimirA4Preparado(a4Prep.value, html, ultimoTicket.value)
+    preview.cerrar()
     a4Open.value = false
   } catch (e: unknown) {
-    errorImpresion.value = extractApiError(e, 'No se pudo imprimir el documento')
+    const msg = extractApiError(e, 'No se pudo imprimir el documento')
+    errorImpresion.value = msg
+    preview.notificarError(msg)
   } finally {
     imprimiendo.value = false
   }
@@ -939,6 +960,7 @@ onMounted(() => {
       :datos="a4Prep?.datos ?? null"
       :impresora-nombre="a4Prep?.impresoraNombre || ''"
       :imprimiendo="imprimiendo"
+      oculto
       @cerrar="a4Open = false"
       @imprimir="imprimirDocumentoA4"
     />

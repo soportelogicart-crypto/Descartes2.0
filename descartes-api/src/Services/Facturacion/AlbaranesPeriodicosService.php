@@ -18,18 +18,27 @@ final class AlbaranesPeriodicosService
     'upsize_ts', 'rowguid', 'empresa', 'albaran', 'fecha',
     'facturatipo', 'factura', 'trasmodem', 'trasctb', 'impreso', 'sesion',
     'prefactura', 'prefacturatipo', 'preempresafacturacion',
+    // image: PDO/ODBC las trae como '' y el INSERT falla (nvarchar vs image).
+    'ticketsi_qr', 'firma',
   ];
 
-  private const LIN_SKIP = ['upsize_ts', 'rowguid', 'nrolin', 'empresa', 'albaran'];
+  private const LIN_SKIP = ['upsize_ts', 'rowguid', 'nrolin', 'empresa', 'albaran', 'firma'];
 
   public function __construct(PDO $pdo)
   {
     $this->pdo = $pdo;
   }
 
+  /** Máximo de bases no generadas que se devuelven para explicar el resultado. */
+  private const MAX_OMISIONES = 50;
+
   /**
    * @param array<string, mixed> $body
-   * @return array{generados: list<array<string, mixed>>, totales: array{generados: int, omitidos: int}}
+   * @return array{
+   *   generados: list<array<string, mixed>>,
+   *   omisiones: list<array<string, mixed>>,
+   *   totales: array{generados: int, omitidos: int, fueraDeRango: int, bases: int}
+   * }
    */
   public function generar(array $body): array
   {
@@ -54,9 +63,12 @@ final class AlbaranesPeriodicosService
     $hasta = new \DateTimeImmutable($fechaHasta);
 
     $stmt = $this->pdo->prepare(
-      'SELECT Empresa, Tipo, Albaran, UltimaGeneracion, Periodicidad
-       FROM AlbaranesPeriodicos
-       WHERE Empresa = :e'
+      'SELECT p.Empresa, p.Tipo, p.Albaran, p.UltimaGeneracion, p.Periodicidad,
+              c.Cliente, c.RazonSocial
+       FROM AlbaranesPeriodicos p
+       LEFT JOIN AlbaranesVentasCab c
+         ON c.Empresa = p.Empresa AND c.Tipo = p.Tipo AND c.Albaran = p.Albaran
+       WHERE p.Empresa = :e'
     );
     $stmt->execute(['e' => $empresa]);
     $periodicos = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -64,24 +76,44 @@ final class AlbaranesPeriodicosService
     $this->pdo->beginTransaction();
     try {
       $generados = [];
+      $omisiones = [];
       $omitidos = 0;
+      $fueraDeRango = 0;
 
       foreach ($periodicos as $per) {
+        // Cada base que no genera explica por qué: sin motivo visible el
+        // usuario no sabe si falta configuración o solo no le toca aún.
+        $anotar = function (string $motivo, ?\DateTimeImmutable $proxima) use (&$omisiones, $per, $empresa): void {
+          $omisiones[] = [
+            'empresa' => trim((string) ($per['Empresa'] ?? $empresa)),
+            'tipo' => trim((string) ($per['Tipo'] ?? '')),
+            'albaran' => (int) ($per['Albaran'] ?? 0),
+            'cliente' => trim((string) ($per['Cliente'] ?? '')),
+            'razonSocial' => trim((string) ($per['RazonSocial'] ?? '')),
+            'periodicidad' => (int) ($per['Periodicidad'] ?? 0),
+            'proximaGeneracion' => $proxima?->format('Y-m-d'),
+            'motivo' => $motivo,
+          ];
+        };
+
         $periodicidad = (int) ($per['Periodicidad'] ?? 0);
         if ($periodicidad <= 0) {
           $omitidos++;
+          $anotar('Periodicidad no válida', null);
           continue;
         }
 
         $ultimaRaw = $per['UltimaGeneracion'] ?? null;
         if ($ultimaRaw === null || $ultimaRaw === '') {
           $omitidos++;
+          $anotar('Sin fecha base de generación', null);
           continue;
         }
         try {
           $ultima = new \DateTimeImmutable(is_string($ultimaRaw) ? $ultimaRaw : (string) $ultimaRaw);
         } catch (\Throwable $e) {
           $omitidos++;
+          $anotar('Fecha base inválida', null);
           continue;
         }
 
@@ -90,6 +122,8 @@ final class AlbaranesPeriodicosService
         $fechaVen2 = $fechas['fechaVen2'];
 
         if ($fechaVen < $desde || $fechaVen > $hasta) {
+          $fueraDeRango++;
+          $anotar('Próxima generación fuera del rango', $fechaVen);
           continue;
         }
 
@@ -99,6 +133,7 @@ final class AlbaranesPeriodicosService
 
         if (!$this->clientePermitePeriodico($empPlantilla, $tipoPlantilla, $albPlantilla)) {
           $omitidos++;
+          $anotar('Forma de pago con cobro de arqueo', $fechaVen);
           continue;
         }
 
@@ -134,11 +169,20 @@ final class AlbaranesPeriodicosService
       throw $e;
     }
 
+    // Las más cercanas primero: son las que el usuario suele estar buscando.
+    usort($omisiones, static function (array $a, array $b): int {
+      return [$a['proximaGeneracion'] ?? '9999-12-31', $a['albaran']]
+        <=> [$b['proximaGeneracion'] ?? '9999-12-31', $b['albaran']];
+    });
+
     return [
       'generados' => $generados,
+      'omisiones' => array_slice($omisiones, 0, self::MAX_OMISIONES),
       'totales' => [
         'generados' => count($generados),
         'omitidos' => $omitidos,
+        'fueraDeRango' => $fueraDeRango,
+        'bases' => count($periodicos),
       ],
     ];
   }
@@ -349,6 +393,9 @@ final class AlbaranesPeriodicosService
     $nuevo['Tipo'] = 'A';
     $nuevo['Albaran'] = $nuevoNum;
     $nuevo['Fecha'] = date('Y-m-d H:i:s');
+    // Un presupuesto plantilla tiene Estado='B'. El albarán periódico debe
+    // quedar cerrado y pendiente de facturar, igual que un albarán normal.
+    $nuevo['Estado'] = null;
     $nuevo['FacturaTipo'] = null;
     $nuevo['Factura'] = 0;
     $nuevo['TrasModem'] = 0;

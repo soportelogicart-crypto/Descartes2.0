@@ -81,7 +81,6 @@ final class DiarioFacturacionService
         '',
         '',
         '',
-        '',
         'Total dia ' . $fechaActual . ' (' . $diaCount . ')',
         number_format($diaImporte, 2, '.', ''),
         '',
@@ -105,10 +104,9 @@ final class DiarioFacturacionService
       $cobro = (($r['tipoCobro'] ?? '') === 'diferida') ? 'Dif.' : 'Con.';
       $rows[] = [
         $fecha,
-        (string) ($r['empresa'] ?? ''),
         trim((string) ($r['facturaTipo'] ?? '')) . '-' . (string) ($r['factura'] ?? ''),
         (string) ($r['cliente'] ?? ''),
-        substr((string) ($r['razonSocial'] ?? ''), 0, 28),
+        (string) ($r['razonSocial'] ?? ''),
         number_format($imp, 2, '.', ''),
         $cobro,
         (string) ($r['fpago'] ?? ''),
@@ -117,10 +115,12 @@ final class DiarioFacturacionService
     }
     $flushDia();
 
+    // Anchos hasta el margen derecho (515 pt utiles en A4): el listado no queda apretado.
     $pdf->table(
-      ['Fecha', 'Tie', 'Factura', 'Cliente', 'Razon social', 'Importe', 'Cobro', 'F.P.', 'Imp'],
+      ['Fecha', 'Factura', 'Cliente', 'Razon social', 'Importe', 'Cobro', 'F.P.', 'Imp'],
       $rows,
-      [52, 28, 52, 48, 120, 50, 32, 32, 24]
+      [62, 68, 58, 170, 62, 38, 36, 21],
+      ['l', 'l', 'l', 'l', 'r', 'l', 'l', 'l']
     );
 
     $pdf->spacer(8);

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { generarFacturasAutomatico, previewGeneracionFacturas } from '@/api/facturacion'
 import { api } from '@/api/client'
 import type {
+  FacturaGeneracionGrupoPreview,
   FacturaManualGenerada,
   FacturasGeneracionPreviewResponse,
   FacturasGeneracionResponse,
@@ -82,6 +83,93 @@ const buscarOpen = ref(false)
 const buscarEntidad = ref<EntidadLupa>('clientes')
 const buscarCampo = ref<CampoLupa>('clienteDesde')
 const buscarInicial = ref('')
+
+/** Columnas del grid con su texto filtrable (búsqueda mientras se escribe). */
+const COLUMNAS = [
+  { key: 'factura', label: 'Factura', clase: 'col-factura' },
+  { key: 'cliente', label: 'Cliente', clase: 'col-cliente' },
+  { key: 'nombre', label: 'Nombre', clase: 'col-nombre' },
+  { key: 'albaran', label: 'Albarán', clase: 'col-alb' },
+  { key: 'fecha', label: 'Fecha', clase: 'col-fecha' },
+  { key: 'importe', label: 'Importe', clase: 'col-importe', num: true },
+] as const
+
+type ColumnaKey = (typeof COLUMNAS)[number]['key']
+
+function filtrosColumnaVacios(): Record<ColumnaKey, string> {
+  return { factura: '', cliente: '', nombre: '', albaran: '', fecha: '', importe: '' }
+}
+
+const filtrosColumna = ref<Record<ColumnaKey, string>>(filtrosColumnaVacios())
+
+function normalizar(texto: string) {
+  return texto
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+const filtrosColumnaActivos = computed(() =>
+  (Object.entries(filtrosColumna.value) as [ColumnaKey, string][])
+    .map(([key, valor]) => ({ key, valor: normalizar(valor.trim()) }))
+    .filter((f) => f.valor !== '')
+)
+
+const hayFiltroColumna = computed(() => filtrosColumnaActivos.value.length > 0)
+
+function coincideFiltros(textos: Record<ColumnaKey, string>) {
+  return filtrosColumnaActivos.value.every((f) =>
+    normalizar(textos[f.key] ?? '').includes(f.valor)
+  )
+}
+
+function textosGrupo(g: FacturaGeneracionGrupoPreview): Record<ColumnaKey, string> {
+  return {
+    factura: `Prevista ${g.indice}`,
+    cliente: String(g.cliente ?? ''),
+    nombre: String(g.razonSocial ?? ''),
+    albaran: g.albaranes.map((a) => String(a.albaran)).join(' '),
+    fecha: g.albaranes.map((a) => fechaCorta(a.fecha)).join(' '),
+    importe: Number(g.importe ?? 0).toFixed(2),
+  }
+}
+
+function textosGenerada(f: FacturaManualGenerada): Record<ColumnaKey, string> {
+  return {
+    factura: `${f.facturaTipo}/${f.factura}`,
+    cliente: String(f.cliente ?? ''),
+    nombre: String(f.razonSocial ?? ''),
+    albaran: (f.albaranes ?? []).map((a) => String(a.albaran)).join(' '),
+    fecha: (f.albaranes ?? []).map((a) => fechaCorta(a.fecha)).join(' '),
+    importe: Number(f.importe ?? 0).toFixed(2),
+  }
+}
+
+const gruposFiltrados = computed(() => {
+  const grupos = preview.value?.grupos ?? []
+  if (!hayFiltroColumna.value) return grupos
+  return grupos.filter((g) => coincideFiltros(textosGrupo(g)))
+})
+
+const generadasFiltradas = computed(() => {
+  if (!hayFiltroColumna.value) return generadas.value
+  return generadas.value.filter((f) => coincideFiltros(textosGenerada(f)))
+})
+
+function limpiarFiltrosColumna() {
+  filtrosColumna.value = filtrosColumnaVacios()
+}
+
+function emailDe(f: FacturaManualGenerada) {
+  return (
+    emails.value?.detalles.find(
+      (d) =>
+        d.factura === f.factura &&
+        d.facturaTipo === f.facturaTipo &&
+        d.empresa === f.empresa
+    ) ?? null
+  )
+}
 
 const TITULOS_LUPA: Record<CampoLupa, string> = {
   vendedorDesde: 'Buscar vendedor desde',
@@ -196,6 +284,7 @@ async function consultar() {
   generadas.value = []
   emails.value = null
   try {
+    filtrosColumna.value = filtrosColumnaVacios()
     preview.value = await previewGeneracionFacturas(params())
     const t = preview.value.totales
     mensaje.value = `${t.albaranes} albaranes · ~${t.gruposEstimados} facturas · ${t.importe.toFixed(2)} €`
@@ -525,16 +614,20 @@ onMounted(async () => {
             <thead>
               <tr>
                 <th class="col-ind"></th>
-                <th>Factura</th>
-                <th>Cliente</th>
-                <th>Nombre</th>
-                <th>Albarán</th>
-                <th>Fecha</th>
-                <th class="num">Importe</th>
+                <th v-for="c in COLUMNAS" :key="c.key" :class="c.clase">
+                  <span class="th-titulo" :class="{ num: c.num }">{{ c.label }}</span>
+                  <input
+                    v-model="filtrosColumna[c.key]"
+                    type="search"
+                    class="filtro-col"
+                    :title="`Filtrar por ${c.label}`"
+                    :aria-label="`Filtrar por ${c.label}`"
+                  />
+                </th>
               </tr>
             </thead>
             <tbody>
-              <template v-for="g in preview.grupos" :key="'p-' + g.indice">
+              <template v-for="g in gruposFiltrados" :key="'p-' + g.indice">
                 <tr class="fila-factura">
                   <td class="col-ind">{{ g.indice }}</td>
                   <td>Prevista {{ g.indice }}</td>
@@ -557,8 +650,17 @@ onMounted(async () => {
                   <td class="num">{{ a.importe.toFixed(2) }}</td>
                 </tr>
               </template>
+              <tr v-if="!gruposFiltrados.length">
+                <td :colspan="COLUMNAS.length + 1" class="empty-filtro">
+                  Ningún grupo con esos filtros
+                </td>
+              </tr>
             </tbody>
           </table>
+        </div>
+        <div v-if="preview && hayFiltroColumna" class="pie-grid">
+          <span class="listadas">{{ gruposFiltrados.length }} de {{ preview.grupos.length }}</span>
+          <button type="button" class="btn" @click="limpiarFiltrosColumna">Limpiar filtros</button>
         </div>
 
         <div v-if="generadas.length" class="grid-wrap">
@@ -567,16 +669,23 @@ onMounted(async () => {
             <thead>
               <tr>
                 <th class="col-ind"></th>
-                <th>Factura</th>
-                <th>Cliente</th>
-                <th>Nombre</th>
-                <th>Albarán</th>
-                <th>Fecha</th>
-                <th class="num">Importe</th>
+                <th v-for="c in COLUMNAS" :key="'g-' + c.key" :class="c.clase">
+                  <span class="th-titulo" :class="{ num: c.num }">{{ c.label }}</span>
+                  <input
+                    v-model="filtrosColumna[c.key]"
+                    type="search"
+                    class="filtro-col"
+                    :title="`Filtrar por ${c.label}`"
+                    :aria-label="`Filtrar por ${c.label}`"
+                  />
+                </th>
               </tr>
             </thead>
             <tbody>
-              <template v-for="(f, i) in generadas" :key="'g-' + f.facturaTipo + '-' + f.factura">
+              <template
+                v-for="(f, i) in generadasFiltradas"
+                :key="'g-' + f.facturaTipo + '-' + f.factura"
+              >
                 <tr class="fila-factura">
                   <td class="col-ind">{{ i + 1 }}</td>
                   <td>{{ f.facturaTipo }}/{{ f.factura }}</td>
@@ -584,10 +693,10 @@ onMounted(async () => {
                   <td>{{ f.razonSocial || '—' }}</td>
                   <td>{{ f.albaranes.length }} alb.</td>
                   <td>
-                    <span v-if="emails?.detalles[i]" class="email">
-                      {{ emails.detalles[i].estado }}
-                      <template v-if="emails.detalles[i].destinatario">
-                        ({{ emails.detalles[i].destinatario }})
+                    <span v-if="emailDe(f)" class="email">
+                      {{ emailDe(f)?.estado }}
+                      <template v-if="emailDe(f)?.destinatario">
+                        ({{ emailDe(f)?.destinatario }})
                       </template>
                     </span>
                   </td>
@@ -607,8 +716,17 @@ onMounted(async () => {
                   <td class="num">{{ a.importe != null ? a.importe.toFixed(2) : '' }}</td>
                 </tr>
               </template>
+              <tr v-if="!generadasFiltradas.length">
+                <td :colspan="COLUMNAS.length + 1" class="empty-filtro">
+                  Ninguna factura con esos filtros
+                </td>
+              </tr>
             </tbody>
           </table>
+        </div>
+        <div v-if="generadas.length && hayFiltroColumna" class="pie-grid">
+          <span class="listadas">{{ generadasFiltradas.length }} de {{ generadas.length }}</span>
+          <button type="button" class="btn" @click="limpiarFiltrosColumna">Limpiar filtros</button>
         </div>
       </div>
     </div>
@@ -676,7 +794,7 @@ onMounted(async () => {
 }
 .layout {
   display: grid;
-  grid-template-columns: 16.5rem minmax(0, 1fr);
+  grid-template-columns: 21rem minmax(0, 1fr);
   gap: 0.85rem;
   align-items: stretch;
   min-height: 0;
@@ -688,7 +806,7 @@ onMounted(async () => {
   }
 }
 .sidebar {
-  width: 16.5rem;
+  width: 21rem;
   max-width: 100%;
   min-width: 0;
   display: flex;
@@ -731,7 +849,7 @@ legend {
 }
 .opciones label {
   display: grid;
-  grid-template-columns: 4.6rem minmax(0, 1fr);
+  grid-template-columns: 6.2rem minmax(0, 1fr);
   align-items: center;
   gap: 0.3rem;
   font-size: 0.75rem;
@@ -757,7 +875,7 @@ legend {
 .rango-head,
 .rango-row {
   display: grid;
-  grid-template-columns: 3.6rem minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: 4.4rem minmax(0, 1fr) minmax(0, 1fr);
   gap: 0.25rem;
   align-items: center;
   min-width: 0;
@@ -876,6 +994,59 @@ legend {
   top: 0;
   z-index: 1;
   font-weight: 600;
+  vertical-align: top;
+}
+.th-titulo {
+  display: block;
+  padding: 0 0.1rem 0.15rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.th-titulo.num {
+  text-align: right;
+}
+.filtro-col {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 400;
+  height: auto;
+}
+.filtro-col:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: -1px;
+}
+.col-factura,
+.col-alb,
+.col-fecha {
+  width: 6.5rem;
+}
+.col-cliente {
+  width: 7rem;
+}
+.col-importe {
+  width: 6rem;
+}
+.empty-filtro {
+  text-align: center;
+  color: #64748b;
+  padding: 0.8rem;
+}
+.pie-grid {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+.listadas {
+  font-size: 0.78rem;
+  color: #64748b;
 }
 .col-ind {
   width: 2rem;

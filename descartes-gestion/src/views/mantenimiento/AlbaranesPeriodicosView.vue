@@ -179,6 +179,27 @@ function fmtFecha(iso: string | null | undefined): string {
   return `${day}/${m}/${y}`
 }
 
+/** Misma fórmula que Gen.Alb: múltiplos de 30 suman meses; el resto, días. */
+function proximaGeneracion(base: string, periodicidad: number): string {
+  if (!base || periodicidad <= 0) return ''
+  const [y, m, d] = base.slice(0, 10).split('-').map(Number)
+  if (!y || !m || !d) return ''
+  const fecha = new Date(Date.UTC(y, m - 1, d))
+  if (periodicidad % 30 === 0) {
+    fecha.setUTCMonth(fecha.getUTCMonth() + periodicidad / 30)
+  } else {
+    fecha.setUTCDate(fecha.getUTCDate() + periodicidad)
+  }
+  return fmtFecha(fecha.toISOString())
+}
+
+const proximaAdd = computed(() =>
+  proximaGeneracion(addForm.ultimaGeneracion, periodicidadAdd.value)
+)
+const proximaEdit = computed(() =>
+  proximaGeneracion(editForm.ultimaGeneracion, periodicidadEdit.value)
+)
+
 function fmtImporte(n: number | null | undefined): number {
   return Math.round((Number(n) || 0) * 100) / 100
 }
@@ -788,6 +809,11 @@ async function generarAhora() {
               <label>
                 Fecha base (última generación)
                 <input v-model="addForm.ultimaGeneracion" type="date" />
+                <small class="ayuda">
+                  Es el inicio del periodo ya generado. El primer albarán saldrá con fecha
+                  <strong>{{ proximaAdd || '—' }}</strong>; si lo quiere para hoy, ponga la fecha
+                  base un periodo antes.
+                </small>
               </label>
               <label class="check">
                 <input v-model="addForm.marcarReferenciaPeriodico" type="checkbox" />
@@ -827,6 +853,9 @@ async function generarAhora() {
             <label>
               Fecha base (última generación)
               <input v-model="editForm.ultimaGeneracion" type="date" />
+              <small class="ayuda">
+                Próxima generación: <strong>{{ proximaEdit || '—' }}</strong>
+              </small>
             </label>
 
             <div class="modal-actions">
@@ -1104,6 +1133,14 @@ async function generarAhora() {
   display: flex;
   align-items: center;
   gap: 0.35rem;
+}
+
+.ayuda {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+  color: #475569;
+  font-weight: 400;
 }
 
 .modal-actions {

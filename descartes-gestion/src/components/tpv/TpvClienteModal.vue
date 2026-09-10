@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { nextTick, onUnmounted, ref, watch } from 'vue'
 import { buscarClientesTpv } from '@/api/tpv'
 import { extractApiError } from '@/composables/extractApiError'
 import type { TpvCliente } from '@/types/tpv'
@@ -27,9 +27,22 @@ const input = ref<HTMLInputElement | null>(null)
 // No se reinicia al abrir: en una caja sin teclado físico se deja puesto.
 const tecladoVisible = ref(false)
 
+/** Espera entre pulsaciones antes de consultar, para no lanzar una peticion por tecla. */
+const RETARDO_TECLEO = 250
+/** Con una sola letra la lista seria medio fichero de clientes. */
+const MINIMO_TECLEADO = 2
+let temporizador: ReturnType<typeof setTimeout> | null = null
+
+function cancelarBusquedaPendiente() {
+  if (temporizador === null) return
+  clearTimeout(temporizador)
+  temporizador = null
+}
+
 watch(
   () => props.open,
   async (abierto) => {
+    cancelarBusquedaPendiente()
     if (!abierto) return
     consulta.value = ''
     resultados.value = []
@@ -61,21 +74,46 @@ function limpiar() {
   void foco()
 }
 
+/** Descarta respuestas de consultas que ya han quedado atras al seguir tecleando. */
+let ultimaPeticion = 0
+
 async function buscar() {
   const q = consulta.value.trim()
   if (!q) return
+  const peticion = ++ultimaPeticion
   buscando.value = true
   error.value = null
   try {
-    resultados.value = await buscarClientesTpv(q)
+    const encontrados = await buscarClientesTpv(q)
+    if (peticion !== ultimaPeticion) return
+    resultados.value = encontrados
     buscado.value = true
   } catch (e: unknown) {
+    if (peticion !== ultimaPeticion) return
     resultados.value = []
     error.value = extractApiError(e, 'No se pudo buscar el cliente')
   } finally {
-    buscando.value = false
+    if (peticion === ultimaPeticion) buscando.value = false
   }
 }
+
+// Busca mientras se escribe; el boton BUSCAR queda como atajo.
+watch(consulta, (texto) => {
+  cancelarBusquedaPendiente()
+  if (texto.trim().length < MINIMO_TECLEADO) {
+    ultimaPeticion++
+    resultados.value = []
+    buscado.value = false
+    buscando.value = false
+    return
+  }
+  temporizador = setTimeout(() => {
+    temporizador = null
+    void buscar()
+  }, RETARDO_TECLEO)
+})
+
+onUnmounted(cancelarBusquedaPendiente)
 
 function etiqueta(c: TpvCliente): string {
   const partes = [c.poblacion, c.nif, c.email].filter((p) => String(p).trim() !== '')

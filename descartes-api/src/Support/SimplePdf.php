@@ -61,21 +61,34 @@ final class SimplePdf
    * @param list<string> $headers
    * @param list<list<string>> $rows
    * @param list<float> $colWidths
+   * @param list<string> $aligns 'r' alinea a la derecha; vacio = heuristica antigua
    */
-  public function table(array $headers, array $rows, array $colWidths): void
+  public function table(array $headers, array $rows, array $colWidths, array $aligns = []): void
   {
     $rowH = 16.0;
     $this->ensureSpace($rowH * 2);
-    $this->drawTableRow($headers, $colWidths, $rowH, true);
+    $this->drawTableRow($headers, $colWidths, $rowH, true, $aligns);
     foreach ($rows as $row) {
-      $this->ensureSpace($rowH + 2);
-      $this->drawTableRow($row, $colWidths, $rowH, false);
+      // Al saltar de pagina se repite la cabecera: cada hoja se lee sola.
+      if ($this->ensureSpace($rowH + 2)) {
+        $this->drawTableRow($headers, $colWidths, $rowH, true, $aligns);
+      }
+      $this->drawTableRow($row, $colWidths, $rowH, false, $aligns);
     }
   }
 
-  /** @param list<string> $cells @param list<float> $colWidths */
-  private function drawTableRow(array $cells, array $colWidths, float $rowH, bool $header): void
-  {
+  /**
+   * @param list<string> $cells
+   * @param list<float> $colWidths
+   * @param list<string> $aligns
+   */
+  private function drawTableRow(
+    array $cells,
+    array $colWidths,
+    float $rowH,
+    bool $header,
+    array $aligns = []
+  ): void {
     $x = $this->left;
     $y = $this->y;
     $totalW = array_sum($colWidths);
@@ -102,7 +115,7 @@ final class SimplePdf
     $font = $header ? 'F2' : 'F1';
     foreach ($cells as $i => $cell) {
       $w = $colWidths[$i] ?? 80.0;
-      $alignRight = $i >= 2;
+      $alignRight = $aligns === [] ? $i >= 2 : (($aligns[$i] ?? 'l') === 'r');
       $txt = $this->trunc($cell, (int) ($w / 5.2));
       if ($alignRight) {
         $tw = $this->approxWidth($txt, 9);
@@ -122,13 +135,16 @@ final class SimplePdf
     $this->y -= $rowH;
   }
 
-  private function ensureSpace(float $needed): void
+  /** @return bool true si ha habido salto de pagina. */
+  private function ensureSpace(float $needed): bool
   {
-    if ($this->y - $needed < 50) {
-      $this->flushPage();
-      $this->y = 800.0;
-      $this->page++;
+    if ($this->y - $needed >= 50) {
+      return false;
     }
+    $this->flushPage();
+    $this->y = 800.0;
+    $this->page++;
+    return true;
   }
 
   private function flushPage(): void
