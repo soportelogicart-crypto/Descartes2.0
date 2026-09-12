@@ -222,7 +222,7 @@ defineEmits<{
       </button>
     </div>
 
-    <div v-if="!modoEdicion" class="toolbar-group nav">
+    <div v-if="!modoEdicion && puedeNavegar !== false" class="toolbar-group nav">
       <button
         type="button"
         class="nav-btn"

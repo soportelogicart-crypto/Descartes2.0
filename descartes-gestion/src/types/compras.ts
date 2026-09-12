@@ -48,6 +48,8 @@ export type AlbaranCompraLinea = {
   /** Si 0 → usar almacén de cabecera. */
   almacen?: number | null
   articuloOriginal?: string | null
+  /** PrecioVen1 del maestro (solo lectura; no se persiste en la línea). */
+  precioVenta?: number | null
 }
 
 export type AlbaranCompraDetalle = AlbaranCompraResumen & {

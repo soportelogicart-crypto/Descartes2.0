@@ -22,12 +22,6 @@ export const comprasMenuItems: ComprasMenuItem[] = [
     ruta: '/compras/pedidos',
     modulo: 'compras',
   },
-  {
-    id: 'compras-facturas',
-    titulo: 'Facturas de proveedor',
-    ruta: '/compras/facturas',
-    modulo: 'compras',
-  },
 ]
 
 export function esRutaCompras(ruta: string): boolean {
@@ -36,7 +30,7 @@ export function esRutaCompras(ruta: string): boolean {
 
 /**
  * Matriz de permisos: un solo módulo `compras` (MVP / research R-008).
- * Los tres submenus del nav comparten el mismo modulo.
+ * Los submenus del nav comparten el mismo modulo.
  */
 export const comprasNavPermisos = [
   { tipo: 'item' as const, id: 'compras', titulo: 'Compras', modulo: 'compras' },

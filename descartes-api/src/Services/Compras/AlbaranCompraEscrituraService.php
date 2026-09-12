@@ -145,7 +145,8 @@ final class AlbaranCompraEscrituraService
     }
     $this->assertProveedorValido($proveedor);
 
-    $lineas = $body['lineas'] ?? $actual['lineas'] ?? [];
+    $lineasDesdeBody = array_key_exists('lineas', $body);
+    $lineas = $lineasDesdeBody ? ($body['lineas'] ?? []) : ($actual['lineas'] ?? []);
     if (!is_array($lineas)) {
       $lineas = [];
     }
@@ -153,6 +154,10 @@ final class AlbaranCompraEscrituraService
 
     $merged = array_merge($actual, $body);
     $merged['proveedor'] = $proveedor;
+    // El front envía coste base; las líneas ya persistidas van con CT.
+    if (!$lineasDesdeBody) {
+      $merged['preciosYaConTransporte'] = true;
+    }
     [$lineas, $totales] = $this->prepararLineasYTotales($lineas, $merged);
     $fecha = $this->normalizeFecha($merged['fechaAlbaran'] ?? null);
     $esDevolucion = !empty($merged['albaranDevolucion']);

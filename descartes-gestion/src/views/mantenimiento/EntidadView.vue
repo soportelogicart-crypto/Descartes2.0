@@ -12,8 +12,11 @@ import UsuariosView from '@/views/mantenimiento/UsuariosView.vue'
 import TrabajadoresView from '@/views/mantenimiento/TrabajadoresView.vue'
 
 const route = useRoute()
-const entidad = computed(() => String(route.params.entidad))
-const config = computed(() => getEntidadConfig(entidad.value))
+// KeepAlive cachea esta vista por fullPath. useRoute() es global: si `entidad`
+// es computed, al cambiar de pestaña el v-if destruye ClientesView y se pierde
+// el alta (vuelve al grid). Cada instancia corresponde a una entidad.
+const entidad = String(route.params.entidad ?? '')
+const config = computed(() => getEntidadConfig(entidad))
 </script>
 
 <template>

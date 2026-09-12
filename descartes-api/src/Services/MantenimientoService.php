@@ -32,12 +32,37 @@ final class MantenimientoService
     $this->clientesRiesgoRepository = $clientesRiesgoRepository ?? new ClientesRiesgoRepository($pdo);
   }
 
+  /** @var array<string, bool> */
+  private array $columnExistsCache = [];
+
   private function columnExists(string $table, string $column): bool
   {
+    $key = strtolower($table) . '.' . strtolower($column);
+    if (array_key_exists($key, $this->columnExistsCache)) {
+      return $this->columnExistsCache[$key];
+    }
     $sql = sprintf("SELECT COL_LENGTH('dbo.%s', '%s')", $table, $column);
     $length = $this->pdo->query($sql)->fetchColumn();
+    $ok = $length !== false && $length !== null;
+    $this->columnExistsCache[$key] = $ok;
+    return $ok;
+  }
 
-    return $length !== false && $length !== null;
+  /**
+   * El esquema [Clientes] varia segun la version legacy: no insertar columnas que no existan.
+   *
+   * @param array<string, mixed> $mapped
+   * @return array<string, mixed>
+   */
+  private function filtrarColumnasExistentes(string $table, array $mapped): array
+  {
+    $out = [];
+    foreach ($mapped as $col => $val) {
+      if ($this->columnExists($table, (string) $col)) {
+        $out[$col] = $val;
+      }
+    }
+    return $out;
   }
 
   /**
@@ -297,7 +322,7 @@ final class MantenimientoService
     $table = $config['table'];
     $pk = $config['primaryKey'];
 
-    $mapped = $this->mapApiToRow($config, $data, true);
+    $mapped = $this->filtrarColumnasExistentes($table, $this->mapApiToRow($config, $data, true));
     if (!isset($mapped[$pk]) || $mapped[$pk] === '' || $mapped[$pk] === null) {
       throw new \InvalidArgumentException('Codigo obligatorio');
     }
@@ -402,7 +427,7 @@ final class MantenimientoService
     $table = $config['table'];
     $pk = $config['primaryKey'];
 
-    $mapped = $this->mapApiToRow($config, $data, false);
+    $mapped = $this->filtrarColumnasExistentes($table, $this->mapApiToRow($config, $data, false));
     unset($mapped[$pk]);
 
     if ($mapped === []) {

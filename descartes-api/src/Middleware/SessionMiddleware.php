@@ -25,6 +25,14 @@ final class SessionMiddleware implements MiddlewareInterface
       session_start();
     }
 
+    // Liberar el bloqueo del fichero de sesión salvo login/logout.
+    // Si no, un GET largo (listado de clientes) deja Guardar/POST esperando
+    // y en pantalla parece que el botón no hace nada.
+    $path = $request->getUri()->getPath();
+    if (!preg_match('#/api/auth/(login|logout)/?$#', $path)) {
+      session_write_close();
+    }
+
     return $handler->handle($request);
   }
 }

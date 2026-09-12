@@ -7,6 +7,8 @@ defineProps<{
   puedeEliminar?: boolean
   puedeGuardar?: boolean
   modoEdicion?: boolean
+  /** Alta: solo Guardar y Cancelar, como en ventas. */
+  modoAlta?: boolean
   indice?: number
   total?: number
   loading?: boolean
@@ -33,7 +35,26 @@ defineEmits<{
 </script>
 
 <template>
-  <div class="toolbar">
+  <div>
+  <div v-if="modoAlta" class="toolbar toolbar-alta">
+    <strong>Nuevo cliente</strong>
+    <div class="toolbar-group">
+      <button
+        type="button"
+        class="tool-btn primary"
+        :disabled="loading"
+        title="Guardar cliente"
+        @click="$emit('guardar')"
+      >
+        <ToolIcon name="guardar" />
+        <span>{{ loading ? 'Guardando…' : 'Guardar' }}</span>
+      </button>
+      <button type="button" class="tool-btn" :disabled="loading" @click="$emit('cancelar')">
+        Cancelar
+      </button>
+    </div>
+  </div>
+  <div v-else class="toolbar">
     <div class="toolbar-group">
       <button type="button" class="tool-btn" :disabled="loading || !puedeCrear" title="Nuevo" @click="$emit('nuevo')">
         <ToolIcon name="nuevo" />
@@ -65,7 +86,7 @@ defineEmits<{
       </button>
     </div>
 
-    <div class="toolbar-group nav">
+    <div v-if="(indice ?? -1) >= 0 && (total ?? 0) > 0" class="toolbar-group nav">
       <button type="button" class="nav-btn" :disabled="loading || (indice ?? -1) < 0" @click="$emit('primero')">|&lt;</button>
       <button type="button" class="nav-btn" :disabled="loading || (indice ?? -1) <= 0" @click="$emit('anterior')">&lt;</button>
       <span class="nav-counter">{{ total ? ((indice ?? -1) + 1) : 0 }}/{{ total ?? 0 }}</span>
@@ -126,6 +147,7 @@ defineEmits<{
       </button>
     </div>
   </div>
+  </div>
 </template>
 
 <style scoped>
@@ -140,6 +162,13 @@ defineEmits<{
   border: 1px solid #cbd5e1;
   border-radius: 10px;
   margin-bottom: 0.75rem;
+}
+.toolbar-alta {
+  justify-content: space-between;
+}
+.toolbar-alta strong {
+  font-size: 0.95rem;
+  color: #0f172a;
 }
 
 .toolbar-group {

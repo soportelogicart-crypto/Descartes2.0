@@ -126,11 +126,13 @@ final class AlbaranCompraConsultaService
     }
 
     $linStmt = $this->pdo->prepare(
-      'SELECT NroLin, Articulo, Descripcion, Cantidad, Precio, PjeDto, Dto1, Dto2, Dto3,
-              Pedido, Lote, Almacen, ArticuloOriginal
-       FROM AlbaranesComprasLin
-       WHERE Empresa = :empresa AND Albaran = :albaran
-       ORDER BY NroLin'
+      'SELECT l.NroLin, l.Articulo, l.Descripcion, l.Cantidad, l.Precio, l.PjeDto,
+              l.Dto1, l.Dto2, l.Dto3, l.Pedido, l.Lote, l.Almacen, l.ArticuloOriginal,
+              ISNULL(a.PrecioVen1, 0) AS PrecioVen1
+       FROM AlbaranesComprasLin l
+       LEFT JOIN Articulos a ON RTRIM(a.Codigo) = RTRIM(l.Articulo)
+       WHERE l.Empresa = :empresa AND l.Albaran = :albaran
+       ORDER BY l.NroLin'
     );
     $linStmt->execute(['empresa' => $empresa, 'albaran' => $albaran]);
 
@@ -208,6 +210,7 @@ final class AlbaranCompraConsultaService
       'lote' => $this->trimOrNull($lin['Lote'] ?? null),
       'almacen' => isset($lin['Almacen']) && $lin['Almacen'] !== null ? (int) $lin['Almacen'] : null,
       'articuloOriginal' => $this->trimOrNull($lin['ArticuloOriginal'] ?? null),
+      'precioVenta' => (float) ($lin['PrecioVen1'] ?? 0),
     ];
   }
 

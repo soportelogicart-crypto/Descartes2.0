@@ -8,7 +8,6 @@ import {
   crearPedidoProveedor,
   obtenerPedidoProveedor,
   recibirPedidoProveedor,
-  reservarPedidoProveedor,
 } from '@/api/compras'
 import { resolverArticulo } from '@/api/articulos'
 import { createBarcodeScanWatcher } from '@/composables/useBarcodeScanWatcher'
@@ -78,13 +77,12 @@ const altaArticuloQuery = ref('')
 const altaArticuloLineaIdx = ref(-1)
 const tiendas = ref<{ value: string; label: string }[]>([])
 const almacenes = ref<{ value: number; label: string }[]>([])
-const pedidoReservado = ref<number | null>(null)
-const reservando = ref(false)
-/** Alta guiada: tienda → reservar nº → proveedor → cabecera + líneas. */
+/** Alta guiada: tienda → proveedor → líneas. El nº se asigna al Guardar. */
 const pasoAlta = ref<'tienda' | 'proveedor' | 'listo'>('listo')
 const tiendaSelectRef = ref<HTMLSelectElement | null>(null)
 const pedidoInputRef = ref<HTMLInputElement | null>(null)
 const proveedorInputRef = ref<HTMLInputElement | null>(null)
+const lineasPanelRef = ref<HTMLElement | null>(null)
 
 type FormLinea = {
   numLin?: number
@@ -129,9 +127,32 @@ const soloLecturaMotivo = computed(() => {
   return null
 })
 
-const camposEditables = computed(() => modoEdicion.value && !bloqueado.value)
+const mostrarProveedor = computed(() => !esNuevo.value || pasoAlta.value !== 'tienda')
+const mostrarExtras = computed(() => !esNuevo.value || pasoAlta.value === 'listo')
+const cabeceraCompacta = computed(() => !esNuevo.value && !modoEdicion.value)
 
-const proveedorBusquedaHabilitada = computed(() => camposEditables.value)
+const cabeceraEditables = computed(() => (esNuevo.value || modoEdicion.value) && !bloqueado.value)
+const camposEditables = cabeceraEditables
+
+const lineasEditables = computed(() => {
+  if (esNuevo.value) return pasoAlta.value === 'listo'
+  return cabeceraEditables.value
+})
+
+const proveedorBusquedaHabilitada = computed(
+  () => cabeceraEditables.value && (!esNuevo.value || pasoAlta.value !== 'tienda')
+)
+
+const proveedorBloqueado = computed(
+  () => !camposEditables.value || (esNuevo.value && pasoAlta.value === 'tienda')
+)
+
+const almacenNombre = computed(() => {
+  const cod = form.value.almacen
+  if (cod == null) return ''
+  const found = almacenes.value.find((a) => a.value === cod)
+  return found?.label?.replace(/^\s*\d+\s*[-–]\s*/, '') || found?.label || ''
+})
 
 const importeBorrador = computed(() => {
   let sum = 0
@@ -304,25 +325,12 @@ async function cargar(rutaAnterior?: string) {
   }
 }
 
-async function intentarReservarNumeroAutomatico() {
-  if (!esNuevo.value || pedidoReservado.value || reservando.value) return
-  const empresa = form.value.empresa.trim()
-  if (!empresa) {
-    mensaje.value = 'Elija la tienda para asignar el número de pedido'
-    pasoAlta.value = 'tienda'
-    return
-  }
-  await reservarNumero()
-}
-
 async function iniciarNuevo() {
   esNuevo.value = true
   modoEdicion.value = true
   ficha.value = null
-  pedidoReservado.value = null
   pasoAlta.value = 'tienda'
   error.value = null
-  mensaje.value = null
   const empresa = puesto.empresaCodigo || tiendas.value[0]?.value || ''
   form.value = {
     empresa,
@@ -336,70 +344,97 @@ async function iniciarNuevo() {
     observInternas: '',
     lineas: [lineaVacia()],
   }
-  await intentarReservarNumeroAutomatico()
-  if (!pedidoReservado.value && !form.value.empresa.trim()) {
-    mensaje.value = 'Nuevo pedido: elija tienda (se asignará el número automáticamente)'
-    await nextTick(() => tiendaSelectRef.value?.focus())
-  }
+  mensaje.value = empresa.trim()
+    ? 'Confirme la tienda para comenzar'
+    : 'Nuevo pedido: elija tienda y pulse Continuar'
+  void nextTick(() => tiendaSelectRef.value?.focus())
 }
 
-async function onEmpresaNuevoChange() {
-  if (!esNuevo.value) return
-  pedidoReservado.value = null
-  pasoAlta.value = 'tienda'
-  await intentarReservarNumeroAutomatico()
+async function focusProveedorCabecera() {
+  if (!esNuevo.value || pasoAlta.value !== 'proveedor' || !camposEditables.value) return
+  await nextTick()
+  proveedorInputRef.value?.focus()
 }
 
-async function reservarNumero() {
-  const empresa = form.value.empresa.trim()
-  if (!empresa) {
-    error.value = 'Seleccione la tienda'
-    pedidoReservado.value = null
-    return
-  }
-  if (!puedeCrear.value) {
-    error.value = 'No tiene permiso para crear pedidos a proveedor'
-    return
-  }
-  reservando.value = true
-  error.value = null
+async function aplicarAlmacenTienda(empresa: string) {
   try {
-    const res = await reservarPedidoProveedor({ empresa })
-    pedidoReservado.value = res.pedido
-    if (res.almacen != null && form.value.almacen == null) {
-      form.value.almacen = res.almacen
-    }
-    if (esNuevo.value && pasoAlta.value === 'tienda') {
-      pasoAlta.value = 'proveedor'
-      mensaje.value = `Pedido ${res.pedido} reservado. Pulse Intro para buscar proveedor (F4).`
-      await nextTick(() => proveedorInputRef.value?.focus())
-    }
-  } catch (e: unknown) {
-    pedidoReservado.value = null
-    error.value = extractApiError(e, 'No se pudo reservar el número de pedido')
-  } finally {
-    reservando.value = false
+    const { data } = await api.get(`/api/mantenimiento/tiendas/${encodeURIComponent(empresa)}`)
+    const n = Number(data.almacenCodigo ?? data.almacen ?? 0)
+    if (!Number.isFinite(n) || n <= 0) return
+    form.value.almacen = n
+    form.value.lineas = form.value.lineas.map((l) => ({
+      ...l,
+      almacen: l.almacen ?? n,
+    }))
+  } catch {
+    /* el almacén se puede elegir a mano */
   }
 }
 
-async function onKeyEnter(e: KeyboardEvent) {
+function onEmpresaNuevoChange() {
+  if (!esNuevo.value) return
+  pasoAlta.value = 'tienda'
+  form.value.proveedor = ''
+  form.value.razonSocial = ''
+  mensaje.value = form.value.empresa.trim()
+    ? 'Confirme la tienda para comenzar'
+    : 'Nuevo pedido: elija tienda y pulse Continuar'
+  void nextTick(() => tiendaSelectRef.value?.focus())
+}
+
+function onKeyEnter(e: KeyboardEvent) {
   if (!esNuevo.value || pasoAlta.value === 'listo') return
-  if (buscarProveedorOpen.value || buscarArticuloOpen.value) return
+  if (
+    buscarProveedorOpen.value ||
+    buscarArticuloOpen.value ||
+    confirmAltaArticulo.value ||
+    altaArticuloOpen.value ||
+    recepcionOpen.value
+  ) {
+    return
+  }
   const t = e.target
   if (t instanceof HTMLElement) {
     const tag = t.tagName
-    if (tag === 'TEXTAREA' || (tag === 'INPUT' && t.closest('.panel.lineas'))) return
+    if (tag === 'TEXTAREA' || (tag === 'INPUT' && t.closest('.lineas-panel, .panel.lineas'))) return
   }
   e.preventDefault()
+  void onIntroCabecera()
+}
+
+async function onIntroCabecera() {
+  if (!esNuevo.value || loading.value || saving.value) return
+  error.value = null
+
   if (pasoAlta.value === 'tienda') {
     if (!form.value.empresa.trim()) {
       error.value = 'Seleccione la tienda'
       return
     }
-    await reservarNumero()
+    if (!puedeCrear.value) {
+      error.value = 'No tiene permiso para crear pedidos a proveedor'
+      return
+    }
+    loading.value = true
+    try {
+      await aplicarAlmacenTienda(form.value.empresa.trim())
+      pasoAlta.value = 'proveedor'
+      mensaje.value = null
+      await focusProveedorCabecera()
+    } catch (e: unknown) {
+      error.value = extractApiError(e, 'No se pudo preparar el pedido')
+    } finally {
+      loading.value = false
+    }
     return
   }
+
   if (pasoAlta.value === 'proveedor') {
+    const codigo = form.value.proveedor.trim()
+    if (codigo) {
+      await confirmarProveedorPorCodigo(codigo)
+      return
+    }
     abrirBuscarProveedor()
   }
 }
@@ -407,7 +442,7 @@ async function onKeyEnter(e: KeyboardEvent) {
 function onNuevo() {
   if (!puedeCrear.value) return
   if (esRutaNuevo()) {
-    void iniciarNuevo()
+    void onIntroCabecera()
     return
   }
   router.push({ name: 'compras-pedido-nuevo' })
@@ -448,8 +483,7 @@ function buildPayload(): PedidoProveedorPayload {
     }))
   return {
     empresa: form.value.empresa.trim(),
-    pedido:
-      pedidoReservado.value && pedidoReservado.value > 0 ? pedidoReservado.value : undefined,
+    pedido: esNuevo.value ? undefined : ficha.value?.pedido,
     fechaPedido: form.value.fechaPedido || null,
     fechaMaxRecepcion: form.value.fechaMaxRecepcion || null,
     proveedor: form.value.proveedor.trim() || null,
@@ -462,6 +496,7 @@ function buildPayload(): PedidoProveedorPayload {
 }
 
 async function onGuardar() {
+  if (esNuevo.value && pasoAlta.value !== 'listo') return
   if (!camposEditables.value) return
   const payload = buildPayload()
   if (!payload.empresa) {
@@ -514,21 +549,83 @@ async function onGuardar() {
 
 function abrirBuscarProveedor() {
   if (!proveedorBusquedaHabilitada.value) return
+  if (esNuevo.value && pasoAlta.value === 'tienda') {
+    error.value = 'Primero confirme la tienda.'
+    void nextTick(() => tiendaSelectRef.value?.focus())
+    return
+  }
   buscarProveedorOpen.value = true
 }
 
-function onProveedorSeleccionado(r: EntidadBuscarResultado) {
-  form.value.proveedor = r.codigo
-  form.value.razonSocial = r.etiqueta.replace(/^\s*\S+\s*[-–]\s*/, '') || r.etiqueta
-  buscarProveedorOpen.value = false
-  if (esNuevo.value && pasoAlta.value === 'proveedor') {
-    pasoAlta.value = 'listo'
-    mensaje.value = 'Complete cabecera y líneas; luego Guardar.'
+async function confirmarProveedorPorCodigo(codigo: string) {
+  const cod = codigo.trim()
+  if (!cod) {
+    abrirBuscarProveedor()
+    return
+  }
+  loading.value = true
+  error.value = null
+  try {
+    const { data } = await api.get(`/api/mantenimiento/proveedores/${encodeURIComponent(cod)}`)
+    await aplicarProveedorEnForm({
+      codigo: String(data.codigo ?? cod).trim(),
+      etiqueta: String(data.nombre ?? data.razonSocial ?? ''),
+    })
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'Proveedor no encontrado. Selecciónelo en la búsqueda.')
+    abrirBuscarProveedor()
+  } finally {
+    loading.value = false
   }
 }
 
+async function aplicarProveedorEnForm(r: { codigo: string; etiqueta: string }) {
+  form.value.proveedor = r.codigo
+  form.value.razonSocial = r.etiqueta.replace(/^\s*\S+\s*[-–]\s*/, '') || r.etiqueta
+  if (esNuevo.value && (pasoAlta.value === 'proveedor' || pasoAlta.value === 'tienda')) {
+    pasoAlta.value = 'listo'
+    mensaje.value = null
+    await nextTick()
+    void focusLineaArticulo(0)
+  }
+}
+
+async function onProveedorSeleccionado(r: EntidadBuscarResultado) {
+  buscarProveedorOpen.value = false
+  loading.value = true
+  error.value = null
+  try {
+    const { data } = await api.get(`/api/mantenimiento/proveedores/${encodeURIComponent(r.codigo)}`)
+    await aplicarProveedorEnForm({
+      codigo: String(data.codigo ?? r.codigo).trim(),
+      etiqueta: String(data.nombre ?? data.razonSocial ?? r.etiqueta),
+    })
+  } catch {
+    await aplicarProveedorEnForm({
+      codigo: r.codigo,
+      etiqueta: r.etiqueta.replace(/^\s*\S+\s*[-–]\s*/, '') || r.etiqueta,
+    })
+  } finally {
+    loading.value = false
+  }
+}
+
+function focusLineaArticulo(idx: number) {
+  void nextTick(() => {
+    requestAnimationFrame(() => {
+      const root = lineasPanelRef.value
+      const row = root?.querySelector(`tr[data-linea-idx="${idx}"]`)
+      const el = row?.querySelector<HTMLInputElement>('.col-art input')
+      if (el && lineasEditables.value) {
+        el.focus()
+        el.select()
+      }
+    })
+  })
+}
+
 function abrirBuscarArticulo(idx: number) {
-  if (!camposEditables.value) return
+  if (!lineasEditables.value) return
   lineaArticuloIdx.value = idx
   articuloBusquedaInicial.value = form.value.lineas[idx]?.articulo ?? ''
   buscarArticuloOpen.value = true
@@ -573,7 +670,7 @@ async function aplicarArticuloResuelto(idx: number, art: Awaited<ReturnType<type
 }
 
 async function onArticuloKeydown(e: KeyboardEvent, idx: number) {
-  if (!camposEditables.value) return
+  if (!lineasEditables.value) return
   if (e.key === 'F4') {
     e.preventDefault()
     barcodeWatcher.cancel()
@@ -588,7 +685,7 @@ async function onArticuloKeydown(e: KeyboardEvent, idx: number) {
 
 let barcodeLineaIdx = 0
 const barcodeWatcher = createBarcodeScanWatcher(async (codigo) => {
-  if (!camposEditables.value) return
+  if (!lineasEditables.value) return
   await resolverArticuloEnLinea(barcodeLineaIdx, codigo)
 })
 
@@ -653,13 +750,13 @@ async function onArticuloCreadoDesdeAlta(creado: Record<string, unknown>) {
 }
 
 function onArticuloInput(idx: number) {
-  if (!camposEditables.value) return
+  if (!lineasEditables.value) return
   barcodeLineaIdx = idx
   barcodeWatcher.onInput(String(form.value.lineas[idx]?.articulo ?? ''))
 }
 
 function quitarLinea(idx: number) {
-  if (!camposEditables.value) return
+  if (!lineasEditables.value) return
   const linea = form.value.lineas[idx]
   if (linea && Number(linea.cantidadSer) > 0) {
     error.value = `No se puede quitar la línea ${linea.articulo}: ya tiene cantidad servida`
@@ -771,7 +868,6 @@ onMounted(async () => {
   if (esNuevo.value && !form.value.empresa.trim() && tiendas.value.length) {
     form.value.empresa = puesto.empresaCodigo || tiendas.value[0]?.value || ''
   }
-  await intentarReservarNumeroAutomatico()
 })
 
 onActivated(() => {
@@ -789,35 +885,32 @@ watch(
   { immediate: true }
 )
 
-watch(
-  () => form.value.proveedor,
-  (codigo) => {
-    if (!esNuevo.value || pasoAlta.value !== 'proveedor') return
-    if (!String(codigo ?? '').trim()) return
-    pasoAlta.value = 'listo'
-    mensaje.value = 'Complete cabecera y líneas; luego Guardar.'
-  }
-)
 </script>
 
 <template>
-  <section class="compra-detalle pedido-proveedor" tabindex="-1" @keydown.enter="onKeyEnter">
+  <section
+    class="compra-detalle pedido-proveedor"
+    tabindex="-1"
+    :aria-label="titulo"
+    @keydown.enter="onKeyEnter"
+  >
     <VentaToolbar
       :puede-crear="puedeCrear"
       :puede-editar="puedeEditar && !!ficha && !bloqueado"
       :puede-eliminar="false"
-      :puede-guardar="camposEditables"
+      :puede-guardar="esNuevo ? pasoAlta === 'listo' : camposEditables"
       :puede-imprimir="puedeImprimir"
       :puede-finalizar="false"
+      :mostrar-finalizar="false"
       :puede-abonar="false"
       :puede-buscar="true"
       buscar-label="Listado"
       buscar-title="Volver al listado de pedidos"
       :puede-navegar="false"
-      :modo-edicion="modoEdicion"
+      :modo-edicion="modoEdicion || esNuevo"
       :bloqueado="bloqueado"
       :hay-documento="!!ficha || esNuevo"
-      :loading="loading || saving || recibiendo || reservando"
+      :loading="loading || saving || recibiendo"
       :indice="-1"
       :total="0"
       @nuevo="onNuevo"
@@ -828,25 +921,42 @@ watch(
       @imprimir="onImprimir"
     />
 
-    <div class="head">
-      <div>
-        <h2>{{ titulo }}</h2>
-        <p class="hint">
-          {{
-            esNuevo
-              ? pasoAlta === 'tienda' && !pedidoReservado
-                ? 'Elija tienda: se asignará el número de pedido automáticamente.'
-                : pasoAlta === 'proveedor'
-                  ? `Pedido ${pedidoReservado ?? '—'}. Busque proveedor (Intro / F4).`
-                  : 'Complete cabecera y líneas; luego Guardar para crear el pedido.'
-              : 'Cant. pedida / servida. Recibir genera albarán de compra al proveedor.'
-          }}
-        </p>
-      </div>
-      <p v-if="soloLecturaMotivo" class="badge-bloqueo">Solo lectura — {{ soloLecturaMotivo }}</p>
-      <p v-else-if="modoEdicion" class="badge-ok">Editando</p>
+    <ol v-if="esNuevo" class="pasos-alta" aria-label="Pasos alta pedido">
+      <li :class="{ activo: pasoAlta === 'tienda', hecho: pasoAlta !== 'tienda' }">1. Tienda</li>
+      <li :class="{ activo: pasoAlta === 'proveedor', hecho: pasoAlta === 'listo' }">2. Proveedor</li>
+      <li :class="{ activo: pasoAlta === 'listo' }">3. Líneas</li>
+    </ol>
+    <ol v-else-if="modoEdicion && ficha" class="pasos-alta" aria-label="Pasos pedido">
+      <li class="hecho">1. Tienda</li>
+      <li class="hecho">2. Proveedor</li>
+      <li class="activo">3. Líneas · Guardar</li>
+    </ol>
+
+    <p v-if="soloLecturaMotivo" class="banner-doc">Solo lectura — {{ soloLecturaMotivo }}</p>
+    <div v-if="esNuevo && pasoAlta === 'tienda'" class="paso-accion">
+      <span>Confirme la <strong>tienda</strong> para comenzar.</span>
+      <button type="button" class="btn-paso primary" :disabled="loading" @click="onIntroCabecera">
+        Continuar
+      </button>
+    </div>
+    <div v-else-if="esNuevo && pasoAlta === 'proveedor'" class="paso-accion">
+      <span>¿A qué proveedor se hace el pedido?</span>
+      <button type="button" class="btn-paso primary" :disabled="loading" @click="abrirBuscarProveedor">
+        Buscar proveedor
+      </button>
+    </div>
+    <p v-else-if="esNuevo && pasoAlta === 'listo'" class="ok">
+      Introduzca los artículos: código + <strong>Intro</strong> (o F4 / … para buscar). El número de
+      pedido se asigna al pulsar <strong>Guardar</strong>.
+    </p>
+    <p v-else-if="modoEdicion && !esNuevo" class="ok">Editando. <strong>Guardar</strong> actualiza cabecera y líneas.</p>
+    <p v-else-if="!esNuevo && !modoEdicion && ficha && puedeRecibir" class="ok">
+      Pedido {{ situacionBadge.text.toLowerCase() }}. Puede <strong>Recibir</strong> mercancía o
+      <strong>Imprimir</strong>.
+    </p>
+    <div v-if="puedeRecibir" class="paso-accion recibir-bar">
+      <span>Reciba mercancía y genere el albarán de compra.</span>
       <button
-        v-if="puedeRecibir"
         type="button"
         class="btn-recibir"
         :disabled="loading || saving || recibiendo"
@@ -858,110 +968,57 @@ watch(
     </div>
 
     <p v-if="error" class="error">{{ error }}</p>
-    <p v-if="mensaje" class="ok">{{ mensaje }}</p>
+    <p v-if="mensaje && !esNuevo" class="ok">{{ mensaje }}</p>
     <p v-if="loading && !ficha && !esNuevo" class="msg">Cargando...</p>
 
     <template v-if="ficha || esNuevo">
       <div class="ficha-compra-body">
-        <div class="cab-layout">
-          <div class="panel cab-main">
-            <div class="cab-rows">
-              <div class="cab-row">
-                <span class="cab-lbl">Tienda</span>
+      <div class="tab-form">
+        <div class="doc-row">
+          <section class="section grow">
+            <h3>Documento</h3>
+            <div class="fields cols-6">
+              <label class="field field-tienda">
+                <span class="label">Tienda</span>
                 <select
                   v-if="esNuevo && camposEditables"
                   ref="tiendaSelectRef"
                   v-model="form.empresa"
-                  class="w-col-a"
                   title="Tienda"
                   @change="onEmpresaNuevoChange"
                 >
                   <option value="">—</option>
                   <option v-for="t in tiendas" :key="t.value" :value="t.value">{{ t.label }}</option>
                 </select>
-                <input v-else class="w-col-a" :value="form.empresa" readonly />
-                <span class="cab-lbl cab-lbl-gap">Pedido</span>
-                <div class="con-lupa w-col-b">
-                  <input
-                    ref="pedidoInputRef"
-                    class="w-col-b-in"
-                    :value="esNuevo ? (pedidoReservado ?? (reservando ? '…' : '—')) : ficha?.pedido"
-                    readonly
-                    title="Número de pedido"
-                  />
-                  <button
-                    v-if="esNuevo && camposEditables && !pedidoReservado"
-                    type="button"
-                    class="btn-lupa"
-                    :disabled="reservando || !form.empresa"
-                    title="Reservar número de pedido"
-                    @click="reservarNumero"
-                  >
-                    Nº
-                  </button>
-                </div>
-              </div>
-
-              <div class="cab-row">
-                <span class="cab-lbl">Fecha</span>
+                <input v-else :value="form.empresa" readonly />
+              </label>
+              <label class="field">
+                <span class="label">N. pedido</span>
                 <input
-                  v-model="form.fechaPedido"
-                  class="w-col-a"
-                  type="date"
-                  :readonly="!camposEditables"
+                  ref="pedidoInputRef"
+                  :value="esNuevo ? '—' : ficha?.pedido"
+                  readonly
+                  title="Número de pedido (se asigna al Guardar)"
                 />
-                <span class="cab-lbl cab-lbl-gap">F. máx. recep.</span>
+              </label>
+              <label class="field">
+                <span class="label">Fecha</span>
+                <input v-model="form.fechaPedido" type="date" :readonly="!camposEditables" />
+              </label>
+              <label class="field">
+                <span class="label">F. máx. recep.</span>
                 <input
                   v-model="form.fechaMaxRecepcion"
-                  class="w-col-b"
                   type="date"
                   :readonly="!camposEditables"
                   title="Fecha máxima de recepción"
                 />
-              </div>
-
-              <div class="cab-row">
-                <span class="cab-lbl">Proveedor</span>
-                <div class="con-lupa w-eq">
-                  <input
-                    ref="proveedorInputRef"
-                    v-model="form.proveedor"
-                    class="w-cod"
-                    :readonly="!camposEditables"
-                    @keydown.f4.prevent="abrirBuscarProveedor"
-                  />
-                  <button
-                    type="button"
-                    class="btn-lupa"
-                    :disabled="!proveedorBusquedaHabilitada"
-                    title="Buscar proveedor (F4)"
-                    @click="abrirBuscarProveedor"
-                  >
-                    <ToolIcon name="buscar" />
-                  </button>
-                </div>
-                <input
-                  v-model="form.razonSocial"
-                  class="w-col-rest"
-                  :readonly="!camposEditables"
-                  title="Razón social"
-                />
-              </div>
-
-              <div class="cab-row">
-                <span class="cab-lbl">Vendedor</span>
-                <input
-                  v-model="form.vendedor"
-                  class="w-col-a"
-                  maxlength="4"
-                  :readonly="!camposEditables"
-                  title="Vendedor del proveedor"
-                />
-                <span class="cab-lbl cab-lbl-gap">Almacén</span>
+              </label>
+              <label class="field">
+                <span class="label">Almacén</span>
                 <select
                   v-if="camposEditables"
                   v-model.number="form.almacen"
-                  class="w-col-rest"
                   title="Almacén"
                 >
                   <option :value="null">—</option>
@@ -969,56 +1026,107 @@ watch(
                 </select>
                 <input
                   v-else
-                  class="w-col-rest"
-                  :value="form.almacen ?? ''"
+                  :value="form.almacen != null ? `${form.almacen}${almacenNombre ? ' - ' + almacenNombre : ''}` : ''"
                   readonly
                 />
-              </div>
-
-              <div v-if="ficha && !esNuevo" class="cab-row">
-                <span class="cab-lbl">Situación</span>
-                <input class="w-col-rest sit-readonly" :value="situacionBadge.text" readonly />
-              </div>
-
-              <div class="cab-row cab-row-obs">
-                <span class="cab-lbl">Observaciones</span>
+              </label>
+              <label class="field">
+                <span class="label">Situación</span>
                 <input
-                  v-model="form.observaciones"
-                  class="w-obs"
-                  :readonly="!camposEditables"
+                  :value="esNuevo ? '—' : situacionBadge.text"
+                  readonly
+                  :class="{ 'sit-readonly': !esNuevo }"
                 />
-              </div>
-
-              <div class="cab-row cab-row-obs">
-                <span class="cab-lbl">Obs. internas</span>
-                <input
-                  v-model="form.observInternas"
-                  class="w-obs"
-                  :readonly="!camposEditables"
-                />
-              </div>
+              </label>
             </div>
+          </section>
+          <div class="totales-box">
+            <div><span>Importe</span><strong>{{ fmtNum(importeMostrado) }}</strong></div>
+            <div class="imp"><span>Líneas</span><strong>{{ lineasConArticulo }}</strong></div>
           </div>
-
-          <aside class="panel cab-side">
-            <div class="side-box totales">
-              <div class="side-row">
-                <span>Importe</span>
-                <span class="num-red">{{ fmtNum(importeMostrado) }}</span>
-              </div>
-              <div class="side-row">
-                <span>Líneas</span>
-                <span class="num-red">{{ lineasConArticulo }}</span>
-              </div>
-            </div>
-          </aside>
         </div>
 
-        <div class="panel lineas">
+        <div v-if="mostrarProveedor" class="section-row paired single">
+          <section class="section">
+            <h3>Proveedor</h3>
+            <div class="fields cols-3">
+              <label class="field">
+                <span class="label">Código</span>
+                <div class="combo-input" :class="{ locked: proveedorBloqueado }">
+                  <input
+                    ref="proveedorInputRef"
+                    v-model="form.proveedor"
+                    class="combo-codigo"
+                    maxlength="6"
+                    placeholder="Cód."
+                    :readonly="proveedorBloqueado"
+                    :title="form.razonSocial || 'Proveedor. Intro / F4 para buscar.'"
+                    @keydown.f4.prevent="abrirBuscarProveedor"
+                  />
+                  <span class="combo-nombre" :title="form.razonSocial">{{ form.razonSocial }}</span>
+                  <button
+                    type="button"
+                    class="btn-buscar"
+                    :disabled="!proveedorBusquedaHabilitada"
+                    :title="form.razonSocial ? `Buscar proveedor — ${form.razonSocial}` : 'Buscar proveedor (Intro / F4)'"
+                    @click="abrirBuscarProveedor"
+                  >
+                    ...
+                  </button>
+                </div>
+              </label>
+              <label class="field span-2">
+                <span class="label">Razón social</span>
+                <input
+                  v-model="form.razonSocial"
+                  maxlength="50"
+                  :readonly="proveedorBloqueado"
+                />
+              </label>
+              <label class="field">
+                <span class="label">Vendedor</span>
+                <input
+                  v-model="form.vendedor"
+                  maxlength="4"
+                  :readonly="!camposEditables"
+                  title="Vendedor del proveedor"
+                />
+              </label>
+              <label class="field span-2">
+                <span class="label">Observaciones</span>
+                <input v-model="form.observaciones" :readonly="!camposEditables" />
+              </label>
+            </div>
+          </section>
+        </div>
+
+        <details v-if="mostrarExtras" class="detalles-adicionales" :open="!cabeceraCompacta">
+          <summary>Más datos del pedido</summary>
+          <section class="section">
+            <h3>Interno</h3>
+            <div class="fields cols-3">
+              <label class="field span-2">
+                <span class="label">Observaciones internas</span>
+                <input v-model="form.observInternas" :readonly="!camposEditables" />
+              </label>
+            </div>
+          </section>
+        </details>
+      </div>
+
+      <div
+        v-if="!esNuevo || pasoAlta === 'listo'"
+        ref="lineasPanelRef"
+        class="lineas-panel"
+        :class="{ 'lineas-bloqueadas': !lineasEditables }"
+      >
         <div class="lineas-head">
           <h3>Líneas</h3>
+          <p v-if="!lineasEditables && esNuevo" class="lineas-bloqueo-msg">
+            Indique el proveedor para añadir líneas
+          </p>
           <button
-            v-if="camposEditables"
+            v-if="lineasEditables"
             type="button"
             class="btn-add"
             @click="form.lineas.push(lineaVacia())"
@@ -1030,21 +1138,23 @@ watch(
           <table>
             <thead>
               <tr>
-                <th class="col-n">#</th>
                 <th class="col-art">Artículo</th>
                 <th class="col-desc">Descripción</th>
                 <th class="num col-q">Pedida</th>
                 <th class="num col-q">Servida</th>
                 <th class="num col-p">Precio</th>
                 <th class="num col-d">% Dto</th>
-                <th v-if="camposEditables" class="col-act" />
+                <th v-if="lineasEditables" class="col-act" />
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(l, idx) in form.lineas" :key="l.numLin ?? `n-${idx}`">
-                <td class="col-n">{{ l.numLin ?? idx + 1 }}</td>
+              <tr
+                v-for="(l, idx) in form.lineas"
+                :key="l.numLin ?? `n-${idx}`"
+                :data-linea-idx="idx"
+              >
                 <td class="col-art">
-                  <div v-if="camposEditables && l.cantidadSer <= 0" class="con-lupa">
+                  <div v-if="lineasEditables && l.cantidadSer <= 0" class="con-lupa">
                     <input
                       v-model="l.articulo"
                       @input="onArticuloInput(idx)"
@@ -1063,7 +1173,7 @@ watch(
                 </td>
                 <td class="col-desc">
                   <input
-                    v-if="camposEditables"
+                    v-if="lineasEditables"
                     v-model="l.descripcion"
                     class="desc-input"
                   />
@@ -1071,7 +1181,7 @@ watch(
                 </td>
                 <td class="num col-q">
                   <DecimalInput
-                    v-if="camposEditables"
+                    v-if="lineasEditables"
                     v-model="l.cantidadPed"
                     :empty-as-null="false"
                   />
@@ -1084,7 +1194,7 @@ watch(
                 </td>
                 <td class="num col-p">
                   <DecimalInput
-                    v-if="camposEditables"
+                    v-if="lineasEditables"
                     v-model="l.precioPed"
                     :empty-as-null="false"
                   />
@@ -1092,13 +1202,13 @@ watch(
                 </td>
                 <td class="num col-d">
                   <DecimalInput
-                    v-if="camposEditables"
+                    v-if="lineasEditables"
                     v-model="l.pjeDto"
                     :empty-as-null="false"
                   />
                   <span v-else>{{ fmtNum(l.pjeDto) }}</span>
                 </td>
-                <td v-if="camposEditables" class="col-act">
+                <td v-if="lineasEditables" class="col-act">
                   <button
                     type="button"
                     class="btn-del"
@@ -1113,7 +1223,10 @@ watch(
             </tbody>
           </table>
         </div>
-        </div>
+        <p v-if="lineasEditables" class="lineas-hint">
+          Código + Intro o F4 para buscar. La cantidad servida solo cambia al Recibir.
+        </p>
+      </div>
       </div>
     </template>
 
@@ -1174,57 +1287,83 @@ watch(
 </template>
 
 <style scoped>
-.compra-detalle h2 {
-  margin: 0 0 0.25rem;
+.compra-detalle {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
-.head {
+.pasos-alta {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
+  gap: 0.35rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-width: 960px;
+}
+.pasos-alta li {
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.pasos-alta li.activo {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+.pasos-alta li.hecho {
+  border-color: #86efac;
+  background: #dcfce7;
+  color: #166534;
+}
+.paso-accion {
+  max-width: 960px;
+  display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  margin-bottom: 0.75rem;
-}
-.hint {
-  margin: 0;
-  color: #64748b;
-  font-size: 0.85rem;
-}
-.badge-bloqueo {
-  margin: 0;
-  padding: 0.35rem 0.65rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #bfdbfe;
   border-radius: 6px;
-  background: #fef3c7;
-  color: #92400e;
-  font-size: 0.8rem;
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+.paso-accion.recibir-bar {
+  border-color: #fcd34d;
+  background: #fffbeb;
+  color: #78350f;
+}
+.btn-paso {
+  border: 1px solid #64748b;
+  border-radius: 5px;
+  background: #fff;
+  color: #1e293b;
+  padding: 0.4rem 0.7rem;
+  cursor: pointer;
   font-weight: 600;
 }
-.badge-ok {
-  margin: 0;
-  padding: 0.35rem 0.65rem;
-  border-radius: 6px;
-  background: #dcfce7;
-  color: #166534;
-  font-size: 0.8rem;
-  font-weight: 600;
+.btn-paso.primary {
+  border-color: #1d4ed8;
+  background: #2563eb;
+  color: #fff;
 }
-.badge-sit {
-  padding: 0.15rem 0.45rem;
+.btn-paso:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+.banner-doc {
+  max-width: 960px;
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #e2e8f0;
   border-radius: 4px;
-  font-size: 0.72rem;
-  font-weight: 600;
-}
-.sit-pendiente {
-  background: #e2e8f0;
+  background: #fff;
   color: #334155;
-}
-.sit-parcial {
-  background: #fef3c7;
-  color: #92400e;
-}
-.sit-servido {
-  background: #dcfce7;
-  color: #166534;
+  font-size: 0.78rem;
 }
 .btn-recibir {
   padding: 0.4rem 0.75rem;
@@ -1242,9 +1381,11 @@ watch(
 }
 .error {
   color: #b91c1c;
+  margin: 0;
 }
 .ok {
   color: #166534;
+  margin: 0;
 }
 .msg {
   color: #475569;
@@ -1254,175 +1395,209 @@ watch(
   font-weight: 600;
 }
 
-.panel {
-  margin-bottom: 0.85rem;
-  padding: 0.55rem 0.65rem;
-  border: 1px solid #94a3b8;
-  border-radius: 4px;
-  background: #fff;
-}
-.panel h3 {
-  margin: 0 0 0.55rem;
-  font-size: 0.9rem;
-  color: #0f172a;
-}
-
 .ficha-compra-body {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
-  --pedido-ancho: 50rem;
-  width: var(--pedido-ancho);
-  max-width: 100%;
-  box-sizing: border-box;
-}
-
-.cab-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 14.5rem;
-  gap: 0.45rem;
-  align-items: start;
+  max-width: 960px;
   width: 100%;
   box-sizing: border-box;
 }
-.cab-layout > .panel {
-  margin-bottom: 0;
-}
-.cab-main {
-  background: #f1f5f9;
-  padding: 0.4rem 0.5rem;
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-}
-.cab-rows {
+.tab-form {
+  background: #f8fafc;
+  border: 1px solid #c5cdd8;
+  padding: 0.4rem;
+  max-width: 960px;
+  border-radius: 0 0 6px 6px;
   display: flex;
   flex-direction: column;
-  gap: 0.22rem;
+  gap: 0.35rem;
 }
-.cab-row {
+.doc-row {
   display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 0.2rem 0.28rem;
-  min-height: 1.55rem;
-  min-width: 0;
-  justify-content: space-between;
+  gap: 0.35rem;
+  align-items: stretch;
 }
-.cab-lbl {
-  flex: 0 0 5.2rem;
-  font-size: 0.7rem;
+.doc-row .grow {
+  flex: 1;
+  min-width: 0;
+}
+.section-row.paired {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+  align-items: stretch;
+}
+.section-row.paired.single {
+  grid-template-columns: 1fr;
+}
+.detalles-adicionales {
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #f8fafc;
+  padding: 0.25rem;
+}
+.detalles-adicionales > summary {
+  cursor: pointer;
+  color: #1e40af;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.2rem 0.35rem;
+}
+.detalles-adicionales[open] {
+  display: grid;
+  gap: 0.35rem;
+}
+.section {
+  margin: 0;
+  padding: 0.3rem 0.4rem 0.35rem;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+}
+.section h3 {
+  margin: 0 0 0.25rem;
+  font-size: 0.68rem;
+  font-weight: 700;
   color: #334155;
-  text-align: right;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 0.15rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.fields {
+  display: grid;
+  gap: 0.2rem 0.35rem;
+}
+.cols-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.cols-6 {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+.field {
+  display: grid;
+  gap: 0.05rem;
+  font-size: 0.68rem;
+  min-width: 0;
+}
+.span-2 {
+  grid-column: span 2;
+}
+.label {
+  color: #64748b;
   white-space: nowrap;
 }
-.cab-lbl-gap {
-  flex: 0 0 5.2rem;
-  margin-left: 0;
-  width: auto;
-  text-align: right;
-}
-.cab-main input,
-.cab-main select {
-  padding: 0.2rem 0.35rem;
+.tab-form input,
+.tab-form select {
+  width: 100%;
+  min-width: 0;
+  height: 1.65rem;
+  box-sizing: border-box;
+  padding: 0.12rem 0.25rem;
   border: 1px solid #94a3b8;
   border-radius: 2px;
-  font: inherit;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
+  line-height: 1.2;
   background: #fff;
   color: #0f172a;
-  box-sizing: border-box;
-  height: 1.65rem;
 }
-.cab-main input:read-only {
-  background: #e8eef5;
+.tab-form input:read-only,
+.tab-form select:disabled {
+  background: #f1f5f9;
 }
-.w-cod {
-  width: 4.2rem;
-  flex: 0 0 4.2rem;
-}
-.w-col-a {
-  width: 11rem;
-  flex: 0 0 11rem;
-  max-width: 11rem;
-  box-sizing: border-box;
-}
-.w-col-b,
-.w-col-b-in,
-.w-eq {
-  width: 8rem;
-  flex: 0 0 8rem;
-  max-width: 8rem;
-  box-sizing: border-box;
-}
-.w-col-b,
-.w-col-b-in {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-.con-lupa.w-col-b,
-.con-lupa.w-eq {
-  display: flex;
-  width: 8rem;
-  flex: 0 0 8rem;
-}
-.con-lupa.w-col-b .w-col-b-in {
-  flex: 1;
-  width: auto;
-  max-width: none;
-}
-.con-lupa.w-eq .w-cod {
-  flex: 1;
-  width: auto;
-  max-width: none;
-}
-.w-col-rest {
-  flex: 1 1 0;
-  min-width: 0;
-  max-width: none;
-}
-.w-obs {
-  flex: 1 1 0;
-  min-width: 0;
-  max-width: none;
+.field-tienda select:not(:disabled) {
+  border-color: #2563eb;
+  background: #eff6ff;
+  font-weight: 600;
 }
 .sit-readonly {
   font-weight: 600;
-  text-transform: uppercase;
-  font-size: 0.75rem;
 }
-.cab-side {
+.totales-box {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.1rem 0.45rem;
+  align-content: center;
+  min-width: 9.5rem;
+  background: #fff;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+  padding: 0.3rem 0.45rem;
+  font-size: 0.68rem;
+}
+.totales-box span {
+  color: #64748b;
+}
+.totales-box strong {
+  font-variant-numeric: tabular-nums;
+  display: block;
+  text-align: right;
+}
+.totales-box .imp strong {
+  font-size: 0.9rem;
+  color: #0f172a;
+}
+.combo-input {
   display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  padding: 0.4rem;
-  background: #f1f5f9;
+  align-items: stretch;
   min-width: 0;
-}
-.side-box {
+  height: 1.65rem;
+  box-sizing: border-box;
   border: 1px solid #94a3b8;
   border-radius: 2px;
-  padding: 0.35rem 0.45rem;
   background: #fff;
 }
-.side-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.4rem;
-  margin-bottom: 0.25rem;
-  font-size: 0.72rem;
+.combo-input.locked {
+  background: #e8eef5;
+}
+.combo-input:focus-within {
+  border-color: #2563eb;
+}
+.combo-codigo {
+  flex: 0 0 4.2rem;
+  width: 4.2rem;
+  height: 100% !important;
+  border: none !important;
+  border-right: 1px solid #e2e8f0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+.combo-nombre {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 0.3rem;
+  font-size: 0.75rem;
+  line-height: 1.65rem;
   color: #334155;
 }
-.side-row:last-child {
-  margin-bottom: 0;
+.combo-input .btn-buscar {
+  flex: 0 0 1.7rem;
+  height: auto;
+  border: none;
+  border-left: 1px solid #e2e8f0;
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.7rem;
+  padding: 0;
+  color: #334155;
 }
-.side-box.totales .num-red {
-  color: #b91c1c;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
+.combo-input .btn-buscar:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
+.lineas-panel {
+  max-width: 960px;
+  background: #f8fafc;
+  border: 1px solid #c5cdd8;
+  border-radius: 6px;
+  padding: 0.4rem;
+}
 .lineas-head {
   display: flex;
   justify-content: space-between;
@@ -1433,6 +1608,24 @@ watch(
 }
 .lineas-head h3 {
   margin: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #334155;
+}
+.lineas-bloqueo-msg {
+  margin: 0;
+  flex: 1 1 auto;
+  font-size: 0.78rem;
+  color: #b45309;
+}
+.lineas-hint {
+  margin: 0.4rem 0 0;
+  color: #64748b;
+  font-size: 0.76rem;
+}
+.lineas-bloqueadas .grid-wrap {
+  pointer-events: none;
+  opacity: 0.55;
 }
 .btn-add {
   padding: 0.25rem 0.55rem;
@@ -1517,9 +1710,6 @@ th {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
-.col-n {
-  width: 2.5rem;
-}
 .col-art {
   width: 9rem;
 }
@@ -1548,8 +1738,8 @@ th {
   .pedido-proveedor .ficha-compra-body {
     width: 100%;
   }
-  .cab-layout {
-    grid-template-columns: 1fr;
+  .doc-row {
+    flex-direction: column;
   }
 }
 </style>

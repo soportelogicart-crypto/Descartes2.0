@@ -12,7 +12,6 @@ import {
   eliminarAlbaranCompra,
   obtenerAlbaranCompra,
   recuperarAlbaranCompra,
-  reservarAlbaranCompra,
 } from '@/api/compras'
 import { encolarDesdeAlbaranCompra } from '@/api/etiquetas'
 import { resolverArticulo, asignarProveedorHabitualArticulo } from '@/api/articulos'
@@ -130,6 +129,8 @@ type FormLinea = {
   lote: string
   almacen: number | null
   pedido: number | null
+  /** PVP tarifa 1 (PrecioVen1) para Total a PVP / % margen. */
+  pvp: number
   costeRef?: { precio: number; dto1: number; dto2: number; dto3: number }
 }
 
@@ -165,21 +166,16 @@ const form = ref({
 /** Origen del último ajuste: recalcula el resto al estilo ponc. */
 const ajusteTransporteOrigen = ref<'transporte' | 'bruto' | 'coeficiente'>('transporte')
 
-/** Nº reservado en alta (como legacy / ventas). */
-const albaranReservado = ref<number | null>(null)
-const reservando = ref(false)
-/** Alta guiada: tienda → reservar nº → proveedor → cabecera → guardar → líneas. */
-const pasoAlta = ref<'tienda' | 'proveedor' | 'cabecera' | 'listo'>('listo')
+/** Alta guiada: tienda → proveedor → líneas. El nº se asigna al Guardar. */
+const pasoAlta = ref<'tienda' | 'proveedor' | 'listo'>('listo')
 const tiendaSelectRef = ref<HTMLSelectElement | null>(null)
 const albaranInputRef = ref<HTMLInputElement | null>(null)
 const proveedorInputRef = ref<HTMLInputElement | null>(null)
 const lineasPanelRef = ref<HTMLElement | null>(null)
 
-const titulo = computed(() => {
-  if (esNuevo.value) return 'Nuevo albarán de compra'
-  if (!ficha.value) return 'Albarán de compra'
-  return `Albarán compra ${ficha.value.empresa}-${ficha.value.albaran}`
-})
+const mostrarProveedor = computed(() => !esNuevo.value || pasoAlta.value !== 'tienda')
+const mostrarExtras = computed(() => !esNuevo.value || pasoAlta.value === 'listo')
+const cabeceraCompacta = computed(() => !esNuevo.value && !modoEdicion.value)
 
 const bloqueado = computed(() => {
   if (esNuevo.value) return false
@@ -200,13 +196,18 @@ const cabeceraEditables = computed(() => (esNuevo.value || modoEdicion.value) &&
 
 const camposEditables = cabeceraEditables
 
-/** Líneas: tras existir ficha guardada y documento editable. */
-const lineasEditables = computed(() => !!ficha.value && !bloqueado.value)
+/** Líneas: en alta, tras proveedor (en memoria). En ficha, si el documento es editable. */
+const lineasEditables = computed(() => {
+  if (esNuevo.value) return pasoAlta.value === 'listo'
+  return !!ficha.value && !bloqueado.value
+})
 
 const proveedorBusquedaHabilitada = computed(
-  () =>
-    cabeceraEditables.value &&
-    (!esNuevo.value || !!(albaranReservado.value && albaranReservado.value > 0))
+  () => cabeceraEditables.value && (!esNuevo.value || pasoAlta.value !== 'tienda')
+)
+
+const proveedorBloqueado = computed(
+  () => !camposEditables.value || (esNuevo.value && pasoAlta.value === 'tienda')
 )
 
 const almacenNombre = computed(() => {
@@ -275,6 +276,14 @@ const puedeAbonar = computed(
 
 const puedeImprimir = computed(() => !!ficha.value && !esNuevo.value)
 
+/** Pedido proveedor; no mostrar el NroLin de la línea (antes iba en #). */
+function pedidoVisible(pedido: number | null | undefined, nroLin?: number): number | null {
+  const n = Number(pedido)
+  if (!Number.isFinite(n) || n <= 0) return null
+  if (nroLin != null && Number(nroLin) > 0 && n === Number(nroLin)) return null
+  return n
+}
+
 function lineaVacia(): FormLinea {
   return {
     articulo: '',
@@ -288,6 +297,7 @@ function lineaVacia(): FormLinea {
     lote: '',
     almacen: form.value.almacen,
     pedido: null,
+    pvp: 0,
   }
 }
 
@@ -315,12 +325,14 @@ const brutoMercancia = computed(() => {
   return roundN(neto, 2)
 })
 
-const situacionLabel = computed(() => {
-  if (!ficha.value && esNuevo.value) return 'PENDIENTE DE ACTUALIZAR'
-  if (!ficha.value) return '—'
-  if (ficha.value.trasCtb) return 'TRASPASADO CTB'
-  if (ficha.value.actualizado) return 'ACTUALIZADO'
-  return 'PENDIENTE DE ACTUALIZAR'
+const avisoConsulta = computed(() => {
+  if (esNuevo.value || modoEdicion.value) return ''
+  if (ficha.value?.trasCtb) return 'Traspasado a contabilidad. Solo lectura.'
+  if (ficha.value?.actualizado) {
+    return 'Stock actualizado. Use Albarán cliente para generar venta, o Recuperar para modificar.'
+  }
+  if (soloLecturaMotivo.value) return `Solo lectura — ${soloLecturaMotivo.value}`
+  return ''
 })
 
 function precioBaseDesdeAlmacenado(precioCt: number, coef: number) {
@@ -375,10 +387,7 @@ function importeLineaBase(l: FormLinea) {
 
 function importeLinea(l: FormLinea) {
   const cant = Number(l.cantidad) || 0
-  const precioUnit = camposEditables.value
-    ? precioCt(Number(l.precio) || 0)
-    : Number(l.precio) || 0
-  return roundN(cant * precioUnit * factorDtoLinea(l), 2)
+  return roundN(cant * precioCt(Number(l.precio) || 0) * factorDtoLinea(l), 2)
 }
 
 /** Precio base en columna Precio (solo lectura: deshacer CT almacenado). */
@@ -394,10 +403,9 @@ function precioBaseLinea(l: FormLinea): number {
   return precioBaseDesdeAlmacenado(Number(l.precio) || 0, coef)
 }
 
-/** Precio CT en columna (edición: calculado; lectura: valor almacenado). */
+/** Precio CT: el form guarda coste base; la columna siempre aplica (1+coef). */
 function precioCtLinea(l: FormLinea): number {
-  if (camposEditables.value) return precioCt(Number(l.precio) || 0)
-  return Number(l.precio) || 0
+  return precioCt(Number(l.precio) || 0)
 }
 
 /** Precio inicial de línea al resolver artículo (Legacy: PrecioUltimoST, 2 decimales). */
@@ -431,28 +439,34 @@ const importeConTransporteMostrado = computed(() => {
   return roundN(sum, 2)
 })
 
+function pvpDeLinea(l: FormLinea): number {
+  const propio = Number(l.pvp ?? 0)
+  if (propio > 0) return propio
+  const art = String(l.articulo ?? '').trim()
+  if (!art) return 0
+  return pvpPorArticulo.value.get(art) ?? 0
+}
+
 const totalPvpMostrado = computed(() => {
   let sum = 0
   for (const l of form.value.lineas) {
     const art = String(l.articulo ?? '').trim()
     if (!art) continue
-    const pvp = pvpPorArticulo.value.get(art) ?? 0
-    sum += pvp * (Number(l.cantidad) || 0)
+    sum += pvpDeLinea(l) * (Number(l.cantidad) || 0)
   }
   return roundN(sum, 2)
 })
 
 /** Coste unitario para margen (con CT en edición; almacenado en lectura). */
 function costeUnitMargenLinea(l: FormLinea): number {
-  if (camposEditables.value) return precioCt(Number(l.precio) || 0)
-  return Number(l.precio) || 0
+  return precioCt(Number(l.precio) || 0)
 }
 
 /** Margen % de una línea: (PVP1 − coste) / PVP1. */
 function margenLineaPct(l: FormLinea): number {
   const art = String(l.articulo ?? '').trim()
   if (!art) return 0
-  const pvp = pvpPorArticulo.value.get(art) ?? 0
+  const pvp = pvpDeLinea(l)
   if (pvp <= 0.0001) return 0
   const coste = costeUnitMargenLinea(l)
   return roundN(((pvp - coste) / pvp) * 100, 2)
@@ -625,7 +639,8 @@ function aplicarFicha(data: AlbaranCompraDetalle | null | undefined) {
       dto3: Number(l.dto3 ?? 0),
       lote: l.lote || '',
       almacen: l.almacen ?? data.almacen ?? null,
-      pedido: l.pedido ?? null,
+      pedido: pedidoVisible(l.pedido, l.nroLin),
+      pvp: Number(l.precioVenta ?? 0) || 0,
       costeRef: {
         precio: precioBaseDesdeAlmacenado(Number(l.precio ?? 0), coef),
         dto1: Number(l.dto1 ?? 0),
@@ -730,7 +745,6 @@ async function iniciarNuevo() {
   esNuevo.value = true
   modoEdicion.value = true
   ficha.value = null
-  albaranReservado.value = null
   pasoAlta.value = 'tienda'
   error.value = null
   const empresa = puesto.empresaCodigo || tiendas.value[0]?.value || ''
@@ -753,9 +767,9 @@ async function iniciarNuevo() {
     lineas: [lineaVacia()],
   }
   mensaje.value = empresa.trim()
-    ? 'Pulse Intro o el botón Nuevo para reservar el número de albarán'
-    : 'Nuevo albarán: elija tienda y pulse Intro o Nuevo'
-  void nextTick(() => focusCabeceraSinNumero())
+    ? 'Confirme la tienda para comenzar'
+    : 'Nuevo albarán: elija tienda y pulse Continuar'
+  void nextTick(() => tiendaSelectRef.value?.focus())
 }
 
 async function focusProveedorCabecera() {
@@ -764,86 +778,32 @@ async function focusProveedorCabecera() {
   proveedorInputRef.value?.focus()
 }
 
-async function focusCabeceraSinNumero() {
-  if (!esNuevo.value || albaranReservado.value || !camposEditables.value || pasoAlta.value !== 'tienda') {
-    return
-  }
-  await nextTick()
-  albaranInputRef.value?.focus()
-}
-
-function onAlbaranSinNumeroBlur(e: FocusEvent) {
-  if (pasoAlta.value !== 'tienda' || albaranReservado.value || reservando.value) return
-  const next = e.relatedTarget as HTMLElement | null
-  if (next === tiendaSelectRef.value || next?.closest('select.w-col-a')) return
-  if (next?.closest('.btn-lupa')) return
-  void nextTick(() => albaranInputRef.value?.focus())
-}
-
-/** Reserva UltAlbaranCom (o Dev) y muestra el nº en cabecera. */
-async function reservarNumero() {
-  const empresa = form.value.empresa.trim()
-  if (!empresa) {
-    error.value = 'Seleccione la tienda'
-    albaranReservado.value = null
-    return
-  }
-  if (!puedeCrear.value) {
-    error.value = 'No tiene permiso para crear albaranes de compra'
-    return
-  }
-  reservando.value = true
-  error.value = null
+async function aplicarAlmacenTienda(empresa: string) {
   try {
-    const res = await reservarAlbaranCompra({
-      empresa,
-      albaranDevolucion: form.value.albaranDevolucion,
-    })
-    albaranReservado.value = res.albaran
-    if (res.almacen != null && (form.value.almacen == null || form.value.almacen <= 0)) {
-      form.value.almacen = res.almacen
-      form.value.lineas = form.value.lineas.map((l) => ({
-        ...l,
-        almacen: l.almacen ?? res.almacen,
-      }))
-    }
-    if (esNuevo.value && pasoAlta.value === 'tienda') {
-      pasoAlta.value = 'proveedor'
-      mensaje.value = `Albarán ${res.albaran} reservado. Pulse Intro para buscar proveedor`
-      void focusProveedorCabecera()
-    } else {
-      mensaje.value = `Albarán ${res.albaran} reservado. Indique proveedor y complete la cabecera.`
-    }
-  } catch (e: unknown) {
-    albaranReservado.value = null
-    error.value = extractApiError(e, 'No se pudo reservar el número de albarán')
-  } finally {
-    reservando.value = false
-    if (!albaranReservado.value && esNuevo.value && pasoAlta.value === 'tienda') {
-      void focusCabeceraSinNumero()
-    }
+    const { data } = await api.get(`/api/mantenimiento/tiendas/${encodeURIComponent(empresa)}`)
+    const n = Number(data.almacenCodigo ?? data.almacen ?? 0)
+    if (!Number.isFinite(n) || n <= 0) return
+    form.value.almacen = n
+    form.value.lineas = form.value.lineas.map((l) => ({
+      ...l,
+      almacen: l.almacen ?? n,
+    }))
+  } catch {
+    /* el almacén se puede elegir a mano */
   }
 }
 
 function onEmpresaNuevoChange() {
-  albaranReservado.value = null
   if (!esNuevo.value) return
   pasoAlta.value = 'tienda'
+  form.value.proveedor = ''
+  form.value.razonSocial = ''
   mensaje.value = form.value.empresa.trim()
-    ? 'Pulse Intro o el botón Nuevo para reservar el número de albarán'
-    : 'Nuevo albarán: elija tienda y pulse Intro o Nuevo'
-  void nextTick(() => focusCabeceraSinNumero())
+    ? 'Confirme la tienda para comenzar'
+    : 'Nuevo albarán: elija tienda y pulse Continuar'
+  void nextTick(() => tiendaSelectRef.value?.focus())
 }
 
-function onDevolucionChange() {
-  if (!esNuevo.value) return
-  albaranReservado.value = null
-  pasoAlta.value = 'tienda'
-  mensaje.value = form.value.empresa.trim()
-    ? 'Pulse Intro o el botón Nuevo para reservar el número de albarán'
-    : 'Nuevo albarán: elija tienda y pulse Intro o Nuevo'
-  void nextTick(() => focusCabeceraSinNumero())
-}
 
 function onKeyEnter(e: KeyboardEvent) {
   if (!esNuevo.value || pasoAlta.value === 'listo') return
@@ -865,14 +825,14 @@ function onKeyEnter(e: KeyboardEvent) {
   const t = e.target
   if (t instanceof HTMLElement) {
     const tag = t.tagName
-    if (tag === 'TEXTAREA' || (tag === 'INPUT' && t.closest('.panel.lineas'))) return
+    if (tag === 'TEXTAREA' || (tag === 'INPUT' && t.closest('.lineas-panel, .lineas-panel'))) return
   }
   e.preventDefault()
   void onIntroCabecera()
 }
 
 async function onIntroCabecera() {
-  if (!esNuevo.value || loading.value || saving.value || reservando.value) return
+  if (!esNuevo.value || loading.value || saving.value) return
   error.value = null
 
   if (pasoAlta.value === 'tienda') {
@@ -884,11 +844,26 @@ async function onIntroCabecera() {
       error.value = 'No tiene permiso para crear albaranes de compra'
       return
     }
-    await reservarNumero()
+    loading.value = true
+    try {
+      await aplicarAlmacenTienda(form.value.empresa.trim())
+      pasoAlta.value = 'proveedor'
+      mensaje.value = null
+      await focusProveedorCabecera()
+    } catch (e: unknown) {
+      error.value = extractApiError(e, 'No se pudo preparar el albarán')
+    } finally {
+      loading.value = false
+    }
     return
   }
 
   if (pasoAlta.value === 'proveedor') {
+    const codigo = form.value.proveedor.trim()
+    if (codigo) {
+      await confirmarProveedorPorCodigo(codigo)
+      return
+    }
     abrirBuscarProveedor()
   }
 }
@@ -921,27 +896,6 @@ async function onCancelar() {
   await cargar()
 }
 
-function buildPayloadCabecera(): AlbaranCompraPayload {
-  return {
-    empresa: form.value.empresa.trim(),
-    albaran:
-      albaranReservado.value && albaranReservado.value > 0 ? albaranReservado.value : undefined,
-    fechaAlbaran: form.value.fechaAlbaran || null,
-    suAlbaran: form.value.suAlbaran.trim() || null,
-    proveedor: form.value.proveedor.trim() || null,
-    fpago: form.value.fpago.trim() || null,
-    observaciones: form.value.observaciones.trim() || null,
-    albaranDevolucion: form.value.albaranDevolucion,
-    almacen: form.value.almacen,
-    serie: form.value.serie.trim() || null,
-    proyecto: form.value.proyecto.trim() || null,
-    importeTransporte: Number(form.value.importeTransporte) || 0,
-    coeficienteTransporte: coeficienteEfectivo.value,
-    brutoConTransporte: Number(form.value.brutoConTransporte) || 0,
-    lineas: [],
-  }
-}
-
 function buildPayload(): AlbaranCompraPayload {
   const lineas: AlbaranCompraLinea[] = form.value.lineas
     .filter((l) => l.articulo.trim() !== '')
@@ -956,11 +910,11 @@ function buildPayload(): AlbaranCompraPayload {
       dto3: Number(l.dto3) || 0,
       lote: l.lote.trim() || null,
       almacen: l.almacen,
-      pedido: l.pedido,
+      pedido: pedidoVisible(l.pedido, l.nroLin),
     }))
   return {
     empresa: form.value.empresa.trim(),
-    albaran: albaranReservado.value && albaranReservado.value > 0 ? albaranReservado.value : undefined,
+    albaran: esNuevo.value ? undefined : ficha.value?.albaran,
     fechaAlbaran: form.value.fechaAlbaran || null,
     suAlbaran: form.value.suAlbaran.trim() || null,
     proveedor: form.value.proveedor.trim() || null,
@@ -977,22 +931,51 @@ function buildPayload(): AlbaranCompraPayload {
   }
 }
 
-async function cargarPvpsLineas(lineas: AlbaranCompraLinea[]) {
-  const map = new Map(pvpPorArticulo.value)
-  for (const l of lineas) {
-    const art = String(l.articulo ?? '').trim()
-    if (!art || map.has(art)) continue
-    try {
-      const { data } = await api.get<Record<string, unknown>>(
-        `/api/mantenimiento/articulos/${encodeURIComponent(art)}`
-      )
-      const pvp = Number(data.precioVen1 ?? data.precioVenta ?? 0) || 0
-      if (pvp > 0) map.set(art, pvp)
-    } catch {
-      /* opcional */
+function pvpDesdeDatosArticulo(data: Record<string, unknown>): number {
+  const directo = Number(data.precioVen1 ?? data.precioVenta ?? 0) || 0
+  if (directo > 0) return directo
+  for (let i = 2; i <= 9; i++) {
+    const n = Number(data[`precioVen${i}`] ?? 0) || 0
+    if (n > 0) return n
+  }
+  const precios = data.precios
+  if (Array.isArray(precios)) {
+    for (const p of precios) {
+      const n = Number((p as { precio?: unknown }).precio ?? 0) || 0
+      if (n > 0) return n
     }
   }
+  return 0
+}
+
+function registrarPvp(codigo: string, pvp: number) {
+  const art = codigo.trim()
+  if (!art || pvp <= 0) return
+  const map = new Map(pvpPorArticulo.value)
+  map.set(art, pvp)
   pvpPorArticulo.value = map
+  for (const l of form.value.lineas) {
+    if (String(l.articulo ?? '').trim() === art) l.pvp = pvp
+  }
+}
+
+async function cargarPvpsLineas(lineas: Array<{ articulo?: string | null; precioVenta?: number | null }>) {
+  for (const l of lineas) {
+    const art = String(l.articulo ?? '').trim()
+    if (!art) continue
+    const ya = Number(l.precioVenta ?? 0) || pvpPorArticulo.value.get(art) || 0
+    if (ya > 0) {
+      registrarPvp(art, ya)
+      continue
+    }
+    try {
+      const artRes = await resolverArticulo(art)
+      const pvp = pvpDesdeDatosArticulo(artRes)
+      if (pvp > 0) registrarPvp(String(artRes.codigo ?? art).trim() || art, pvp)
+    } catch {
+      /* el artículo puede no tener PVP */
+    }
+  }
 }
 
 function lineaCosteCambio(l: FormLinea): boolean {
@@ -1069,7 +1052,7 @@ function onLineasTbodyKeydown(e: KeyboardEvent) {
   if (!lineasEditables.value || !esTeclaIntro(e)) return
   const target = e.target
   if (!(target instanceof HTMLInputElement) || target.readOnly || target.disabled) return
-  if (!target.closest('.panel.lineas tbody')) return
+  if (!target.closest('.lineas-panel tbody')) return
 
   const idx = lineaIdxDesdeTarget(target)
   if (idx < 0) return
@@ -1174,12 +1157,8 @@ async function onPvpGuardado(codigo: string) {
     const { data } = await api.get<Record<string, unknown>>(
       `/api/mantenimiento/articulos/${encodeURIComponent(codigo)}`
     )
-    const pvp = Number(data.precioVen1 ?? data.precioVenta ?? 0) || 0
-    if (pvp > 0) {
-      const map = new Map(pvpPorArticulo.value)
-      map.set(codigo, pvp)
-      pvpPorArticulo.value = map
-    }
+    const pvp = pvpDesdeDatosArticulo(data)
+    if (pvp > 0) registrarPvp(codigo, pvp)
   } catch {
     /* ignore */
   }
@@ -1201,20 +1180,21 @@ const pvpModalLinea = computed(() => {
   return form.value.lineas[idx] ?? null
 })
 
-async function guardarCabecera() {
-  if (!cabeceraEditables.value) return
+async function guardarAltaCompleta() {
   asegurarCoeficienteTransporte()
-  const cabecera = buildPayloadCabecera()
-  if (!cabecera.empresa) {
-    error.value = 'Seleccione tienda'
+  const payload = buildPayload()
+  if (!payload.empresa) {
+    error.value = 'Seleccione la tienda'
     return
   }
-  if (esNuevo.value && !(albaranReservado.value && albaranReservado.value > 0)) {
-    error.value = 'Pulse Intro para reservar el número de albarán (o el botón Nº)'
+  if (!payload.proveedor) {
+    error.value = 'Indique el proveedor'
+    abrirBuscarProveedor()
     return
   }
-  if (!cabecera.proveedor) {
-    error.value = 'Indique proveedor'
+  if (!payload.lineas.length) {
+    error.value = 'Introduzca al menos un artículo antes de guardar'
+    void focusLineaArticulo(0)
     return
   }
 
@@ -1223,27 +1203,40 @@ async function guardarCabecera() {
   error.value = null
   mensaje.value = null
   try {
-    if (esNuevo.value) {
-      const created = await crearAlbaranCompra(cabecera)
-      albaranCompraFocusLineas.value = {
-        empresa: String(created.empresa).trim(),
-        albaran: Number(created.albaran),
-      }
-      await router.replace({
-        name: 'compras-albaran-detalle',
-        params: { empresa: created.empresa, albaran: String(created.albaran) },
-      })
-    } else if (ficha.value) {
-      const { lineas: _omit, ...soloCabecera } = buildPayload()
-      const updated = await actualizarAlbaranCompra(
-        ficha.value.empresa,
-        ficha.value.albaran,
-        soloCabecera as AlbaranCompraPayload
-      )
-      aplicarFicha(updated)
-      modoEdicion.value = false
-      mensaje.value = 'Cabecera guardada'
+    const created = await crearAlbaranCompra(payload)
+    albaranCompraFocusLineas.value = {
+      empresa: String(created.empresa).trim(),
+      albaran: Number(created.albaran),
     }
+    await router.replace({
+      name: 'compras-albaran-detalle',
+      params: { empresa: created.empresa, albaran: String(created.albaran) },
+    })
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo guardar el albarán')
+  } finally {
+    saving.value = false
+    loading.value = false
+  }
+}
+
+async function guardarCabeceraExistente() {
+  if (!ficha.value || !cabeceraEditables.value) return
+  asegurarCoeficienteTransporte()
+  const payload = buildPayload()
+  saving.value = true
+  loading.value = true
+  error.value = null
+  mensaje.value = null
+  try {
+    const updated = await actualizarAlbaranCompra(
+      ficha.value.empresa,
+      ficha.value.albaran,
+      payload
+    )
+    aplicarFicha(updated)
+    modoEdicion.value = false
+    mensaje.value = 'Cabecera actualizada'
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudo guardar la cabecera')
   } finally {
@@ -1253,18 +1246,22 @@ async function guardarCabecera() {
 }
 
 async function onGuardar() {
+  if (esNuevo.value) {
+    await guardarAltaCompleta()
+    return
+  }
   if (!cabeceraEditables.value) return
   const t = Number(form.value.importeTransporte) || 0
   if (t > 0.0001 && brutoMercancia.value > 0) {
     confirmTransporte.value = true
     return
   }
-  await guardarCabecera()
+  await guardarCabeceraExistente()
 }
 
 function onConfirmTransporte() {
   confirmTransporte.value = false
-  void guardarCabecera()
+  void guardarCabeceraExistente()
 }
 
 function pedirBorrar() {
@@ -1640,33 +1637,81 @@ async function onImprimirA4Confirmado() {
 
 function abrirBuscarProveedor() {
   if (!camposEditables.value) return
-  if (esNuevo.value && !(albaranReservado.value && albaranReservado.value > 0)) {
-    error.value = 'Reserve el número de albarán antes de buscar proveedor'
+  if (esNuevo.value && pasoAlta.value === 'tienda') {
+    error.value = 'Primero confirme la tienda.'
+    void nextTick(() => tiendaSelectRef.value?.focus())
     return
   }
   buscarProveedorOpen.value = true
 }
 
-async function onProveedorSeleccionado(r: EntidadBuscarResultado) {
+async function confirmarProveedorPorCodigo(codigo: string) {
+  const cod = codigo.trim()
+  if (!cod) {
+    abrirBuscarProveedor()
+    return
+  }
+  loading.value = true
+  error.value = null
+  try {
+    const { data } = await api.get(`/api/mantenimiento/proveedores/${encodeURIComponent(cod)}`)
+    await aplicarProveedorEnForm(
+      {
+        codigo: String(data.codigo ?? cod).trim(),
+        etiqueta: String(data.nombre ?? data.razonSocial ?? ''),
+      },
+      data as Record<string, unknown>
+    )
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'Proveedor no encontrado. Selecciónelo en la búsqueda.')
+    abrirBuscarProveedor()
+  } finally {
+    loading.value = false
+  }
+}
+
+async function aplicarProveedorEnForm(
+  r: { codigo: string; etiqueta: string },
+  data?: Record<string, unknown>
+) {
   form.value.proveedor = r.codigo
   form.value.razonSocial = r.etiqueta.replace(/^\s*\S+\s*[-–]\s*/, '') || r.etiqueta
-  buscarProveedorOpen.value = false
-  if (esNuevo.value && pasoAlta.value === 'proveedor') {
-    pasoAlta.value = 'cabecera'
-    mensaje.value = 'Complete la cabecera y pulse Guardar (solo cabecera).'
+  const fp = String(data?.formaPago ?? '').trim()
+  if (fp) form.value.fpago = fp.slice(0, 2)
+  const coef = Number(data?.coeficienteTransporte ?? 0)
+  if (coef > 0) {
+    form.value.coeficienteTransporte = coef
+    ajusteTransporteOrigen.value = 'coeficiente'
+    sincronizarTransporteDesdeOrigen()
   }
+  if (esNuevo.value && (pasoAlta.value === 'proveedor' || pasoAlta.value === 'tienda')) {
+    pasoAlta.value = 'listo'
+    mensaje.value = null
+    await nextTick()
+    void focusLineaArticulo(0)
+  }
+}
+
+async function onProveedorSeleccionado(r: EntidadBuscarResultado) {
+  buscarProveedorOpen.value = false
+  loading.value = true
+  error.value = null
   try {
     const { data } = await api.get(`/api/mantenimiento/proveedores/${encodeURIComponent(r.codigo)}`)
-    const fp = String(data?.formaPago ?? '').trim()
-    if (fp) form.value.fpago = fp.slice(0, 2)
-    const coef = Number(data?.coeficienteTransporte ?? 0)
-    if (coef > 0) {
-      form.value.coeficienteTransporte = coef
-      ajusteTransporteOrigen.value = 'coeficiente'
-      sincronizarTransporteDesdeOrigen()
-    }
+    await aplicarProveedorEnForm(
+      {
+        codigo: String(data.codigo ?? r.codigo).trim(),
+        etiqueta: String(data.nombre ?? data.razonSocial ?? r.etiqueta),
+      },
+      data as Record<string, unknown>
+    )
   } catch {
-    /* ficha proveedor opcional */
+    await aplicarProveedorEnForm({
+      codigo: r.codigo,
+      etiqueta: r.etiqueta.replace(/^\s*\S+\s*[-–]\s*/, '') || r.etiqueta,
+    })
+  } finally {
+    loading.value = false
   }
 }
 
@@ -1706,12 +1751,9 @@ async function aplicarArticuloResuelto(idx: number, art: Awaited<ReturnType<type
     dto2: Number(linea.dto2) || 0,
     dto3: Number(linea.dto3) || 0,
   }
-  const pvp = Number(art.precioVen1 ?? art.precioVenta ?? 0) || 0
-  if (pvp > 0) {
-    const map = new Map(pvpPorArticulo.value)
-    map.set(art.codigo, pvp)
-    pvpPorArticulo.value = map
-  }
+  const pvp = pvpDesdeDatosArticulo(art)
+  linea.pvp = pvp
+  if (pvp > 0) registrarPvp(art.codigo, pvp)
   const uds = Number(art.unidadesPaquete)
   if (uds > 0 && (!linea.cantidad || linea.cantidad === 1)) {
     linea.cantidad = uds
@@ -1860,9 +1902,8 @@ watch(
   () => form.value.proveedor,
   (codigo) => {
     if (!esNuevo.value || pasoAlta.value !== 'proveedor') return
-    if (!String(codigo ?? '').trim()) return
-    pasoAlta.value = 'cabecera'
-    mensaje.value = 'Complete la cabecera y pulse Guardar (solo cabecera).'
+    if (String(codigo ?? '').trim()) return
+    form.value.razonSocial = ''
   }
 )
 
@@ -1886,23 +1927,24 @@ watch(
       :puede-crear="puedeCrear"
       :puede-editar="puedeEditar && !!ficha && !bloqueado"
       :puede-eliminar="puedeEliminar && !!ficha && !bloqueado"
-      :puede-guardar="cabeceraEditables"
+      :puede-guardar="esNuevo ? pasoAlta === 'listo' : cabeceraEditables"
       :puede-imprimir="puedeImprimir"
       :puede-finalizar="false"
+      :mostrar-finalizar="false"
       :puede-abonar="puedeAbonar"
       :puede-recuperar="puedeRecuperar"
       :puede-actualizar-stock="puedeActualizarStock"
       :puede-generar-albaran="puedeGenerarVenta"
-      generar-albaran-label="Venta"
+      generar-albaran-label="Albarán cliente"
       generar-albaran-title="Generar albarán de venta al cliente desde este albarán de compra actualizado"
       :puede-buscar="true"
       buscar-label="Listado"
       buscar-title="Volver al listado de albaranes"
       :puede-navegar="false"
-      :modo-edicion="modoEdicion"
+      :modo-edicion="modoEdicion || esNuevo"
       :bloqueado="bloqueado"
       :hay-documento="!!ficha || esNuevo"
-      :loading="loading || saving || guardandoLineas || reservando"
+      :loading="loading || saving || guardandoLineas"
       :indice="-1"
       :total="0"
       @nuevo="onNuevo"
@@ -1918,305 +1960,265 @@ watch(
       @generar-albaran="pedirGenerarVenta"
     />
 
-    <div class="head">
-      <div>
-        <h2>{{ titulo }}</h2>
-        <p class="hint">
-          {{
-            esNuevo
-              ? pasoAlta === 'tienda'
-                ? 'Elija tienda y pulse Intro o Nuevo para reservar el número.'
-                : pasoAlta === 'proveedor'
-                  ? `Nº ${albaranReservado ?? '—'} reservado. Pulse Intro para buscar proveedor.`
-                  : 'Complete la cabecera y pulse Guardar (solo cabecera).'
-              : ficha?.actualizado
-                ? 'Documento ACTUALIZADO. Use Venta para generar albarán al cliente, o Recuperar para modificar.'
-                : 'Guardar = cabecera. Las líneas se guardan al completarlas (Intro). Modificar para editar cabecera.'
-          }}
-        </p>
-      </div>
-      <p v-if="soloLecturaMotivo" class="badge-bloqueo">Solo lectura — {{ soloLecturaMotivo }}</p>
-      <div class="head-actions">
-        <button
-          v-if="puedeGenerarEtiquetas"
-          type="button"
-          class="btn-etiquetas"
-          :disabled="loading || generandoEtiquetas || modoEdicion"
-          title="Añadir líneas del albarán a la cola de etiquetas"
-          @click="onGenerarEtiquetas"
-        >
-          <ToolIcon name="etiquetas" />
-          {{ generandoEtiquetas ? 'Generando…' : 'Generar etiquetas' }}
-        </button>
-        <button
-          v-if="puedeGenerarEtiquetas"
-          type="button"
-          class="btn-etiquetas-sec"
-          :disabled="loading || generandoEtiquetas"
-          title="Abrir cola de etiquetas"
-          @click="irAColaEtiquetas"
-        >
-          Ver cola
-        </button>
-      </div>
+    <ol v-if="esNuevo" class="pasos-alta" aria-label="Pasos alta albarán">
+      <li :class="{ activo: pasoAlta === 'tienda', hecho: pasoAlta !== 'tienda' }">1. Tienda</li>
+      <li :class="{ activo: pasoAlta === 'proveedor', hecho: pasoAlta === 'listo' }">2. Proveedor</li>
+      <li :class="{ activo: pasoAlta === 'listo' }">3. Líneas</li>
+    </ol>
+    <ol v-else-if="modoEdicion && ficha" class="pasos-alta" aria-label="Pasos albarán">
+      <li class="hecho">1. Tienda</li>
+      <li class="hecho">2. Proveedor</li>
+      <li class="activo">3. Líneas · Guardar</li>
+    </ol>
+
+    <p v-if="avisoConsulta" class="banner-doc">{{ avisoConsulta }}</p>
+    <div v-if="esNuevo && pasoAlta === 'tienda'" class="paso-accion">
+      <span>Confirme la <strong>tienda</strong> para comenzar.</span>
+      <button type="button" class="btn-paso primary" :disabled="loading" @click="onIntroCabecera">
+        Continuar
+      </button>
     </div>
+    <div v-else-if="esNuevo && pasoAlta === 'proveedor'" class="paso-accion">
+      <span>¿De qué proveedor es el albarán?</span>
+      <button type="button" class="btn-paso primary" :disabled="loading" @click="abrirBuscarProveedor">
+        Buscar proveedor
+      </button>
+    </div>
+    <p v-else-if="esNuevo && pasoAlta === 'listo'" class="ok">
+      Introduzca los artículos: código + <strong>Intro</strong> (o F4 / … para buscar). El número de
+      albarán se asigna al pulsar <strong>Guardar</strong>.
+    </p>
+    <p v-else-if="modoEdicion && !esNuevo" class="ok">
+      Editando. <strong>Guardar</strong> actualiza la cabecera. Las líneas se graban al pulsar
+      <strong>Intro</strong>.
+    </p>
+    <p v-else-if="!esNuevo && !modoEdicion && ficha && !ficha.actualizado && !ficha.trasCtb" class="ok">
+      Albarán listo. Puede <strong>Actualizar</strong> stock o <strong>Imprimir</strong>.
+    </p>
 
     <p v-if="error" class="error">{{ error }}</p>
-    <p v-if="mensaje" class="ok">{{ mensaje }}</p>
+    <p v-if="mensaje && !esNuevo" class="ok">{{ mensaje }}</p>
     <p v-if="loading && !ficha && !esNuevo" class="msg">Cargando...</p>
 
     <template v-if="ficha || esNuevo">
       <div class="ficha-compra-body">
-      <div class="cab-layout">
-        <div class="panel cab-main">
-          <div class="cab-rows">
-            <div class="cab-row">
-              <span class="cab-lbl">Tienda</span>
-              <select
-                v-if="esNuevo && camposEditables"
-                ref="tiendaSelectRef"
-                v-model="form.empresa"
-                class="w-col-a"
-                title="Tienda"
-                @change="onEmpresaNuevoChange"
-              >
-                <option value="">—</option>
-                <option v-for="t in tiendas" :key="t.value" :value="t.value">{{ t.label }}</option>
-              </select>
-              <input v-else class="w-col-a" :value="form.empresa" readonly />
-              <span class="cab-lbl cab-lbl-gap">Albarán</span>
-              <div class="con-lupa w-col-b">
+      <div class="tab-form">
+        <div class="doc-row">
+          <section class="section grow">
+            <h3>Documento</h3>
+            <div class="fields cols-6">
+              <label class="field field-tienda">
+                <span class="label">Tienda</span>
+                <select
+                  v-if="esNuevo && camposEditables"
+                  ref="tiendaSelectRef"
+                  v-model="form.empresa"
+                  title="Tienda"
+                  @change="onEmpresaNuevoChange"
+                >
+                  <option value="">--</option>
+                  <option v-for="t in tiendas" :key="t.value" :value="t.value">{{ t.label }}</option>
+                </select>
+                <input v-else :value="form.empresa" readonly />
+              </label>
+              <label class="field">
+                <span class="label">N. albarán</span>
                 <input
                   ref="albaranInputRef"
-                  class="w-col-b-in"
                   tabindex="0"
-                  :value="esNuevo ? (albaranReservado ?? (reservando ? '…' : '—')) : ficha?.albaran"
+                  :value="esNuevo ? '—' : ficha?.albaran"
                   readonly
-                  @blur="onAlbaranSinNumeroBlur"
                 />
-                <button
-                  v-if="esNuevo && camposEditables && !albaranReservado"
-                  type="button"
-                  class="btn-lupa"
-                  :disabled="reservando || !form.empresa"
-                  title="Reservar número de albarán"
-                  @click="reservarNumero"
+              </label>
+              <label class="field">
+                <span class="label">Fecha</span>
+                <input v-model="form.fechaAlbaran" type="date" :readonly="!camposEditables" />
+              </label>
+              <label class="field">
+                <span class="label">Su albarán</span>
+                <input v-model="form.suAlbaran" maxlength="20" :readonly="!camposEditables" />
+              </label>
+              <label class="field">
+                <span class="label">Almacén</span>
+                <select
+                  v-if="camposEditables"
+                  v-model.number="form.almacen"
+                  title="Almacén"
                 >
-                  Nº
-                </button>
-              </div>
-            </div>
-
-            <div class="cab-row">
-              <span class="cab-lbl">Fecha</span>
-              <input
-                v-model="form.fechaAlbaran"
-                class="w-col-a"
-                type="date"
-                :readonly="!camposEditables"
-              />
-              <span class="cab-lbl cab-lbl-gap">Su albarán</span>
-              <input
-                v-model="form.suAlbaran"
-                class="w-col-b"
-                maxlength="20"
-                :readonly="!camposEditables"
-              />
-            </div>
-
-            <div class="cab-row">
-              <span class="cab-lbl">Proveedor</span>
-              <div class="con-lupa w-eq">
+                  <option :value="null">—</option>
+                  <option v-for="a in almacenes" :key="a.value" :value="a.value">{{ a.label }}</option>
+                </select>
                 <input
-                  ref="proveedorInputRef"
-                  v-model="form.proveedor"
-                  class="w-cod"
-                  :readonly="!camposEditables || (esNuevo && !albaranReservado)"
-                  @keydown.f4.prevent="abrirBuscarProveedor"
+                  v-else
+                  :value="form.almacen != null ? `${form.almacen}${almacenNombre ? ' - ' + almacenNombre : ''}` : ''"
+                  readonly
                 />
-                <button
-                  type="button"
-                  class="btn-lupa"
-                  :disabled="!proveedorBusquedaHabilitada"
-                  title="Buscar proveedor"
-                  @click="abrirBuscarProveedor"
-                >
-                  <ToolIcon name="buscar" />
-                </button>
-              </div>
-              <input
-                v-model="form.razonSocial"
-                class="w-col-rest"
-                :readonly="!camposEditables || (esNuevo && !albaranReservado)"
-                title="Razón social"
-              />
+              </label>
+              <label class="field">
+                <span class="label">Serie</span>
+                <input :value="form.serie" readonly title="Serie (solo lectura)" />
+              </label>
             </div>
-
-            <div class="cab-row">
-              <span class="cab-lbl">Almacén</span>
-              <select
-                v-if="camposEditables"
-                v-model.number="form.almacen"
-                class="w-col-rest"
-                title="Almacén"
-              >
-                <option :value="null">—</option>
-                <option v-for="a in almacenes" :key="a.value" :value="a.value">{{ a.label }}</option>
-              </select>
-              <input
-                v-else
-                class="w-col-rest"
-                :value="form.almacen != null ? `${form.almacen}${almacenNombre ? ' - ' + almacenNombre : ''}` : ''"
-                readonly
-              />
-              <span class="cab-lbl cab-lbl-gap">Serie</span>
-              <input class="w-eq" :value="form.serie" readonly title="Serie (solo lectura)" />
-            </div>
-
-            <div class="cab-row">
-              <span class="cab-lbl">Proyecto</span>
-              <input
-                v-model="form.proyecto"
-                class="w-col-a"
-                maxlength="15"
-                :readonly="!camposEditables"
-              />
-              <span class="cab-lbl cab-lbl-gap">Situación</span>
-              <input class="w-col-rest" :value="situacionLabel" readonly />
-            </div>
-
-            <div class="cab-row cab-row-obs">
-              <span class="cab-lbl">Observaciones</span>
-              <input
-                v-model="form.observaciones"
-                class="w-obs"
-                :readonly="!camposEditables"
-              />
-            </div>
-            <p v-if="ficha?.albaranDevolucion" class="cab-dev-flag">Albarán de devolución / abono</p>
+          </section>
+          <div class="totales-box">
+            <div><span>Bruto</span><strong>{{ fmtNum(brutoMostrado) }}</strong></div>
+            <div><span>Dtos</span><strong>{{ fmtNum(ficha?.importeDtos) }}</strong></div>
+            <div><span>IVA</span><strong>{{ fmtNum(ficha?.importeIva) }}</strong></div>
+            <div class="imp"><span>Importe</span><strong>{{ fmtNum(importeMostrado) }}</strong></div>
           </div>
         </div>
 
-        <aside class="panel cab-side">
-          <div class="side-box">
-            <div class="side-row">
-              <span>Transporte</span>
-              <DecimalInput
-                v-if="camposEditables"
-                v-model="form.importeTransporte"
-                class="num side-num"
-                :empty-as-null="false"
-                @update:model-value="onImporteTransporteInput"
-              />
-              <input
-                v-else
-                class="num side-num"
-                :value="fmtNum(form.importeTransporte)"
-                readonly
-              />
+        <div v-if="mostrarProveedor" class="section-row paired single">
+          <section class="section">
+            <h3>Proveedor</h3>
+            <div class="fields cols-3">
+              <label class="field">
+                <span class="label">Código</span>
+                <div
+                  class="combo-input"
+                  :class="{ locked: proveedorBloqueado }"
+                >
+                  <input
+                    ref="proveedorInputRef"
+                    v-model="form.proveedor"
+                    class="combo-codigo"
+                    maxlength="6"
+                    placeholder="Cód."
+                    :readonly="proveedorBloqueado"
+                    :title="form.razonSocial || 'Proveedor. Intro / F4 para buscar.'"
+                    @keydown.f4.prevent="abrirBuscarProveedor"
+                  />
+                  <span class="combo-nombre" :title="form.razonSocial">{{ form.razonSocial }}</span>
+                  <button
+                    type="button"
+                    class="btn-buscar"
+                    :disabled="!proveedorBusquedaHabilitada"
+                    :title="form.razonSocial ? `Buscar proveedor — ${form.razonSocial}` : 'Buscar proveedor (Intro / F4)'"
+                    @click="abrirBuscarProveedor"
+                  >
+                    ...
+                  </button>
+                </div>
+              </label>
+              <label class="field span-2">
+                <span class="label">Razón social</span>
+                <input
+                  v-model="form.razonSocial"
+                  maxlength="50"
+                  :readonly="proveedorBloqueado"
+                />
+              </label>
+              <label class="field">
+                <span class="label">Proyecto</span>
+                <input v-model="form.proyecto" maxlength="15" :readonly="!camposEditables" />
+              </label>
+              <label class="field span-2">
+                <span class="label">Observaciones</span>
+                <input v-model="form.observaciones" :readonly="!camposEditables" />
+              </label>
             </div>
-            <div class="side-row">
-              <span>Bruto+Trans.</span>
-              <DecimalInput
-                v-if="camposEditables"
-                v-model="form.brutoConTransporte"
-                class="num side-num"
-                :empty-as-null="false"
-                @update:model-value="onBrutoConTransporteInput"
-              />
-              <input
-                v-else
-                class="num side-num"
-                :value="fmtNum(form.brutoConTransporte)"
-                readonly
-              />
-            </div>
-            <div class="side-row side-row-coef">
-              <span>Coeficiente Transporte</span>
-              <DecimalInput
-                v-if="camposEditables"
-                v-model="form.coeficienteTransporte"
-                class="num side-num side-num-coef"
-                :empty-as-null="false"
-                @update:model-value="onCoeficienteTransporteInput"
-              />
-              <input
-                v-else
-                class="num side-num side-num-coef"
-                :value="fmtNum(form.coeficienteTransporte, 4)"
-                readonly
-              />
-            </div>
-          </div>
+            <p v-if="ficha?.albaranDevolucion" class="cab-dev-flag">Albarán de devolución / abono</p>
+          </section>
+        </div>
 
-          <div class="side-box totales">
-            <div class="side-row">
-              <span>Bruto</span>
-              <span class="num-red">{{ fmtNum(brutoMostrado) }}</span>
+        <details v-if="mostrarExtras" class="detalles-adicionales" :open="!cabeceraCompacta">
+          <summary>Más datos de la compra</summary>
+          <section class="section">
+            <h3>Transporte y márgenes</h3>
+            <div class="fields cols-6">
+              <label class="field">
+                <span class="label">Transporte</span>
+                <DecimalInput
+                  v-if="camposEditables"
+                  v-model="form.importeTransporte"
+                  :empty-as-null="false"
+                  @update:model-value="onImporteTransporteInput"
+                />
+                <input v-else class="num" :value="fmtNum(form.importeTransporte)" readonly />
+              </label>
+              <label class="field">
+                <span class="label">Bruto + trans.</span>
+                <DecimalInput
+                  v-if="camposEditables"
+                  v-model="form.brutoConTransporte"
+                  :empty-as-null="false"
+                  @update:model-value="onBrutoConTransporteInput"
+                />
+                <input v-else class="num" :value="fmtNum(form.brutoConTransporte)" readonly />
+              </label>
+              <label class="field">
+                <span class="label">Coef. transporte</span>
+                <DecimalInput
+                  v-if="camposEditables"
+                  v-model="form.coeficienteTransporte"
+                  :empty-as-null="false"
+                  @update:model-value="onCoeficienteTransporteInput"
+                />
+                <input v-else class="num" :value="fmtNum(form.coeficienteTransporte, 4)" readonly />
+              </label>
+              <label class="field">
+                <span class="label">Imp. + transporte</span>
+                <input class="num" :value="fmtNum(importeConTransporteMostrado)" readonly />
+              </label>
+              <label class="field">
+                <span class="label">Total a PVP</span>
+                <input class="num" :value="fmtNum(totalPvpMostrado)" readonly />
+              </label>
+              <label class="field">
+                <span class="label">% Margen</span>
+                <input class="num" :value="fmtNum(margenMostrado, 2)" readonly />
+              </label>
             </div>
-            <div class="side-row">
-              <span>Dtos</span>
-              <span class="num-red">{{ fmtNum(ficha?.importeDtos) }}</span>
-            </div>
-            <div class="side-row">
-              <span>Iva</span>
-              <span class="num-red">{{ fmtNum(ficha?.importeIva) }}</span>
-            </div>
-            <div class="side-row importe">
-              <span>Importe</span>
-              <span class="num-red">{{ fmtNum(importeMostrado) }}</span>
-            </div>
-            <div class="side-row">
-              <span>Importe + Transporte</span>
-              <span class="num-red">{{ fmtNum(importeConTransporteMostrado) }}</span>
-            </div>
-            <div class="side-row">
-              <span>Total a PVP</span>
-              <span class="num-red">{{ fmtNum(totalPvpMostrado) }}</span>
-            </div>
-            <div class="side-row">
-              <span>% Margen</span>
-              <span class="num-red">{{ fmtNum(margenMostrado, 2) }}</span>
-            </div>
-          </div>
-
-          <div class="side-flags">
-            <label v-if="ficha" class="check">
-              <input type="checkbox" :checked="ficha.actualizado" disabled />
-              Stock actualizado
-            </label>
-            <label v-if="ficha" class="check">
-              <input type="checkbox" :checked="ficha.trasCtb" disabled />
-              Tras. contabilidad
-            </label>
-          </div>
-        </aside>
+          </section>
+        </details>
       </div>
 
       <div
+        v-if="!esNuevo || pasoAlta === 'listo'"
         ref="lineasPanelRef"
-        class="panel lineas"
+        class="lineas-panel"
         :class="{ 'lineas-bloqueadas': !lineasEditables }"
       >
         <div class="lineas-head">
           <h3>Líneas</h3>
           <p v-if="!lineasEditables && esNuevo" class="lineas-bloqueo-msg">
-            Guarde la cabecera para poder añadir líneas
+            Indique el proveedor para añadir líneas
           </p>
-          <button
-            v-if="lineasEditables"
-            type="button"
-            class="btn-add"
-            @click="form.lineas.push(lineaVacia())"
-          >
-            + Línea
-          </button>
+          <div class="lineas-acciones">
+            <button
+              v-if="puedeGenerarEtiquetas"
+              type="button"
+              class="btn-add"
+              :disabled="loading || generandoEtiquetas || modoEdicion"
+              title="Añadir líneas del albarán a la cola de etiquetas"
+              @click="onGenerarEtiquetas"
+            >
+              {{ generandoEtiquetas ? 'Generando…' : 'Etiquetas' }}
+            </button>
+            <button
+              v-if="puedeGenerarEtiquetas"
+              type="button"
+              class="btn-add"
+              :disabled="loading || generandoEtiquetas"
+              title="Abrir cola de etiquetas"
+              @click="irAColaEtiquetas"
+            >
+              Ver cola
+            </button>
+            <button
+              v-if="lineasEditables"
+              type="button"
+              class="btn-add"
+              @click="form.lineas.push(lineaVacia())"
+            >
+              + Línea
+            </button>
+          </div>
         </div>
         <div class="grid-wrap">
           <table>
             <thead>
               <tr>
-                <th class="col-n">#</th>
                 <th class="num col-ped">Pedido</th>
                 <th class="col-art">Artículo</th>
                 <th class="col-desc">Descripción</th>
@@ -2238,27 +2240,30 @@ watch(
                 :key="l.nroLin ?? `n-${idx}`"
                 :data-linea-idx="idx"
               >
-                <td class="col-n">{{ l.nroLin ?? idx + 1 }}</td>
                 <td class="num col-ped">
                   <DecimalInput
                     v-if="lineasEditables"
-                    v-model="l.pedido"
+                    :model-value="pedidoVisible(l.pedido, l.nroLin)"
                     :empty-as-null="true"
                     :integer="true"
+                    placeholder=""
+                    @update:model-value="(v) => (l.pedido = pedidoVisible(v, l.nroLin))"
                   />
-                  <span v-else>{{ l.pedido || '—' }}</span>
+                  <span v-else>{{ pedidoVisible(l.pedido, l.nroLin) ?? '' }}</span>
                 </td>
                 <td class="col-art">
                   <div v-if="lineasEditables" class="con-lupa">
                     <input
                       v-model="l.articulo"
+                      placeholder="Código / buscar…"
+                      title="Intro carga el artículo o abre búsqueda; F4 abre siempre la búsqueda"
                       @input="onArticuloInput(idx)"
                       @keydown="onArticuloKeydown($event, idx)"
                     />
                     <button
                       type="button"
                       class="btn-lupa"
-                      title="Buscar artículo"
+                      title="Buscar artículo (Intro / F4)"
                       @click="abrirBuscarArticulo(idx)"
                     >
                       <ToolIcon name="buscar" />
@@ -2344,6 +2349,10 @@ watch(
             </tbody>
           </table>
         </div>
+        <p v-if="lineasEditables" class="lineas-hint">
+          En código: <strong>Intro</strong> carga el artículo (si existe) o abre búsqueda;
+          <strong>F4</strong> / … abre siempre la búsqueda. Cada línea se guarda al completarla.
+        </p>
       </div>
       </div>
     </template>
@@ -2558,157 +2567,235 @@ watch(
 </template>
 
 <style scoped>
-.compra-detalle h2 {
-  margin: 0 0 0.25rem;
+.compra-detalle {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
-.head {
+.pasos-alta {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
+  gap: 0.35rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-width: 960px;
+}
+.pasos-alta li {
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.pasos-alta li.activo {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+.pasos-alta li.hecho {
+  border-color: #86efac;
+  background: #dcfce7;
+  color: #166534;
+}
+.paso-accion {
+  max-width: 960px;
+  display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  margin-bottom: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+.btn-paso {
+  border: 1px solid #64748b;
+  border-radius: 5px;
+  background: #fff;
+  color: #1e293b;
+  padding: 0.4rem 0.7rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+.btn-paso.primary {
+  border-color: #1d4ed8;
+  background: #2563eb;
+  color: #fff;
+}
+.btn-paso:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+.banner-doc {
+  max-width: 960px;
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  background: #fff;
+  color: #334155;
+  font-size: 0.78rem;
 }
 .hint {
   margin: 0;
   color: #64748b;
   font-size: 0.85rem;
 }
-.badge-bloqueo {
-  margin: 0;
-  padding: 0.35rem 0.65rem;
-  border-radius: 6px;
-  background: #fef3c7;
-  color: #92400e;
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-.badge-ok {
-  margin: 0;
-  padding: 0.35rem 0.65rem;
-  border-radius: 6px;
-  background: #dcfce7;
-  color: #166534;
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-.head-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.45rem;
-}
-.btn-etiquetas {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.4rem 0.75rem;
-  border-radius: 6px;
-  border: 1px solid #1d4ed8;
-  background: #2563eb;
-  color: #fff;
-  font-weight: 600;
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.85rem;
-}
-.btn-etiquetas:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-.btn-etiquetas :deep(.tool-icon) {
-  width: 1rem;
-  height: 1rem;
-}
-.btn-etiquetas-sec {
-  padding: 0.4rem 0.65rem;
-  border-radius: 6px;
-  border: 1px solid #94a3b8;
-  background: #fff;
-  color: #1e40af;
-  font-weight: 600;
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.85rem;
-}
-.btn-etiquetas-sec:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
 .error {
   color: #b91c1c;
+  margin: 0;
 }
 .ok {
   color: #166534;
+  margin: 0;
 }
 .msg {
   color: #475569;
-}
-
-.panel {
-  margin-bottom: 0.85rem;
-  padding: 0.55rem 0.65rem;
-  border: 1px solid #94a3b8;
-  border-radius: 4px;
-  background: #fff;
-}
-.panel h3 {
-  margin: 0 0 0.55rem;
-  font-size: 0.9rem;
-  color: #0f172a;
 }
 
 .ficha-compra-body {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
-  width: max-content;
-  max-width: 100%;
-  box-sizing: border-box;
-}
-
-.cab-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 14.5rem;
-  gap: 0.45rem;
-  align-items: start;
+  max-width: 960px;
   width: 100%;
   box-sizing: border-box;
 }
-.cab-layout > .panel {
-  margin-bottom: 0;
-}
-.cab-main {
-  background: #f1f5f9;
-  padding: 0.4rem 0.5rem;
-  width: auto;
-  min-width: 0;
-  max-width: none;
-}
-.cab-rows {
+.tab-form {
+  background: #f8fafc;
+  border: 1px solid #c5cdd8;
+  padding: 0.4rem;
+  max-width: 960px;
+  border-radius: 0 0 6px 6px;
   display: flex;
   flex-direction: column;
-  gap: 0.22rem;
+  gap: 0.35rem;
 }
-.cab-row {
+.doc-row {
   display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 0.2rem 0.28rem;
-  min-height: 1.55rem;
+  gap: 0.35rem;
+  align-items: stretch;
 }
-.cab-lbl {
-  flex: 0 0 4.8rem;
-  font-size: 0.7rem;
+.doc-row .grow {
+  flex: 1;
+  min-width: 0;
+}
+.section-row.paired {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+  align-items: stretch;
+}
+.section-row.paired.single {
+  grid-template-columns: 1fr;
+}
+.detalles-adicionales {
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #f8fafc;
+  padding: 0.25rem;
+}
+.detalles-adicionales > summary {
+  cursor: pointer;
+  color: #1e40af;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.2rem 0.35rem;
+}
+.detalles-adicionales[open] {
+  display: grid;
+  gap: 0.35rem;
+}
+.section {
+  margin: 0;
+  padding: 0.3rem 0.4rem 0.35rem;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+}
+.section h3 {
+  margin: 0 0 0.25rem;
+  font-size: 0.68rem;
+  font-weight: 700;
   color: #334155;
-  text-align: right;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 0.15rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.fields {
+  display: grid;
+  gap: 0.2rem 0.35rem;
+}
+.cols-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.cols-6 {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+.field {
+  display: grid;
+  gap: 0.05rem;
+  font-size: 0.68rem;
+  min-width: 0;
+}
+.span-2 {
+  grid-column: span 2;
+}
+.label {
+  color: #64748b;
   white-space: nowrap;
 }
-.cab-lbl-gap {
-  flex: 0 0 4.8rem;
-  margin-left: 0;
-  width: auto;
+.tab-form input,
+.tab-form select {
+  width: 100%;
+  min-width: 0;
+  height: 1.65rem;
+  box-sizing: border-box;
+  padding: 0.12rem 0.25rem;
+  border: 1px solid #94a3b8;
+  border-radius: 2px;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  background: #fff;
+  color: #0f172a;
+}
+.tab-form input:read-only,
+.tab-form select:disabled {
+  background: #f1f5f9;
+}
+.field-tienda select:not(:disabled) {
+  border-color: #2563eb;
+  background: #eff6ff;
+  font-weight: 600;
+}
+.totales-box {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.1rem 0.45rem;
+  align-content: center;
+  min-width: 9.5rem;
+  background: #fff;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+  padding: 0.3rem 0.45rem;
+  font-size: 0.68rem;
+}
+.totales-box span {
+  color: #64748b;
+}
+.totales-box strong {
+  font-variant-numeric: tabular-nums;
+  display: block;
   text-align: right;
+}
+.totales-box .imp strong {
+  font-size: 0.9rem;
+  color: #0f172a;
 }
 .cab-dev-flag {
   margin: 0.35rem 0 0;
@@ -2716,167 +2803,72 @@ watch(
   font-weight: 600;
   color: #9a3412;
 }
-.cab-main input,
-.cab-main select {
-  padding: 0.2rem 0.35rem;
+.combo-input {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  height: 1.65rem;
+  box-sizing: border-box;
   border: 1px solid #94a3b8;
   border-radius: 2px;
-  font: inherit;
-  font-size: 0.8rem;
   background: #fff;
-  color: #0f172a;
-  box-sizing: border-box;
-  height: 1.65rem;
 }
-.cab-main input:read-only {
+.combo-input.locked {
   background: #e8eef5;
 }
-.w-cod {
-  width: 4.2rem;
+.combo-input:focus-within {
+  border-color: #2563eb;
+}
+.combo-codigo {
   flex: 0 0 4.2rem;
+  width: 4.2rem;
+  height: 100% !important;
+  border: none !important;
+  border-right: 1px solid #e2e8f0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
 }
-.w-col-a {
-  width: 9rem;
-  flex: 0 0 9rem;
-  max-width: 9rem;
-  box-sizing: border-box;
-}
-.w-col-a.con-lupa,
-.con-lupa.w-col-a {
-  display: flex;
-  width: 9rem;
-  flex: 0 0 9rem;
-}
-.w-col-b,
-.w-col-b-in,
-.w-eq {
-  width: 7rem;
-  flex: 0 0 7rem;
-  max-width: 7rem;
-  box-sizing: border-box;
-}
-.w-col-b,
-.w-col-b-in {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-.con-lupa.w-col-b,
-.con-lupa.w-eq {
-  display: flex;
-  width: 7rem;
-  flex: 0 0 7rem;
-}
-.con-lupa.w-col-b .w-col-b-in {
+.combo-nombre {
   flex: 1;
-  width: auto;
-  max-width: none;
-}
-.con-lupa.w-eq .w-cod {
-  flex: 1;
-  width: auto;
-  max-width: none;
-}
-.w-col-rest {
-  flex: 1 1 auto;
-  min-width: 5rem;
-  max-width: none;
-}
-.w-obs {
-  flex: 1 1 auto;
-  min-width: 8rem;
-  max-width: none;
-}
-.cab-side {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  padding: 0.4rem;
-  background: #f1f5f9;
-}
-.side-box {
-  border: 1px solid #94a3b8;
-  border-radius: 2px;
-  padding: 0.35rem 0.45rem;
-  background: #fff;
-}
-.side-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.4rem;
-  margin-bottom: 0.25rem;
-  font-size: 0.72rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 0.3rem;
+  font-size: 0.75rem;
+  line-height: 1.65rem;
   color: #334155;
 }
-.side-row:last-child {
-  margin-bottom: 0;
+.combo-input .btn-buscar {
+  flex: 0 0 1.7rem;
+  height: auto;
+  border: none;
+  border-left: 1px solid #e2e8f0;
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.7rem;
+  padding: 0;
+  color: #334155;
 }
-.side-row-coef {
-  flex-wrap: wrap;
-}
-.side-row-coef > span {
-  flex: 1 1 100%;
-  margin-bottom: 0.15rem;
-}
-.side-num {
-  width: 6.5rem;
-  flex-shrink: 0;
-  padding: 0.2rem 0.3rem;
-  border: 1px solid #94a3b8;
-  border-radius: 2px;
-  font: inherit;
-  font-size: 0.8rem;
-  background: #fff;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  box-sizing: border-box;
-  height: 1.65rem;
-}
-.side-num-coef {
-  width: 100%;
-}
-.side-row :deep(.side-num),
-.side-row :deep(input) {
-  width: 6.5rem;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  height: 1.65rem;
-  font-size: 0.8rem;
-}
-.side-row :deep(.side-num-coef) {
-  width: 100%;
-}
-.side-box.totales .num-red {
-  color: #b91c1c;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-}
-.side-box.totales .importe {
-  margin-top: 0.1rem;
-  padding-top: 0.3rem;
-  border-top: 1px solid #cbd5e1;
-  font-weight: 700;
-  color: #0f172a;
-}
-.side-box.totales .importe .num-red {
-  font-size: 0.9rem;
-}
-.side-flags {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  font-size: 0.72rem;
-  color: #475569;
-  padding: 0 0.15rem;
-}
-.side-flags .check {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  flex-direction: row;
-  padding-top: 0;
+.combo-input .btn-buscar:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
+.lineas-panel {
+  max-width: 960px;
+  background: #f8fafc;
+  border: 1px solid #c5cdd8;
+  border-radius: 6px;
+  padding: 0.4rem;
+}
+.lineas-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
 .lineas-head {
   display: flex;
   justify-content: space-between;
@@ -2891,12 +2883,20 @@ watch(
   font-size: 0.78rem;
   color: #b45309;
 }
+.lineas-hint {
+  margin: 0.4rem 0 0;
+  color: #64748b;
+  font-size: 0.76rem;
+}
 .lineas-bloqueadas .grid-wrap {
   pointer-events: none;
   opacity: 0.55;
 }
 .lineas-head h3 {
   margin: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #334155;
 }
 .btn-add {
   padding: 0.25rem 0.55rem;
@@ -2963,20 +2963,20 @@ td input {
   width: max-content;
   max-width: 100%;
 }
-.panel.lineas table {
+.lineas-panel table {
   width: max-content;
   border-collapse: collapse;
   font-size: 0.75rem;
   table-layout: fixed;
 }
-.panel.lineas th,
-.panel.lineas td {
+.lineas-panel th,
+.lineas-panel td {
   border-bottom: 1px solid #e2e8f0;
   padding: 0.12rem 0.15rem;
   text-align: left;
   vertical-align: middle;
 }
-.panel.lineas th {
+.lineas-panel th {
   background: #f1f5f9;
   position: sticky;
   top: 0;
@@ -2985,9 +2985,9 @@ td input {
   font-size: 0.7rem;
   font-weight: 600;
 }
-.panel.lineas td input,
-.panel.lineas td select,
-.panel.lineas td :deep(input) {
+.lineas-panel td input,
+.lineas-panel td select,
+.lineas-panel td :deep(input) {
   width: 100%;
   min-width: 0;
   padding: 0.15rem 0.2rem;
@@ -3000,15 +3000,12 @@ td input {
   box-sizing: border-box;
   height: 1.45rem;
 }
-.panel.lineas .num {
+.lineas-panel .num {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
-.col-n {
-  width: 1.6rem;
-}
 .col-ped {
-  width: 2.6rem;
+  width: 4.4rem;
 }
 .col-art {
   width: 8.2rem;
@@ -3087,7 +3084,7 @@ td input {
   height: 1.45rem;
   box-sizing: border-box;
 }
-.panel.lineas {
+.lineas-panel {
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
@@ -3118,7 +3115,7 @@ td input {
   .grid-wrap {
     width: 100%;
   }
-  .panel.lineas table {
+  .lineas-panel table {
     width: 100%;
   }
 }
@@ -3226,5 +3223,14 @@ td input {
 .modal-abono footer button.primary:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+@media (max-width: 900px) {
+  .doc-row {
+    flex-direction: column;
+  }
+  .cols-6 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 </style>

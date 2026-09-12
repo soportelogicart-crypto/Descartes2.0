@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { api } from '@/api/client'
 import {
   clonarFilaGrid,
@@ -38,6 +39,7 @@ import ClienteContactosModal from '@/components/clientes/ClienteContactosModal.v
 import ClienteEstadisticaModal from '@/components/clientes/ClienteEstadisticaModal.vue'
 import ClienteConsumoModal from '@/components/clientes/ClienteConsumoModal.vue'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
+import { useClienteFichaStore } from '@/stores/clienteFicha'
 
 const MODULO = 'clientes'
 const FILTER_KEYS = ['codigo', 'tiendaCodigo', 'nombre', 'nif', 'telefono1']
@@ -45,7 +47,32 @@ const columns = getGridColumns('clientes')
 
 const { puede } = usePermisos()
 const puestoContexto = usePuestoContextoStore()
-const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(() => MODULO)
+const fichaStore = useClienteFichaStore()
+const {
+  vista,
+  ficha,
+  esNuevo,
+  modoEdicion,
+  tabActiva,
+  codigoAutomatico,
+  indiceFicha,
+  mensaje,
+  camposInvalidos,
+} = storeToRefs(fichaStore)
+const {
+  items,
+  total,
+  page,
+  pageSize,
+  loading,
+  error,
+  listar,
+  cancelarListado,
+  obtener,
+  crear,
+  actualizar,
+  eliminar,
+} = useMantenimiento(() => MODULO)
 
 const puedeCrear = computed(() => puede(MODULO, 'crear'))
 const puedeEditar = computed(() => puede(MODULO, 'editar'))
@@ -53,19 +80,12 @@ const puedeEliminar = computed(() => puede(MODULO, 'eliminar'))
 const puedeVer = computed(() => puede(MODULO, 'ver'))
 const soloLecturaGrid = computed(() => !puedeCrear.value && !puedeEditar.value)
 
-const vista = ref<'grid' | 'ficha'>('grid')
 const filasTodas = ref<GridFila[]>([])
 const filtros = ref<Record<string, ColumnFilter>>(filtrosIniciales(FILTER_KEYS))
 const indiceSeleccionado = ref(0)
-const mensaje = ref<string | null>(null)
 const optionsMap = ref<GridOptionsMap>({})
+const formasPagoOptions = ref<{ value: string; label: string }[]>([])
 
-const tabActiva = ref(clienteTabs[0].id)
-const modoEdicion = ref(false)
-const esNuevo = ref(false)
-const codigoAutomatico = ref(false)
-const ficha = ref<Record<string, unknown>>({})
-const indiceFicha = ref(-1)
 const mostrarIntereses = ref(false)
 const mostrarDireccion = ref(false)
 const mostrarContactos = ref(false)
@@ -76,8 +96,8 @@ const avisoModalOpen = ref(false)
 const avisoModalTitulo = ref('Campo obligatorio')
 const avisoModalMensaje = ref('')
 const campoAvisoActual = ref<string | null>(null)
-const camposInvalidos = ref<string[]>([])
 const codigoInput = ref<HTMLInputElement | null>(null)
+const guardando = ref(false)
 
 function mostrarAvisoModal(titulo: string, message: string, campo?: string | null) {
   campoAvisoActual.value = campo ?? null
@@ -256,8 +276,17 @@ const {
 
 onMounted(async () => {
   if (!puedeVer.value) return
-  await cargarTiendas()
-  await cargar()
+  await Promise.all([cargarTiendas(), cargarFormasPago()])
+  // No saturar la API con el listado si ya hay un alta/ficha abierta.
+  if (vista.value === 'grid') {
+    void cargar()
+  }
+})
+
+watch(vista, (v) => {
+  if (v === 'grid' && filasTodas.value.length === 0) {
+    void cargar()
+  }
 })
 
 async function cargarTiendas() {
@@ -270,6 +299,22 @@ async function cargarTiendas() {
     optionsMap.value = { tiendas }
   } catch {
     optionsMap.value = { tiendas: [] }
+  }
+}
+
+async function cargarFormasPago() {
+  try {
+    const { data } = await api.get('/api/mantenimiento/formas-pago', {
+      params: { activo: true, pageSize: 500 },
+    })
+    formasPagoOptions.value = (data.items ?? []).map(
+      (f: { codigo: string; descripcion: string }) => ({
+        value: String(f.codigo).trim(),
+        label: `${String(f.codigo).trim()} - ${f.descripcion}`,
+      })
+    )
+  } catch {
+    formasPagoOptions.value = []
   }
 }
 
@@ -312,21 +357,32 @@ async function onGuardarGrid() {
   }
 }
 
+function aplicarDatosCliente(data: Record<string, unknown>) {
+  if (data.tiendaCodigo != null) {
+    data.tiendaCodigo = String(data.tiendaCodigo).trim()
+  }
+  // Legacy Mid("NIEP"): Canarias = P. Corregir valores antiguos guardados como C.
+  if (String(data.tratamientoFiscal ?? '').trim().toUpperCase() === 'C') {
+    data.tratamientoFiscal = 'P'
+  }
+  if (data.formaPago != null) {
+    data.formaPago = String(data.formaPago).trim()
+  }
+  ficha.value = data
+  const codigo = String(data.codigo ?? '').trim()
+  if (codigo) {
+    const copia = clonarFilaGrid(data, columns)
+    const idx = filasTodas.value.findIndex((f) => String(f.codigo) === codigo)
+    if (idx >= 0) filasTodas.value[idx] = copia
+    else filasTodas.value = [...filasTodas.value, copia]
+    indiceFicha.value = filasTodas.value.findIndex((f) => String(f.codigo) === codigo)
+  }
+}
+
 async function abrirFichaPorCodigo(codigo: string) {
   try {
     const data = await obtener(codigo)
-    if (data.tiendaCodigo != null) {
-      data.tiendaCodigo = String(data.tiendaCodigo).trim()
-    }
-    // Legacy Mid("NIEP"): Canarias = P. Corregir valores antiguos guardados como C.
-    if (String(data.tratamientoFiscal ?? '').trim().toUpperCase() === 'C') {
-      data.tratamientoFiscal = 'P'
-    }
-    if (data.formaPago != null) {
-      data.formaPago = String(data.formaPago).trim()
-    }
-    ficha.value = data
-    indiceFicha.value = filasTodas.value.findIndex((f) => String(f.codigo) === codigo)
+    aplicarDatosCliente(data)
     modoEdicion.value = false
     esNuevo.value = false
     tabActiva.value = 'generales'
@@ -352,34 +408,12 @@ async function abrirFicha(index?: number) {
 
 async function onNuevo() {
   if (!puedeCrear.value) return
+  cancelarListado()
   const base = {
     ...clienteVacio(),
     tiendaCodigo: puestoContexto.empresaCodigo || '',
   }
   codigoAutomatico.value = false
-  // Legacy PreAlta: FormaPago = Divisa de la empresa/tienda
-  const tienda = String(puestoContexto.empresaCodigo || '').trim()
-  if (tienda) {
-    try {
-      const { data } = await api.get(`/api/mantenimiento/tiendas/${encodeURIComponent(tienda)}`)
-      const divisa = String(data.divisa ?? '').trim()
-      if (divisa) base.formaPago = divisa
-    } catch {
-      /* sin default */
-    }
-  }
-  // Si la tienda tiene GenClientes, Prefijo + UltCliente+1 (ej. 001012100).
-  try {
-    const { data } = await api.get('/api/mantenimiento/clientes/siguiente-codigo', {
-      params: { empresa: puestoContexto.empresaCodigo || undefined },
-    })
-    if (data.automatico && data.codigo) {
-      base.codigo = String(data.codigo)
-      codigoAutomatico.value = true
-    }
-  } catch (e: unknown) {
-    mensaje.value = extractApiError(e, 'No se pudo obtener el siguiente codigo')
-  }
   ficha.value = base
   esNuevo.value = true
   modoEdicion.value = true
@@ -390,12 +424,25 @@ async function onNuevo() {
   camposInvalidos.value = []
   ultimoNifAvisado = ''
   await nextTick()
-  await nextTick()
-  if (codigoAutomatico.value) {
-    document.querySelector<HTMLElement>('[data-field-key="nombre"]')?.focus()
-  } else {
-    codigoInput.value?.focus()
-    codigoInput.value?.select()
+  codigoInput.value?.focus()
+  codigoInput.value?.select()
+
+  // Si la tienda tiene GenClientes, Prefijo + UltCliente+1 (ej. 001012100).
+  try {
+    const { data } = await api.get('/api/mantenimiento/clientes/siguiente-codigo', {
+      params: { empresa: puestoContexto.empresaCodigo || undefined },
+    })
+    if (!esNuevo.value) return
+    if (data.automatico && data.codigo) {
+      ficha.value = { ...ficha.value, codigo: String(data.codigo) }
+      codigoAutomatico.value = true
+      await nextTick()
+      document.querySelector<HTMLElement>('[data-field-key="nombre"]')?.focus()
+    }
+  } catch (e: unknown) {
+    if (esNuevo.value) {
+      mensaje.value = extractApiError(e, 'No se pudo obtener el siguiente codigo')
+    }
   }
 }
 
@@ -422,6 +469,22 @@ function normalizarFechasFicha(data: Record<string, unknown>): Record<string, un
 }
 
 async function onGuardarFicha() {
+  try {
+    await ejecutarGuardarFicha()
+  } catch (e: unknown) {
+    guardando.value = false
+    const msg = extractApiError(e, 'No se pudo guardar el cliente')
+    mensaje.value = msg
+    mostrarAvisoModal('Error al guardar', msg)
+  }
+}
+
+async function ejecutarGuardarFicha() {
+  if (guardando.value) {
+    mensaje.value = 'Guardando… espere a que termine.'
+    return
+  }
+  cancelarListado()
   const vacios = camposClienteObligatoriosVacios(ficha.value)
   if (vacios.length > 0) {
     const key = vacios[0]
@@ -462,23 +525,25 @@ async function onGuardarFicha() {
     paisEnvio:
       String(ficha.value.paisEnvio ?? '').trim() || String(ficha.value.pais ?? '').trim() || 'España',
   })
+  guardando.value = true
+  mensaje.value = 'Guardando…'
   try {
     if (esNuevo.value) {
       const creado = await crear(payload)
+      aplicarDatosCliente(creado && typeof creado === 'object' ? creado : payload)
       mensaje.value = 'Cliente creado correctamente'
-      await cargar()
-      const idx = filas.value.findIndex((c) => String(c.codigo) === String(creado.codigo))
-      if (idx >= 0) await abrirFicha(idx)
-      else volverAlGrid()
     } else {
       const codigo = String(payload.codigo ?? '').trim()
-      await actualizar(codigo, { ...payload, codigo })
+      const actualizado = await actualizar(codigo, { ...payload, codigo })
+      aplicarDatosCliente(
+        actualizado && typeof actualizado === 'object' ? actualizado : { ...payload, codigo }
+      )
       mensaje.value = 'Cliente actualizado'
-      await cargar()
-      await abrirFichaPorCodigo(codigo)
     }
     modoEdicion.value = false
     esNuevo.value = false
+    codigoAutomatico.value = false
+    ultimoNifAvisado = ''
   } catch (e: unknown) {
     const msg = extractApiError(e, 'No se pudo guardar el cliente')
     mensaje.value = msg
@@ -503,6 +568,8 @@ async function onGuardarFicha() {
     } else {
       mostrarAvisoModal('Error al guardar', msg)
     }
+  } finally {
+    guardando.value = false
   }
 }
 
@@ -529,15 +596,12 @@ async function onBorrarFicha() {
 }
 
 function volverAlGrid() {
-  vista.value = 'grid'
-  modoEdicion.value = false
-  esNuevo.value = false
-  codigoAutomatico.value = false
-  ficha.value = {}
   mostrarIntereses.value = false
   mostrarEstadistica.value = false
   mostrarConsumo.value = false
-  camposInvalidos.value = []
+  mostrarDireccion.value = false
+  mostrarContactos.value = false
+  fichaStore.limpiarFicha()
 }
 
 function onEstadistica() {
@@ -621,14 +685,19 @@ async function onUltimo() {
     <p v-if="!puedeVer" class="error">No tiene permiso para ver clientes.</p>
 
     <template v-else>
-      <p v-if="mensaje" class="msg">{{ mensaje }}</p>
+      <p
+        v-if="mensaje"
+        :class="guardando || /guardand/i.test(mensaje) ? 'msg msg-wait' : /obligatorio|duplicad|incorrect|no se pudo|error/i.test(mensaje) ? 'error' : 'msg'"
+      >
+        {{ mensaje }}
+      </p>
       <p v-if="error" class="error">{{ error }}</p>
 
       <template v-if="vista === 'grid'">
         <div class="mantenimiento-listado">
         <div class="toolbar">
           <button type="button" class="tool-btn" @click="onListado">Listado</button>
-          <button v-if="puedeCrear" type="button" class="tool-btn" :disabled="loading" @click="onNuevo">
+          <button v-if="puedeCrear" type="button" class="tool-btn" @click="onNuevo">
             Nuevo
           </button>
           <button
@@ -693,9 +762,10 @@ async function onUltimo() {
             :puede-eliminar="puedeEliminar"
             :puede-guardar="puedeCrear || puedeEditar"
             :modo-edicion="modoEdicion || esNuevo"
+            :modo-alta="esNuevo"
             :indice="indiceFicha < 0 ? undefined : indiceFicha"
             :total="totalFicha"
-            :loading="loading"
+            :loading="guardando"
             :hay-cliente="hayCliente"
             @nuevo="onNuevo"
             @modificar="onModificar"
@@ -737,6 +807,29 @@ async function onUltimo() {
                 :readonly="soloLecturaFicha"
                 maxlength="50"
               />
+            </label>
+            <label :class="{ 'campo-invalido': camposInvalidos.includes('nif') }">
+              N.I.F. *
+              <input
+                v-model="ficha.nif"
+                data-field-key="nif"
+                :readonly="soloLecturaFicha"
+                maxlength="16"
+                @blur="onBlurCampo('nif', String(ficha.nif ?? ''))"
+              />
+            </label>
+            <label :class="{ 'campo-invalido': camposInvalidos.includes('formaPago') }">
+              Forma pago *
+              <select
+                v-model="ficha.formaPago"
+                data-field-key="formaPago"
+                :disabled="soloLecturaFicha"
+              >
+                <option value="">--</option>
+                <option v-for="opt in formasPagoOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </option>
+              </select>
             </label>
           </div>
 
@@ -908,8 +1001,12 @@ async function onUltimo() {
   flex: 1;
   min-width: 220px;
 }
+.ficha-header select {
+  min-width: 11rem;
+}
 
-.ficha-header input {
+.ficha-header input,
+.ficha-header select {
   padding: 0.2rem 0.35rem;
   border: 1px solid #94a3b8;
   border-radius: 3px;
@@ -956,8 +1053,14 @@ async function onUltimo() {
   color: #047857;
 }
 
+.msg-wait {
+  color: #b45309;
+  font-weight: 600;
+}
+
 .error {
   color: #b91c1c;
+  font-weight: 600;
 }
 
 .hint {

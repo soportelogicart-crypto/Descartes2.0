@@ -1,3 +1,5 @@
+import { ibanValido, normalizarIban } from '@/utils/iban'
+
 export type ClienteFieldType = 'text' | 'number' | 'checkbox' | 'textarea' | 'select' | 'date' | 'email'
 
 export type ClienteFieldLayout = 'inline' | 'checkbox' | 'textarea'
@@ -411,7 +413,7 @@ export function validarClienteObligatorios(ficha: Record<string, unknown>): stri
   )
 }
 
-export { ibanValido as ibanClienteValido, normalizarIban as normalizarIbanCliente } from '@/utils/iban'
+export { ibanValido as ibanClienteValido, normalizarIban as normalizarIbanCliente }
 
 export type ClienteValidacionUso = {
   campo: string
@@ -421,7 +423,7 @@ export type ClienteValidacionUso = {
 
 /** Validaciones de uso que evitan errores posteriores en SEPA y envío de facturas. */
 export function validarUsoCliente(ficha: Record<string, unknown>): ClienteValidacionUso | null {
-  if (!ibanClienteValido(ficha.iban)) {
+  if (!ibanValido(ficha.iban)) {
     return {
       campo: 'iban',
       titulo: 'IBAN incorrecto',
@@ -448,7 +450,7 @@ export function validarUsoCliente(ficha: Record<string, unknown>): ClienteValida
       mensaje: 'Debe indicar la referencia del mandato SEPA.',
     }
   }
-  if (fechaAceptada && !normalizarIbanCliente(ficha.iban)) {
+  if (fechaAceptada && !normalizarIban(ficha.iban)) {
     return {
       campo: 'iban',
       titulo: 'Mandato SEPA incompleto',

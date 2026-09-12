@@ -46,7 +46,9 @@ const seccionesVisibles = computed(() => {
   return props.sections
     .map((section) => ({
       ...section,
-      fields: section.fields.filter((f) => f.key !== 'codigo' && f.key !== 'nombre'),
+          fields: section.fields.filter(
+            (f) => f.key !== 'codigo' && f.key !== 'nombre' && f.key !== 'nif' && f.key !== 'formaPago'
+          ),
     }))
     .filter((section) => section.fields.length > 0)
 })
