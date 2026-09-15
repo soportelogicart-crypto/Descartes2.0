@@ -3,13 +3,65 @@
   "version": "0.1.0",
   "private": true,
   "description": "Shell Electron fino para Descartes 2.0 (UI en servidor + perifericos locales)",
+  "author": "Descartes",
   "main": "electron/main.js",
   "scripts": {
-    "start": "electron . --dev",
+    "start": "electron .",
+    "start:tools": "electron . --devtools",
     "dev": "electron . --dev",
-    "dev:tools": "electron . --dev --devtools"
+    "dev:tools": "electron . --dev --devtools",
+    "icon": "node scripts/generate-icon.js",
+    "dist": "npm run icon && electron-builder --win nsis",
+    "dist:dir": "npm run icon && electron-builder --win dir"
   },
   "devDependencies": {
-    "electron": "^35.0.0"
+    "electron": "^35.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.descartes.gestion",
+    "productName": "Descartes 2.0",
+    "copyright": "Copyright © Descartes",
+    "directories": {
+      "output": "dist-install",
+      "buildResources": "icono"
+    },
+    "files": [
+      "electron/**/*",
+      "config.json",
+      "icono/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "config.json",
+        "to": "config.json"
+      },
+      {
+        "from": "icono",
+        "to": "icono"
+      }
+    ],
+    "win": {
+      "icon": "icono/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Descartes 2.0",
+      "artifactName": "Descartes-2.0-Setup-${version}.${ext}"
+    },
+    "asar": true
   }
 }

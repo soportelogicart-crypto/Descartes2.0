@@ -99,6 +99,8 @@ export type AlbaranCompraListParams = {
   almacen?: number
   albaran?: number
   suAlbaran?: string
+  /** 0 = pendientes de stock; 1 = ya actualizados. */
+  actualizado?: number | boolean
   page?: number
   pageSize?: number
 }

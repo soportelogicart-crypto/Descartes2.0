@@ -31,6 +31,9 @@ function tabIdFromPath(fullPath: string): string {
   if (/^\/ventas\/(?!pedidos(?:\/|$))[^/]+\/[^/]+\/\d+$/.test(path)) {
     return '/ventas'
   }
+  if (path === '/compras/pendientes-stock' || path.startsWith('/compras/pendientes-stock/')) {
+    return '/compras/pendientes-stock'
+  }
   if (path === '/compras/albaranes' || path.startsWith('/compras/albaranes/')) {
     return '/compras/albaranes'
   }
@@ -50,6 +53,12 @@ function tituloDesdeRuta(fullPathOrPath: string, metaTitulo?: string): string {
   const pathOnly = (fullPathOrPath.split('?')[0] || '/').replace(/\/+$/, '') || '/'
   const partes = pathOnly.split('/').filter(Boolean)
   // Ficha compra: preferir nº de documento frente al meta genérico.
+  if (partes[0] === 'compras' && partes[1] === 'pendientes-stock') {
+    if (partes.length >= 4 && /^\d+$/.test(partes[3])) {
+      return `Pend. stock ${partes[2]}-${partes[3]}`
+    }
+    return 'Pendientes de stock'
+  }
   if (partes[0] === 'compras' && partes[1] === 'albaranes') {
     if (partes[2] === 'nuevo') return 'Nuevo alb. compra'
     if (partes.length >= 4 && /^\d+$/.test(partes[3])) {
@@ -80,6 +89,7 @@ function tituloDesdeRuta(fullPathOrPath: string, metaTitulo?: string): string {
   if (pathOnly === '/' || pathOnly === '') return 'Inicio'
   if (partes[0] === 'compras') {
     if (partes[1] === 'albaranes') return 'Albaranes de compra'
+    if (partes[1] === 'pendientes-stock') return 'Pendientes de stock'
     if (partes[1] === 'pedidos') return 'Pedidos a proveedor'
     if (partes[1] === 'facturas') return 'Facturas de proveedor'
     return 'Compras'

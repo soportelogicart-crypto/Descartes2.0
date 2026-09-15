@@ -1,0 +1,19 @@
+RewriteEngine On
+RewriteBase /descartes/
+DirectoryIndex index.php index.html
+
+<IfModule mod_headers.c>
+  Header set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+  Header set Pragma "no-cache"
+  <FilesMatch "\.(js|css|woff2|woff|png|jpg|jpeg|gif|svg|ico|map)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+</IfModule>
+
+# El navegador llama a /descartes/api/... (HTTPS). PHP reenvía al XAMPP (HTTP).
+RewriteRule ^api(/.*)?$ proxy.php [L,QSA]
+
+RewriteRule ^index\.php$ - [L]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule . /descartes/index.php [L]

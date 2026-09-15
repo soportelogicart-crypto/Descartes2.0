@@ -2,7 +2,7 @@
 import { computed, onActivated, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api/client'
-import { listarAlbaranesCompra } from '@/api/compras'
+import { actualizarStockAlbaranCompra, listarAlbaranesCompra } from '@/api/compras'
 import type { AlbaranCompraResumen } from '@/types/compras'
 import { extractApiError } from '@/composables/extractApiError'
 import { usePermisos } from '@/composables/usePermisos'
@@ -12,10 +12,17 @@ import EntidadBuscarModal, {
   type EntidadBuscarResultado,
 } from '@/components/common/EntidadBuscarModal.vue'
 
+const props = defineProps<{
+  /** Bandeja 1.0 «Albaranes pendientes actualizar stock». */
+  soloPendientesStock?: boolean
+}>()
+
 const router = useRouter()
 const puestoContexto = usePuestoContextoStore()
 const { puede } = usePermisos()
-const puedeCrear = computed(() => puede('compras', 'crear'))
+const puedeCrear = computed(() => puede('compras', 'crear') && !props.soloPendientesStock)
+const puedeEditar = computed(() => puede('compras', 'editar'))
+const actualizandoClave = ref<string | null>(null)
 
 /** Filas por peticion al traer el listado completo (la API admite hasta 5000). */
 const BLOQUE_CARGA = 5000
@@ -45,8 +52,8 @@ function normalizarEmpresaCodigo(v: string): string {
 
 const filtros = ref({
   empresa: normalizarEmpresaCodigo(puestoContexto.empresaCodigo || ''),
-  fechaDesde: inicioAnio,
-  fechaHasta: finAnio,
+  fechaDesde: props.soloPendientesStock ? '' : inicioAnio,
+  fechaHasta: props.soloPendientesStock ? '' : finAnio,
   proveedor: '',
   almacen: '' as string,
   albaran: '' as string,
@@ -69,17 +76,25 @@ type ColumnaKey =
   | 'almacen'
   | 'importe'
   | 'flags'
+  | 'acciones'
 
-const COLUMNAS: { key: ColumnaKey; label: string; clase: string }[] = [
-  { key: 'tienda', label: 'Tienda', clase: 'col-tienda' },
-  { key: 'fecha', label: 'Fecha', clase: 'col-fecha' },
-  { key: 'albaran', label: 'Albarán', clase: 'col-alb' },
-  { key: 'suAlbaran', label: 'Su alb.', clase: 'col-su' },
-  { key: 'proveedor', label: 'Proveedor', clase: 'col-prov' },
-  { key: 'almacen', label: 'Almacén', clase: 'col-corto' },
-  { key: 'importe', label: 'Importe', clase: 'col-imp' },
-  { key: 'flags', label: 'Flags', clase: 'col-flags' },
-]
+const COLUMNAS = computed(() => {
+  const base: { key: ColumnaKey; label: string; clase: string }[] = [
+    { key: 'tienda', label: 'Tienda', clase: 'col-tienda' },
+    { key: 'fecha', label: 'Fecha', clase: 'col-fecha' },
+    { key: 'albaran', label: 'Albarán', clase: 'col-alb' },
+    { key: 'suAlbaran', label: 'Su alb.', clase: 'col-su' },
+    { key: 'proveedor', label: 'Proveedor', clase: 'col-prov' },
+    { key: 'almacen', label: 'Almacén', clase: 'col-corto' },
+    { key: 'importe', label: 'Importe', clase: 'col-imp' },
+  ]
+  if (props.soloPendientesStock) {
+    base.push({ key: 'acciones', label: 'Stock', clase: 'col-acciones' })
+  } else {
+    base.push({ key: 'flags', label: 'Flags', clase: 'col-flags' })
+  }
+  return base
+})
 
 const textoColumna: Record<ColumnaKey, (a: AlbaranCompraResumen) => string> = {
   tienda: (a) => `${a.empresa ?? ''} ${nombreTienda(a.empresa)}`,
@@ -90,6 +105,7 @@ const textoColumna: Record<ColumnaKey, (a: AlbaranCompraResumen) => string> = {
   almacen: (a) => String(a.almacen ?? ''),
   importe: (a) => Number(a.importeAlb ?? 0).toFixed(2),
   flags: (a) => flags(a),
+  acciones: (a) => (a.trasCtb ? 'ctb' : 'pendiente'),
 }
 
 function filtrosColumnaVacios(): Record<ColumnaKey, string> {
@@ -102,6 +118,7 @@ function filtrosColumnaVacios(): Record<ColumnaKey, string> {
     almacen: '',
     importe: '',
     flags: '',
+    acciones: '',
   }
 }
 
@@ -211,6 +228,7 @@ async function cargar() {
         almacen: Number.isFinite(almacenNum) ? almacenNum : undefined,
         albaran: Number.isFinite(albaranNum) ? albaranNum : undefined,
         suAlbaran: filtros.value.suAlbaran || undefined,
+        actualizado: props.soloPendientesStock ? 0 : undefined,
         page: pagina,
         pageSize: BLOQUE_CARGA,
       })
@@ -239,6 +257,13 @@ function buscar() {
 }
 
 function abrir(a: AlbaranCompraResumen) {
+  if (props.soloPendientesStock) {
+    router.push({
+      name: 'compras-pendiente-stock-detalle',
+      params: { empresa: a.empresa, albaran: String(a.albaran) },
+    })
+    return
+  }
   router.push({
     name: 'compras-albaran-detalle',
     params: { empresa: a.empresa, albaran: String(a.albaran) },
@@ -267,6 +292,32 @@ function flags(a: AlbaranCompraResumen) {
   return bits.length ? bits.join(' · ') : '—'
 }
 
+function claveAlbaran(a: AlbaranCompraResumen) {
+  return `${a.empresa}-${a.albaran}`
+}
+
+async function actualizarStock(a: AlbaranCompraResumen, ev: Event) {
+  ev.stopPropagation()
+  if (!puedeEditar.value || a.trasCtb || a.actualizado) return
+  const ok = window.confirm(
+    `¿Actualizar el stock del albarán ${a.albaran}? ` +
+      'Se aplicarán las entradas (o salidas si es devolución) en el mes de la fecha. ' +
+      'El documento quedará ACTUALIZADO y no se podrá modificar hasta Recuperar.'
+  )
+  if (!ok) return
+  actualizandoClave.value = claveAlbaran(a)
+  error.value = null
+  try {
+    await actualizarStockAlbaranCompra(a.empresa, a.albaran)
+    items.value = items.value.filter((x) => claveAlbaran(x) !== claveAlbaran(a))
+    total.value = Math.max(0, total.value - 1)
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo actualizar el stock')
+  } finally {
+    actualizandoClave.value = null
+  }
+}
+
 function onProveedorSeleccionado(r: EntidadBuscarResultado) {
   filtros.value.proveedor = r.codigo
   buscarOpen.value = false
@@ -292,10 +343,14 @@ onActivated(() => {
   <section class="compras-albaranes-view">
     <div class="head">
       <div>
-        <h2>Albaranes de compra</h2>
+        <h2>{{ soloPendientesStock ? 'Pendientes de actualizar stock' : 'Albaranes de compra' }}</h2>
         <p class="hint">
           Tienda: <strong class="tienda-activa">{{ tiendaLabel }}</strong>
-          — Escriba bajo cada columna para filtrar el listado.
+          —
+          <template v-if="soloPendientesStock">
+            Albaranes sin stock aplicado. El botón Actualizar lo aplica; el número abre la ficha.
+          </template>
+          <template v-else>Escriba bajo cada columna para filtrar el listado.</template>
         </p>
       </div>
       <button v-if="puedeCrear" type="button" class="btn-nuevo" @click="nuevo">
@@ -369,6 +424,7 @@ onActivated(() => {
                 <th v-for="c in COLUMNAS" :key="c.key" :class="c.clase">
                   <span class="th-titulo" :class="{ num: c.key === 'importe' }">{{ c.label }}</span>
                   <input
+                    v-if="c.key !== 'acciones'"
                     v-model="filtrosColumna[c.key]"
                     type="search"
                     class="filtro-col"
@@ -398,7 +454,19 @@ onActivated(() => {
                 </td>
                 <td class="col-corto">{{ a.almacen ?? '—' }}</td>
                 <td class="num col-imp">{{ Number(a.importeAlb ?? 0).toFixed(2) }}</td>
-                <td class="col-flags">{{ flags(a) }}</td>
+                <td v-if="soloPendientesStock" class="col-acciones">
+                  <button
+                    v-if="puedeEditar && !a.trasCtb"
+                    type="button"
+                    class="btn-stock"
+                    :disabled="actualizandoClave === claveAlbaran(a)"
+                    @click="actualizarStock(a, $event)"
+                  >
+                    {{ actualizandoClave === claveAlbaran(a) ? 'Aplicando…' : 'Actualizar' }}
+                  </button>
+                  <span v-else-if="a.trasCtb" class="flag-ctb">Ctb</span>
+                </td>
+                <td v-else class="col-flags">{{ flags(a) }}</td>
               </tr>
               <tr v-if="!loading && itemsFiltrados.length === 0">
                 <td :colspan="COLUMNAS.length">
@@ -663,6 +731,28 @@ th {
 }
 .col-flags {
   width: 7rem;
+}
+.col-acciones {
+  width: 7.5rem;
+}
+.btn-stock {
+  padding: 0.2rem 0.45rem;
+  border: 1px solid #0f172a;
+  border-radius: 4px;
+  background: #0f172a;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+}
+.btn-stock:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.flag-ctb {
+  color: #b45309;
+  font-size: 0.75rem;
+  font-weight: 600;
 }
 th.col-corto,
 td.col-corto {

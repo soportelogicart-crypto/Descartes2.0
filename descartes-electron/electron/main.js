@@ -7,8 +7,18 @@ const dispositivoAgente = require('./dispositivo-agente')
 const { bindWindowMenu, clearMenu } = require('./app-menu')
 const { startViteDevServer, stopViteDevServer, waitForUrl } = require('./dev-server')
 
-const isDev = process.argv.includes('--dev') || !app.isPackaged
+// Solo --dev arranca Vite. Sin ese flag se usa config.json (hosting / producción),
+// también al ejecutar `electron .` sin empaquetar.
+const isDev = process.argv.includes('--dev')
 const openDevTools = process.argv.includes('--devtools')
+
+function appIconPath() {
+  const candidates = [
+    path.join(process.resourcesPath || '', 'icono', 'icon.png'),
+    path.join(__dirname, '..', 'icono', 'icon.png'),
+  ]
+  return candidates.find((file) => fs.existsSync(file))
+}
 
 function loadShellConfig() {
   const candidates = [
@@ -19,6 +29,7 @@ function loadShellConfig() {
   for (const file of candidates) {
     try {
       if (fs.existsSync(file)) {
+        console.log(`[descartes-electron] Config UI: ${file}`)
         return JSON.parse(fs.readFileSync(file, 'utf8'))
       }
     } catch {
@@ -53,12 +64,14 @@ async function createWindow() {
   // Por defecto ventana maximizada (completa). Solo se desactiva si maximized: false.
   const maximized = winCfg.maximized !== false && !fullscreen
 
+  const icon = appIconPath()
   const win = new BrowserWindow({
     width: winCfg.width || 1280,
     height: winCfg.height || 800,
     fullscreen,
     show: false,
     title: 'Descartes 2.0',
+    icon,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -88,7 +101,20 @@ async function createWindow() {
 
   console.log(`[descartes-electron] Cargando UI en la ventana Electron: ${url}`)
   console.log(`[descartes-electron] Config equipo: ${localConfig.equipoPath()}`)
-  await win.loadURL(url)
+
+  if (!isDev) {
+    // Sin esto Chromium reutiliza un index.html viejo y no ve el JS nuevo del hosting.
+    try {
+      await win.webContents.session.clearCache()
+    } catch {
+      // ignore
+    }
+    await win.loadURL(url, {
+      extraHeaders: 'Cache-Control: no-cache\nPragma: no-cache\n',
+    })
+  } else {
+    await win.loadURL(url)
+  }
 
   if (openDevTools) {
     win.webContents.openDevTools({ mode: 'detach' })

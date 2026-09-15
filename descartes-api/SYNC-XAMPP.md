@@ -1,12 +1,20 @@
 # Sync XAMPP
 
-Si Apache sirve `C:\xampp\htdocs\descartes-api\`, tras cambios en la API:
+Hay **dos copias** en XAMPP para poder trabajar en local sin romper las pruebas del otro PC:
+
+| Carpeta | Quién la usa | Comando |
+|---|---|---|
+| `C:\xampp\htdocs\descartes-api-dev` | Tú (Vite / `npm run dev`) | `sync-xampp.ps1` (por defecto) |
+| `C:\xampp\htdocs\descartes-api` | Otro PC (hosting → puerto 9080) | `sync-xampp.ps1 -Pruebas` |
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File c:\descartes-2.0\descartes-api\scripts\sync-xampp.ps1
+powershell -ExecutionPolicy Bypass -File c:\descartes-2.0\descartes-api\scripts\sync-xampp.ps1 -Pruebas
 ```
 
-Equivalente: `descartes-api\scripts\sync-xampp.cmd`.
+Equivalente: `descartes-api\scripts\sync-xampp.cmd` (añade `-Pruebas` para publicar al otro PC).
+
+La UI de pruebas no cambia hasta que vuelvas a generar `descartes-gestion` (`npm run build`) y subas `dist` al hosting.
 
 Copia en UTF-8 sin BOM todo `src\`, `public\` y `database\migrations\` (migraciones SQL incluidas en el despliegue).
 

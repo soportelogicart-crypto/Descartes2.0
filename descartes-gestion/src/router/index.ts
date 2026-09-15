@@ -66,7 +66,7 @@ const modulosPlaceholder = [
 ] as const
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     { path: '/login', name: 'login', component: LoginView, meta: { public: true } },
     { path: '/instalacion', name: 'instalacion', component: InstalacionView, meta: { public: true } },
@@ -131,6 +131,19 @@ const router = createRouter({
           name: 'compras-albaranes',
           component: ComprasAlbaranesListView,
           meta: { titulo: 'Albaranes de compra', modulo: 'compras', accion: 'ver' },
+        },
+        {
+          path: 'compras/pendientes-stock',
+          name: 'compras-pendientes-stock',
+          component: ComprasAlbaranesListView,
+          props: { soloPendientesStock: true },
+          meta: { titulo: 'Pendientes de stock', modulo: 'compras', accion: 'ver' },
+        },
+        {
+          path: 'compras/pendientes-stock/:empresa/:albaran',
+          name: 'compras-pendiente-stock-detalle',
+          component: CompraAlbaranDetalleView,
+          meta: { titulo: 'Pendientes de stock', modulo: 'compras', accion: 'ver' },
         },
         {
           path: 'compras/albaranes/nuevo',

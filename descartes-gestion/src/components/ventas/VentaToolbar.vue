@@ -182,7 +182,7 @@ defineEmits<{
       <button
         type="button"
         class="tool-btn"
-        :disabled="loading"
+        :disabled="loading || puedeCrear === false"
         title="Nuevo"
         @click="$emit('nuevo')"
       >

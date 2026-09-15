@@ -64,6 +64,15 @@ final class AlbaranCompraConsultaService
       $where[] = 'c.SuAlbaran LIKE :suAlbaran';
       $params['suAlbaran'] = '%' . trim((string) $query['suAlbaran']) . '%';
     }
+    if (array_key_exists('actualizado', $query) && $query['actualizado'] !== '' && $query['actualizado'] !== null) {
+      $raw = $query['actualizado'];
+      $si = $raw === true || $raw === 1 || $raw === '1' || $raw === 'true';
+      if ($si) {
+        $where[] = 'c.Actualizado = 1';
+      } else {
+        $where[] = '(c.Actualizado = 0 OR c.Actualizado IS NULL)';
+      }
+    }
 
     $sqlWhere = implode(' AND ', $where);
     $from = 'AlbaranesCompraCab c

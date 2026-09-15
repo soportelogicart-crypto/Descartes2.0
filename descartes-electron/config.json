@@ -1,6 +1,6 @@
 {
-  "appUrl": "http://127.0.0.1:5173",
-  "apiHint": "En desarrollo, Electron arranca Vite solo. En produccion, appUrl apunta al build en el servidor (ej. http://servidor/descartes-gestion/).",
+  "appUrl": "https://soportetopay.com/descartes/",
+  "apiHint": "npm start = lo mismo que el otro PC (hosting). npm run dev = tu trabajo local (Vite).",
   "window": {
     "width": 1280,
     "height": 800,

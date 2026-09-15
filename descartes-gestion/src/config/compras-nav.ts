@@ -22,6 +22,12 @@ export const comprasMenuItems: ComprasMenuItem[] = [
     ruta: '/compras/pedidos',
     modulo: 'compras',
   },
+  {
+    id: 'compras-pendientes-stock',
+    titulo: 'Pendientes de stock',
+    ruta: '/compras/pendientes-stock',
+    modulo: 'compras',
+  },
 ]
 
 export function esRutaCompras(ruta: string): boolean {

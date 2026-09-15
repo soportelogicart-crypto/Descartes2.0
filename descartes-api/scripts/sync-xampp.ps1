@@ -1,14 +1,29 @@
 # Copia la API PHP al despliegue XAMPP en UTF-8 sin BOM.
-# Sincroniza todo src\ y public\ (ventas, facturacion, compras, mantenimiento, etc.).
+# Por defecto: descartes-api-dev (tu trabajo local).
+# -Pruebas: descartes-api (lo que usa el otro PC vía hosting / puerto 9080).
 # Doc: ../SYNC-XAMPP.md (feature 004-compras-gestion T011).
+param(
+  [switch]$Pruebas,
+  [string]$NombreCarpeta
+)
+
 $utf8 = New-Object System.Text.UTF8Encoding $false
 $apiRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$xamppRoot = 'C:\xampp\htdocs\descartes-api'
+$folder = if ($NombreCarpeta) { $NombreCarpeta } elseif ($Pruebas) { 'descartes-api' } else { 'descartes-api-dev' }
+$xamppRoot = Join-Path 'C:\xampp\htdocs' $folder
+$pruebasRoot = 'C:\xampp\htdocs\descartes-api'
 
 if (-not (Test-Path $xamppRoot)) {
-  Write-Error "No existe $xamppRoot"
-  exit 1
+  if (-not $Pruebas -and (Test-Path $pruebasRoot)) {
+    Write-Host "Creando $xamppRoot desde $pruebasRoot (copia inicial, no toca pruebas)"
+    Copy-Item $pruebasRoot $xamppRoot -Recurse
+  } else {
+    Write-Error "No existe $xamppRoot"
+    exit 1
+  }
 }
+
+Write-Host "Destino: $xamppRoot"
 
 function Read-SourceText([string]$path) {
   $bytes = [System.IO.File]::ReadAllBytes($path)

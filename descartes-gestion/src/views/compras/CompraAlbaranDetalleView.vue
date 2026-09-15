@@ -592,6 +592,12 @@ function esRutaNuevo(): boolean {
   return (route.path || '').replace(/\/+$/, '').endsWith('/compras/albaranes/nuevo')
 }
 
+const modoPendientesStock = computed(
+  () =>
+    route.name === 'compras-pendiente-stock-detalle' ||
+    (route.path || '').includes('/compras/pendientes-stock/')
+)
+
 /** Conservar borrador solo al volver de otra pestaña (p. ej. consultar artículo). */
 function debeConservarBorradorAlta(rutaAnterior: string | undefined): boolean {
   if (!esNuevo.value || !rutaAnterior) return false
@@ -869,6 +875,10 @@ async function onIntroCabecera() {
 }
 
 function volverListado() {
+  if (modoPendientesStock.value) {
+    router.push({ name: 'compras-pendientes-stock' })
+    return
+  }
   router.push({ name: 'compras-albaranes' })
 }
 
@@ -1449,6 +1459,10 @@ async function onStockConfirmado() {
   mensaje.value = null
   try {
     const updated = await actualizarStockAlbaranCompra(ficha.value.empresa, ficha.value.albaran)
+    if (modoPendientesStock.value) {
+      volverListado()
+      return
+    }
     aplicarFicha(updated)
     modoEdicion.value = false
     mensaje.value = 'Stock actualizado — situación ACTUALIZADO'
@@ -1924,22 +1938,24 @@ watch(
 <template>
   <section class="compra-detalle" tabindex="-1" @keydown.enter="onKeyEnter">
     <VentaToolbar
-      :puede-crear="puedeCrear"
+      :puede-crear="puedeCrear && !modoPendientesStock"
       :puede-editar="puedeEditar && !!ficha && !bloqueado"
-      :puede-eliminar="puedeEliminar && !!ficha && !bloqueado"
+      :puede-eliminar="puedeEliminar && !!ficha && !bloqueado && !modoPendientesStock"
       :puede-guardar="esNuevo ? pasoAlta === 'listo' : cabeceraEditables"
       :puede-imprimir="puedeImprimir"
       :puede-finalizar="false"
       :mostrar-finalizar="false"
-      :puede-abonar="puedeAbonar"
-      :puede-recuperar="puedeRecuperar"
+      :puede-abonar="puedeAbonar && !modoPendientesStock"
+      :puede-recuperar="puedeRecuperar && !modoPendientesStock"
       :puede-actualizar-stock="puedeActualizarStock"
-      :puede-generar-albaran="puedeGenerarVenta"
+      :puede-generar-albaran="puedeGenerarVenta && !modoPendientesStock"
       generar-albaran-label="Albarán cliente"
       generar-albaran-title="Generar albarán de venta al cliente desde este albarán de compra actualizado"
       :puede-buscar="true"
       buscar-label="Listado"
-      buscar-title="Volver al listado de albaranes"
+      :buscar-title="
+        modoPendientesStock ? 'Volver a pendientes de stock' : 'Volver al listado de albaranes'
+      "
       :puede-navegar="false"
       :modo-edicion="modoEdicion || esNuevo"
       :bloqueado="bloqueado"

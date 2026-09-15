@@ -18,7 +18,7 @@ api.interceptors.response.use(
     const status = error.response?.status as number | undefined
 
     if (status === 401 && !url.includes('/auth/login')) {
-      window.location.href = '/login'
+      window.location.href = `${import.meta.env.BASE_URL}login`.replace(/\/{2,}/g, '/')
       return Promise.reject(error)
     }
 
