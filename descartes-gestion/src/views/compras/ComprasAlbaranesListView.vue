@@ -5,6 +5,8 @@ import { api } from '@/api/client'
 import { actualizarStockAlbaranCompra, listarAlbaranesCompra } from '@/api/compras'
 import type { AlbaranCompraResumen } from '@/types/compras'
 import { extractApiError } from '@/composables/extractApiError'
+import { GRID_LIMITE_INICIAL } from '@/composables/useGridPageSize'
+import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import FiltroLupaField from '@/components/common/FiltroLupaField.vue'
@@ -24,9 +26,8 @@ const puedeCrear = computed(() => puede('compras', 'crear') && !props.soloPendie
 const puedeEditar = computed(() => puede('compras', 'editar'))
 const actualizandoClave = ref<string | null>(null)
 
-/** Filas por peticion al traer el listado completo (la API admite hasta 5000). */
-const BLOQUE_CARGA = 5000
-const MAX_FILAS = 30000
+/** Filas por peticion al abrir el listado. */
+const BLOQUE_CARGA = GRID_LIMITE_INICIAL
 const RENDER_INICIAL = 300
 const RENDER_PASO = 300
 
@@ -138,13 +139,17 @@ const filtrosColumnaActivos = computed(() =>
 )
 
 const hayFiltroColumna = computed(() => filtrosColumnaActivos.value.length > 0)
+const { orden, clicarColumna, ordenarFilas } = useOrdenLista()
 
 const itemsFiltrados = computed(() => {
   const activos = filtrosColumnaActivos.value
-  if (activos.length === 0) return items.value
-  return items.value.filter((a) =>
-    activos.every((f) => normalizar(textoColumna[f.key](a)).includes(f.valor))
-  )
+  const base =
+    activos.length === 0
+      ? items.value
+      : items.value.filter((a) =>
+          activos.every((f) => normalizar(textoColumna[f.key](a)).includes(f.valor))
+        )
+  return ordenarFilas(base, (row, key) => textoColumna[key as ColumnaKey](row), ['fecha'])
 })
 
 const visibles = computed(() => itemsFiltrados.value.slice(0, renderLimite.value))
@@ -211,40 +216,25 @@ async function cargarAlmacenes() {
 async function cargar() {
   loading.value = true
   error.value = null
-  const acumulado: AlbaranCompraResumen[] = []
   try {
     const albaranNum = filtros.value.albaran.trim() ? Number(filtros.value.albaran) : undefined
     const almacenNum = filtros.value.almacen.trim() ? Number(filtros.value.almacen) : undefined
-    let pagina = 1
-    let totalServidor = 0
-    for (;;) {
-      const data = await listarAlbaranesCompra({
-        empresa: filtros.value.empresa
-          ? normalizarEmpresaCodigo(filtros.value.empresa)
-          : undefined,
-        fechaDesde: filtros.value.fechaDesde || undefined,
-        fechaHasta: filtros.value.fechaHasta || undefined,
-        proveedor: filtros.value.proveedor || undefined,
-        almacen: Number.isFinite(almacenNum) ? almacenNum : undefined,
-        albaran: Number.isFinite(albaranNum) ? albaranNum : undefined,
-        suAlbaran: filtros.value.suAlbaran || undefined,
-        actualizado: props.soloPendientesStock ? 0 : undefined,
-        page: pagina,
-        pageSize: BLOQUE_CARGA,
-      })
-      acumulado.push(...data.items)
-      totalServidor = data.total
-      items.value = acumulado.slice()
-      total.value = totalServidor
-      if (
-        data.items.length === 0 ||
-        acumulado.length >= totalServidor ||
-        acumulado.length >= MAX_FILAS
-      ) {
-        break
-      }
-      pagina += 1
-    }
+    const data = await listarAlbaranesCompra({
+      empresa: filtros.value.empresa
+        ? normalizarEmpresaCodigo(filtros.value.empresa)
+        : undefined,
+      fechaDesde: filtros.value.fechaDesde || undefined,
+      fechaHasta: filtros.value.fechaHasta || undefined,
+      proveedor: filtros.value.proveedor || undefined,
+      almacen: Number.isFinite(almacenNum) ? almacenNum : undefined,
+      albaran: Number.isFinite(albaranNum) ? albaranNum : undefined,
+      suAlbaran: filtros.value.suAlbaran || undefined,
+      actualizado: props.soloPendientesStock ? 0 : undefined,
+      page: 1,
+      pageSize: BLOQUE_CARGA,
+    })
+    items.value = data.items
+    total.value = data.total
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudieron cargar los albaranes de compra')
   } finally {
@@ -422,7 +412,17 @@ onActivated(() => {
             <thead>
               <tr>
                 <th v-for="c in COLUMNAS" :key="c.key" :class="c.clase">
-                  <span class="th-titulo" :class="{ num: c.key === 'importe' }">{{ c.label }}</span>
+                  <span
+                    class="th-titulo"
+                    :class="{ num: c.key === 'importe' }"
+                    :title="`Ordenar por ${c.label}`"
+                    @click="clicarColumna(c.key)"
+                  >
+                    {{ c.label }}
+                    <span v-if="orden?.key === c.key" class="marca-orden">{{
+                      orden.dir === 'asc' ? '▲' : '▼'
+                    }}</span>
+                  </span>
                   <input
                     v-if="c.key !== 'acciones'"
                     v-model="filtrosColumna[c.key]"
@@ -482,7 +482,7 @@ onActivated(() => {
             {{ itemsFiltrados.length === 1 ? 'albarán' : 'albaranes' }}
             <template v-if="hayFiltroColumna">de {{ items.length }} cargados</template>
             <template v-else-if="total > items.length">
-              (de {{ total }}; límite {{ MAX_FILAS }})
+              (de {{ total }}; mostrando {{ GRID_LIMITE_INICIAL }})
             </template>
           </span>
           <button
@@ -696,6 +696,16 @@ th {
   padding: 0 0.2rem 0.15rem;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: pointer;
+  user-select: none;
+}
+.th-titulo:hover {
+  color: #1d4ed8;
+}
+.marca-orden {
+  font-size: 0.65rem;
+  margin-left: 0.15rem;
+  color: #1d4ed8;
 }
 .th-titulo.num {
   text-align: right;

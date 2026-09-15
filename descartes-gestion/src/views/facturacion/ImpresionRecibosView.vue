@@ -3,6 +3,8 @@ import { computed, onMounted, ref } from 'vue'
 import { descargarRecibosPdf, listarRecibosImpresion } from '@/api/facturacion'
 import { api } from '@/api/client'
 import { extractApiError } from '@/composables/useMantenimiento'
+import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
+import { GRID_LIMITE_INICIAL } from '@/composables/useGridPageSize'
 import { usePdfPreview } from '@/composables/usePdfPreview'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import type { ReciboImpresionItem } from '@/types/facturacion'
@@ -96,13 +98,17 @@ const filtrosColumnaActivos = computed(() =>
 )
 
 const hayFiltroColumna = computed(() => filtrosColumnaActivos.value.length > 0)
+const { orden, clicarColumna, ordenarFilas } = useOrdenLista()
 
 const itemsFiltrados = computed(() => {
   const activos = filtrosColumnaActivos.value
-  if (activos.length === 0) return items.value
-  return items.value.filter((r) =>
-    activos.every((f) => normalizar(textoColumna[f.key](r)).includes(f.valor))
-  )
+  const base =
+    activos.length === 0
+      ? items.value
+      : items.value.filter((r) =>
+          activos.every((f) => normalizar(textoColumna[f.key](r)).includes(f.valor))
+        )
+  return ordenarFilas(base, (row, key) => textoColumna[key as ColumnaKey](row), ['fecha'])
 })
 
 function limpiarFiltrosColumna() {
@@ -159,9 +165,13 @@ async function buscar() {
       cliente: form.value.cliente || undefined,
       factura: Number(form.value.factura) || undefined,
     })
-    items.value = data.items
+    const todos = data.items ?? []
+    items.value = todos.slice(0, GRID_LIMITE_INICIAL)
     selected.value = {}
     mensaje.value = `${data.totales.recibos} recibos · ${data.totales.importe.toFixed(2)} €`
+    if (todos.length > GRID_LIMITE_INICIAL) {
+      mensaje.value += ` · mostrando ${GRID_LIMITE_INICIAL}`
+    }
   } catch (e: unknown) {
     items.value = []
     error.value = extractApiError(e, 'No se pudieron cargar los recibos')
@@ -276,7 +286,17 @@ onMounted(async () => {
                   />
                 </th>
                 <th v-for="c in COLUMNAS" :key="c.key" :class="c.clase">
-                  <span class="th-titulo" :class="{ num: c.num }">{{ c.label }}</span>
+                  <span
+                    class="th-titulo"
+                    :class="{ num: c.num }"
+                    :title="`Ordenar por ${c.label}`"
+                    @click="clicarColumna(c.key)"
+                  >
+                    {{ c.label }}
+                    <span v-if="orden?.key === c.key" class="marca-orden">{{
+                      orden.dir === 'asc' ? '▲' : '▼'
+                    }}</span>
+                  </span>
                   <input
                     v-model="filtrosColumna[c.key]"
                     type="search"
@@ -411,8 +431,17 @@ td.sel input[type='checkbox'] {
   padding: 0;
   vertical-align: middle;
 }
-.th-titulo { display: block; padding: 0 .1rem .15rem; overflow: hidden; text-overflow: ellipsis; }
+.th-titulo {
+  display: block;
+  padding: 0 0.1rem 0.15rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  user-select: none;
+}
 .th-titulo.num { text-align: right; }
+.th-titulo:hover { color: #1d4ed8; }
+.marca-orden { font-size: 0.65rem; margin-left: 0.15rem; color: #1d4ed8; }
 .filtro-col {
   width: 100%;
   box-sizing: border-box;

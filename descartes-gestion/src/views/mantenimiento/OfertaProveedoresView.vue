@@ -411,6 +411,7 @@ function numModel(key: keyof typeof form): number {
             :indice-seleccionado="indiceSeleccionado"
             :readonly="true"
             :loading="loading"
+            :total-servidor="total"
             :filterable-keys="FILTER_KEYS"
             :date-keys="DATE_KEYS"
             v-model:filters="filtros"

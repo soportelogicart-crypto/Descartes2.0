@@ -2,6 +2,8 @@
 import { computed } from 'vue'
 import { type GridColumn, type GridFila } from '@/config/entidad-grid-columns'
 import { type ColumnFilter } from '@/composables/useGridColumnFilters'
+import { useOrdenCabeceraGrid } from '@/composables/useOrdenCabeceraGrid'
+import { GRID_LIMITE_INICIAL } from '@/composables/useGridPageSize'
 import DecimalInput from '@/components/common/DecimalInput.vue'
 import GridFilterRow from '@/components/common/GridFilterRow.vue'
 
@@ -21,6 +23,8 @@ const props = defineProps<{
   dateKeys?: string[]
   /** Si se indica, solo esas columnas son editables (el resto quedan bloqueadas). */
   editableKeys?: string[]
+  /** Total en servidor (si hay más que las filas cargadas). */
+  totalServidor?: number
 }>()
 
 const emit = defineEmits<{
@@ -33,8 +37,28 @@ const emit = defineEmits<{
 }>()
 
 const muestraFiltros = computed(() => (props.filterableKeys?.length ?? 0) > 0)
+const { orden, clicar, filasOrdenadas, indiceOriginal, esSeleccionada, indicador } =
+  useOrdenCabeceraGrid(
+    () => props.filas,
+    () => props.indiceSeleccionado,
+    { dateKeys: () => props.dateKeys }
+  )
+const avisoLimite = computed(() => {
+  const total = Number(props.totalServidor ?? 0)
+  const datos = props.filas.filter((f) => !f._nuevo).length
+  if (total > datos && datos > 0) {
+    return `Mostrando ${datos} de ${total}. Escriba en el filtro para acotar.`
+  }
+  if (!total && datos >= GRID_LIMITE_INICIAL) {
+    return `Mostrando los ${GRID_LIMITE_INICIAL} primeros. Escriba en el filtro para acotar.`
+  }
+  return ''
+})
 
-function onCellChange(index: number, key: string, value: unknown) {
+function onCellChange(indexMostrado: number, key: string, value: unknown) {
+  const fila = filasOrdenadas.value[indexMostrado]
+  if (!fila) return
+  const index = indiceOriginal(fila)
   const actual = props.filas[index]
   if (!actual) return
   emit('seleccionar', index)
@@ -57,18 +81,17 @@ function isReadOnly(col: GridColumn, fila: GridFila) {
   return false
 }
 
-function indicadorFila(index: number, fila: GridFila) {
-  if (fila._nuevo) return '*'
-  if (index === props.indiceSeleccionado) return '>'
-  return ''
-}
-
 function optionsFor(col: GridColumn) {
   if (!col.optionsSource) return []
   return props.optionsMap?.[col.optionsSource] ?? []
 }
 
-function onRowDblClick(index: number, fila: GridFila) {
+function onSeleccionar(fila: GridFila) {
+  emit('seleccionar', indiceOriginal(fila))
+}
+
+function onRowDblClick(fila: GridFila) {
+  const index = indiceOriginal(fila)
   if (fila._nuevo) {
     emit('nuevo')
     return
@@ -81,12 +104,23 @@ function onRowDblClick(index: number, fila: GridFila) {
 <template>
   <div class="grid-wrap">
     <p v-if="loading" class="loading-banner">Cargando...</p>
+    <p v-else-if="avisoLimite" class="loading-banner">{{ avisoLimite }}</p>
     <table class="entidad-grid">
       <thead>
         <tr>
           <th class="col-ind"></th>
-          <th v-for="col in columns" :key="col.key" :style="col.width ? { minWidth: col.width, width: col.width } : undefined">
+          <th
+            v-for="col in columns"
+            :key="col.key"
+            class="ordenable"
+            :style="col.width ? { minWidth: col.width, width: col.width } : undefined"
+            :title="`Ordenar por ${col.label}`"
+            @click="clicar(col.key)"
+          >
             {{ col.label }}
+            <span v-if="orden?.key === col.key" class="marca-orden">{{
+              orden.dir === 'asc' ? '▲' : '▼'
+            }}</span>
           </th>
         </tr>
         <GridFilterRow
@@ -101,20 +135,20 @@ function onRowDblClick(index: number, fila: GridFila) {
       </thead>
       <tbody>
         <tr
-          v-for="(fila, index) in filas"
+          v-for="(fila, index) in filasOrdenadas"
           :key="fila._nuevo ? 'nuevo' : String(fila.codigo)"
-          :class="{ selected: index === indiceSeleccionado, nuevo: fila._nuevo }"
-          @click="emit('seleccionar', index)"
-          @dblclick="onRowDblClick(index, fila)"
+          :class="{ selected: esSeleccionada(fila), nuevo: fila._nuevo }"
+          @click="onSeleccionar(fila)"
+          @dblclick="onRowDblClick(fila)"
         >
-          <td class="col-ind">{{ indicadorFila(index, fila) }}</td>
+          <td class="col-ind">{{ indicador(fila) }}</td>
 
           <template v-if="fila._nuevo">
             <td v-for="col in columns" :key="col.key" class="celda-vacia">&nbsp;</td>
           </template>
 
           <template v-else>
-            <td v-for="col in columns" :key="col.key" @click.stop="readonly ? emit('seleccionar', index) : undefined">
+            <td v-for="col in columns" :key="col.key" @click.stop="readonly ? onSeleccionar(fila) : undefined">
               <select
                 v-if="col.type === 'select'"
                 :value="String(fila[col.key] ?? '')"

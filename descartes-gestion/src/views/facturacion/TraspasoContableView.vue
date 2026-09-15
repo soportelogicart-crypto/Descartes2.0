@@ -3,6 +3,8 @@ import { computed, onMounted, ref } from 'vue'
 import { ejecutarTraspasoContable, listarTraspasoContable } from '@/api/facturacion'
 import { api } from '@/api/client'
 import { extractApiError } from '@/composables/useMantenimiento'
+import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
+import { GRID_LIMITE_INICIAL } from '@/composables/useGridPageSize'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import type { FacturaTraspasoContable } from '@/types/facturacion'
@@ -98,13 +100,19 @@ const filtrosColumnaActivos = computed(() =>
 )
 
 const hayFiltroColumna = computed(() => filtrosColumnaActivos.value.length > 0)
+const { orden, clicarColumna, ordenarFilas } = useOrdenLista()
 
 const itemsFiltrados = computed(() => {
   const activos = filtrosColumnaActivos.value
-  if (activos.length === 0) return items.value
-  return items.value.filter((f) =>
-    activos.every((filtro) => normalizar(textoColumna[filtro.key](f)).includes(filtro.valor))
-  )
+  const base =
+    activos.length === 0
+      ? items.value
+      : items.value.filter((f) =>
+          activos.every((filtro) =>
+            normalizar(textoColumna[filtro.key](f)).includes(filtro.valor)
+          )
+        )
+  return ordenarFilas(base, (row, key) => textoColumna[key as ColumnaKey](row), ['fecha'])
 })
 
 function limpiarFiltrosColumna() {
@@ -159,7 +167,7 @@ async function cargar() {
       fechaDesde: filtros.value.fechaDesde || undefined,
       fechaHasta: filtros.value.fechaHasta || undefined,
     })
-    items.value = data.items
+    items.value = (data.items ?? []).slice(0, GRID_LIMITE_INICIAL)
     seleccion.value = new Set()
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudieron consultar las facturas pendientes')
@@ -334,7 +342,17 @@ onMounted(async () => {
                   <input type="checkbox" :checked="todasSeleccionadas" @change="toggleTodas" />
                 </th>
                 <th v-for="c in COLUMNAS" :key="c.key" :class="c.clase">
-                  <span class="th-titulo" :class="{ num: c.num }">{{ c.label }}</span>
+                  <span
+                    class="th-titulo"
+                    :class="{ num: c.num }"
+                    :title="`Ordenar por ${c.label}`"
+                    @click="clicarColumna(c.key)"
+                  >
+                    {{ c.label }}
+                    <span v-if="orden?.key === c.key" class="marca-orden">{{
+                      orden.dir === 'asc' ? '▲' : '▼'
+                    }}</span>
+                  </span>
                   <input
                     v-model="filtrosColumna[c.key]"
                     type="search"
@@ -645,6 +663,16 @@ td.sel {
   padding: 0 0.1rem 0.15rem;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: pointer;
+  user-select: none;
+}
+.th-titulo:hover {
+  color: #1d4ed8;
+}
+.marca-orden {
+  font-size: 0.65rem;
+  margin-left: 0.15rem;
+  color: #1d4ed8;
 }
 .th-titulo.num {
   text-align: right;

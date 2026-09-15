@@ -7,6 +7,7 @@ import {
   type FamiliaFila,
 } from '@/config/familias-columns'
 import type { ColumnFilter } from '@/composables/useGridColumnFilters'
+import { useOrdenCabeceraGrid } from '@/composables/useOrdenCabeceraGrid'
 import GridFilterRow from '@/components/common/GridFilterRow.vue'
 
 const props = defineProps<{
@@ -26,6 +27,11 @@ const emit = defineEmits<{
 }>()
 
 const filterMenuOpen = ref(false)
+const { orden, clicar, filasOrdenadas, indiceOriginal, esSeleccionada, indicador } =
+  useOrdenCabeceraGrid(
+    () => props.filas,
+    () => props.indiceSeleccionado
+  )
 
 function cellValue(fila: FamiliaFila, col: FamiliaColumn) {
   if (col.key === 'macroFamiliaNombre') {
@@ -36,18 +42,16 @@ function cellValue(fila: FamiliaFila, col: FamiliaColumn) {
   return value ?? ''
 }
 
-function indicadorFila(index: number, fila: FamiliaFila) {
-  if (fila._nuevo) return '*'
-  if (index === props.indiceSeleccionado) return '>'
-  return ''
+function onSeleccionar(fila: FamiliaFila) {
+  emit('seleccionar', indiceOriginal(fila))
 }
 
-function onRowDblClick(index: number, fila: FamiliaFila) {
+function onRowDblClick(fila: FamiliaFila) {
   if (fila._nuevo) {
     emit('nuevo')
     return
   }
-  emit('abrir', index)
+  emit('abrir', indiceOriginal(fila))
 }
 </script>
 
@@ -61,9 +65,15 @@ function onRowDblClick(index: number, fila: FamiliaFila) {
           <th
             v-for="col in familiaColumns"
             :key="col.key"
+            class="ordenable"
             :style="{ minWidth: col.width }"
+            :title="`Ordenar por ${col.label}`"
+            @click="clicar(col.key)"
           >
             {{ col.label }}
+            <span v-if="orden?.key === col.key" class="marca-orden">{{
+              orden.dir === 'asc' ? '▲' : '▼'
+            }}</span>
           </th>
         </tr>
         <GridFilterRow
@@ -77,13 +87,13 @@ function onRowDblClick(index: number, fila: FamiliaFila) {
       </thead>
       <tbody>
         <tr
-          v-for="(fila, index) in filas"
+          v-for="fila in filasOrdenadas"
           :key="fila._nuevo ? 'nuevo' : fila.codigo"
-          :class="{ selected: index === indiceSeleccionado, nuevo: fila._nuevo }"
-          @click="emit('seleccionar', index)"
-          @dblclick="onRowDblClick(index, fila)"
+          :class="{ selected: esSeleccionada(fila), nuevo: fila._nuevo }"
+          @click="onSeleccionar(fila)"
+          @dblclick="onRowDblClick(fila)"
         >
-          <td class="col-ind">{{ indicadorFila(index, fila) }}</td>
+          <td class="col-ind">{{ indicador(fila) }}</td>
           <template v-if="fila._nuevo">
             <td v-for="col in familiaColumns" :key="col.key" class="celda-vacia">&nbsp;</td>
           </template>

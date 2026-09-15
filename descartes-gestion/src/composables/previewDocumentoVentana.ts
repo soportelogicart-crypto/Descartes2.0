@@ -69,15 +69,19 @@ export function useVentanaPreviewDocumento(opciones: {
 export function abrirVentanaPreview(titulo: string): Window | null {
   const ancho = Math.min(940, window.screen.availWidth - 40)
   const alto = Math.round(window.innerHeight * 0.92)
-  const ventana = window.open('', '_blank', `width=${ancho},height=${alto}`)
+  const ventana = window.open('about:blank', '_blank', `width=${ancho},height=${alto}`)
   if (!ventana) return null
 
-  ventana.document.write(
-    `<!doctype html><html><head><meta charset="utf-8"/><title>${escapar(titulo)}</title></head>` +
-      '<body style="margin:0;padding:1.5rem;font:0.9rem \'Segoe UI\',Arial,sans-serif;color:#334155">' +
-      'Preparando documento…</body></html>'
-  )
-  ventana.document.close()
+  try {
+    ventana.document.write(
+      `<!doctype html><html><head><meta charset="utf-8"/><title>${escapar(titulo)}</title></head>` +
+        '<body style="margin:0;padding:1.5rem;font:0.9rem \'Segoe UI\',Arial,sans-serif;color:#334155">' +
+        'Preparando documento…</body></html>'
+    )
+    ventana.document.close()
+  } catch {
+    // Electron a veces abre about:blank antes de que document.write esté listo.
+  }
   return ventana
 }
 

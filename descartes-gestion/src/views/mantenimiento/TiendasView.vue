@@ -590,6 +590,7 @@ function tabTieneErrores(tabId: string): boolean {
           v-model:filters="filtros"
           :readonly="soloLecturaGrid"
           :loading="loading"
+          :total-servidor="total"
           @seleccionar="seleccionar"
           @actualizar="actualizarFila"
           @abrir="abrirFicha"

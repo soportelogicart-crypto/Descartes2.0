@@ -439,6 +439,7 @@ async function onUltimo() {
           :options-map="optionsMap"
           :readonly="soloLecturaGrid"
           :loading="loading"
+          :total-servidor="total"
           @seleccionar="seleccionar"
           @actualizar="actualizarFila"
           @abrir="abrirFicha"

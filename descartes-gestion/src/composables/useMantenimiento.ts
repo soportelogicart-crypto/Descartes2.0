@@ -1,12 +1,8 @@
 import { type MaybeRefOrGetter, ref, toValue } from 'vue'
 import { api } from '@/api/client'
 import { extractApiError } from '@/composables/extractApiError'
+import { GRID_LIMITE_INICIAL } from '@/composables/useGridPageSize'
 export { extractApiError, type ApiErrorBody } from '@/composables/extractApiError'
-
-/** Bloques al traer el listado completo (la API admite hasta 5000). */
-const BLOQUE_CARGA = 5000
-/** Tope de seguridad si el filtro deja decenas de miles de filas. */
-const MAX_FILAS = 50000
 
 export async function listarEntidadCompleta(
   entidad: string,
@@ -16,26 +12,15 @@ export async function listarEntidadCompleta(
   const extra = { ...params }
   delete extra.page
   delete extra.pageSize
-  const acumulado: Record<string, unknown>[] = []
-  let pagina = 1
-  let total = 0
-  for (;;) {
-    if (signal?.aborted) {
-      throw new DOMException('canceled', 'AbortError')
-    }
-    const { data } = await api.get(`/api/mantenimiento/${entidad}`, {
-      params: { ...extra, page: pagina, pageSize: BLOQUE_CARGA },
-      signal,
-    })
-    const lote = (data.items ?? []) as Record<string, unknown>[]
-    acumulado.push(...lote)
-    total = Number(data.total ?? acumulado.length)
-    if (lote.length === 0 || acumulado.length >= total || acumulado.length >= MAX_FILAS) {
-      break
-    }
-    pagina += 1
+  if (signal?.aborted) {
+    throw new DOMException('canceled', 'AbortError')
   }
-  return { items: acumulado, total }
+  const { data } = await api.get(`/api/mantenimiento/${entidad}`, {
+    params: { ...extra, page: 1, pageSize: GRID_LIMITE_INICIAL },
+    signal,
+  })
+  const items = (data.items ?? []) as Record<string, unknown>[]
+  return { items, total: Number(data.total ?? items.length) }
 }
 
 function esCancelado(e: unknown): boolean {
@@ -47,7 +32,7 @@ export function useMantenimiento(entidad: MaybeRefOrGetter<string>) {
   const items = ref<Record<string, unknown>[]>([])
   const total = ref(0)
   const page = ref(1)
-  const pageSize = ref(BLOQUE_CARGA)
+  const pageSize = ref(GRID_LIMITE_INICIAL)
   const loading = ref(false)
   const error = ref<string | null>(null)
   let abortListar: AbortController | null = null
@@ -78,7 +63,7 @@ export function useMantenimiento(entidad: MaybeRefOrGetter<string>) {
       items.value = all
       total.value = t
       page.value = 1
-      pageSize.value = all.length || BLOQUE_CARGA
+      pageSize.value = GRID_LIMITE_INICIAL
     } catch (e: unknown) {
       if (esCancelado(e)) return
       error.value = extractApiError(e, 'Error al cargar listado')

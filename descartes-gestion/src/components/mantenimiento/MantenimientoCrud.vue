@@ -364,6 +364,7 @@ function cancelarFormulario() {
           :options-map="optionsMap"
           :readonly="soloLecturaGrid"
           :loading="loading"
+          :total-servidor="total"
           @seleccionar="seleccionar"
           @actualizar="actualizarFila"
           @abrir="abrirFormulario"

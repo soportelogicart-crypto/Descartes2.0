@@ -199,13 +199,13 @@ function prepararNuevo() {
   pedidoNum.value = null
   nifVista.value = ''
   razonVista.value = ''
-  vendedorNombre.value = ''
+  vendedorNombre.value = puestoContexto.vendedorNombre || ''
   buscarVendedorOpen.value = false
   editForm.value = {
     empresa: String(puestoContexto.empresaCodigo || '').trim(),
     cliente: '',
     puesto: puestoContexto.puestoCodigo || '',
-    vendedor: '',
+    vendedor: puestoContexto.vendedorCodigo || '',
     suPedido: '',
     email: '',
     transporte: '',
@@ -219,6 +219,19 @@ function prepararNuevo() {
   }
   msg.value = 'Elija la tienda y pulse Intro para reservar el número de pedido'
   void cargarTiendas().then(() => focusTienda())
+  void puestoContexto.cargarVendedorPuesto().then(() => {
+    if (puestoContexto.puestoAviso) {
+      error.value = puestoContexto.puestoAviso
+    }
+    if (editForm.value.vendedor) {
+      if (!vendedorNombre.value) void resolverNombreVendedor(editForm.value.vendedor)
+      return
+    }
+    const v = (puestoContexto.vendedorCodigo || '').trim()
+    if (!v) return
+    editForm.value.vendedor = v
+    vendedorNombre.value = puestoContexto.vendedorNombre || ''
+  })
 }
 
 async function cargar() {

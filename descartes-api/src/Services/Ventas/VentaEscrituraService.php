@@ -1069,6 +1069,35 @@ final class VentaEscrituraService
   }
 
   /**
+   * Vendedor del puesto para el alta de venta (sin exigir permiso de Mantenimiento).
+   *
+   * @return array{puesto: string, existe: bool, vendedor: ?string, vendedorNombre: ?string}
+   */
+  public function datosPuesto(string $puesto): array
+  {
+    $puesto = trim($puesto);
+    $existe = $puesto !== '' && $this->puestoExiste($puesto);
+    $vendedor = $this->vendedorDelPuesto($puesto);
+    return [
+      'puesto' => $puesto,
+      'existe' => $existe,
+      'vendedor' => $vendedor,
+      'vendedorNombre' => $vendedor !== null ? $this->nombreVendedor($vendedor) : null,
+    ];
+  }
+
+  private function puestoExiste(string $puesto): bool
+  {
+    try {
+      $stmt = $this->pdo->prepare('SELECT 1 FROM Puestos WHERE RTRIM(Puesto) = :p');
+      $stmt->execute(['p' => $puesto]);
+      return (bool) $stmt->fetchColumn();
+    } catch (\Throwable $e) {
+      return false;
+    }
+  }
+
+  /**
    * Reserva el siguiente albaran de venta desde Empresas_Ges.UltAlbaranVen (contador tienda)
    * e incrementa el contador en el mismo momento (como legacy al pulsar Intro).
    *
@@ -1130,19 +1159,62 @@ final class VentaEscrituraService
   {
     $puesto = trim($puesto);
     if ($puesto === '' || $puesto === '99') {
-      return null;
+      return $this->vendedorDelUsuarioSesion();
     }
 
     try {
       $stmt = $this->pdo->prepare(
-        'SELECT Trabajador FROM Puestos WHERE Puesto = :puesto'
+        'SELECT RTRIM(Trabajador) FROM Puestos WHERE RTRIM(Puesto) = :puesto'
       );
       $stmt->execute(['puesto' => $puesto]);
       $vendedor = $stmt->fetchColumn();
       $codigo = $vendedor !== false ? trim((string) $vendedor) : '';
-      return $codigo !== '' ? $codigo : null;
+      if ($codigo !== '') {
+        return $codigo;
+      }
     } catch (\Throwable $e) {
       // Compatibilidad con instalaciones pendientes de la columna Trabajador.
+    }
+
+    return $this->vendedorDelUsuarioSesion();
+  }
+
+  /** Si el puesto no tiene vendedor, el del usuario que ha iniciado sesión. */
+  private function vendedorDelUsuarioSesion(): ?string
+  {
+    $usuario = trim((string) ($_SESSION['usuario']['codigo'] ?? ''));
+    if ($usuario === '') {
+      return null;
+    }
+    try {
+      $stmt = $this->pdo->prepare(
+        'SELECT TOP 1 RTRIM(Codigo) FROM Vendedores
+         WHERE RTRIM(Usuario) = :u AND ISNULL(Baja, 0) = 0
+         ORDER BY CASE WHEN RTRIM(Codigo) = :mismo THEN 0 ELSE 1 END, Codigo'
+      );
+      $stmt->execute(['u' => $usuario, 'mismo' => $usuario]);
+      $codigo = trim((string) ($stmt->fetchColumn() ?: ''));
+      return $codigo !== '' ? $codigo : null;
+    } catch (\Throwable $e) {
+      return null;
+    }
+  }
+
+  private function nombreVendedor(string $codigo): ?string
+  {
+    $codigo = trim($codigo);
+    if ($codigo === '') {
+      return null;
+    }
+    try {
+      $stmt = $this->pdo->prepare(
+        'SELECT RTRIM(Nombre) FROM Vendedores WHERE RTRIM(Codigo) = :c'
+      );
+      $stmt->execute(['c' => $codigo]);
+      $nombre = $stmt->fetchColumn();
+      $s = $nombre !== false ? trim((string) $nombre) : '';
+      return $s !== '' ? $s : null;
+    } catch (\Throwable $e) {
       return null;
     }
   }

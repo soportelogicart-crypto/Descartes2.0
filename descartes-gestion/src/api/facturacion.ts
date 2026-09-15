@@ -97,11 +97,37 @@ export async function listarFacturasImpresion(
 export async function obtenerFacturaDocumento(
   empresa: string,
   facturaTipo: string,
-  factura: number
+  factura: number,
+  origen: 'impresion' | 'manual' = 'impresion'
 ): Promise<FacturaDocumento> {
+  const raiz = origen === 'manual' ? 'manual/documento' : 'impresion/documento'
   const { data } = await api.get<FacturaDocumento>(
-    `/api/facturacion/impresion/documento/${encodeURIComponent(empresa)}/${encodeURIComponent(facturaTipo)}/${factura}`
+    `/api/facturacion/${raiz}/${encodeURIComponent(empresa)}/${encodeURIComponent(facturaTipo)}/${factura}`
   )
+  return data
+}
+
+export type FacturasEmailResultado = {
+  candidatas: number
+  enviadas: number
+  omitidas: number
+  errores: number
+  detalles: Array<{
+    empresa: string
+    facturaTipo: string
+    factura: number
+    cliente: string
+    estado: 'enviada' | 'omitida' | 'error'
+    destinatario?: string
+    motivo?: string
+  }>
+}
+
+export async function enviarFacturasManualEmail(body: {
+  facturas: Array<{ empresa: string; facturaTipo: string; factura: number; cliente?: string }>
+  email?: string
+}): Promise<FacturasEmailResultado> {
+  const { data } = await api.post<FacturasEmailResultado>('/api/facturacion/manual/email', body)
   return data
 }
 

@@ -27,6 +27,8 @@ return function (App $app): void {
       ->add($setPermiso('ventas', 'ver'));
     $group->get('/albaranes', [VentasController::class, 'listVentas'])
       ->add($setPermiso('ventas', 'ver'));
+    $group->get('/puestos/{puesto}', [VentasController::class, 'getPuestoVenta'])
+      ->add($setPermiso('ventas', 'ver'));
     $group->post('/albaranes', [VentasController::class, 'createVenta'])
       ->add($setPermiso('ventas', 'crear'));
     $group->post('/albaranes/reservar', [VentasController::class, 'reservarAlbaran'])

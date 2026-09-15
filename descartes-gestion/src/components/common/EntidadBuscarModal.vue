@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { nextTick, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { api } from '@/api/client'
+import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
 
 export type EntidadBuscarResultado = {
   codigo: string
@@ -44,6 +45,10 @@ const loading = ref(false)
 const items = ref<Fila[]>([])
 const indice = ref(0)
 const error = ref<string | null>(null)
+const { orden, clicarColumna, ordenarFilas } = useOrdenLista()
+const itemsMostrados = computed(() =>
+  ordenarFilas(items.value, (fila, key) => fila[key as keyof Fila])
+)
 
 const tituloModal = () => {
   if (props.titulo) return props.titulo
@@ -111,7 +116,7 @@ onUnmounted(cancelarBusquedaPendiente)
 async function posicionarEnActual() {
   const codigo = props.codigoActual?.trim()
   if (!codigo) return
-  const i = items.value.findIndex((fila) => fila.codigo.trim() === codigo)
+  const i = itemsMostrados.value.findIndex((fila) => fila.codigo.trim() === codigo)
   if (i < 0) return
   indice.value = i
   await nextTick()
@@ -163,7 +168,7 @@ function seleccionarIndice(i: number) {
 }
 
 function aceptar(i?: number) {
-  const fila = items.value[i ?? indice.value]
+  const fila = itemsMostrados.value[i ?? indice.value]
   if (!fila) return
   emit('seleccionar', { codigo: fila.codigo, etiqueta: fila.etiqueta })
   emit('cerrar')
@@ -205,8 +210,13 @@ function aceptar(i?: number) {
             <thead>
               <tr>
                 <th class="col-ind"></th>
-                <th>Codigo</th>
-                <th>
+                <th class="ordenable" title="Ordenar por codigo" @click="clicarColumna('codigo')">
+                  Codigo
+                  <span v-if="orden?.key === 'codigo'" class="marca-orden">{{
+                    orden.dir === 'asc' ? '▲' : '▼'
+                  }}</span>
+                </th>
+                <th class="ordenable" title="Ordenar" @click="clicarColumna('etiqueta')">
                   {{
                     entidad === 'articulos' || entidad === 'puestos-trabajo'
                       ? 'Descripcion'
@@ -219,12 +229,15 @@ function aceptar(i?: number) {
                         ? 'Nombre'
                         : 'Razon social'
                   }}
+                  <span v-if="orden?.key === 'etiqueta'" class="marca-orden">{{
+                    orden.dir === 'asc' ? '▲' : '▼'
+                  }}</span>
                 </th>
               </tr>
             </thead>
             <tbody>
               <tr
-                v-for="(item, i) in items"
+                v-for="(item, i) in itemsMostrados"
                 :key="item.codigo"
                 :class="{ selected: i === indice }"
                 @click="seleccionarIndice(i)"
@@ -337,6 +350,19 @@ function aceptar(i?: number) {
   text-align: center;
   position: sticky;
   top: 0;
+}
+
+.entidad-grid th.ordenable {
+  cursor: pointer;
+  user-select: none;
+}
+.entidad-grid th.ordenable:hover {
+  background: #dbeafe;
+}
+.entidad-grid th .marca-orden {
+  font-size: 0.65rem;
+  margin-left: 0.15rem;
+  color: #1d4ed8;
 }
 
 .col-ind {

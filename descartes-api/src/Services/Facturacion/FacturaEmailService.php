@@ -125,6 +125,98 @@ final class FacturaEmailService
   }
 
   /**
+   * Envío explícito desde el generador manual: no exige el flag FacturasEmail.
+   * Si $emailForzado está informado, todas van a esa dirección.
+   *
+   * @param list<array<string, mixed>> $facturas
+   * @return array{
+   *   candidatas: int,
+   *   enviadas: int,
+   *   omitidas: int,
+   *   errores: int,
+   *   detalles: list<array<string, mixed>>
+   * }
+   */
+  public function enviarSolicitadas(array $facturas, ?string $emailForzado = null): array
+  {
+    $forzado = trim((string) $emailForzado);
+    if ($forzado !== '' && !filter_var($forzado, FILTER_VALIDATE_EMAIL)) {
+      throw new \InvalidArgumentException('Indique una dirección de email válida');
+    }
+
+    $resultado = [
+      'candidatas' => count($facturas),
+      'enviadas' => 0,
+      'omitidas' => 0,
+      'errores' => 0,
+      'detalles' => [],
+    ];
+
+    foreach ($facturas as $factura) {
+      $empresa = trim((string) ($factura['empresa'] ?? ''));
+      $tipo = strtoupper(trim((string) ($factura['facturaTipo'] ?? '')));
+      $numero = (int) ($factura['factura'] ?? 0);
+      $cliente = trim((string) ($factura['cliente'] ?? ''));
+      $base = [
+        'empresa' => $empresa,
+        'facturaTipo' => $tipo,
+        'factura' => $numero,
+        'cliente' => $cliente,
+      ];
+
+      if ($empresa === '' || !in_array($tipo, ['F', 'A'], true) || $numero <= 0) {
+        $resultado['omitidas']++;
+        $resultado['detalles'][] = $base + [
+          'estado' => 'omitida',
+          'motivo' => 'Documento no enviable',
+        ];
+        continue;
+      }
+
+      $datosCliente = $this->datosCliente($cliente);
+      $destinatario = $forzado !== '' ? $forzado : (string) ($datosCliente['email'] ?? '');
+      $razon = (string) ($datosCliente['razonSocial'] ?? '');
+      if (!filter_var($destinatario, FILTER_VALIDATE_EMAIL)) {
+        $resultado['omitidas']++;
+        $resultado['detalles'][] = $base + [
+          'estado' => 'omitida',
+          'motivo' => 'El cliente no tiene un email de facturación válido',
+        ];
+        continue;
+      }
+
+      $errorConfiguracion = $this->errorConfiguracionCorreo();
+      if ($errorConfiguracion !== null) {
+        $resultado['errores']++;
+        $resultado['detalles'][] = $base + [
+          'estado' => 'error',
+          'destinatario' => $destinatario,
+          'motivo' => $errorConfiguracion,
+        ];
+        continue;
+      }
+
+      try {
+        $this->enviarUna($empresa, $tipo, $numero, $destinatario, $razon);
+        $resultado['enviadas']++;
+        $resultado['detalles'][] = $base + [
+          'estado' => 'enviada',
+          'destinatario' => $destinatario,
+        ];
+      } catch (\Throwable $e) {
+        $resultado['errores']++;
+        $resultado['detalles'][] = $base + [
+          'estado' => 'error',
+          'destinatario' => $destinatario,
+          'motivo' => $e->getMessage(),
+        ];
+      }
+    }
+
+    return $resultado;
+  }
+
+  /**
    * @return array{facturasEmail: bool, email: string, razonSocial: string}|null
    */
   private function datosCliente(string $codigo): ?array

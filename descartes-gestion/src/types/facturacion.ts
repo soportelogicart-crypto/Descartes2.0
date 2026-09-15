@@ -47,8 +47,10 @@ export type FacturaManualGenerada = {
   factura: number
   cliente: string
   razonSocial?: string
+  email?: string
   importe: number
   estado: string
+  prefactura?: boolean
   recibos?: Array<{ recibo: number; importe: number; vencimiento: string }>
   albaranes: Array<{
     empresa: string

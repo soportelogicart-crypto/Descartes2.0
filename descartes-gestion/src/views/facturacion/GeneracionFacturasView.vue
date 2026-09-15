@@ -9,6 +9,7 @@ import type {
   FacturasGeneracionResponse,
 } from '@/types/facturacion'
 import { extractApiError } from '@/composables/useMantenimiento'
+import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import DecimalInput from '@/components/common/DecimalInput.vue'
@@ -116,6 +117,7 @@ const filtrosColumnaActivos = computed(() =>
 )
 
 const hayFiltroColumna = computed(() => filtrosColumnaActivos.value.length > 0)
+const { orden, clicarColumna, ordenarFilas } = useOrdenLista()
 
 function coincideFiltros(textos: Record<ColumnaKey, string>) {
   return filtrosColumnaActivos.value.every((f) =>
@@ -147,13 +149,15 @@ function textosGenerada(f: FacturaManualGenerada): Record<ColumnaKey, string> {
 
 const gruposFiltrados = computed(() => {
   const grupos = preview.value?.grupos ?? []
-  if (!hayFiltroColumna.value) return grupos
-  return grupos.filter((g) => coincideFiltros(textosGrupo(g)))
+  const base = hayFiltroColumna.value ? grupos.filter((g) => coincideFiltros(textosGrupo(g))) : grupos
+  return ordenarFilas(base, (g, key) => textosGrupo(g)[key as ColumnaKey], ['fecha'])
 })
 
 const generadasFiltradas = computed(() => {
-  if (!hayFiltroColumna.value) return generadas.value
-  return generadas.value.filter((f) => coincideFiltros(textosGenerada(f)))
+  const base = hayFiltroColumna.value
+    ? generadas.value.filter((f) => coincideFiltros(textosGenerada(f)))
+    : generadas.value
+  return ordenarFilas(base, (f, key) => textosGenerada(f)[key as ColumnaKey], ['fecha'])
 })
 
 function limpiarFiltrosColumna() {
@@ -615,7 +619,17 @@ onMounted(async () => {
               <tr>
                 <th class="col-ind"></th>
                 <th v-for="c in COLUMNAS" :key="c.key" :class="c.clase">
-                  <span class="th-titulo" :class="{ num: c.num }">{{ c.label }}</span>
+                  <span
+                    class="th-titulo"
+                    :class="{ num: c.num }"
+                    :title="`Ordenar por ${c.label}`"
+                    @click="clicarColumna(c.key)"
+                  >
+                    {{ c.label }}
+                    <span v-if="orden?.key === c.key" class="marca-orden">{{
+                      orden.dir === 'asc' ? '▲' : '▼'
+                    }}</span>
+                  </span>
                   <input
                     v-model="filtrosColumna[c.key]"
                     type="search"
@@ -670,7 +684,17 @@ onMounted(async () => {
               <tr>
                 <th class="col-ind"></th>
                 <th v-for="c in COLUMNAS" :key="'g-' + c.key" :class="c.clase">
-                  <span class="th-titulo" :class="{ num: c.num }">{{ c.label }}</span>
+                  <span
+                    class="th-titulo"
+                    :class="{ num: c.num }"
+                    :title="`Ordenar por ${c.label}`"
+                    @click="clicarColumna(c.key)"
+                  >
+                    {{ c.label }}
+                    <span v-if="orden?.key === c.key" class="marca-orden">{{
+                      orden.dir === 'asc' ? '▲' : '▼'
+                    }}</span>
+                  </span>
                   <input
                     v-model="filtrosColumna[c.key]"
                     type="search"
@@ -1001,6 +1025,16 @@ legend {
   padding: 0 0.1rem 0.15rem;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: pointer;
+  user-select: none;
+}
+.th-titulo:hover {
+  color: #1d4ed8;
+}
+.marca-orden {
+  font-size: 0.65rem;
+  margin-left: 0.15rem;
+  color: #1d4ed8;
 }
 .th-titulo.num {
   text-align: right;

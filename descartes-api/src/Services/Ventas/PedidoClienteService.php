@@ -355,7 +355,7 @@ final class PedidoClienteService
       $puestoLimpio = $puesto !== null ? trim($puesto) : '';
       if ($puestoLimpio !== '') {
         try {
-          $ps = $this->pdo->prepare('SELECT Trabajador FROM Puestos WHERE Puesto = :p');
+          $ps = $this->pdo->prepare('SELECT RTRIM(Trabajador) FROM Puestos WHERE RTRIM(Puesto) = :p');
           $ps->execute(['p' => $puestoLimpio]);
           $trab = $ps->fetchColumn();
           if ($trab !== false && trim((string) $trab) !== '') {
@@ -979,7 +979,7 @@ final class PedidoClienteService
       return null;
     }
     try {
-      $ps = $this->pdo->prepare('SELECT Trabajador FROM Puestos WHERE Puesto = :p');
+      $ps = $this->pdo->prepare('SELECT RTRIM(Trabajador) FROM Puestos WHERE RTRIM(Puesto) = :p');
       $ps->execute(['p' => $puesto]);
       $trab = $ps->fetchColumn();
       if ($trab === false) {

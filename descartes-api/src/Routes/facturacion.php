@@ -26,6 +26,13 @@ return function (App $app): void {
       ->add($setPermiso('facturacion-manual', 'ver'));
     $group->post('/manual/generar', [FacturacionController::class, 'generarManual'])
       ->add($setPermiso('facturacion-manual', 'crear'));
+    $group->post('/manual/email', [FacturacionController::class, 'emailManual'])
+      ->add($setPermiso('facturacion-manual', 'crear'));
+    $group->get(
+      '/manual/documento/{empresa}/{facturaTipo}/{factura}',
+      [FacturacionController::class, 'documentoImpresion']
+    )
+      ->add($setPermiso('facturacion-manual', 'ver'));
     $group->post('/manual/traspaso', [FacturacionController::class, 'traspasoManual'])
       ->add($setPermiso('facturacion-manual', 'crear'));
     $group->post('/manual/periodicos/generar', [FacturacionController::class, 'periodicosGenerar'])

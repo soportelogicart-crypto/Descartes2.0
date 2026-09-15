@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import {
+  enviarFacturasManualEmail,
   generarAlbaranesPeriodicos,
   generarFacturasManual,
   listarFacturasManualPendientes,
@@ -9,11 +10,19 @@ import {
 import { api } from '@/api/client'
 import type { FacturaManualPendiente, FacturaManualGenerada, FacturasManualPeriodicosResponse } from '@/types/facturacion'
 import { extractApiError } from '@/composables/useMantenimiento'
+import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
+import { GRID_LIMITE_INICIAL } from '@/composables/useGridPageSize'
+import {
+  imprimirFacturasPreparadas,
+  prepararImpresionFacturas,
+  type PrepImpresionFacturas,
+} from '@/composables/useImpresionFacturaDocumento'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import EntidadBuscarModal, {
   type EntidadBuscarResultado,
 } from '@/components/common/EntidadBuscarModal.vue'
+import FacturasImpresionA4Modal from '@/components/facturacion/FacturasImpresionA4Modal.vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
 import DecimalInput from '@/components/common/DecimalInput.vue'
 
@@ -40,6 +49,22 @@ const periodoHasta = ref('')
 const busyExtra = ref(false)
 const buscarClienteOpen = ref(false)
 const buscarClienteInicial = ref('')
+const accionFactura = ref(false)
+const a4Open = ref(false)
+const a4Oculto = ref(false)
+const a4Cargando = ref(false)
+const a4Error = ref<string | null>(null)
+const a4Prep = ref<PrepImpresionFacturas | null>(null)
+const a4ModalRef = ref<{ capturarHtmlFolio: () => Promise<string> } | null>(null)
+const emailOpen = ref(false)
+const emailDestino = ref('')
+const emailFacturas = ref<FacturaManualGenerada[]>([])
+
+function claveFactura(f: FacturaManualGenerada) {
+  return { empresa: f.empresa, facturaTipo: f.facturaTipo, factura: f.factura }
+}
+
+const generadasImprimibles = computed(() => generadas.value.filter((f) => !f.prefactura))
 
 function hoyIso() {
   return new Date().toISOString().slice(0, 10)
@@ -120,13 +145,17 @@ const filtrosColumnaActivos = computed(() =>
 )
 
 const hayFiltroColumna = computed(() => filtrosColumnaActivos.value.length > 0)
+const { orden, clicarColumna, ordenarFilas } = useOrdenLista()
 
 const itemsFiltrados = computed(() => {
   const activos = filtrosColumnaActivos.value
-  if (activos.length === 0) return items.value
-  return items.value.filter((r) =>
-    activos.every((f) => normalizar(textoColumna[f.key](r)).includes(f.valor))
-  )
+  const base =
+    activos.length === 0
+      ? items.value
+      : items.value.filter((r) =>
+          activos.every((f) => normalizar(textoColumna[f.key](r)).includes(f.valor))
+        )
+  return ordenarFilas(base, (row, key) => textoColumna[key as ColumnaKey](row), ['fecha'])
 })
 
 function limpiarFiltrosColumna() {
@@ -232,9 +261,13 @@ async function buscar() {
   periodicosOmitidos.value = []
   try {
     const data = await listarFacturasManualPendientes(paramsConsulta())
-    items.value = data.items
+    const todos = data.items ?? []
+    items.value = todos.slice(0, GRID_LIMITE_INICIAL)
     selected.value = {}
     mensaje.value = `${data.totales.albaranes} albaranes · ${data.totales.importe.toFixed(2)} €`
+    if (todos.length > GRID_LIMITE_INICIAL) {
+      mensaje.value += ` · mostrando ${GRID_LIMITE_INICIAL}`
+    }
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudieron cargar albaranes pendientes')
     items.value = []
@@ -290,8 +323,15 @@ async function ejecutar() {
     })
     generadas.value = result.facturas
     const label = form.value.tipo === 'prefacturas' ? 'pre-factura(s)' : 'factura(s)'
-    mensaje.value = `Generadas ${result.totales.facturas} ${label} · ${result.totales.albaranes} albaranes · ${result.totales.importe.toFixed(2)} €`
+    const mensajeGeneracion = `Generadas ${result.totales.facturas} ${label} · ${result.totales.albaranes} albaranes · ${result.totales.importe.toFixed(2)} €`
+    const facturasAhora = result.facturas
     await buscar()
+    generadas.value = facturasAhora
+    mensaje.value = mensajeGeneracion
+    const imprimibles = facturasAhora.filter((f) => !f.prefactura)
+    if (imprimibles.length > 0) {
+      await verFacturas(imprimibles)
+    }
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudieron generar las facturas')
   } finally {
@@ -397,6 +437,140 @@ async function confirmarGenAlb() {
     error.value = extractApiError(e, 'No se pudieron generar los albaranes periódicos')
   } finally {
     busyExtra.value = false
+  }
+}
+
+function resumenEmail(r: { enviadas: number; omitidas: number; errores: number }) {
+  const partes = [`Enviadas ${r.enviadas}`]
+  if (r.omitidas) partes.push(`${r.omitidas} sin email`)
+  if (r.errores) partes.push(`${r.errores} error(es)`)
+  return partes.join(' · ')
+}
+
+async function esperarHtmlFolio(): Promise<string> {
+  for (let i = 0; i < 40; i++) {
+    await nextTick()
+    const html = (await a4ModalRef.value?.capturarHtmlFolio()) || ''
+    if (html) return html
+    await new Promise((r) => setTimeout(r, 50))
+  }
+  return ''
+}
+
+async function prepararFacturasA4(lista: FacturaManualGenerada[]) {
+  return prepararImpresionFacturas(lista.map(claveFactura), {
+    puestoCodigo: String(puestoContexto.puestoCodigo ?? ''),
+    origenDocumento: 'manual',
+  })
+}
+
+async function verFacturas(lista: FacturaManualGenerada[]) {
+  const sel = lista.filter((f) => !f.prefactura)
+  if (sel.length === 0) {
+    error.value = 'No hay facturas para previsualizar'
+    return
+  }
+  accionFactura.value = true
+  error.value = null
+  a4Error.value = null
+  a4Oculto.value = false
+  a4Cargando.value = true
+  a4Open.value = true
+  try {
+    a4Prep.value = await prepararFacturasA4(sel)
+  } catch (e: unknown) {
+    a4Error.value = extractApiError(e, 'No se pudo abrir la factura')
+    error.value = a4Error.value
+  } finally {
+    a4Cargando.value = false
+    accionFactura.value = false
+  }
+}
+
+async function imprimirFacturas(lista: FacturaManualGenerada[]) {
+  const sel = lista.filter((f) => !f.prefactura)
+  if (sel.length === 0) {
+    error.value = 'No hay facturas para imprimir'
+    return
+  }
+  accionFactura.value = true
+  error.value = null
+  a4Error.value = null
+  mensaje.value = 'Preparando impresión…'
+  try {
+    a4Prep.value = await prepararFacturasA4(sel)
+    a4Oculto.value = true
+    a4Open.value = true
+    const html = await esperarHtmlFolio()
+    if (!html) {
+      throw new Error('No hay plantilla configurada para estas facturas en el puesto')
+    }
+    mensaje.value = await imprimirFacturasPreparadas(a4Prep.value, html)
+    a4Open.value = false
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo imprimir la factura')
+    mensaje.value = null
+  } finally {
+    accionFactura.value = false
+  }
+}
+
+async function imprimirDocumentos() {
+  const prep = a4Prep.value
+  if (!prep || accionFactura.value) return
+  accionFactura.value = true
+  error.value = null
+  try {
+    const html = await esperarHtmlFolio()
+    mensaje.value = await imprimirFacturasPreparadas(prep, html)
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo imprimir')
+  } finally {
+    accionFactura.value = false
+  }
+}
+
+function abrirEmail(lista: FacturaManualGenerada[]) {
+  const sel = lista.filter((f) => !f.prefactura)
+  if (sel.length === 0) {
+    error.value = 'No hay facturas para enviar'
+    return
+  }
+  emailFacturas.value = sel
+  emailDestino.value = sel.length === 1 ? String(sel[0].email ?? '').trim() : ''
+  emailOpen.value = true
+  error.value = null
+}
+
+async function confirmarEmail() {
+  const sel = emailFacturas.value
+  if (sel.length === 0) return
+  const email = emailDestino.value.trim()
+  if (sel.length === 1 && !email) {
+    error.value = 'Indique el email de destino'
+    return
+  }
+  accionFactura.value = true
+  error.value = null
+  try {
+    const result = await enviarFacturasManualEmail({
+      facturas: sel.map((f) => ({
+        empresa: f.empresa,
+        facturaTipo: f.facturaTipo,
+        factura: f.factura,
+        cliente: f.cliente,
+      })),
+      email: email || undefined,
+    })
+    emailOpen.value = false
+    mensaje.value = resumenEmail(result)
+    if (result.errores > 0) {
+      error.value = result.detalles.find((d) => d.estado === 'error')?.motivo ?? 'Error al enviar'
+    }
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudieron enviar las facturas')
+  } finally {
+    accionFactura.value = false
   }
 }
 
@@ -596,7 +770,17 @@ onMounted(async () => {
                   />
                 </th>
                 <th v-for="c in COLUMNAS" :key="c.key" :class="c.clase">
-                  <span class="th-titulo" :class="{ num: c.num }">{{ c.label }}</span>
+                  <span
+                    class="th-titulo"
+                    :class="{ num: c.num }"
+                    :title="`Ordenar por ${c.label}`"
+                    @click="clicarColumna(c.key)"
+                  >
+                    {{ c.label }}
+                    <span v-if="orden?.key === c.key" class="marca-orden">{{
+                      orden.dir === 'asc' ? '▲' : '▼'
+                    }}</span>
+                  </span>
                   <input
                     v-model="filtrosColumna[c.key]"
                     type="search"
@@ -678,13 +862,55 @@ onMounted(async () => {
         </div>
 
         <div v-if="generadas.length" class="generadas">
-          <h3>Facturas generadas</h3>
-          <ul>
-            <li v-for="(f, i) in generadas" :key="i">
-              {{ f.facturaTipo }}/{{ f.factura }} · cliente {{ f.cliente }} ·
-              {{ f.importe.toFixed(2) }} € · {{ f.albaranes.length }} alb.
-            </li>
-          </ul>
+          <div class="generadas-head">
+            <h3>Facturas generadas</h3>
+            <div v-if="generadasImprimibles.length" class="generadas-acciones">
+              <button type="button" class="btn" :disabled="accionFactura" @click="verFacturas(generadasImprimibles)">
+                {{ a4Open && !a4Oculto && a4Cargando ? 'Abriendo…' : 'Ver' }}
+              </button>
+              <button type="button" class="btn" :disabled="accionFactura" @click="imprimirFacturas(generadasImprimibles)">
+                {{ accionFactura && a4Oculto ? 'Imprimiendo…' : 'Imprimir' }}
+              </button>
+              <button type="button" class="btn" :disabled="accionFactura" @click="abrirEmail(generadasImprimibles)">
+                Enviar por email
+              </button>
+            </div>
+          </div>
+          <p v-if="generadasImprimibles.length" class="nota-acciones">
+            Puede ver, imprimir o enviar cada factura, o todas a la vez.
+          </p>
+          <p v-if="error && generadas.length" class="error">{{ error }}</p>
+          <table class="tabla-generadas">
+            <thead>
+              <tr>
+                <th>Factura</th>
+                <th>Cliente</th>
+                <th class="num">Importe</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(f, i) in generadas" :key="i">
+                <td>{{ f.facturaTipo }}/{{ f.factura }}</td>
+                <td class="clip">{{ f.razonSocial || f.cliente }}</td>
+                <td class="num">{{ Number(f.importe ?? 0).toFixed(2) }} €</td>
+                <td class="acciones-fila" @click.stop>
+                  <template v-if="!f.prefactura">
+                    <button type="button" class="btn-mini" :disabled="accionFactura" @click="verFacturas([f])">
+                      Ver
+                    </button>
+                    <button type="button" class="btn-mini" :disabled="accionFactura" @click="imprimirFacturas([f])">
+                      Imprimir
+                    </button>
+                    <button type="button" class="btn-mini" :disabled="accionFactura" @click="abrirEmail([f])">
+                      Email
+                    </button>
+                  </template>
+                  <span v-else class="hint">Pre-factura</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -717,6 +943,51 @@ onMounted(async () => {
           </button>
           <button type="button" class="btn primary" :disabled="busyExtra" @click="confirmarGenAlb">
             {{ busyExtra ? 'Generando…' : 'Generar' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <FacturasImpresionA4Modal
+      ref="a4ModalRef"
+      :open="a4Open"
+      :documentos="a4Prep?.documentos ?? []"
+      :impresora-nombre="a4Prep?.impresoraNombre || ''"
+      :imprimiendo="accionFactura && !a4Cargando"
+      :cargando="a4Cargando"
+      :error-carga="a4Error"
+      :oculto="a4Oculto"
+      @cerrar="a4Open = false"
+      @imprimir="imprimirDocumentos"
+    />
+
+    <div
+      v-if="emailOpen"
+      class="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Enviar facturas por email"
+      @click.self="emailOpen = false"
+    >
+      <div class="modal">
+        <h3>Enviar por email</h3>
+        <p v-if="emailFacturas.length === 1" class="hint">
+          Factura {{ emailFacturas[0].facturaTipo }}/{{ emailFacturas[0].factura }}
+          · {{ emailFacturas[0].razonSocial || emailFacturas[0].cliente }}
+        </p>
+        <p v-else class="hint">
+          {{ emailFacturas.length }} facturas. Si deja el email vacío, cada una irá al correo del cliente.
+        </p>
+        <label>
+          <span>{{ emailFacturas.length === 1 ? 'Dirección de email' : 'Email (opcional, el mismo para todas)' }}</span>
+          <input v-model="emailDestino" type="email" placeholder="cliente@ejemplo.com" />
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="btn" :disabled="accionFactura" @click="emailOpen = false">
+            Cancelar
+          </button>
+          <button type="button" class="btn primary" :disabled="accionFactura" @click="confirmarEmail">
+            {{ accionFactura ? 'Enviando…' : 'Enviar' }}
           </button>
         </div>
       </div>
@@ -1017,6 +1288,16 @@ td.sel input[type='checkbox'] {
   padding: 0 0.1rem 0.15rem;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: pointer;
+  user-select: none;
+}
+.th-titulo:hover {
+  color: #1d4ed8;
+}
+.marca-orden {
+  font-size: 0.65rem;
+  margin-left: 0.15rem;
+  color: #1d4ed8;
 }
 .th-titulo.num {
   text-align: right;
@@ -1092,8 +1373,51 @@ tbody tr.checked {
   flex-shrink: 0;
 }
 .generadas h3 {
-  margin: 0 0 0.35rem;
+  margin: 0;
   font-size: 0.9rem;
+}
+.generadas-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+.generadas-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.nota-acciones {
+  margin: 0 0 0.4rem;
+  font-size: 0.8rem;
+  color: #065f46;
+}
+.tabla-generadas {
+  font-size: 0.82rem;
+}
+.tabla-generadas th {
+  background: #d1fae5;
+  position: static;
+}
+.acciones-fila {
+  white-space: nowrap;
+  text-align: right;
+}
+.btn-mini {
+  border: 1px solid #94a3b8;
+  background: #fff;
+  border-radius: 3px;
+  padding: 0.15rem 0.45rem;
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+  margin-left: 0.2rem;
+}
+.btn-mini:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 .generadas ul {
   margin: 0;

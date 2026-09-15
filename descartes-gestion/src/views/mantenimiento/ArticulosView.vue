@@ -674,6 +674,7 @@ const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
           v-model:filters="filtros"
           :readonly="true"
           :loading="loading"
+          :total-servidor="total"
           @seleccionar="seleccionar"
           @abrir="abrirFicha"
           @nuevo="onNuevoFicha"

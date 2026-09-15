@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { api } from '@/api/client'
+import { obtenerVendedorPuesto } from '@/api/ventas'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { getDescartesBridge, isElectronShell } from '@/bridge/electron'
 
@@ -21,6 +22,10 @@ export const usePuestoContextoStore = defineStore('puestoContexto', () => {
   const equipoId = ref<string | null>(leer(KEY_EQUIPO))
   const puestoCodigo = ref<string | null>(leer(KEY_PUESTO))
   const empresaCodigo = ref<string | null>(leer(KEY_EMPRESA))
+  const vendedorCodigo = ref<string | null>(null)
+  const vendedorNombre = ref<string | null>(null)
+  const puestoExiste = ref<boolean | null>(null)
+  const puestoAviso = ref<string | null>(null)
   const hydrating = ref(false)
   const hydrateError = ref<string | null>(null)
   const enElectron = computed(() => isElectronShell())
@@ -39,6 +44,33 @@ export const usePuestoContextoStore = defineStore('puestoContexto', () => {
     localStorage.setItem(KEY_EQUIPO, id)
     localStorage.setItem(KEY_EMPRESA, empresa)
     localStorage.setItem(KEY_PUESTO, puesto)
+    void cargarVendedorPuesto()
+  }
+
+  async function cargarVendedorPuesto() {
+    const codigo = puestoCodigo.value?.trim() ?? ''
+    if (!codigo) {
+      vendedorCodigo.value = null
+      vendedorNombre.value = null
+      puestoExiste.value = null
+      puestoAviso.value = 'No hay puesto configurado en este equipo.'
+      return
+    }
+    try {
+      const data = await obtenerVendedorPuesto(codigo)
+      vendedorCodigo.value = data.vendedor?.trim() || null
+      vendedorNombre.value = data.vendedorNombre?.trim() || null
+      const existe = data.existe !== false
+      puestoExiste.value = existe
+      puestoAviso.value = existe
+        ? null
+        : `El puesto ${codigo} no existe. Créelo en Mantenimiento → Puestos o reconfigure este equipo.`
+    } catch {
+      vendedorCodigo.value = null
+      vendedorNombre.value = null
+      puestoExiste.value = null
+      puestoAviso.value = `No se pudo comprobar el puesto ${codigo}.`
+    }
   }
 
   async function hydrateFromElectron(): Promise<boolean> {
@@ -62,6 +94,7 @@ export const usePuestoContextoStore = defineStore('puestoContexto', () => {
       return false
     } finally {
       hydrating.value = false
+      void cargarVendedorPuesto()
     }
   }
 
@@ -158,6 +191,10 @@ export const usePuestoContextoStore = defineStore('puestoContexto', () => {
     equipoId.value = null
     empresaCodigo.value = null
     puestoCodigo.value = null
+    vendedorCodigo.value = null
+    vendedorNombre.value = null
+    puestoExiste.value = null
+    puestoAviso.value = null
     localStorage.removeItem(KEY_EQUIPO)
     localStorage.removeItem(KEY_EMPRESA)
     localStorage.removeItem(KEY_PUESTO)
@@ -171,6 +208,10 @@ export const usePuestoContextoStore = defineStore('puestoContexto', () => {
     equipoId,
     puestoCodigo,
     empresaCodigo,
+    vendedorCodigo,
+    vendedorNombre,
+    puestoExiste,
+    puestoAviso,
     configurado,
     hydrating,
     hydrateError,
@@ -179,6 +220,7 @@ export const usePuestoContextoStore = defineStore('puestoContexto', () => {
     hydrateFromElectron,
     obtenerDesdeServidor,
     cargarDesdeServidor,
+    cargarVendedorPuesto,
     setEquipo,
     clearEquipo,
   }

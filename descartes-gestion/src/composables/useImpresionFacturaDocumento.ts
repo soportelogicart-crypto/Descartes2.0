@@ -45,30 +45,39 @@ type ContextoEmpresa = {
  */
 export async function prepararImpresionFacturas(
   facturas: FacturaClave[],
-  opciones: { puestoCodigo: string }
+  opciones: { puestoCodigo: string; origenDocumento?: 'impresion' | 'manual' }
 ): Promise<PrepImpresionFacturas> {
   const puestoCodigo = opciones.puestoCodigo.trim()
-  if (!puestoCodigo) {
-    throw new Error('Configure el puesto de este equipo para imprimir.')
-  }
   if (facturas.length === 0) {
     throw new Error('Seleccione al menos una factura')
   }
 
-  const puesto: PuestoDoc = await cargarPuesto(puestoCodigo)
+  let puesto: PuestoDoc = {}
+  if (puestoCodigo) {
+    try {
+      puesto = await cargarPuesto(puestoCodigo)
+    } catch {
+      puesto = {}
+    }
+  }
   const contextos = new Map<string, ContextoEmpresa>()
   const documentos: FacturaImpresionPreparada[] = []
   let impresora: { nombre: string; id: number | null } | null = null
 
   for (const clave of facturas) {
-    const doc = await obtenerFacturaDocumento(clave.empresa, clave.facturaTipo, clave.factura)
+    const doc = await obtenerFacturaDocumento(
+      clave.empresa,
+      clave.facturaTipo,
+      clave.factura,
+      opciones.origenDocumento
+    )
     const empresa = doc.empresa.trim()
 
     let contexto = contextos.get(empresa)
     if (!contexto) {
       const [tienda, plantillas] = await Promise.all([
-        cargarTienda(empresa),
-        cargarPlantillasEmpresa(empresa),
+        cargarTienda(empresa).catch(() => ({}) as Record<string, unknown>),
+        cargarPlantillasEmpresa(empresa).catch(() => []),
       ])
       contexto = { extras: extrasEmpresaDesdeTienda(tienda, puesto), plantillas }
       contextos.set(empresa, contexto)
@@ -99,7 +108,7 @@ export async function prepararImpresionFacturas(
 /** Imprime las facturas en térmica con la plantilla de ticket del diseñador. */
 export async function imprimirFacturasTicket(
   facturas: FacturaClave[],
-  opciones: { puestoCodigo: string }
+  opciones: { puestoCodigo: string; origenDocumento?: 'impresion' | 'manual' }
 ): Promise<string> {
   const puestoCodigo = opciones.puestoCodigo.trim()
   if (!puestoCodigo) {
@@ -114,7 +123,12 @@ export async function imprimirFacturasTicket(
   let ultimoMensaje = ''
 
   for (const clave of facturas) {
-    const doc = await obtenerFacturaDocumento(clave.empresa, clave.facturaTipo, clave.factura)
+    const doc = await obtenerFacturaDocumento(
+      clave.empresa,
+      clave.facturaTipo,
+      clave.factura,
+      opciones.origenDocumento
+    )
     const empresa = doc.empresa.trim()
 
     let contexto = contextos.get(empresa)

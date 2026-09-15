@@ -34,7 +34,7 @@ final class TpvContextoService
 
     $stmt = $this->pdo->prepare(
       'SELECT Puesto, Teclado, Tarifa, ImpresoraTickets, ImpresoraTicketsF
-       FROM Puestos WHERE Puesto = :p'
+       FROM Puestos WHERE RTRIM(Puesto) = :p'
     );
     $stmt->execute(['p' => $puesto]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -64,10 +64,42 @@ final class TpvContextoService
       'tarifa' => (int) ($row['Tarifa'] ?? 0),
       'impresoraTickets' => $impresora !== '' ? $impresora : null,
       'formatoTickets' => null,
-      'vendedor' => null,
+      'vendedor' => $this->vendedorDelPuesto($puesto),
       'clienteRapido' => 'ZZZZZZZZZ',
       'formasPago' => $this->formasPagoContado(),
     ];
+  }
+
+  private function vendedorDelPuesto(string $puesto): ?string
+  {
+    try {
+      $stmt = $this->pdo->prepare(
+        'SELECT RTRIM(Trabajador) FROM Puestos WHERE RTRIM(Puesto) = :p'
+      );
+      $stmt->execute(['p' => $puesto]);
+      $codigo = trim((string) ($stmt->fetchColumn() ?: ''));
+      if ($codigo !== '') {
+        return $codigo;
+      }
+    } catch (\Throwable $e) {
+      /* columna Trabajador puede no existir */
+    }
+    $usuario = trim((string) ($_SESSION['usuario']['codigo'] ?? ''));
+    if ($usuario === '') {
+      return null;
+    }
+    try {
+      $stmt = $this->pdo->prepare(
+        'SELECT TOP 1 RTRIM(Codigo) FROM Vendedores
+         WHERE RTRIM(Usuario) = :u AND ISNULL(Baja, 0) = 0
+         ORDER BY CASE WHEN RTRIM(Codigo) = :mismo THEN 0 ELSE 1 END, Codigo'
+      );
+      $stmt->execute(['u' => $usuario, 'mismo' => $usuario]);
+      $codigo = trim((string) ($stmt->fetchColumn() ?: ''));
+      return $codigo !== '' ? $codigo : null;
+    } catch (\Throwable $e) {
+      return null;
+    }
   }
 
   /**

@@ -227,3 +227,46 @@ export function aplicarFiltrosColumnas<T extends Record<string, unknown>>(
     )
   )
 }
+
+export type OrdenColumna = { key: string; dir: 'asc' | 'desc' }
+
+export function alternarOrdenColumna(actual: OrdenColumna | null, key: string): OrdenColumna {
+  if (actual?.key === key) {
+    return { key, dir: actual.dir === 'asc' ? 'desc' : 'asc' }
+  }
+  return { key, dir: 'asc' }
+}
+
+export function aplicarOrdenColumnas<T extends object>(
+  filas: T[],
+  orden: OrdenColumna | null | undefined,
+  opciones?: {
+    dateKeys?: string[]
+    getValue?: (fila: T, key: string) => unknown
+    nuevoAlFinal?: boolean
+  }
+): T[] {
+  if (!orden) return filas
+  const dateSet = new Set(opciones?.dateKeys ?? [])
+  const get =
+    opciones?.getValue ??
+    ((fila: T, key: string) => (fila as Record<string, unknown>)[key])
+  const nuevoAlFinal = opciones?.nuevoAlFinal === true
+  const datos = nuevoAlFinal
+    ? filas.filter((f) => !(f as { _nuevo?: boolean })._nuevo)
+    : filas.slice()
+  const nuevas = nuevoAlFinal
+    ? filas.filter((f) => (f as { _nuevo?: boolean })._nuevo)
+    : []
+  const signo = orden.dir === 'asc' ? 1 : -1
+  const esFecha = dateSet.has(orden.key)
+  datos.sort((a, b) => {
+    const va = get(a, orden.key)
+    const vb = get(b, orden.key)
+    if (esFecha) {
+      return signo * compararFechas(normalizarFechaSolo(va), normalizarFechaSolo(vb))
+    }
+    return signo * compararOrden(celdaTexto(va), celdaTexto(vb))
+  })
+  return nuevas.length ? [...datos, ...nuevas] : datos
+}

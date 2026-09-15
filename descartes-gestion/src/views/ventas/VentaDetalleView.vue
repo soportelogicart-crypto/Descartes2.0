@@ -9,6 +9,7 @@ import {
   enviarVentaPorEmail,
   finalizarVenta,
   obtenerVenta,
+  obtenerVendedorPuesto,
 } from '@/api/ventas'
 import { crearAlbaranPeriodico, eliminarAlbaranPeriodico } from '@/api/facturacion'
 import { resolverArticulo } from '@/api/articulos'
@@ -127,6 +128,7 @@ const pasoAlta = ref<'tienda' | 'cliente' | 'listo'>('listo')
 const buscarClienteOpen = ref(false)
 const buscarArticuloOpen = ref(false)
 const buscarVendedorOpen = ref(false)
+const finalizarTrasVendedor = ref(false)
 const lineaArticuloIdx = ref(0)
 const articuloBusquedaInicial = ref('')
 /** Tras alta de cabecera: no recargar (ya tenemos la ficha) y quedar en edicion. */
@@ -189,22 +191,60 @@ async function resolverNombreVendedor(codigo: string) {
   }
 }
 
+const tieneVendedor = computed(() => Boolean(String(ficha.value?.vendedor ?? '').trim()))
+
+function avisoPuestoInexistente(codigo: string): string {
+  return `El puesto ${codigo} no existe. Créelo en Mantenimiento → Puestos o reconfigure este equipo.`
+}
+
 /** Vendedor por defecto = trabajador del puesto (Mantenimiento → Puestos → Vendedor). */
 async function precargarVendedorDelPuesto() {
   if (!ficha.value) return
   const codigoPuesto = String(ficha.value.puesto || puesto.puestoCodigo || '').trim()
-  if (!codigoPuesto || String(ficha.value.vendedor ?? '').trim()) return
+  if (!codigoPuesto) {
+    error.value = 'No hay puesto configurado en este equipo.'
+    return
+  }
+  if (codigoPuesto === (puesto.puestoCodigo || '').trim() && puesto.puestoAviso) {
+    error.value = puesto.puestoAviso
+  }
+  const aplicarAviso = (existe: boolean | undefined) => {
+    if (existe === false) {
+      error.value = avisoPuestoInexistente(codigoPuesto)
+    }
+  }
+  const yaHay = String(ficha.value.vendedor ?? '').trim()
+  if (yaHay) {
+    if (puesto.puestoExiste === false && codigoPuesto === (puesto.puestoCodigo || '').trim()) {
+      aplicarAviso(false)
+    }
+    if (!vendedorNombre.value) {
+      if (yaHay === (puesto.vendedorCodigo || '') && puesto.vendedorNombre) {
+        vendedorNombre.value = puesto.vendedorNombre
+      } else {
+        await resolverNombreVendedor(yaHay)
+      }
+    }
+    return
+  }
+  const delStore = (puesto.vendedorCodigo || '').trim()
+  if (delStore && codigoPuesto === (puesto.puestoCodigo || '').trim()) {
+    aplicarAviso(puesto.puestoExiste === false ? false : undefined)
+    ficha.value = { ...ficha.value, vendedor: delStore }
+    vendedorNombre.value = puesto.vendedorNombre || ''
+    if (!vendedorNombre.value) await resolverNombreVendedor(delStore)
+    return
+  }
   try {
-    const { data } = await api.get(
-      `/api/mantenimiento/puestos-trabajo/${encodeURIComponent(codigoPuesto)}`
-    )
-    const vendedor = String(data.trabajadorCodigo ?? '').trim()
-    // La ficha puede haber cambiado mientras se resolvía el puesto.
+    const data = await obtenerVendedorPuesto(codigoPuesto)
+    aplicarAviso(data.existe)
+    const vendedor = String(data.vendedor ?? '').trim()
     if (!vendedor || !ficha.value || String(ficha.value.vendedor ?? '').trim()) return
     ficha.value = { ...ficha.value, vendedor }
-    await resolverNombreVendedor(vendedor)
+    vendedorNombre.value = String(data.vendedorNombre ?? '').trim()
+    if (!vendedorNombre.value) await resolverNombreVendedor(vendedor)
   } catch {
-    /* Sin vendedor por defecto: se introduce a mano en la cabecera. */
+    error.value = `No se pudo comprobar el puesto ${codigoPuesto}.`
   }
 }
 
@@ -221,6 +261,10 @@ function onVendedorSeleccionado(sel: { codigo: string; etiqueta: string }) {
   if (!ficha.value) return
   ficha.value = { ...ficha.value, vendedor: sel.codigo }
   vendedorNombre.value = sel.etiqueta
+  if (finalizarTrasVendedor.value) {
+    finalizarTrasVendedor.value = false
+    void onFinalizar()
+  }
 }
 
 async function onVendedorKeydown(e: KeyboardEvent) {
@@ -371,7 +415,7 @@ function vacia(): VentaDetalle {
     razonSocial2: '',
     nif: '',
     puesto: puesto.puestoCodigo || '',
-    vendedor: '',
+    vendedor: puesto.vendedorCodigo || '',
     representante: '',
     transporte: '',
     direccionEnvio: '',
@@ -519,9 +563,12 @@ const puedePasarAFactura = computed(() => {
 const puedeFinalizar = computed(
   () =>
     !esPlantillaConsulta.value &&
-    Boolean(String(ficha.value?.vendedor ?? '').trim()) &&
     (ventaNuevaLista.value ||
-      (albaranCompleto.value && !bloqueado.value && !ticketNoEditable.value && puedeEditar.value) ||
+      (tieneVendedor.value &&
+        albaranCompleto.value &&
+        !bloqueado.value &&
+        !ticketNoEditable.value &&
+        puedeEditar.value) ||
       puedePasarAFactura.value)
 )
 const esAbono = computed(() => {
@@ -871,17 +918,18 @@ function iniciarNuevaVenta() {
   buscarVendedorOpen.value = false
   clienteContado.value = false
   formaPagoCliente.value = ''
-  vendedorNombre.value = ''
   agenteCliente.value = ''
   ficha.value = vacia()
   lineas.value = [lineaVacia()]
-  void precargarVendedorDelPuesto()
-  void nextTick(async () => {
+  vendedorNombre.value = puesto.vendedorNombre || ''
+  void (async () => {
+    await puesto.cargarVendedorPuesto()
+    await precargarVendedorDelPuesto()
     await cabeceraForm.value?.focusTienda()
     mensaje.value = esPlantillaAlta.value
       ? 'Nueva plantilla periódica: elija tienda, cliente y líneas. Guarde y Finalice como Presupuesto.'
       : 'Nueva venta: elija tienda y pulse Intro'
-  })
+  })()
 }
 
 function onNuevo() {
@@ -1425,8 +1473,13 @@ async function confirmarBorrar() {
 async function onFinalizar() {
   if (!ficha.value || esPlantillaConsulta.value) return
   if (bloqueado.value && !esTicketCerrado.value) return
-  if (!String(ficha.value.vendedor ?? '').trim()) {
-    error.value = 'No se puede finalizar la venta sin vendedor. Selecciónelo en la cabecera.'
+  if (!tieneVendedor.value) {
+    await precargarVendedorDelPuesto()
+  }
+  if (!tieneVendedor.value) {
+    error.value = 'Seleccione el vendedor en la cabecera para finalizar.'
+    finalizarTrasVendedor.value = true
+    abrirBuscarVendedor()
     return
   }
   const fpago =
@@ -1937,6 +1990,10 @@ onMounted(() => {
       Introduzca los artículos: código + <strong>Intro</strong> (o F4 / … para buscar). La venta se graba
       al pulsar <strong>Guardar y finalizar</strong>, que es cuando recibe el número de albarán.
     </p>
+    <p v-if="esNuevo && pasoAlta === 'listo' && !tieneVendedor" class="error">
+      Falta vendedor. Si el puesto no lo tiene asignado, selecciónelo en cabecera (F4) o al pulsar
+      Guardar y finalizar.
+    </p>
     <p v-else-if="modoEdicion && !esNuevo && !tieneLineas" class="ok">
       Introduzca articulos: codigo + <strong>Intro</strong> (o F4 / … para buscar). Luego <strong>Guardar</strong>.
     </p>
@@ -2144,7 +2201,7 @@ onMounted(() => {
       titulo="Buscar vendedor"
       :busqueda-inicial="ficha?.vendedor || ''"
       @seleccionar="onVendedorSeleccionado"
-      @cerrar="buscarVendedorOpen = false"
+      @cerrar="buscarVendedorOpen = false; finalizarTrasVendedor = false"
     />
 
     <Teleport to="body">

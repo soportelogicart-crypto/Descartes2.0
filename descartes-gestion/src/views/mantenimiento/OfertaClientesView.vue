@@ -538,6 +538,7 @@ function fmtNum(n: number): string {
             :indice-seleccionado="indiceSeleccionado"
             :readonly="true"
             :loading="loading"
+            :total-servidor="total"
             :filterable-keys="FILTER_KEYS"
             v-model:filters="filtros"
             @seleccionar="seleccionar"

@@ -1,8 +1,11 @@
 import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
 import {
   aplicarFiltrosColumnas,
+  aplicarOrdenColumnas,
+  alternarOrdenColumna,
   filtrosIniciales,
   type ColumnFilter,
+  type OrdenColumna,
 } from '@/composables/useGridColumnFilters'
 
 type ConNuevo = Record<string, unknown> & { _nuevo?: boolean; codigo?: unknown }
@@ -20,11 +23,19 @@ export function useFilasConFiltro<T extends ConNuevo>(
   const filasTodas = ref<T[]>([]) as Ref<T[]>
   const filaNuevaDraft = ref<T | null>(null) as Ref<T | null>
   const filtros = ref<Record<string, ColumnFilter>>(filtrosIniciales(filterKeys))
+  const orden = ref<OrdenColumna | null>(null)
   const indiceSeleccionado = ref(0)
+
+  function clicarColumna(key: string) {
+    orden.value = alternarOrdenColumna(orden.value, key)
+  }
 
   const filas = computed<T[]>(() => {
     const datos = filasTodas.value.filter((f) => !f._nuevo)
-    const filtradas = aplicarFiltrosColumnas(datos, filtros.value) as T[]
+    const filtradas = aplicarOrdenColumnas(
+      aplicarFiltrosColumnas(datos, filtros.value) as T[],
+      orden.value
+    )
     if (options?.puedeCrear?.value && options.makeNuevo) {
       return [...filtradas, filaNuevaDraft.value ?? options.makeNuevo()]
     }
@@ -65,6 +76,8 @@ export function useFilasConFiltro<T extends ConNuevo>(
     filasTodas,
     filas,
     filtros,
+    orden,
+    clicarColumna,
     indiceSeleccionado,
     filaSeleccionada,
     setTodas,

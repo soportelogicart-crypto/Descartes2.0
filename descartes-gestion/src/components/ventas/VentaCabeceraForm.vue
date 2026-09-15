@@ -410,7 +410,7 @@ onUnmounted(() => {
                 maxlength="4"
                 placeholder="Cód."
                 :readonly="readonly"
-                :title="vendedorNombre || 'Vendedor (trabajador). Por defecto el del puesto. Intro / F4 para buscar.'"
+                :title="vendedorNombre || 'Por defecto el del puesto. Intro / F4 para cambiar.'"
                 @input="patch('vendedor', ($event.target as HTMLInputElement).value)"
                 @keydown="emit('vendedor-keydown', $event)"
                 @blur="emit('vendedor-blur')"
@@ -420,7 +420,7 @@ onUnmounted(() => {
                 type="button"
                 class="btn-buscar"
                 :disabled="readonly"
-                :title="vendedorNombre ? `Buscar vendedor — ${vendedorNombre}` : 'Buscar vendedor (Intro / F4)'"
+                :title="vendedorNombre ? `Cambiar vendedor — ${vendedorNombre}` : 'Buscar vendedor (Intro / F4)'"
                 @click="emit('buscar-vendedor')"
               >
                 ...

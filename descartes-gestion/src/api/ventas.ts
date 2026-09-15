@@ -33,6 +33,17 @@ export async function crearVenta(payload: VentaPayload) {
   return data
 }
 
+/** Vendedor configurado en el puesto (permiso ventas.ver, no Mantenimiento). */
+export async function obtenerVendedorPuesto(puesto: string) {
+  const { data } = await api.get<{
+    puesto: string
+    existe?: boolean
+    vendedor: string | null
+    vendedorNombre?: string | null
+  }>(`/api/ventas/puestos/${encodeURIComponent(puesto)}`)
+  return data
+}
+
 export async function reservarAlbaran(payload: { empresa: string; puesto?: string | null }) {
   const { data } = await api.post<{
     empresa: string

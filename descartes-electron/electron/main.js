@@ -20,6 +20,18 @@ function appIconPath() {
   return candidates.find((file) => fs.existsSync(file))
 }
 
+function parseWindowFeatures(features) {
+  const out = { width: 940, height: 800 }
+  if (!features || typeof features !== 'string') return out
+  for (const part of features.split(',')) {
+    const [key, raw] = part.split('=').map((s) => String(s || '').trim())
+    const n = Number(raw)
+    if (key === 'width' && n > 200) out.width = Math.round(n)
+    if (key === 'height' && n > 200) out.height = Math.round(n)
+  }
+  return out
+}
+
 function loadShellConfig() {
   const candidates = [
     path.join(process.resourcesPath || '', 'config.json'),
@@ -86,13 +98,23 @@ async function createWindow() {
   })
   bindWindowMenu(win)
 
-  win.webContents.setWindowOpenHandler(({ url: target }) => {
-    // window.open('') → ventana propia de la app (previsualización de documentos).
-    // El tamaño llega en las features de window.open.
-    if (!target || target === 'about:blank') {
+  win.webContents.setWindowOpenHandler(({ url: target, features }) => {
+    // window.open('about:blank') → ventana propia (previsualización).
+    // Sin parent la ventana nueva queda detrás de la principal maximizada.
+    const esBlank = !target || target === 'about:blank' || String(target).startsWith('about:blank')
+    if (esBlank) {
+      const parsed = parseWindowFeatures(features)
       return {
         action: 'allow',
-        overrideBrowserWindowOptions: { autoHideMenuBar: true, title: 'Descartes 2.0' },
+        overrideBrowserWindowOptions: {
+          parent: win,
+          modal: false,
+          show: true,
+          autoHideMenuBar: true,
+          title: 'Descartes 2.0',
+          width: parsed.width,
+          height: parsed.height,
+        },
       }
     }
     shell.openExternal(target)

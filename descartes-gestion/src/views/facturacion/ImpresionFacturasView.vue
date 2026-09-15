@@ -4,6 +4,8 @@ import { listarFacturasImpresion, marcarFacturasImpresas } from '@/api/facturaci
 import { api } from '@/api/client'
 import type { FacturaImpresionItem } from '@/types/facturacion'
 import { extractApiError } from '@/composables/useMantenimiento'
+import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
+import { GRID_LIMITE_INICIAL } from '@/composables/useGridPageSize'
 import {
   imprimirFacturasPreparadas,
   imprimirFacturasTicket,
@@ -136,13 +138,17 @@ const filtrosColumnaActivos = computed(() =>
 )
 
 const hayFiltroColumna = computed(() => filtrosColumnaActivos.value.length > 0)
+const { orden, clicarColumna, ordenarFilas } = useOrdenLista()
 
 const itemsFiltrados = computed(() => {
   const activos = filtrosColumnaActivos.value
-  if (activos.length === 0) return items.value
-  return items.value.filter((r) =>
-    activos.every((f) => normalizar(textoColumna[f.key](r)).includes(f.valor))
-  )
+  const base =
+    activos.length === 0
+      ? items.value
+      : items.value.filter((r) =>
+          activos.every((f) => normalizar(textoColumna[f.key](r)).includes(f.valor))
+        )
+  return ordenarFilas(base, (row, key) => textoColumna[key as ColumnaKey](row), ['fecha'])
 })
 
 function limpiarFiltrosColumna() {
@@ -261,10 +267,13 @@ async function buscar() {
   mensaje.value = null
   try {
     const data = await listarFacturasImpresion(paramsConsulta())
-    items.value = data.items
+    const todos = data.items ?? []
+    items.value = todos.slice(0, GRID_LIMITE_INICIAL)
     selected.value = {}
     const trunc =
-      data.items.length >= 500 ? ' (máx. 500; afine filtros si faltan)' : ''
+      todos.length > GRID_LIMITE_INICIAL
+        ? ` (mostrando ${GRID_LIMITE_INICIAL} de ${todos.length})`
+        : ''
     if (data.items.length === 0 && form.value.estadoImpresion === 'pendientes') {
       mensaje.value =
         '0 facturas pendientes de imprimir. Pruebe Estado = Todas o Impresas.'
@@ -648,7 +657,17 @@ onMounted(async () => {
                   />
                 </th>
                 <th v-for="c in COLUMNAS" :key="c.key" :class="c.clase">
-                  <span class="th-titulo" :class="{ num: c.num }">{{ c.label }}</span>
+                  <span
+                    class="th-titulo"
+                    :class="{ num: c.num }"
+                    :title="`Ordenar por ${c.label}`"
+                    @click="clicarColumna(c.key)"
+                  >
+                    {{ c.label }}
+                    <span v-if="orden?.key === c.key" class="marca-orden">{{
+                      orden.dir === 'asc' ? '▲' : '▼'
+                    }}</span>
+                  </span>
                   <input
                     v-model="filtrosColumna[c.key]"
                     type="search"
@@ -986,6 +1005,16 @@ td.sel {
   padding: 0 0.1rem 0.15rem;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: pointer;
+  user-select: none;
+}
+.th-titulo:hover {
+  color: #1d4ed8;
+}
+.marca-orden {
+  font-size: 0.65rem;
+  margin-left: 0.15rem;
+  color: #1d4ed8;
 }
 .th-titulo.num {
   text-align: right;

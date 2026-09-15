@@ -77,6 +77,16 @@ final class VentasController
     return $this->json($response, 200, $this->ventas->listar($request->getQueryParams()));
   }
 
+  public function getPuestoVenta(Request $request, Response $response, array $args): Response
+  {
+    $puesto = trim((string) ($args['puesto'] ?? ''));
+    if ($puesto === '') {
+      return ErrorResponse::json($response, 400, 'Puesto obligatorio', 'VALIDACION');
+    }
+
+    return $this->json($response, 200, $this->escritura->datosPuesto($puesto));
+  }
+
   public function getVenta(Request $request, Response $response, array $args): Response
   {
     $item = $this->ventas->obtener(

@@ -867,12 +867,35 @@ final class GeneracionFacturasManualService
       'factura' => $factura,
       'cliente' => $cliente,
       'razonSocial' => trim((string) ($primero['RazonSocial'] ?? '')),
+      'email' => $this->emailCliente($cliente),
       'importe' => round($importe, 2),
       'estado' => $estado,
       'prefactura' => $esPrefactura,
       'recibos' => $recibos,
       'albaranes' => $refs,
     ];
+  }
+
+  private function emailCliente(string $codigo): string
+  {
+    $codigo = trim($codigo);
+    if ($codigo === '') {
+      return '';
+    }
+    try {
+      $stmt = $this->pdo->prepare(
+        "SELECT TOP 1 ISNULL(
+            NULLIF(LTRIM(RTRIM(EmailFacturacion)), ''),
+            LTRIM(RTRIM(ISNULL(Email, '')))
+          ) AS EmailDestino
+         FROM Clientes
+         WHERE Codigo = :codigo"
+      );
+      $stmt->execute(['codigo' => $codigo]);
+      return trim((string) ($stmt->fetchColumn() ?: ''));
+    } catch (\Throwable $e) {
+      return '';
+    }
   }
 
   /** @param array<string, mixed> $body */

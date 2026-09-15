@@ -4,7 +4,10 @@ export const GRID_PAGE_SIZE_KEY = 'descartes.gridPageSize'
 export const GRID_PAGE_SIZE_OPTIONS = [25, 50, 100, 200] as const
 export type GridPageSize = (typeof GRID_PAGE_SIZE_OPTIONS)[number]
 
-const DEFAULT_PAGE_SIZE: GridPageSize = 50
+/** Al abrir un grid sin filtrar, no se vuelcan todos los registros. */
+export const GRID_LIMITE_INICIAL = 200
+
+const DEFAULT_PAGE_SIZE: GridPageSize = 200
 
 export function leerGridPageSize(fallback: number = DEFAULT_PAGE_SIZE): number {
   try {

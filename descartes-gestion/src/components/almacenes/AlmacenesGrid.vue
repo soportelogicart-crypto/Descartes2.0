@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { almacenColumns, type AlmacenColumn, type AlmacenFila } from '@/config/almacenes-columns'
 import { type ColumnFilter } from '@/composables/useGridColumnFilters'
+import { useOrdenCabeceraGrid } from '@/composables/useOrdenCabeceraGrid'
 import DecimalInput from '@/components/common/DecimalInput.vue'
 import GridFilterRow from '@/components/common/GridFilterRow.vue'
 
@@ -22,17 +23,29 @@ const emit = defineEmits<{
   'update:filters': [filters: Record<string, ColumnFilter>]
 }>()
 
-function onRowDblClick(index: number, fila: AlmacenFila) {
+function onRowDblClick(fila: AlmacenFila) {
   if (fila._nuevo) {
     emit('nuevo')
     return
   }
-  emit('abrir', index)
+  emit('abrir', indiceOriginal(fila))
 }
 
 const muestraFiltros = computed(() => (props.filterableKeys?.length ?? 0) > 0)
+const { orden, clicar, filasOrdenadas, indiceOriginal, esSeleccionada, indicador } =
+  useOrdenCabeceraGrid(
+    () => props.filas,
+    () => props.indiceSeleccionado
+  )
 
-function onCellChange(index: number, key: string, value: unknown) {
+function onSeleccionar(fila: AlmacenFila) {
+  emit('seleccionar', indiceOriginal(fila))
+}
+
+function onCellChange(indexMostrado: number, key: string, value: unknown) {
+  const mostrada = filasOrdenadas.value[indexMostrado]
+  if (!mostrada) return
+  const index = indiceOriginal(mostrada)
   const fila = { ...props.filas[index], [key]: value, _dirty: true }
   emit('actualizar', index, fila)
 }
@@ -42,12 +55,6 @@ function cellValue(fila: AlmacenFila, col: AlmacenColumn) {
   if (col.type === 'checkbox') return Boolean(value)
   if (col.type === 'number') return value == null || value === '' ? '' : value
   return value ?? ''
-}
-
-function indicadorFila(index: number, fila: AlmacenFila) {
-  if (fila._nuevo) return '*'
-  if (index === props.indiceSeleccionado) return '?'
-  return ''
 }
 
 </script>
@@ -62,9 +69,15 @@ function indicadorFila(index: number, fila: AlmacenFila) {
           <th
             v-for="col in almacenColumns"
             :key="col.key"
+            class="ordenable"
             :style="{ minWidth: col.width }"
+            :title="`Ordenar por ${col.label}`"
+            @click="clicar(col.key)"
           >
             {{ col.label }}
+            <span v-if="orden?.key === col.key" class="marca-orden">{{
+              orden.dir === 'asc' ? '▲' : '▼'
+            }}</span>
           </th>
         </tr>
         <GridFilterRow
@@ -77,13 +90,13 @@ function indicadorFila(index: number, fila: AlmacenFila) {
       </thead>
       <tbody>
         <tr
-          v-for="(fila, index) in filas"
+          v-for="(fila, index) in filasOrdenadas"
           :key="fila._nuevo ? 'nuevo' : String(fila.codigo)"
-          :class="{ selected: index === indiceSeleccionado, nuevo: fila._nuevo }"
-          @click="emit('seleccionar', index)"
-          @dblclick="onRowDblClick(index, fila)"
+          :class="{ selected: esSeleccionada(fila), nuevo: fila._nuevo }"
+          @click="onSeleccionar(fila)"
+          @dblclick="onRowDblClick(fila)"
         >
-          <td class="col-ind">{{ indicadorFila(index, fila) }}</td>
+          <td class="col-ind">{{ indicador(fila) }}</td>
           <td v-for="col in almacenColumns" :key="col.key" @click.stop>
             <input
               v-if="col.type === 'checkbox'"

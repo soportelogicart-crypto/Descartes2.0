@@ -590,6 +590,7 @@ async function onUltimo() {
           :readonly="soloLecturaGrid"
           :editable-keys="editableKeysGrid"
           :loading="loading"
+          :total-servidor="total"
           @seleccionar="seleccionar"
           @actualizar="actualizarFila"
           @abrir="abrirFicha"

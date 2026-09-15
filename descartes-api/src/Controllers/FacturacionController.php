@@ -138,6 +138,30 @@ final class FacturacionController
     }
   }
 
+  public function emailManual(Request $request, Response $response): Response
+  {
+    $body = (array) json_decode((string) $request->getBody(), true);
+    $facturas = $body['facturas'] ?? [];
+    if (!is_array($facturas) || $facturas === []) {
+      return ErrorResponse::json($response, 400, 'Indique al menos una factura', 'VALIDACION');
+    }
+    $email = trim((string) ($body['email'] ?? ''));
+    try {
+      $result = $this->facturaEmail->enviarSolicitadas($facturas, $email !== '' ? $email : null);
+      $this->logger->info('Facturas enviadas por email (manual)', [
+        'source' => 'api',
+        'action' => 'facturacion.manual.email',
+        'enviadas' => $result['enviadas'] ?? 0,
+        'errores' => $result['errores'] ?? 0,
+      ]);
+      return $this->json($response, 200, $result);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
   public function listImpresion(Request $request, Response $response): Response
   {
     try {

@@ -5,6 +5,8 @@ import { api } from '@/api/client'
 import { listarVentas } from '@/api/ventas'
 import type { VentaResumen } from '@/types/ventas'
 import { extractApiError } from '@/composables/useMantenimiento'
+import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
+import { GRID_LIMITE_INICIAL } from '@/composables/useGridPageSize'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { useVentasBusquedaStore } from '@/stores/ventasBusqueda'
 import FiltroLupaField from '@/components/common/FiltroLupaField.vue'
@@ -34,10 +36,8 @@ const router = useRouter()
 const puestoContexto = usePuestoContextoStore()
 const busqueda = useVentasBusquedaStore()
 
-/** Filas por peticion al traer el listado completo (la API admite hasta 5000). */
-const BLOQUE_CARGA = 5000
-/** Tope de seguridad: evita agotar memoria si el filtro deja millones de filas. */
-const MAX_FILAS = 30000
+/** Filas por peticion al abrir el listado. */
+const BLOQUE_CARGA = GRID_LIMITE_INICIAL
 /** Filas montadas en el DOM; crecen al hacer scroll (el listado no tiene paginas). */
 const RENDER_INICIAL = 300
 const RENDER_PASO = 300
@@ -103,44 +103,29 @@ async function cargarTiendas() {
   }
 }
 
-/** Trae el listado completo en bloques: en pantalla no hay paginacion. */
+/** Trae como máximo los 200 primeros resultados del filtro. */
 async function cargar() {
   loading.value = true
   error.value = null
-  const acumulado: VentaResumen[] = []
   try {
-    let pagina = 1
-    let totalServidor = 0
-    for (;;) {
-      const data = await listarVentas({
-        empresa: filtros.value.empresa ? normalizarEmpresaCodigo(filtros.value.empresa) : undefined,
-        fechaDesde: filtros.value.fechaDesde || undefined,
-        fechaHasta: filtros.value.fechaHasta || undefined,
-        puesto: filtros.value.puesto || undefined,
-        vendedor: filtros.value.vendedor || undefined,
-        cliente: filtros.value.cliente || undefined,
-        estado: filtros.value.estado || undefined,
-        claseDocumento: filtros.value.claseDocumento || undefined,
-        page: pagina,
-        pageSize: BLOQUE_CARGA,
-      })
-      acumulado.push(...data.items)
-      totalServidor = data.total
-      items.value = acumulado.slice()
-      total.value = totalServidor
-      if (
-        data.items.length === 0 ||
-        acumulado.length >= totalServidor ||
-        acumulado.length >= MAX_FILAS
-      ) {
-        break
-      }
-      pagina += 1
-    }
+    const data = await listarVentas({
+      empresa: filtros.value.empresa ? normalizarEmpresaCodigo(filtros.value.empresa) : undefined,
+      fechaDesde: filtros.value.fechaDesde || undefined,
+      fechaHasta: filtros.value.fechaHasta || undefined,
+      puesto: filtros.value.puesto || undefined,
+      vendedor: filtros.value.vendedor || undefined,
+      cliente: filtros.value.cliente || undefined,
+      estado: filtros.value.estado || undefined,
+      claseDocumento: filtros.value.claseDocumento || undefined,
+      page: 1,
+      pageSize: BLOQUE_CARGA,
+    })
+    items.value = data.items
+    total.value = data.total
     busqueda.setResultado({
       filtros: { ...filtros.value },
-      items: acumulado,
-      total: totalServidor,
+      items: data.items,
+      total: data.total,
     })
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudieron cargar las ventas')
@@ -223,13 +208,17 @@ const filtrosColumnaActivos = computed(() =>
 )
 
 const hayFiltroColumna = computed(() => filtrosColumnaActivos.value.length > 0)
+const { orden, clicarColumna, ordenarFilas } = useOrdenLista()
 
 const itemsFiltrados = computed(() => {
   const activos = filtrosColumnaActivos.value
-  if (activos.length === 0) return items.value
-  return items.value.filter((v) =>
-    activos.every((f) => normalizar(textoColumna[f.key](v)).includes(f.valor))
-  )
+  const base =
+    activos.length === 0
+      ? items.value
+      : items.value.filter((v) =>
+          activos.every((f) => normalizar(textoColumna[f.key](v)).includes(f.valor))
+        )
+  return ordenarFilas(base, (row, key) => textoColumna[key as ColumnaKey](row), ['fecha'])
 })
 
 /** Solo se montan las primeras filas; el resto entra al bajar el scroll. */
@@ -441,13 +430,26 @@ onActivated(() => {
         <p v-if="loading" class="msg">
           Cargando ventas… {{ items.length }}<template v-if="total"> de {{ total }}</template>
         </p>
+        <p v-else-if="total > items.length" class="msg">
+          Mostrando {{ items.length }} de {{ total }}. Ajuste el filtro para acotar.
+        </p>
 
         <div ref="gridEl" class="grid-wrap" @scroll.passive="onScrollGrid">
           <table>
             <thead>
               <tr>
                 <th v-for="c in COLUMNAS" :key="c.key" :class="c.clase">
-                  <span class="th-titulo" :class="{ num: c.key === 'importe' }">{{ c.label }}</span>
+                  <span
+                    class="th-titulo"
+                    :class="{ num: c.key === 'importe' }"
+                    :title="`Ordenar por ${c.label}`"
+                    @click="clicarColumna(c.key)"
+                  >
+                    {{ c.label }}
+                    <span v-if="orden?.key === c.key" class="marca-orden">{{
+                      orden.dir === 'asc' ? '▲' : '▼'
+                    }}</span>
+                  </span>
                   <input
                     v-model="filtrosColumna[c.key]"
                     type="search"
@@ -495,7 +497,7 @@ onActivated(() => {
             {{ itemsFiltrados.length === 1 ? 'venta' : 'ventas' }}
             <template v-if="hayFiltroColumna">de {{ items.length }} cargadas</template>
             <template v-else-if="total > items.length">
-              (de {{ total }}; límite {{ MAX_FILAS }})
+              (de {{ total }}; mostrando {{ GRID_LIMITE_INICIAL }})
             </template>
           </span>
           <button
@@ -711,6 +713,16 @@ th {
   padding: 0 0.2rem 0.15rem;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: pointer;
+  user-select: none;
+}
+.th-titulo:hover {
+  color: #1d4ed8;
+}
+.marca-orden {
+  font-size: 0.65rem;
+  margin-left: 0.15rem;
+  color: #1d4ed8;
 }
 .th-titulo.num {
   text-align: right;

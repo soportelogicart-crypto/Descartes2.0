@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import type { AgrupacionFila } from '@/config/agrupaciones-columns'
 import type { ColumnFilter } from '@/composables/useGridColumnFilters'
+import { useOrdenCabeceraGrid } from '@/composables/useOrdenCabeceraGrid'
 import GridFilterRow from '@/components/common/GridFilterRow.vue'
 
 const FILTER_COLUMNS = [{ key: 'codigo' }, { key: 'descripcion' }]
@@ -22,19 +23,22 @@ const emit = defineEmits<{
 }>()
 
 const filterMenuOpen = ref(false)
+const { orden, clicar, filasOrdenadas, indiceOriginal, esSeleccionada, indicador } =
+  useOrdenCabeceraGrid(
+    () => props.filas,
+    () => props.indiceSeleccionado
+  )
 
-function indicadorFila(index: number, fila: AgrupacionFila) {
-  if (fila._nuevo) return '*'
-  if (index === props.indiceSeleccionado) return '>'
-  return ''
+function onSeleccionar(fila: AgrupacionFila) {
+  emit('seleccionar', indiceOriginal(fila))
 }
 
-function onRowDblClick(index: number, fila: AgrupacionFila) {
+function onRowDblClick(fila: AgrupacionFila) {
   if (fila._nuevo) {
     emit('nuevo')
     return
   }
-  emit('abrir', index)
+  emit('abrir', indiceOriginal(fila))
 }
 </script>
 
@@ -45,8 +49,18 @@ function onRowDblClick(index: number, fila: AgrupacionFila) {
       <thead>
         <tr>
           <th class="col-ind"></th>
-          <th class="col-codigo">Codigo</th>
-          <th class="col-descripcion">Descripcion</th>
+          <th class="col-codigo ordenable" title="Ordenar por codigo" @click="clicar('codigo')">
+            Codigo
+            <span v-if="orden?.key === 'codigo'" class="marca-orden">{{
+              orden.dir === 'asc' ? '▲' : '▼'
+            }}</span>
+          </th>
+          <th class="col-descripcion ordenable" title="Ordenar por descripcion" @click="clicar('descripcion')">
+            Descripcion
+            <span v-if="orden?.key === 'descripcion'" class="marca-orden">{{
+              orden.dir === 'asc' ? '▲' : '▼'
+            }}</span>
+          </th>
         </tr>
         <GridFilterRow
           v-if="filterableKeys?.length"
@@ -59,13 +73,13 @@ function onRowDblClick(index: number, fila: AgrupacionFila) {
       </thead>
       <tbody>
         <tr
-          v-for="(fila, index) in filas"
+          v-for="fila in filasOrdenadas"
           :key="fila._nuevo ? 'nuevo' : fila.codigo"
-          :class="{ selected: index === indiceSeleccionado, nuevo: fila._nuevo }"
-          @click="emit('seleccionar', index)"
-          @dblclick="onRowDblClick(index, fila)"
+          :class="{ selected: esSeleccionada(fila), nuevo: fila._nuevo }"
+          @click="onSeleccionar(fila)"
+          @dblclick="onRowDblClick(fila)"
         >
-          <td class="col-ind">{{ indicadorFila(index, fila) }}</td>
+          <td class="col-ind">{{ indicador(fila) }}</td>
           <template v-if="fila._nuevo">
             <td class="celda-vacia">&nbsp;</td>
             <td class="celda-vacia">&nbsp;</td>

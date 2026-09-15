@@ -10,6 +10,8 @@ const props = defineProps<{
   documentos: FacturaImpresionPreparada[]
   impresoraNombre: string
   imprimiendo?: boolean
+  cargando?: boolean
+  errorCarga?: string | null
   /** Render fuera de pantalla: la previsualización vive en una ventana aparte. */
   oculto?: boolean
 }>()
@@ -35,10 +37,13 @@ watch(
 
 /** HTML de todos los folios (una página por factura) para impresión. */
 async function capturarHtmlFolio(): Promise<string> {
-  await nextTick()
-  const folios = Array.from(
-    previewHost.value?.querySelectorAll('.folio') ?? []
-  ) as HTMLElement[]
+  let folios: HTMLElement[] = []
+  for (let i = 0; i < 25; i++) {
+    await nextTick()
+    folios = Array.from(previewHost.value?.querySelectorAll('.folio') ?? []) as HTMLElement[]
+    if (folios.length > 0) break
+    await new Promise((r) => setTimeout(r, 40))
+  }
   if (folios.length === 0) return ''
 
   const paginas = folios
@@ -97,14 +102,18 @@ defineExpose({ capturarHtmlFolio })
       </div>
     </div>
 
-    <div v-else-if="open" class="overlay" @click.self="emit('cerrar')">
+    <div v-else-if="open" class="overlay">
       <div class="modal-a4" role="dialog" aria-modal="true">
         <header>
           <h3>
             {{
-              documentos.length === 1
-                ? documentos[0].titulo
-                : `Impresión de ${documentos.length} facturas`
+              cargando
+                ? 'Preparando factura…'
+                : documentos.length === 1
+                  ? documentos[0].titulo
+                  : documentos.length > 1
+                    ? `Impresión de ${documentos.length} facturas`
+                    : 'Factura'
             }}
           </h3>
           <p class="meta">
@@ -113,7 +122,9 @@ defineExpose({ capturarHtmlFolio })
           </p>
         </header>
         <div ref="previewHost" class="preview-scroll">
-          <template v-if="documentos.length">
+          <p v-if="cargando" class="warn">Cargando el documento…</p>
+          <p v-else-if="errorCarga" class="warn">{{ errorCarga }}</p>
+          <template v-else-if="documentos.length">
             <div v-for="doc in documentos" :key="`${doc.clave.empresa}|${doc.clave.facturaTipo}|${doc.clave.factura}`" class="doc">
               <p v-if="documentos.length > 1" class="doc-titulo">{{ doc.titulo }}</p>
               <DocumentoPlantillaPreview :plantilla="doc.plantilla" :datos="doc.datos" />
@@ -126,7 +137,7 @@ defineExpose({ capturarHtmlFolio })
           <button
             type="button"
             class="primary"
-            :disabled="!puedeImprimir || imprimiendo"
+            :disabled="!puedeImprimir || imprimiendo || cargando || !!errorCarga"
             @click="emit('imprimir')"
           >
             {{ imprimiendo ? 'Imprimiendo…' : 'Imprimir' }}
@@ -150,7 +161,7 @@ defineExpose({ capturarHtmlFolio })
 .overlay {
   position: fixed;
   inset: 0;
-  z-index: 80;
+  z-index: 200;
   background: rgba(15, 23, 42, 0.45);
   display: flex;
   align-items: center;

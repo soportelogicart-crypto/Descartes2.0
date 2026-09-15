@@ -470,6 +470,7 @@ async function onUltimo() {
             v-model:filters="filtros"
             :readonly="soloLecturaGrid"
             :loading="loading"
+            :total-servidor="total"
             @seleccionar="seleccionar"
             @actualizar="actualizarFila"
             @abrir="abrirFicha"

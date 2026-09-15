@@ -157,7 +157,7 @@ defineEmits<{
         :disabled="loading || puedeFinalizar === false"
         :title="
           puedeFinalizar === false
-            ? 'Indique cliente, vendedor y al menos un artículo'
+            ? 'Indique cliente y al menos un artículo'
             : 'Grabar la venta (se asigna el número) y tipificarla'
         "
         @click="$emit('finalizar')"
