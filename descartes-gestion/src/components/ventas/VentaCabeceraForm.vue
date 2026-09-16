@@ -27,6 +27,8 @@ const props = defineProps<{
   esNuevo?: boolean
   pasoAlta?: 'tienda' | 'cliente' | 'listo'
   compacto?: boolean
+  /** Venta nueva en paso artículos: cabecera plegada y resumen compacto. */
+  modoLineas?: boolean
   /** Ticket cerrado: solo cliente / NIF / razón / contacto. */
   soloDatosFiscales?: boolean
   vendedorNombre?: string
@@ -66,6 +68,31 @@ const puedeElegirDireccion = computed(
 )
 const mostrarCliente = computed(() => !props.esNuevo || props.pasoAlta !== 'tienda')
 const mostrarDetalles = computed(() => !props.esNuevo || props.pasoAlta !== 'tienda')
+
+const cabeceraExpandida = ref(false)
+
+const textoResumenCabecera = computed(() => {
+  const f = props.modelValue
+  const tiendaCod = String(f.empresa ?? '').trim()
+  const tiendaLbl =
+    tiendas.value.find((t) => t.value === tiendaCod)?.label ?? (tiendaCod || '—')
+  const cli = String(f.cliente ?? '').trim()
+  const cliTxt = cli || 'Venta rápida'
+  const razon = String(f.razonSocial ?? '').trim()
+  const vend = String(f.vendedor ?? '').trim()
+  const vendNom = String(props.vendedorNombre ?? '').trim()
+  const parts = [tiendaLbl, `Cliente ${cliTxt}`]
+  if (razon) parts.push(razon)
+  if (vend) parts.push(vendNom ? `Vend. ${vend} · ${vendNom}` : `Vend. ${vend}`)
+  return parts.join(' · ')
+})
+
+watch(
+  () => props.modoLineas,
+  (activo) => {
+    if (activo) cabeceraExpandida.value = false
+  }
+)
 
 function patch<K extends keyof VentaDetalle>(key: K, value: VentaDetalle[K]) {
   emit('update:modelValue', { ...props.modelValue, [key]: value })
@@ -284,9 +311,19 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="tab-form">
+  <div class="tab-form" :class="{ 'tab-form-modo-lineas': modoLineas }">
     <div class="doc-row">
-      <section class="section grow">
+      <div
+        v-if="modoLineas && !cabeceraExpandida"
+        class="cabecera-resumen section grow"
+        :title="textoResumenCabecera"
+      >
+        <span class="cabecera-resumen-text">{{ textoResumenCabecera }}</span>
+        <button type="button" class="btn-cabecera-toggle" @click="cabeceraExpandida = true">
+          Ver cabecera
+        </button>
+      </div>
+      <section v-show="!modoLineas || cabeceraExpandida" class="section grow">
         <h3>Documento</h3>
         <div class="fields cols-6">
           <label class="field field-tienda">
@@ -364,6 +401,13 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <div v-if="modoLineas && cabeceraExpandida" class="cabecera-plegar-fila">
+      <button type="button" class="btn-cabecera-toggle" @click="cabeceraExpandida = false">
+        Plegar cabecera
+      </button>
+    </div>
+
+    <div v-show="!modoLineas || cabeceraExpandida" class="cabecera-cuerpo">
     <div v-if="mostrarCliente" class="section-row paired single">
       <section class="section">
         <h3>Cliente</h3>
@@ -690,6 +734,7 @@ onUnmounted(() => {
       </div>
     </section>
     </details>
+    </div>
 
     <EntidadBuscarModal
       :open="buscarFpagoOpen"
@@ -712,6 +757,51 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+}
+
+.tab-form-modo-lineas .doc-row {
+  align-items: stretch;
+}
+
+.cabecera-resumen {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  min-width: 0;
+}
+
+.cabecera-resumen-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #1e293b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-cabecera-toggle {
+  flex-shrink: 0;
+  border: 1px solid #64748b;
+  border-radius: 4px;
+  background: #fff;
+  color: #1e40af;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.25rem 0.55rem;
+  cursor: pointer;
+}
+
+.btn-cabecera-toggle:hover {
+  background: #eff6ff;
+  border-color: #2563eb;
+}
+
+.cabecera-plegar-fila {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .doc-row {

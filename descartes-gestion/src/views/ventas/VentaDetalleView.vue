@@ -1986,10 +1986,6 @@ onMounted(() => {
         </button>
       </div>
     </div>
-    <p v-else-if="esNuevo && pasoAlta === 'listo'" class="ok">
-      Introduzca los artículos: código + <strong>Intro</strong> (o F4 / … para buscar). La venta se graba
-      al pulsar <strong>Guardar y finalizar</strong>, que es cuando recibe el número de albarán.
-    </p>
     <p v-if="esNuevo && pasoAlta === 'listo' && !tieneVendedor" class="error">
       Falta vendedor. Si el puesto no lo tiene asignado, selecciónelo en cabecera (F4) o al pulsar
       Guardar y finalizar.
@@ -2030,6 +2026,7 @@ onMounted(() => {
         :es-nuevo="esNuevo"
         :paso-alta="pasoAlta"
         :compacto="modoEdicion && !esPlantillaConsulta"
+        :modo-lineas="esNuevo && pasoAlta === 'listo'"
         :vendedor-nombre="vendedorNombre"
         :totales="totales"
         @buscar-vendedor="abrirBuscarVendedor"
