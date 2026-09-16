@@ -1,12 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { api } from '@/api/client'
 import type { ArticuloField, ArticuloSection } from '@/config/articulos-tabs'
 import DecimalInput from '@/components/common/DecimalInput.vue'
-import EntidadBuscarModal, {
-  type EntidadBuscarResultado,
-} from '@/components/common/EntidadBuscarModal.vue'
-import ToolIcon from '@/components/common/ToolIcon.vue'
+import EntidadLookupField from '@/components/common/EntidadLookupField.vue'
+import { entidadDesdeOptionsSource } from '@/config/entidad-lookup'
 
 const props = defineProps<{
   sections: ArticuloSection[]
@@ -23,43 +21,9 @@ const emit = defineEmits<{
 
 type FamiliaOpt = { value: string; macroFamiliaCodigo: string }
 
-type LookupEntidad =
-  | 'macrofamilias'
-  | 'familias'
-  | 'subfamilias'
-  | 'secciones'
-  | 'subsecciones'
-  | 'agrupaciones'
-  | 'proveedores'
-  | 'impuestos'
-
-const LOOKUP_ENTIDAD: Record<NonNullable<ArticuloField['optionsSource']>, LookupEntidad> = {
-  macrofamilias: 'macrofamilias',
-  familias: 'familias',
-  subfamilias: 'subfamilias',
-  secciones: 'secciones',
-  subsecciones: 'subsecciones',
-  agrupaciones: 'agrupaciones',
-  proveedores: 'proveedores',
-  impuestos: 'impuestos',
-}
-
-const LOOKUP_TITULO: Record<LookupEntidad, string> = {
-  macrofamilias: 'Buscar macrofamilia',
-  familias: 'Buscar familia',
-  subfamilias: 'Buscar subfamilia',
-  secciones: 'Buscar seccion',
-  subsecciones: 'Buscar subseccion',
-  agrupaciones: 'Buscar agrupacion',
-  proveedores: 'Buscar proveedor',
-  impuestos: 'Buscar impuesto',
-}
-
 const familiasAll = ref<FamiliaOpt[]>([])
 
 const allFields = computed(() => props.sections.flatMap((s) => s.fields))
-
-const camposLookup = computed(() => allFields.value.filter((f) => isLookupField(f)))
 
 onMounted(async () => {
   const needsFamilias = allFields.value.some(
@@ -79,93 +43,9 @@ onMounted(async () => {
   }
 })
 
-function isLookupField(field: ArticuloField) {
-  return Boolean(field.lookup && field.optionsSource)
-}
-
-function lookupEntidad(field: ArticuloField): LookupEntidad | null {
-  if (!field.optionsSource || !field.lookup) return null
-  return LOOKUP_ENTIDAD[field.optionsSource] ?? null
-}
-
-const lookupOpen = ref(false)
-const lookupInicial = ref('')
-const lookupFieldKey = ref('')
-const lookupEtiquetas = ref<Record<string, string>>({})
-
-const lookupEntidadActiva = computed<LookupEntidad>(() => {
-  const field = allFields.value.find((f) => f.key === lookupFieldKey.value)
-  return (field && lookupEntidad(field)) || 'familias'
-})
-
-const lookupTituloActivo = computed(() => LOOKUP_TITULO[lookupEntidadActiva.value])
-
-function codigoCampo(value: unknown): string {
-  return String(value ?? '').trim()
-}
-
-function parseCodigoLookup(raw: string): string {
-  const s = raw.trim()
-  if (!s) return ''
-  const sep = s.indexOf(' - ')
-  return sep >= 0 ? s.slice(0, sep).trim() : s
-}
-
-async function resolverEtiquetaLookup(field: ArticuloField, codigoRaw: string) {
-  const entidad = lookupEntidad(field)
-  const codigo = codigoRaw.trim()
-  if (!entidad || !codigo) {
-    lookupEtiquetas.value = { ...lookupEtiquetas.value, [field.key]: '' }
-    return
-  }
-  try {
-    const { data } = await api.get(`/api/mantenimiento/${entidad}/${encodeURIComponent(codigo)}`)
-    const etiqueta =
-      entidad === 'proveedores'
-        ? String(data?.nombre ?? '').trim()
-        : String(data?.descripcion ?? '').trim()
-    lookupEtiquetas.value = { ...lookupEtiquetas.value, [field.key]: etiqueta }
-  } catch {
-    lookupEtiquetas.value = { ...lookupEtiquetas.value, [field.key]: '' }
-  }
-}
-
-watch(
-  () =>
-    camposLookup.value
-      .map((f) => `${f.key}\u0000${codigoCampo(props.modelValue[f.key])}`)
-      .join('\u0001'),
-  () => {
-    for (const field of camposLookup.value) {
-      void resolverEtiquetaLookup(field, codigoCampo(props.modelValue[field.key]))
-    }
-  },
-  { immediate: true }
-)
-
-function abrirLookup(field: ArticuloField) {
-  if (props.readonly || isReadOnly(field)) return
-  lookupFieldKey.value = field.key
-  lookupInicial.value = codigoCampo(props.modelValue[field.key])
-  lookupOpen.value = true
-}
-
-function onLookupSeleccionado(sel: EntidadBuscarResultado) {
-  lookupOpen.value = false
-  const field = allFields.value.find((f) => f.key === lookupFieldKey.value)
-  if (!field) return
-  updateField(field.key, sel.codigo.trim() || null)
-  lookupEtiquetas.value = { ...lookupEtiquetas.value, [field.key]: sel.etiqueta }
-}
-
-function onLookupInput(field: ArticuloField, raw: string) {
-  updateField(field.key, parseCodigoLookup(raw) || null)
-}
-
-function onLookupBlur(field: ArticuloField, raw: string) {
-  const codigo = parseCodigoLookup(raw)
-  updateField(field.key, codigo || null)
-  void resolverEtiquetaLookup(field, codigo)
+function lookupEntidadField(field: ArticuloField) {
+  if (!field.lookup) return null
+  return entidadDesdeOptionsSource(field.optionsSource)
 }
 
 function updateField(key: string, value: unknown) {
@@ -290,7 +170,7 @@ function sectionZoneClass(section: ArticuloSection) {
             field.type === 'number' ? 'field-number' : '',
             section.hideFieldLabels ? 'field-no-label' : '',
             isInvalid(field) ? 'field-invalid' : '',
-            isLookupField(field) ? 'field-lookup' : '',
+            lookupEntidadField(field) ? 'field-lookup' : '',
             anchoInput(field, section) ? 'field-ancho-fijo' : '',
           ]"
           :style="fieldStyle(field, section)"
@@ -317,37 +197,17 @@ function sectionZoneClass(section: ArticuloSection) {
             @change="updateField(field.key, ($event.target as HTMLInputElement).checked)"
           />
 
-          <div v-else-if="isLookupField(field)" class="lookup-row">
-            <div
-              class="lookup-combo"
-              :class="{ 'lookup-combo-readonly': isReadOnly(field) }"
-              :title="lookupEtiquetas[field.key] || undefined"
-            >
-              <input
-                type="text"
-                class="lookup-codigo"
-                :data-field-key="field.key"
-                :value="codigoCampo(modelValue[field.key])"
-                :readonly="isReadOnly(field)"
-                :maxlength="field.maxLength"
-                :aria-label="`${field.label} codigo`"
-                @input="onLookupInput(field, ($event.target as HTMLInputElement).value)"
-                @blur="onLookupBlur(field, ($event.target as HTMLInputElement).value)"
-              />
-              <span class="lookup-nombre-inner" aria-hidden="true">{{
-                lookupEtiquetas[field.key] || ''
-              }}</span>
-            </div>
-            <button
-              type="button"
-              class="btn-lupa"
-              :title="LOOKUP_TITULO[lookupEntidad(field)!]"
-              :disabled="isReadOnly(field)"
-              @click="abrirLookup(field)"
-            >
-              <ToolIcon name="buscar" />
-            </button>
-          </div>
+          <EntidadLookupField
+            v-else-if="lookupEntidadField(field)"
+            variant="combo"
+            :model-value="(modelValue[field.key] as string | number | null) ?? null"
+            :entidad="lookupEntidadField(field)!"
+            :readonly="isReadOnly(field)"
+            :max-length="field.maxLength"
+            :field-key="field.key"
+            empty-as-null
+            @update:model-value="updateField(field.key, $event)"
+          />
 
           <input
             v-else-if="field.type === 'date'"
@@ -378,15 +238,6 @@ function sectionZoneClass(section: ArticuloSection) {
         </div>
       </div>
     </fieldset>
-
-    <EntidadBuscarModal
-      :open="lookupOpen"
-      :entidad="lookupEntidadActiva"
-      :titulo="lookupTituloActivo"
-      :busqueda-inicial="lookupInicial"
-      @seleccionar="onLookupSeleccionado"
-      @cerrar="lookupOpen = false"
-    />
   </div>
 </template>
 
@@ -498,14 +349,14 @@ function sectionZoneClass(section: ArticuloSection) {
 .field-invalid input,
 .field-invalid select,
 .field-invalid textarea,
-.field-invalid .lookup-combo {
+.field-invalid :deep(.lookup-combo) {
   border-color: #dc2626 !important;
   background: #fef2f2 !important;
   box-shadow: 0 0 0 1px #fecaca;
 }
 
-.field-invalid .lookup-combo .lookup-codigo,
-.field-invalid .lookup-combo .lookup-nombre-inner {
+.field-invalid :deep(.lookup-combo .lookup-codigo),
+.field-invalid :deep(.lookup-combo .lookup-nombre-inner) {
   background: transparent !important;
   box-shadow: none;
 }
@@ -634,122 +485,12 @@ select:disabled {
   grid-template-columns: var(--label-col, minmax(5.2rem, auto)) minmax(0, 1fr);
 }
 
-.section-clasificacion {
-  /* Misma columna de codigo en todos los campos de la seccion. */
-  --lookup-codigo-w: 3.35rem;
-}
-
 .section-clasificacion .field-inline {
   grid-template-columns: var(--label-col, minmax(6.25rem, auto)) minmax(0, 1fr);
 }
 
-.lookup-row {
-  display: flex;
-  align-items: stretch;
-  gap: 0.25rem;
-  min-width: 0;
-  width: 100%;
-  position: relative;
-  z-index: 1;
-}
-
-.lookup-combo {
-  flex: 1;
-  min-width: 0;
-  display: grid;
-  grid-template-columns: var(--lookup-codigo-w, 3.35rem) minmax(0, 1fr);
-  align-items: center;
-  min-height: 1.625rem;
-  border: 1px solid #94a3b8;
-  border-radius: 3px;
-  background: #fff;
-  overflow: hidden;
-  box-sizing: border-box;
-}
-
-.lookup-combo-readonly {
-  background: #e8edf2;
-}
-
-.lookup-combo .lookup-codigo {
-  width: 100% !important;
-  max-width: none !important;
-  min-width: 0;
-  height: 100%;
-  min-height: 1.625rem;
-  padding: 0.15rem 0.25rem;
-  border: none !important;
-  border-right: 1px solid #cbd5e1 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  font-size: 0.75rem;
-  line-height: 1.25;
-  box-sizing: border-box;
-  text-align: center;
-}
-
-.lookup-combo-readonly .lookup-codigo {
-  color: #475569;
-}
-
-.lookup-nombre-inner {
-  min-width: 0;
-  min-height: 1.625rem;
-  display: block;
-  padding: 0.2rem 0.45rem;
-  font-size: 0.8125rem;
-  line-height: 1.3;
-  color: #1e293b;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  pointer-events: none;
-  user-select: none;
-  background: transparent;
-}
-
-.lookup-combo-readonly .lookup-nombre-inner {
-  color: #475569;
-}
-
-.lookup-combo:has(.lookup-nombre-inner:not(:empty)) .lookup-nombre-inner {
-  background: #fff;
-}
-
-.lookup-combo-readonly:has(.lookup-nombre-inner:not(:empty)) .lookup-nombre-inner {
-  background: #e8edf2;
-}
-
-.btn-lupa {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.7rem;
-  min-height: 1.625rem;
-  flex-shrink: 0;
-  padding: 0;
-  border: 1px solid #94a3b8;
-  border-radius: 3px;
-  background: #fff;
-  cursor: pointer;
-  box-sizing: border-box;
-}
-
-.btn-lupa :deep(.tool-icon) {
-  width: 0.95rem;
-  height: 0.95rem;
-}
-
-.btn-lupa:hover:not(:disabled) {
-  background: #e0f2fe;
-  border-color: #38bdf8;
-}
-
-.btn-lupa:disabled {
-  background: #f1f5f9;
-  cursor: default;
-  opacity: 0.65;
+.section-clasificacion :deep(.lookup-combo) {
+  --lookup-codigo-w: 3.35rem;
 }
 
 @media (max-width: 720px) {
