@@ -3,7 +3,6 @@ import type {
   DocumentoPreviewLinea,
 } from '@/config/documentos-plantillas/preview-datos'
 import type { VentaDetalle } from '@/types/ventas'
-import { LOGICART_EMBLEMA_URL } from '@/assets/logicart-emblema'
 
 function fmtFecha(iso: string | null | undefined): string {
   if (!iso) return ''
@@ -44,6 +43,8 @@ export function ventaAPreviewDatos(
     literalVale?: string
     /** Empresas.SW_IVA: los precios de línea ya llevan IVA. */
     preciosIvaIncluido?: boolean
+    /** Data URL del logo de la carpeta `logos`. Vacío = no se imprime. */
+    emblemaUrl?: string
   } = {}
 ): DocumentoPreviewDatos {
   const ivas = (venta.importesIva ?? []).map((x) => ({
@@ -112,7 +113,7 @@ export function ventaAPreviewDatos(
       telefono: extras.empresaTelefono || '',
       fax: '',
       email: extras.empresaEmail || '',
-      emblemaUrl: LOGICART_EMBLEMA_URL,
+      emblemaUrl: extras.emblemaUrl || '',
       banco: '',
       iban: '',
       swift: '',

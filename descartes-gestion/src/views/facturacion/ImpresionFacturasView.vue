@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
-import { listarFacturasImpresion, marcarFacturasImpresas } from '@/api/facturacion'
+import { listarFacturasImpresion, marcarFacturasImpresas, enviarFacturasImpresionEmail } from '@/api/facturacion'
 import { api } from '@/api/client'
 import type { FacturaImpresionItem } from '@/types/facturacion'
 import { extractApiError } from '@/composables/useMantenimiento'
@@ -8,12 +8,10 @@ import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
 import { GRID_LIMITE_INICIAL } from '@/composables/useGridPageSize'
 import {
   imprimirFacturasPreparadas,
-  imprimirFacturasTicket,
   prepararImpresionFacturas,
   type PrepImpresionFacturas,
 } from '@/composables/useImpresionFacturaDocumento'
 import { useVentanaPreviewDocumento } from '@/composables/previewDocumentoVentana'
-import ElegirFormatoImpresionModal from '@/components/common/ElegirFormatoImpresionModal.vue'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import EntidadBuscarModal, {
@@ -40,7 +38,9 @@ const tiendas = ref<Opt[]>([])
 const actividades = ref<Opt[]>([])
 const a4Open = ref(false)
 const a4Prep = ref<PrepImpresionFacturas | null>(null)
-const formatoImpresionOpen = ref(false)
+const preguntaEmailOpen = ref(false)
+const emailOpen = ref(false)
+const emailDestino = ref('')
 const a4ModalRef = ref<{ capturarHtmlFolio: () => Promise<string> } | null>(null)
 const buscarClienteOpen = ref(false)
 const buscarClienteCampo = ref<CampoCliente>('desde')
@@ -299,63 +299,39 @@ function onImprimir() {
   }
   error.value = null
   mensaje.value = null
-  formatoImpresionOpen.value = true
+  preguntaEmailOpen.value = true
 }
 
-async function onElegirFormatoImpresion(formato: 'ticket' | 'a4') {
-  formatoImpresionOpen.value = false
-  if (formato === 'ticket') {
-    await imprimirTickets()
-    return
-  }
-  await previsualizar()
+function soloImprimir() {
+  preguntaEmailOpen.value = false
+  void previsualizar()
 }
 
-async function imprimirTickets() {
-  if (!puede('facturacion-impresion', 'ver')) {
-    error.value = 'Sin permiso'
-    return
-  }
+function quererEmail() {
+  preguntaEmailOpen.value = false
   const sel = seleccionados.value
-  if (sel.length === 0) {
-    error.value = 'Seleccione al menos una factura'
-    return
-  }
-  saving.value = true
+  emailDestino.value = ''
+  emailOpen.value = true
   error.value = null
-  mensaje.value = null
-  try {
-    const claves = sel.map((r) => ({
-      empresa: r.empresa,
-      facturaTipo: r.facturaTipo,
-      factura: r.factura,
-    }))
-    mensaje.value = await imprimirFacturasTicket(claves, {
-      puestoCodigo: String(puestoContexto.puestoCodigo ?? ''),
-    })
-    if (form.value.marcarImpresa) {
-      await marcarFacturasImpresas({ facturas: claves })
-      await buscar()
-    }
-  } catch (e: unknown) {
-    error.value = extractApiError(e, 'No se pudo imprimir el ticket')
-  } finally {
-    saving.value = false
+  if (sel.length === 0) {
+    emailOpen.value = false
+    error.value = 'Seleccione al menos una factura'
   }
 }
 
-/** Previsualiza con la plantilla del diseñador activa en una ventana aparte. */
-async function previsualizar() {
-  if (!puede('facturacion-impresion', 'ver')) {
-    error.value = 'Sin permiso'
-    return
-  }
+function resumenEmail(r: { enviadas: number; omitidas: number; errores: number }) {
+  const partes = [`Enviadas ${r.enviadas}`]
+  if (r.omitidas) partes.push(`${r.omitidas} sin email`)
+  if (r.errores) partes.push(`${r.errores} error(es)`)
+  return partes.join(' · ')
+}
+
+async function confirmarEmail() {
   const sel = seleccionados.value
-  if (sel.length === 0) {
-    error.value = 'Seleccione al menos una factura'
-    return
-  }
-  // La ventana debe abrirse dentro del gesto del clic o el navegador la bloquea.
+  if (sel.length === 0) return
+  const email = emailDestino.value.trim()
+  error.value = null
+  // Abrir la ventana de preview en este clic (si no, el navegador la bloquea).
   const abierta = preview.abrir(
     sel.length === 1 ? `Factura ${sel[0].facturaTipo}-${sel[0].factura}` : 'Facturas'
   )
@@ -363,10 +339,61 @@ async function previsualizar() {
     error.value = 'Permita las ventanas emergentes para previsualizar la factura'
     return
   }
+  emailOpen.value = false
+  saving.value = true
+  mensaje.value = null
+  try {
+    const result = await enviarFacturasImpresionEmail({
+      facturas: sel.map((r) => ({
+        empresa: r.empresa,
+        facturaTipo: r.facturaTipo,
+        factura: r.factura,
+        cliente: r.cliente,
+      })),
+      email: email || undefined,
+    })
+    mensaje.value = resumenEmail(result)
+    if (result.errores > 0) {
+      error.value = result.detalles.find((d) => d.estado === 'error')?.motivo ?? 'Error al enviar'
+    }
+  } catch (e: unknown) {
+    preview.cerrar()
+    error.value = extractApiError(e, 'No se pudieron enviar las facturas')
+    saving.value = false
+    return
+  }
+  await cargarPreview(true)
+}
+
+/** Previsualiza con la plantilla del diseñador activa en una ventana aparte. */
+async function previsualizar() {
+  await cargarPreview(false)
+}
+
+async function cargarPreview(ventanaYaAbierta: boolean) {
+  if (!puede('facturacion-impresion', 'ver')) {
+    error.value = 'Sin permiso'
+    if (ventanaYaAbierta) preview.cerrar()
+    return
+  }
+  const sel = seleccionados.value
+  if (sel.length === 0) {
+    error.value = 'Seleccione al menos una factura'
+    if (ventanaYaAbierta) preview.cerrar()
+    return
+  }
+  if (!ventanaYaAbierta) {
+    const abierta = preview.abrir(
+      sel.length === 1 ? `Factura ${sel[0].facturaTipo}-${sel[0].factura}` : 'Facturas'
+    )
+    if (!abierta) {
+      error.value = 'Permita las ventanas emergentes para previsualizar la factura'
+      return
+    }
+    mensaje.value = null
+  }
 
   saving.value = true
-  error.value = null
-  mensaje.value = null
   try {
     a4Prep.value = await prepararImpresionFacturas(
       sel.map((r) => ({
@@ -461,8 +488,9 @@ onMounted(async () => {
       <div class="toolbar-title">
         <h2>Impresión de facturas</h2>
         <p class="hint">
-          Diferidas = crédito (Estado G). Imprimir pregunta ticket o factura A4 (plantilla del
-          diseñador del puesto). Solo se marcan como impresas si activa «Marcar al imprimir».
+          Diferidas = crédito (Estado G). Imprimir abre la factura A4 (plantilla del
+          diseñador del puesto) y pregunta si quiere enviarla por email. Solo se marcan
+          como impresas si activa «Marcar al imprimir».
         </p>
       </div>
       <div class="toolbar-actions">
@@ -722,12 +750,70 @@ onMounted(async () => {
       @cerrar="buscarClienteOpen = false"
     />
 
-    <ElegirFormatoImpresionModal
-      :open="formatoImpresionOpen"
-      etiqueta-a4="Factura"
-      @elegir="onElegirFormatoImpresion"
-      @cancelar="formatoImpresionOpen = false"
-    />
+    <Teleport to="body">
+      <div
+        v-if="preguntaEmailOpen"
+        class="modal-backdrop"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Enviar factura por email"
+        @click.self="preguntaEmailOpen = false"
+      >
+        <div class="modal">
+          <h3>Imprimir factura</h3>
+          <p class="modal-hint">
+            {{
+              seleccionados.length === 1
+                ? '¿Quiere enviar esta factura por email?'
+                : `¿Quiere enviar estas ${seleccionados.length} facturas por email?`
+            }}
+          </p>
+          <div class="modal-actions">
+            <button type="button" class="btn" @click="preguntaEmailOpen = false">Cancelar</button>
+            <button type="button" class="btn" @click="soloImprimir">No, solo imprimir</button>
+            <button type="button" class="btn primary" @click="quererEmail">Sí, enviar</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div
+        v-if="emailOpen"
+        class="modal-backdrop"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Enviar facturas por email"
+        @click.self="emailOpen = false"
+      >
+        <div class="modal">
+          <h3>Enviar por email</h3>
+          <p v-if="seleccionados.length === 1" class="modal-hint">
+            Factura {{ seleccionados[0].facturaTipo }}/{{ seleccionados[0].factura }}
+            · {{ seleccionados[0].razonSocial || seleccionados[0].cliente }}
+          </p>
+          <p v-else class="modal-hint">
+            {{ seleccionados.length }} facturas. Si deja el email vacío, cada una irá al correo del cliente.
+          </p>
+          <label>
+            <span>{{
+              seleccionados.length === 1
+                ? 'Dirección de email (vacío = la del cliente)'
+                : 'Email (opcional, el mismo para todas)'
+            }}</span>
+            <input v-model="emailDestino" type="email" placeholder="cliente@ejemplo.com" />
+          </label>
+          <div class="modal-actions">
+            <button type="button" class="btn" :disabled="saving" @click="emailOpen = false">
+              Cancelar
+            </button>
+            <button type="button" class="btn primary" :disabled="saving" @click="confirmarEmail">
+              {{ saving ? 'Enviando…' : 'Enviar e imprimir' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <FacturasImpresionA4Modal
       ref="a4ModalRef"
@@ -1083,5 +1169,54 @@ tbody tr:hover {
 }
 tbody tr.checked {
   background: #eff6ff;
+}
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.45);
+}
+.modal {
+  width: min(24rem, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 1rem 1.1rem;
+  background: #fff;
+  border: 1px solid #94a3b8;
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.2);
+}
+.modal h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: #0f172a;
+}
+.modal-hint {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #334155;
+}
+.modal label {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+  color: #334155;
+}
+.modal input[type='email'] {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+  font: inherit;
+}
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.4rem;
 }
 </style>

@@ -1,0 +1,18 @@
+Logos de albarán y factura
+==========================
+
+Ponga aquí el logo de cada tienda. El nombre del fichero es el código de
+tienda (el mismo que en Mantenimiento → Tiendas).
+
+Ejemplos:
+  1.png
+  6.jpg
+
+Formatos: png, jpg, jpeg, gif, webp, bmp.
+
+Si no hay fichero para esa tienda, el documento se imprime sin logo
+(no se usa un logo genérico).
+
+También se mira esta misma carpeta en:
+  %APPDATA%\descartes-electron\logos
+(por si el programa no se ejecuta desde este repositorio).

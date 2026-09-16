@@ -46,6 +46,7 @@ function blockStyle(b: PlantillaBloque) {
   if (Number.isFinite(rotate) && rotate !== 0) {
     style.transform = `rotate(${rotate}deg)`
     style.transformOrigin = String(b.props?.transformOrigin ?? 'top left')
+    style.overflow = 'visible'
   }
   const accent = String(b.props?.accentColor ?? '').trim()
   if (accent) style['--block-accent'] = accent
@@ -58,7 +59,14 @@ function blockStyle(b: PlantillaBloque) {
 
 /** Tamaño de fuente en px de pantalla a partir de fontSizeMm (impresión real en mm). */
 function textStyle(b: PlantillaBloque): Record<string, string> {
-  if (b.type !== 'campo' && b.type !== 'texto' && b.type !== 'titulo-documento') return {}
+  if (
+    b.type !== 'campo' &&
+    b.type !== 'texto' &&
+    b.type !== 'titulo-documento' &&
+    b.type !== 'pie'
+  ) {
+    return {}
+  }
   const mm = Number(b.props?.fontSizeMm)
   const hasMm = Number.isFinite(mm) && mm > 0
   if (!hasMm && !esEtiqueta.value) return {}
@@ -225,6 +233,11 @@ function rotuloQr(b: PlantillaBloque): string {
   return String(b.props?.rotulo ?? 'VERI*FACTU')
 }
 
+function ocultarImgRota(ev: Event) {
+  const el = ev.target as HTMLImageElement | null
+  if (el) el.style.display = 'none'
+}
+
 function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
   const color = String(b.props?.color ?? '')
   return color ? { '--sep-color': color } : undefined
@@ -253,19 +266,34 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
         >
           <!-- Emblema -->
           <template v-if="b.type === 'emblema'">
-            <img class="emblema" :src="str('empresa.emblemaUrl')" alt="Emblema" />
+            <img
+              v-if="str('empresa.emblemaUrl')"
+              class="emblema"
+              :src="str('empresa.emblemaUrl')"
+              alt=""
+              @error="ocultarImgRota"
+            />
           </template>
 
           <!-- Empresa -->
           <template v-else-if="b.type === 'empresa-cabecera'">
             <div class="empresa">
-              <strong>{{ str('empresa.nombre') }}</strong>
-              <span>{{ str('empresa.direccion') }}</span>
-              <span>{{ str('empresa.cp') }} {{ str('empresa.poblacion') }}</span>
-              <span>{{ str('empresa.provincia') }}</span>
-              <span>Tel. {{ str('empresa.telefono') }}</span>
-              <span v-if="tieneBind(b, 'empresa.fax')">Fax {{ str('empresa.fax') }}</span>
-              <span v-if="str('empresa.email')">{{ str('empresa.email') }}</span>
+              <img
+                v-if="str('empresa.emblemaUrl')"
+                class="empresa-logo"
+                :src="str('empresa.emblemaUrl')"
+                alt=""
+                @error="ocultarImgRota"
+              />
+              <div class="empresa-datos">
+                <strong>{{ str('empresa.nombre') }}</strong>
+                <span>{{ str('empresa.direccion') }}</span>
+                <span>{{ str('empresa.cp') }} {{ str('empresa.poblacion') }}</span>
+                <span>{{ str('empresa.provincia') }}</span>
+                <span>Tel. {{ str('empresa.telefono') }}</span>
+                <span v-if="tieneBind(b, 'empresa.fax')">Fax {{ str('empresa.fax') }}</span>
+                <span v-if="str('empresa.email')">{{ str('empresa.email') }}</span>
+              </div>
             </div>
           </template>
 
@@ -434,7 +462,7 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
 
           <!-- Pie -->
           <template v-else-if="b.type === 'pie'">
-            <div class="pie">
+            <div class="pie" :class="{ 'fs-mm': !!textStyle(b).fontSize }" :style="textStyle(b)">
               {{ textoPie(b) }}
             </div>
           </template>

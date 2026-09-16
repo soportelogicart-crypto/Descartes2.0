@@ -1,5 +1,4 @@
 import type { DocumentoPreviewDatos } from '@/config/documentos-plantillas/preview-datos'
-import { EMBLEMA_PLACEHOLDER } from '@/config/documentos-plantillas/preview-datos'
 import type { MetaImpresionA4Puesto } from '@/composables/impresionDocumentoA4Shared'
 import type { AlbaranCompraDetalle, PedidoProveedorDetalle } from '@/types/compras'
 
@@ -30,6 +29,8 @@ type ExtrasEmpresa = {
   literalFacturaContado?: string
   literalPresupuesto?: string
   literalVale?: string
+  /** Data URL del logo de la carpeta `logos`. Vacío = no se imprime. */
+  emblemaUrl?: string
 }
 
 function basePreview(
@@ -67,7 +68,7 @@ function basePreview(
       telefono: extras.empresaTelefono || '',
       fax: '',
       email: extras.empresaEmail || '',
-      emblemaUrl: EMBLEMA_PLACEHOLDER,
+      emblemaUrl: extras.emblemaUrl || '',
       banco: '',
       iban: '',
       swift: '',

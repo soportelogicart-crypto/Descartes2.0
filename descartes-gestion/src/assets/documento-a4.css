@@ -35,6 +35,29 @@
   height: 100%;
 }
 
+.empresa {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.45rem;
+}
+
+.empresa-logo {
+  flex: 0 0 auto;
+  max-height: 100%;
+  max-width: 42%;
+  width: auto;
+  object-fit: contain;
+  object-position: left top;
+}
+
+.empresa-datos {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+  flex: 1;
+}
+
 .campo-right {
   align-items: flex-end;
   text-align: right;

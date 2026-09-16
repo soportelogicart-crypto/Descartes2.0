@@ -1,5 +1,4 @@
 import type { DocumentoTipo } from './types'
-import { LOGICART_EMBLEMA_URL } from '@/assets/logicart-emblema'
 
 export type DocumentoPreviewLinea = {
   articulo: string
@@ -121,7 +120,7 @@ const baseEmpresa = {
   telefono: '977652547',
   fax: '',
   email: 'administracio@gruplarasa.cat',
-  emblemaUrl: LOGICART_EMBLEMA_URL,
+  emblemaUrl: '',
   banco: 'La Caixa 2100-0106-70-0200347786',
   iban: 'ES10 2100 0106 7002 0034 7786',
   swift: 'CAIXESBBXXX',

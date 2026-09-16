@@ -140,6 +140,16 @@ final class FacturacionController
 
   public function emailManual(Request $request, Response $response): Response
   {
+    return $this->emailFacturas($request, $response, 'facturacion.manual.email');
+  }
+
+  public function emailImpresion(Request $request, Response $response): Response
+  {
+    return $this->emailFacturas($request, $response, 'facturacion.impresion.email');
+  }
+
+  private function emailFacturas(Request $request, Response $response, string $action): Response
+  {
     $body = (array) json_decode((string) $request->getBody(), true);
     $facturas = $body['facturas'] ?? [];
     if (!is_array($facturas) || $facturas === []) {
@@ -148,9 +158,9 @@ final class FacturacionController
     $email = trim((string) ($body['email'] ?? ''));
     try {
       $result = $this->facturaEmail->enviarSolicitadas($facturas, $email !== '' ? $email : null);
-      $this->logger->info('Facturas enviadas por email (manual)', [
+      $this->logger->info('Facturas enviadas por email', [
         'source' => 'api',
-        'action' => 'facturacion.manual.email',
+        'action' => $action,
         'enviadas' => $result['enviadas'] ?? 0,
         'errores' => $result['errores'] ?? 0,
       ]);

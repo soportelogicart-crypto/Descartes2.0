@@ -54,6 +54,8 @@ return function (App $app): void {
       ->add($setPermiso('facturacion-impresion', 'ver'));
     $group->post('/impresion/marcar', [FacturacionController::class, 'marcarImpresion'])
       ->add($setPermiso('facturacion-impresion', 'crear'));
+    $group->post('/impresion/email', [FacturacionController::class, 'emailImpresion'])
+      ->add($setPermiso('facturacion-impresion', 'crear'));
     $group->get(
       '/impresion/documento/{empresa}/{facturaTipo}/{factura}',
       [FacturacionController::class, 'documentoImpresion']

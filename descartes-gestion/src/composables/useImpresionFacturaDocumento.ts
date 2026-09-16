@@ -8,7 +8,7 @@ import {
   cargarPlantillasEmpresa,
   cargarPuesto,
   cargarTienda,
-  extrasEmpresaDesdeTienda,
+  extrasEmpresaParaDocumento,
   imprimirA4Html,
   resolverNombreImpresoraDoc,
   resolverPlantilla,
@@ -35,7 +35,7 @@ export type PrepImpresionFacturas = {
 }
 
 type ContextoEmpresa = {
-  extras: ReturnType<typeof extrasEmpresaDesdeTienda>
+  extras: Awaited<ReturnType<typeof extrasEmpresaParaDocumento>>
   plantillas: Awaited<ReturnType<typeof cargarPlantillasEmpresa>>
 }
 
@@ -79,7 +79,7 @@ export async function prepararImpresionFacturas(
         cargarTienda(empresa).catch(() => ({}) as Record<string, unknown>),
         cargarPlantillasEmpresa(empresa).catch(() => []),
       ])
-      contexto = { extras: extrasEmpresaDesdeTienda(tienda, puesto), plantillas }
+      contexto = { extras: await extrasEmpresaParaDocumento(tienda, puesto, empresa), plantillas }
       contextos.set(empresa, contexto)
     }
 
@@ -137,7 +137,7 @@ export async function imprimirFacturasTicket(
         cargarTienda(empresa),
         cargarPlantillasEmpresa(empresa),
       ])
-      contexto = { extras: extrasEmpresaDesdeTienda(tienda, puesto), plantillas }
+      contexto = { extras: await extrasEmpresaParaDocumento(tienda, puesto, empresa), plantillas }
       contextos.set(empresa, contexto)
     }
 

@@ -1,4 +1,3 @@
-import { LOGICART_EMBLEMA_URL } from '@/assets/logicart-emblema'
 import type {
   DocumentoPreviewDatos,
   DocumentoPreviewLinea,
@@ -60,6 +59,8 @@ export function facturaAPreviewDatos(
     literalVale?: string
     /** Empresas.SW_IVA: los precios de línea ya llevan IVA. */
     preciosIvaIncluido?: boolean
+    /** Data URL del logo de la carpeta `logos`. Vacío = no se imprime. */
+    emblemaUrl?: string
   } = {}
 ): DocumentoPreviewDatos {
   const nLit = Math.max(0, Math.min(9, Number(extras.literalTicket ?? 3) || 0))
@@ -111,7 +112,7 @@ export function facturaAPreviewDatos(
       telefono: extras.empresaTelefono || '',
       fax: '',
       email: extras.empresaEmail || '',
-      emblemaUrl: LOGICART_EMBLEMA_URL,
+      emblemaUrl: extras.emblemaUrl || '',
       banco: '',
       iban: '',
       swift: '',

@@ -5,7 +5,7 @@
 import {
   cargarPuesto,
   cargarTienda,
-  extrasEmpresaDesdeTienda,
+  extrasEmpresaParaDocumento,
   imprimirA4Html,
   prepararImpresionA4Puesto,
   type PrepImpresionA4,
@@ -33,7 +33,7 @@ export async function prepararImpresionAlbaranCompra(
     cargarPuesto(puestoCodigo),
     cargarTienda(empresa),
   ])
-  const extras = extrasEmpresaDesdeTienda(tienda, puesto)
+  const extras = await extrasEmpresaParaDocumento(tienda, puesto, empresa)
   const meta = metaImpresionAlbaranCompra()
   const datos = albaranCompraAPreviewDatos(alb, extras)
   return prepararImpresionA4Puesto({
@@ -58,7 +58,7 @@ export async function prepararImpresionPedidoProveedor(
     cargarPuesto(puestoCodigo),
     cargarTienda(empresa),
   ])
-  const extras = extrasEmpresaDesdeTienda(tienda, puesto)
+  const extras = await extrasEmpresaParaDocumento(tienda, puesto, empresa)
   const meta = metaImpresionPedidoCompra()
   const datos = pedidoProveedorAPreviewDatos(ped, extras)
   return prepararImpresionA4Puesto({

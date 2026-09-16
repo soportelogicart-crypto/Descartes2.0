@@ -9,7 +9,7 @@ import {
   cargarPlantillasEmpresa,
   cargarPuesto,
   cargarTienda,
-  extrasEmpresaDesdeTienda,
+  extrasEmpresaParaDocumento,
   imprimirA4Html,
   literalesDesdePuesto,
   resolverNombreImpresoraDoc,
@@ -61,7 +61,11 @@ export async function prepararOImprimirVenta(
     cargarPlantillasEmpresa(String(venta.empresa || '').trim()),
   ])
 
-  const extras = extrasEmpresaDesdeTienda(tienda, puesto)
+  const extras = await extrasEmpresaParaDocumento(
+    tienda,
+    puesto,
+    String(venta.empresa || '').trim()
+  )
   const datos = ventaAPreviewDatos(venta, {
     ...extras,
     literalesPuesto: literalesDesdePuesto(puesto),

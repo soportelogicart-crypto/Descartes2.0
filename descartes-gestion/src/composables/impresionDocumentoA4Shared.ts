@@ -1,5 +1,6 @@
 import { api } from '@/api/client'
 import { getDescartesBridge } from '@/bridge/electron'
+import { cargarEmblemaEmpresa } from '@/composables/cargarEmblemaEmpresa'
 import {
   documentosPlantillas,
   type DocumentoPlantilla,
@@ -70,20 +71,32 @@ export function literalesDesdePuesto(puesto: PuestoDoc): string[] {
   return out
 }
 
+/** Si la plantilla guardada es el esqueleto base de una versión anterior, usa la del código. */
+function plantillaVigente(guardada: DocumentoPlantilla, tipo: string): DocumentoPlantilla {
+  const skeleton = esqueletoPorTipo(tipo)
+  if (!skeleton) return guardada
+  const mismaBase = !guardada.id || guardada.id === skeleton.id
+  const vGuardada = Number(guardada.version || 0)
+  const vBase = Number(skeleton.version || 0)
+  if (mismaBase && vGuardada < vBase) return skeleton
+  return guardada
+}
+
 export function resolverPlantilla(
   lista: { tipo: string; nombre: string; activa: boolean; definicion: DocumentoPlantilla }[],
   nombrePreferido: string,
   tipoPreferido: string
 ): DocumentoPlantilla {
+  const aplicar = (p: DocumentoPlantilla) => plantillaVigente(p, tipoPreferido)
   const nombre = nombrePreferido.trim()
   if (nombre) {
     const byName = lista.find((p) => p.nombre.trim().toLowerCase() === nombre.toLowerCase())
-    if (byName) return byName.definicion
+    if (byName) return aplicar(byName.definicion)
   }
   const activa = lista.find((p) => p.tipo === tipoPreferido && p.activa)
-  if (activa) return activa.definicion
+  if (activa) return aplicar(activa.definicion)
   const anyTipo = lista.find((p) => p.tipo === tipoPreferido)
-  if (anyTipo) return anyTipo.definicion
+  if (anyTipo) return aplicar(anyTipo.definicion)
   return esqueletoPorTipo(tipoPreferido) || esqueletoPorTipo('albaran')!
 }
 
@@ -139,6 +152,7 @@ export function extrasEmpresaDesdeTienda(
   literalPresupuesto: string
   literalVale: string
   preciosIvaIncluido: boolean
+  emblemaUrl: string
 } {
   return {
     empresaNombre: String(tienda.nombre ?? tienda.nombreFiscal ?? ''),
@@ -157,6 +171,20 @@ export function extrasEmpresaDesdeTienda(
     literalVale: String(tienda.literalVale ?? ''),
     // Empresas.SW_IVA: precios de línea con IVA incluido.
     preciosIvaIncluido: Boolean(tienda.swIva),
+    emblemaUrl: '',
+  }
+}
+
+/** Datos de tienda/puesto más el logo de la carpeta `logos`, si existe. */
+export async function extrasEmpresaParaDocumento(
+  tienda: Record<string, unknown>,
+  puesto: PuestoDoc,
+  empresaCodigo: string
+): Promise<ReturnType<typeof extrasEmpresaDesdeTienda> & { emblemaUrl: string }> {
+  const extras = extrasEmpresaDesdeTienda(tienda, puesto)
+  return {
+    ...extras,
+    emblemaUrl: await cargarEmblemaEmpresa(empresaCodigo || String(tienda.codigo ?? '')),
   }
 }
 

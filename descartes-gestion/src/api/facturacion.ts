@@ -131,6 +131,14 @@ export async function enviarFacturasManualEmail(body: {
   return data
 }
 
+export async function enviarFacturasImpresionEmail(body: {
+  facturas: Array<{ empresa: string; facturaTipo: string; factura: number; cliente?: string }>
+  email?: string
+}): Promise<FacturasEmailResultado> {
+  const { data } = await api.post<FacturasEmailResultado>('/api/facturacion/impresion/email', body)
+  return data
+}
+
 export async function marcarFacturasImpresas(
   body: FacturasImpresionPdfBody
 ): Promise<{ marcadas: number }> {

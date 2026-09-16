@@ -71,6 +71,8 @@ export type DescartesBridge = {
   }) => Promise<DescartesEquipoConfig>
   clearEquipoConfig: () => Promise<DescartesEquipoConfig>
   getHostname: () => Promise<string>
+  /** Logo de la tienda desde la carpeta local `logos`. Vacío si no hay fichero. */
+  logoEmpresa: (codigo: string) => Promise<{ ok: boolean; dataUrl?: string; message?: string }>
   listPrinters: () => Promise<{
     ok: boolean
     stub?: boolean

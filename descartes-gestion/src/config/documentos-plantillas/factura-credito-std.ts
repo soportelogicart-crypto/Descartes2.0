@@ -16,7 +16,7 @@ export const plantillaFacturaCredito: DocumentoPlantilla = {
   tipo: 'factura-credito',
   nombre: 'Factura crédito / diferida',
   descripcion: 'Plantilla Logicart según FRA PROVES.pdf (factura diferida legacy)',
-  version: 3,
+  version: 4,
   page: {
     format: 'A4',
     orientation: 'portrait',
@@ -223,17 +223,18 @@ export const plantillaFacturaCredito: DocumentoPlantilla = {
     },
     {
       id: 'legal',
-      type: 'texto',
+      type: 'pie',
       x: 6,
       y: 284,
-      w: 178,
+      w: 160,
       h: 5,
-      label:
-        'Logicart,S.L. NIF : B-58292129. Inscrita en el Registro Mercantil de Barcelona, Folio 38, Tomo 8.483, Libro 7.733, Sección 2ª, Hoja 98.801',
+      bind: ['empresa.razonSocial', 'empresa.nif', 'tienda.literalFacturaDiferida'],
       props: {
         fontSizeMm: 1.55,
         rotateDeg: -90,
         transformOrigin: 'top left',
+        plantilla:
+          '{{empresa.razonSocial}} NIF : {{empresa.nif}}. {{tienda.literalFacturaDiferida}}',
       },
     },
     {
