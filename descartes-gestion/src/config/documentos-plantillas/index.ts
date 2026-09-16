@@ -3,6 +3,7 @@ import { plantillaAlbaran } from './albaran-std'
 import { plantillaFacturaContado } from './factura-contado-std'
 import {
   plantillaFacturaCredito,
+  plantillaFacturaCreditoSinVerifactu,
   plantillaFacturaRectificativa,
 } from './factura-credito-std'
 import { plantillaTicket } from './ticket-std'
@@ -46,6 +47,7 @@ export const documentosPlantillas: DocumentoPlantilla[] = [
   plantillaAlbaran,
   plantillaFacturaContado,
   plantillaFacturaCredito,
+  plantillaFacturaCreditoSinVerifactu,
   plantillaFacturaRectificativa,
   plantillaTicket,
   plantillaEtiqueta,

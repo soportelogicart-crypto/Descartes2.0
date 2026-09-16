@@ -193,7 +193,11 @@ export function useDocumentoPlantillasEditables() {
   }
 
   /** Sustituye la definición por el esqueleto base del mismo tipo (sigue en servidor al guardar). */
-  function esqueletoPorTipo(tipo: string): DocumentoPlantilla | undefined {
+  function esqueletoPorTipo(tipo: string, plantillaId?: string): DocumentoPlantilla | undefined {
+    if (plantillaId) {
+      const byId = documentosPlantillas.find((p) => p.id === plantillaId)
+      if (byId) return clonePlantilla(byId)
+    }
     const base = documentosPlantillas.find((p) => p.tipo === tipo)
     return base ? clonePlantilla(base) : undefined
   }

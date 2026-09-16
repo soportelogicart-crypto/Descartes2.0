@@ -12,7 +12,7 @@ export const plantillaFacturaContado: DocumentoPlantilla = {
   tipo: 'factura-contado',
   nombre: 'Factura contado',
   descripcion: 'Plantilla base según factura de contado legacy',
-  version: 4,
+  version: 5,
   page: {
     format: 'A4',
     orientation: 'portrait',
@@ -20,11 +20,22 @@ export const plantillaFacturaContado: DocumentoPlantilla = {
   },
   blocks: [
     {
-      id: 'empresa',
-      type: 'empresa-cabecera',
+      id: 'qr-tributario',
+      type: 'qr-verifactu',
       x: 10,
       y: 10,
-      w: 100,
+      w: 28,
+      h: 28,
+      label: 'QR tributario',
+      bind: ['verifactu.qrPayload', 'verifactu.url'],
+      props: { quietZoneMm: 1, errorCorrection: 'M', rotulo: 'VERI*FACTU' },
+    },
+    {
+      id: 'empresa',
+      type: 'empresa-cabecera',
+      x: 40,
+      y: 10,
+      w: 76,
       h: 28,
       bind: [
         'empresa.nombre',

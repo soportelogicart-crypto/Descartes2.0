@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { api } from '@/api/client'
 import {
   fechaParaInput,
@@ -9,10 +9,8 @@ import {
 } from '@/config/clientes-tabs'
 import { lookupCodigoPostal } from '@/composables/useCodigoPostalLookup'
 import DecimalInput from '@/components/common/DecimalInput.vue'
-import EntidadBuscarModal, {
-  type EntidadBuscarResultado,
-} from '@/components/common/EntidadBuscarModal.vue'
-import ToolIcon from '@/components/common/ToolIcon.vue'
+import EntidadLookupField from '@/components/common/EntidadLookupField.vue'
+import { entidadDesdeOptionsSource } from '@/config/entidad-lookup'
 
 const props = defineProps<{
   sections: ClienteSection[]
@@ -28,18 +26,6 @@ const emit = defineEmits<{
   'update:modelValue': [value: Record<string, unknown>]
   'blur-field': [key: string, value: string]
 }>()
-
-const tiendasOptions = ref<{ value: string; label: string }[]>([])
-const actividadesOptions = ref<{ value: string; label: string }[]>([])
-const formasPagoOptions = ref<{ value: string; label: string }[]>([])
-const almacenesOptions = ref<{ value: string; label: string }[]>([])
-const trabajadoresOptions = ref<{ value: string; label: string }[]>([])
-
-const tiendasCargadas = ref(false)
-const actividadesCargadas = ref(false)
-const formasPagoCargadas = ref(false)
-const almacenesCargados = ref(false)
-const trabajadoresCargados = ref(false)
 
 const seccionesVisibles = computed(() => {
   if (!props.ocultarCabecera) return props.sections
@@ -71,130 +57,8 @@ const filasSecciones = computed(() => {
   return rows
 })
 
-const allFields = computed(() => props.sections.flatMap((s) => s.fields))
-
-async function cargarLookups() {
-  const needs = {
-    tiendas: allFields.value.some((f) => f.optionsSource === 'tiendas'),
-    actividades: allFields.value.some((f) => f.optionsSource === 'actividades'),
-    formasPago: allFields.value.some((f) => f.optionsSource === 'formas-pago'),
-    almacenes: allFields.value.some((f) => f.optionsSource === 'almacenes'),
-    trabajadores: allFields.value.some((f) => f.optionsSource === 'trabajadores'),
-  }
-
-  const jobs: Promise<void>[] = []
-
-  if (needs.tiendas && !tiendasCargadas.value) {
-    jobs.push(
-      api
-        .get('/api/mantenimiento/tiendas', { params: { activo: true, pageSize: 200 } })
-        .then(({ data }) => {
-          tiendasOptions.value = (data.items ?? []).map((t: { codigo: string; nombre: string }) => ({
-            value: String(t.codigo).trim(),
-            label: `${String(t.codigo).trim()} - ${t.nombre}`,
-          }))
-          tiendasCargadas.value = true
-        })
-        .catch(() => {
-          tiendasOptions.value = []
-        })
-    )
-  }
-  if (needs.actividades && !actividadesCargadas.value) {
-    jobs.push(
-      api
-        .get('/api/mantenimiento/actividades', { params: { pageSize: 500 } })
-        .then(({ data }) => {
-          actividadesOptions.value = (data.items ?? []).map(
-            (a: { codigo: string; descripcion: string }) => ({
-              value: String(a.codigo).trim(),
-              label: `${String(a.codigo).trim()} - ${a.descripcion}`,
-            })
-          )
-          actividadesCargadas.value = true
-        })
-        .catch(() => {
-          actividadesOptions.value = []
-        })
-    )
-  }
-  if (needs.formasPago && !formasPagoCargadas.value) {
-    jobs.push(
-      api
-        .get('/api/mantenimiento/formas-pago', { params: { activo: true, pageSize: 500 } })
-        .then(({ data }) => {
-          formasPagoOptions.value = (data.items ?? []).map(
-            (f: { codigo: string; descripcion: string }) => ({
-              value: String(f.codigo).trim(),
-              label: `${String(f.codigo).trim()} - ${f.descripcion}`,
-            })
-          )
-          formasPagoCargadas.value = true
-        })
-        .catch(() => {
-          formasPagoOptions.value = []
-        })
-    )
-  }
-  if (needs.almacenes && !almacenesCargados.value) {
-    jobs.push(
-      api
-        .get('/api/mantenimiento/almacenes', { params: { activo: true, pageSize: 100 } })
-        .then(({ data }) => {
-          almacenesOptions.value = (data.items ?? []).map(
-            (a: { codigo: number; descripcion: string }) => ({
-              value: String(a.codigo),
-              label: `${a.codigo} - ${a.descripcion}`,
-            })
-          )
-          almacenesCargados.value = true
-        })
-        .catch(() => {
-          almacenesOptions.value = []
-        })
-    )
-  }
-  if (needs.trabajadores && !trabajadoresCargados.value) {
-    jobs.push(
-      api
-        .get('/api/mantenimiento/trabajadores', { params: { activo: true, pageSize: 500 } })
-        .then(({ data }) => {
-          trabajadoresOptions.value = (data.items ?? []).map(
-            (t: { codigo: string; nombre: string }) => ({
-              value: String(t.codigo).trim(),
-              label: `${String(t.codigo).trim()} - ${t.nombre}`,
-            })
-          )
-          trabajadoresCargados.value = true
-        })
-        .catch(() => {
-          trabajadoresOptions.value = []
-        })
-    )
-  }
-
-  await Promise.all(jobs)
-}
-
-onMounted(() => {
-  void cargarLookups()
-})
-
-watch(
-  () => props.sections,
-  () => {
-    void cargarLookups()
-  }
-)
-
 function optionsFor(field: ClienteField) {
-  if (field.options) return field.options
-  if (field.optionsSource === 'tiendas') return tiendasOptions.value
-  if (field.optionsSource === 'actividades') return actividadesOptions.value
-  if (field.optionsSource === 'formas-pago') return formasPagoOptions.value
-  if (field.optionsSource === 'almacenes') return almacenesOptions.value
-  if (field.optionsSource === 'trabajadores') return trabajadoresOptions.value
-  return []
+  return field.options ?? []
 }
 
 function isReadOnly(field: ClienteField) {
@@ -304,94 +168,6 @@ function colsClass(section: ClienteSection) {
   return `cols-${section.columns ?? 4}`
 }
 
-type LookupEntidad = 'clientes' | 'cuentas'
-
-const LOOKUPS: Record<LookupEntidad, { titulo: string; etiqueta: (data: any) => string }> = {
-  clientes: {
-    titulo: 'Cliente de facturación',
-    etiqueta: (data) => String(data?.nombre ?? data?.razonSocial ?? '').trim(),
-  },
-  cuentas: {
-    titulo: 'Cuenta contable',
-    etiqueta: (data) => String(data?.descripcion ?? '').trim(),
-  },
-}
-
-const lookupOpen = ref(false)
-const lookupInicial = ref('')
-const lookupFieldKey = ref('')
-/** Descripcion resuelta de cada campo con lupa, indexada por clave de campo. */
-const lookupEtiquetas = ref<Record<string, string>>({})
-
-function lookupEntidad(field: ClienteField): LookupEntidad | null {
-  if (!field.lookup) return null
-  const fuente = field.optionsSource
-  return fuente === 'clientes' || fuente === 'cuentas' ? fuente : null
-}
-
-function lookupTitulo(field: ClienteField) {
-  const entidad = lookupEntidad(field)
-  return entidad ? LOOKUPS[entidad].titulo : ''
-}
-
-const camposLookup = computed(() =>
-  allFields.value.filter((f) => lookupEntidad(f) !== null)
-)
-
-const lookupEntidadActiva = computed<LookupEntidad>(() => {
-  const field = allFields.value.find((f) => f.key === lookupFieldKey.value)
-  return (field && lookupEntidad(field)) || 'clientes'
-})
-
-const lookupTituloActivo = computed(() => LOOKUPS[lookupEntidadActiva.value].titulo)
-
-async function resolverEtiqueta(field: ClienteField, codigo: string) {
-  const entidad = lookupEntidad(field)
-  const c = codigo.trim()
-  if (!entidad || !c) {
-    lookupEtiquetas.value = { ...lookupEtiquetas.value, [field.key]: '' }
-    return
-  }
-  try {
-    const { data } = await api.get(`/api/mantenimiento/${entidad}/${encodeURIComponent(c)}`)
-    lookupEtiquetas.value = {
-      ...lookupEtiquetas.value,
-      [field.key]: LOOKUPS[entidad].etiqueta(data),
-    }
-  } catch {
-    lookupEtiquetas.value = { ...lookupEtiquetas.value, [field.key]: '' }
-  }
-}
-
-watch(
-  () => camposLookup.value.map((f) => String(props.modelValue[f.key] ?? '')).join('\u0000'),
-  () => {
-    for (const field of camposLookup.value) {
-      void resolverEtiqueta(field, String(props.modelValue[field.key] ?? ''))
-    }
-  },
-  { immediate: true }
-)
-
-function abrirLookup(field: ClienteField) {
-  if (props.readonly) return
-  lookupFieldKey.value = field.key
-  lookupInicial.value = String(props.modelValue[field.key] ?? '').trim()
-  lookupOpen.value = true
-}
-
-function onLookupSeleccionado(sel: EntidadBuscarResultado) {
-  lookupOpen.value = false
-  const field = allFields.value.find((f) => f.key === lookupFieldKey.value)
-  if (!field) return
-  setValue(field, sel.codigo)
-  lookupEtiquetas.value = { ...lookupEtiquetas.value, [field.key]: sel.etiqueta }
-}
-
-async function onLookupBlur(field: ClienteField, raw: string) {
-  setValue(field, raw.trim())
-  await resolverEtiqueta(field, raw)
-}
 </script>
 
 <template>
@@ -434,8 +210,19 @@ async function onLookupBlur(field: ClienteField, raw: string) {
                 <span v-if="field.required" class="req">*</span>
               </span>
 
+              <EntidadLookupField
+                v-if="entidadDesdeOptionsSource(field.optionsSource)"
+                :model-value="(modelValue[field.key] as string | number | null) ?? null"
+                :entidad="entidadDesdeOptionsSource(field.optionsSource)!"
+                :readonly="isReadOnly(field)"
+                :max-length="field.maxLength"
+                :field-key="field.key"
+                empty-as-null
+                @update:model-value="setValue(field, $event)"
+              />
+
               <select
-                v-if="field.type === 'select'"
+                v-else-if="field.type === 'select'"
                 :data-field-key="field.key"
                 :value="String(modelValue[field.key] ?? '')"
                 :disabled="isReadOnly(field)"
@@ -474,31 +261,6 @@ async function onLookupBlur(field: ClienteField, raw: string) {
                 @update:model-value="setValue(field, $event)"
               />
 
-              <div v-else-if="lookupEntidad(field)" class="lookup-row">
-                <input
-                  :data-field-key="field.key"
-                  type="text"
-                  class="lookup-codigo"
-                  :value="String(modelValue[field.key] ?? '')"
-                  :readonly="isReadOnly(field)"
-                  :maxlength="field.maxLength"
-                  @input="setValue(field, ($event.target as HTMLInputElement).value)"
-                  @blur="onLookupBlur(field, ($event.target as HTMLInputElement).value)"
-                />
-                <button
-                  type="button"
-                  class="btn-lupa"
-                  :title="`Buscar ${lookupTitulo(field).toLowerCase()}`"
-                  :disabled="isReadOnly(field)"
-                  @click="abrirLookup(field)"
-                >
-                  <ToolIcon name="buscar" />
-                </button>
-                <span v-if="lookupEtiquetas[field.key]" class="lookup-nombre">{{
-                  lookupEtiquetas[field.key]
-                }}</span>
-              </div>
-
               <input
                 v-else
                 :data-field-key="field.key"
@@ -521,14 +283,6 @@ async function onLookupBlur(field: ClienteField, raw: string) {
     </div>
   </div>
 
-  <EntidadBuscarModal
-    :open="lookupOpen"
-    :entidad="lookupEntidadActiva"
-    :titulo="lookupTituloActivo"
-    :busqueda-inicial="lookupInicial"
-    @seleccionar="onLookupSeleccionado"
-    @cerrar="lookupOpen = false"
-  />
 </template>
 
 <style scoped>

@@ -32,6 +32,7 @@ $containerBuilder->addDefinitions([
   \Descartes\Api\Controllers\TpvController::class => DI\autowire(),
   \Descartes\Api\Controllers\EtiquetasController::class => DI\autowire(),
   \Descartes\Api\Controllers\FacturacionController::class => DI\autowire(),
+  \Descartes\Api\Controllers\ListadosController::class => DI\autowire(),
   \Descartes\Api\Controllers\LogController::class => DI\autowire(),
   \Descartes\Api\Middleware\PermissionMiddleware::class => DI\autowire(),
 ]);
@@ -58,6 +59,7 @@ $app->setBasePath($basePath);
 (require __DIR__ . '/../src/Routes/tpv.php')($app);
 (require __DIR__ . '/../src/Routes/etiquetas.php')($app);
 (require __DIR__ . '/../src/Routes/facturacion.php')($app);
+(require __DIR__ . '/../src/Routes/listados.php')($app);
 
 $app->options('/{routes:.+}', function ($request, $response) {
   return $response;

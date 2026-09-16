@@ -1,17 +1,16 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import { obtenerAbcVentas } from '@/api/ventas'
 import type { AbcVentasFiltros, AbcVentasResponse, AbcVentasTotales } from '@/types/ventas'
 import { extractApiError } from '@/composables/useMantenimiento'
 import {
   abcFiltroSoloDigitos,
-  abcVentasFiltrosRangos,
+  abcVentasRangoTienda,
+  abcVentasRangosAvanzados,
   type AbcFiltroRango,
 } from '@/config/abc-ventas-filtros'
-
-function hoyIso() {
-  return new Date().toISOString().slice(0, 10)
-}
+import { hoyIso, rangoAtajoFecha, type AtajoFechaId } from '@/composables/useAtajosFecha'
 
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -60,9 +59,16 @@ const form = ref<AbcVentasFiltros>({
   tipoDescuentoHasta: '',
 })
 
-const rangos = abcVentasFiltrosRangos
+const rangoTienda = abcVentasRangoTienda
+const rangosAvanzados = abcVentasRangosAvanzados
 
 const ivaLabel = computed(() => (data.value?.iva === 'excluido' ? 'Sin Iva' : 'Con Iva'))
+
+function aplicarAtajoFecha(id: AtajoFechaId) {
+  const r = rangoAtajoFecha(id)
+  form.value.fechaDesde = r.desde
+  form.value.fechaHasta = r.hasta
+}
 
 function fmtFecha(iso: string) {
   const [y, m, d] = iso.split('-')
@@ -127,7 +133,11 @@ function rowTotales(t: AbcVentasTotales) {
 <template>
   <section class="abc-page">
     <div class="toolbar no-print">
-      <h2>Listado ABC Ventas</h2>
+      <div>
+        <RouterLink to="/listados" class="volver-listados">← Listados</RouterLink>
+        <h2>ABC de ventas</h2>
+        <p class="toolbar-hint">Periodo y tienda arriba; el resto de rangos legacy en «Más filtros».</p>
+      </div>
       <div class="toolbar-actions">
         <button type="button" class="btn primary" :disabled="loading" @click="generar">
           {{ loading ? 'Generando...' : 'Generar' }}
@@ -137,104 +147,156 @@ function rowTotales(t: AbcVentasTotales) {
     </div>
 
     <form class="panel no-print" @submit.prevent="generar">
-      <fieldset class="opciones">
-        <legend>Opciones</legend>
-        <label>
-          Dimension
-          <select v-model="form.dimension">
-            <option value="vendedores">Vendedores</option>
-          </select>
-        </label>
-        <label>
-          Orden
-          <select v-model="form.orden">
-            <option value="margen">Margen</option>
-            <option value="importe">Importe</option>
-            <option value="cantidad">Cantidad</option>
-          </select>
-        </label>
-        <label>
-          Idioma
-          <select v-model="form.idioma">
-            <option value="castellano">Castellano</option>
-          </select>
-        </label>
-        <label>
-          Divisa
-          <select v-model="form.divisa">
-            <option value="EU">EU</option>
-          </select>
-        </label>
-        <label>
-          Iva
-          <select v-model="form.iva">
-            <option value="incluido">Incluido</option>
-            <option value="excluido">Excluido</option>
-          </select>
-        </label>
-        <label>
-          Im. Articulos
-          <select v-model="form.imArticulos">
-            <option :value="true">Si</option>
-            <option :value="false">No</option>
-          </select>
-        </label>
-        <label>
-          Valor
-          <select v-model="form.valor">
-            <option value="precioMedio">Precio Medio</option>
-            <option value="precioUltimo">Precio Ultimo</option>
-          </select>
-        </label>
-        <label>
-          Tipo Venta
-          <select v-model="form.tipoVenta">
-            <option value="todos">Todos</option>
-            <option value="T">Ticket (T)</option>
-            <option value="A">Albaran (A)</option>
-            <option value="P">Presupuesto (P)</option>
-            <option value="F">Factura (F)</option>
-          </select>
-        </label>
+      <fieldset class="principales">
+        <legend>Filtros principales</legend>
+        <div class="principales-grid">
+          <div class="bloque-fechas">
+            <span class="bloque-titulo">Fechas</span>
+            <div class="fechas-inputs">
+              <label>
+                Desde
+                <input v-model="form.fechaDesde" type="date" required class="filtro-fecha" />
+              </label>
+              <label>
+                Hasta
+                <input v-model="form.fechaHasta" type="date" required class="filtro-fecha" />
+              </label>
+            </div>
+            <div class="atajos">
+              <button type="button" @click="aplicarAtajoFecha('hoy')">Hoy</button>
+              <button type="button" @click="aplicarAtajoFecha('mes')">Mes</button>
+              <button type="button" @click="aplicarAtajoFecha('anio')">Año</button>
+            </div>
+          </div>
+
+          <div class="bloque-rango">
+            <span class="bloque-titulo">{{ rangoTienda.label }} (desde / hasta)</span>
+            <div class="rango-par">
+              <input
+                class="filtro-input"
+                type="text"
+                :value="valorFiltro(rangoTienda.desde)"
+                :maxlength="rangoTienda.maxLength"
+                placeholder="Desde"
+                autocomplete="off"
+                @input="onFiltroInput(rangoTienda, 'desde', ($event.target as HTMLInputElement).value)"
+              />
+              <input
+                class="filtro-input"
+                type="text"
+                :value="valorFiltro(rangoTienda.hasta)"
+                :maxlength="rangoTienda.maxLength"
+                placeholder="Hasta"
+                autocomplete="off"
+                @input="onFiltroInput(rangoTienda, 'hasta', ($event.target as HTMLInputElement).value)"
+              />
+            </div>
+          </div>
+
+          <label>
+            Orden
+            <select v-model="form.orden">
+              <option value="margen">Margen</option>
+              <option value="importe">Importe</option>
+              <option value="cantidad">Cantidad</option>
+            </select>
+          </label>
+          <label>
+            IVA
+            <select v-model="form.iva">
+              <option value="incluido">Incluido</option>
+              <option value="excluido">Excluido</option>
+            </select>
+          </label>
+          <label>
+            Tipo venta
+            <select v-model="form.tipoVenta">
+              <option value="todos">Todos</option>
+              <option value="T">Ticket (T)</option>
+              <option value="A">Albarán (A)</option>
+              <option value="P">Presupuesto (P)</option>
+              <option value="F">Factura (F)</option>
+            </select>
+          </label>
+          <label>
+            Agrupar por
+            <select v-model="form.dimension">
+              <option value="vendedores">Vendedor</option>
+            </select>
+          </label>
+        </div>
       </fieldset>
 
-      <fieldset class="rangos">
-        <legend>Filtros (Desde / Hasta)</legend>
-        <div class="rango-row fechas">
-          <span class="rango-label">Fecha</span>
-          <input v-model="form.fechaDesde" type="date" required class="filtro-fecha" />
-          <input v-model="form.fechaHasta" type="date" required class="filtro-fecha" />
+      <details class="mas-filtros">
+        <summary>Más filtros y opciones</summary>
+        <div class="mas-filtros-body">
+          <fieldset class="opciones-avanzadas">
+            <legend>Opciones del informe</legend>
+            <div class="opciones-grid">
+              <label>
+                Idioma
+                <select v-model="form.idioma">
+                  <option value="castellano">Castellano</option>
+                </select>
+              </label>
+              <label>
+                Divisa
+                <select v-model="form.divisa">
+                  <option value="EU">EU</option>
+                </select>
+              </label>
+              <label>
+                Imprimir artículos
+                <select v-model="form.imArticulos">
+                  <option :value="true">Sí</option>
+                  <option :value="false">No</option>
+                </select>
+              </label>
+              <label>
+                Valor coste
+                <select v-model="form.valor">
+                  <option value="precioMedio">Precio medio</option>
+                  <option value="precioUltimo">Precio último</option>
+                </select>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="rangos">
+            <legend>Rangos desde / hasta</legend>
+            <p class="rangos-hint">Vacío = sin límite. Misma semántica que el informe legacy.</p>
+            <div v-for="r in rangosAvanzados" :key="r.label" class="rango-row">
+              <span class="rango-label" :title="r.formato ? `Formato: ${r.formato}` : undefined">
+                {{ r.label }}
+              </span>
+              <input
+                class="filtro-input"
+                :class="{ numerico: abcFiltroSoloDigitos(r.formato) }"
+                type="text"
+                :value="valorFiltro(r.desde)"
+                :maxlength="r.maxLength"
+                :inputmode="abcFiltroSoloDigitos(r.formato) ? 'numeric' : 'text'"
+                :placeholder="r.formato || 'Desde'"
+                autocomplete="off"
+                spellcheck="false"
+                @input="onFiltroInput(r, 'desde', ($event.target as HTMLInputElement).value)"
+              />
+              <input
+                class="filtro-input"
+                :class="{ numerico: abcFiltroSoloDigitos(r.formato) }"
+                type="text"
+                :value="valorFiltro(r.hasta)"
+                :maxlength="r.maxLength"
+                :inputmode="abcFiltroSoloDigitos(r.formato) ? 'numeric' : 'text'"
+                :placeholder="r.formato || 'Hasta'"
+                autocomplete="off"
+                spellcheck="false"
+                @input="onFiltroInput(r, 'hasta', ($event.target as HTMLInputElement).value)"
+              />
+            </div>
+          </fieldset>
         </div>
-        <div v-for="r in rangos" :key="r.label" class="rango-row">
-          <span class="rango-label" :title="r.formato ? `Formato: ${r.formato}` : undefined">
-            {{ r.label }}
-          </span>
-          <input
-            class="filtro-input"
-            :class="{ numerico: abcFiltroSoloDigitos(r.formato) }"
-            type="text"
-            :value="valorFiltro(r.desde)"
-            :maxlength="r.maxLength"
-            :inputmode="abcFiltroSoloDigitos(r.formato) ? 'numeric' : 'text'"
-            :placeholder="r.formato || undefined"
-            autocomplete="off"
-            spellcheck="false"
-            @input="onFiltroInput(r, 'desde', ($event.target as HTMLInputElement).value)"
-          />
-          <input
-            class="filtro-input"
-            :class="{ numerico: abcFiltroSoloDigitos(r.formato) }"
-            type="text"
-            :value="valorFiltro(r.hasta)"
-            :maxlength="r.maxLength"
-            :inputmode="abcFiltroSoloDigitos(r.formato) ? 'numeric' : 'text'"
-            :placeholder="r.formato || undefined"
-            autocomplete="off"
-            spellcheck="false"
-            @input="onFiltroInput(r, 'hasta', ($event.target as HTMLInputElement).value)"
-          />
-        </div>
-      </fieldset>
+      </details>
     </form>
 
     <p v-if="error" class="error no-print">{{ error }}</p>
@@ -253,7 +315,7 @@ function rowTotales(t: AbcVentasTotales) {
           <div class="cab-row">
             <span>Vendedor</span>
             <span>{{ ivaLabel }}</span>
-            <span>Orden: {{ data.orden }} � Valor: {{ data.valor }}</span>
+            <span>Orden: {{ data.orden }} · Valor: {{ data.valor }}</span>
           </div>
         </header>
 
@@ -376,9 +438,160 @@ function rowTotales(t: AbcVentasTotales) {
 }
 
 .btn.primary {
-  background: #1e40af;
-  border-color: #1e40af;
+  background: #0f172a;
+  border-color: #0f172a;
   color: #fff;
+}
+
+.volver-listados {
+  display: inline-block;
+  font-size: 0.82rem;
+  color: #475569;
+  text-decoration: none;
+  margin-bottom: 0.25rem;
+}
+
+.volver-listados:hover {
+  color: #0f172a;
+}
+
+.toolbar-hint {
+  margin: 0.2rem 0 0;
+  font-size: 0.82rem;
+  color: #64748b;
+  max-width: 28rem;
+}
+
+.principales-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+  gap: 0.75rem 1rem;
+  align-items: end;
+}
+
+.principales-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.75rem;
+  color: #475569;
+}
+
+.principales-grid select {
+  padding: 0.3rem 0.4rem;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+  font: inherit;
+  background: #fff;
+}
+
+.bloque-fechas {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: flex-end;
+}
+
+.bloque-titulo {
+  display: block;
+  width: 100%;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.fechas-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+}
+
+.fechas-inputs label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.75rem;
+  color: #475569;
+}
+
+.atajos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.atajos button {
+  padding: 0.25rem 0.55rem;
+  font-size: 0.78rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.atajos button:hover {
+  border-color: #64748b;
+}
+
+.bloque-rango {
+  min-width: 12rem;
+}
+
+.rango-par {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.mas-filtros {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 0.45rem 0.65rem;
+  background: #fff;
+}
+
+.mas-filtros summary {
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #334155;
+  user-select: none;
+}
+
+.mas-filtros-body {
+  margin-top: 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.opciones-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 0.55rem 0.75rem;
+}
+
+.opciones-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.75rem;
+  color: #475569;
+}
+
+.opciones-grid select {
+  padding: 0.3rem 0.4rem;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+  font: inherit;
+  background: #fff;
+}
+
+.rangos-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.78rem;
+  color: #64748b;
 }
 
 .btn:disabled {
@@ -408,28 +621,6 @@ legend {
   font-size: 0.8rem;
   font-weight: 600;
   color: #334155;
-}
-
-.opciones {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
-  gap: 0.55rem 0.75rem;
-}
-
-.opciones label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  font-size: 0.75rem;
-  color: #475569;
-}
-
-.opciones select {
-  padding: 0.3rem 0.4rem;
-  border: 1px solid #94a3b8;
-  border-radius: 4px;
-  font: inherit;
-  background: #fff;
 }
 
 .rangos {

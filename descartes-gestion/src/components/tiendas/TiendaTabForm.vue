@@ -4,6 +4,8 @@ import { api } from '@/api/client'
 import type { TiendaField, TiendaSection } from '@/config/tiendas-tabs'
 import { lookupCodigoPostal } from '@/composables/useCodigoPostalLookup'
 import DecimalInput from '@/components/common/DecimalInput.vue'
+import EntidadLookupField from '@/components/common/EntidadLookupField.vue'
+import { entidadDesdeOptionsSource } from '@/config/entidad-lookup'
 
 const props = defineProps<{
   sections: TiendaSection[]
@@ -311,6 +313,17 @@ function atributosPairs(section: TiendaSection) {
             :checked="Boolean(modelValue[field.key])"
             :disabled="isReadOnly(field)"
             @change="updateField(field.key, ($event.target as HTMLInputElement).checked)"
+          />
+
+          <EntidadLookupField
+            v-else-if="entidadDesdeOptionsSource(field.optionsSource)"
+            :model-value="(modelValue[field.key] as string | number | null) ?? null"
+            :entidad="entidadDesdeOptionsSource(field.optionsSource)!"
+            :readonly="isReadOnly(field)"
+            :max-length="field.maxLength"
+            :field-key="field.key"
+            empty-as-null
+            @update:model-value="updateField(field.key, $event)"
           />
 
           <select

@@ -22,9 +22,17 @@ const props = defineProps<{
     | 'subfamilias'
     | 'secciones'
     | 'subsecciones'
+    | 'agrupaciones'
+    | 'impuestos'
+    | 'actividades'
+    | 'almacenes'
+    | 'roles'
+    | 'usuarios'
+    | 'tipos-calculo-fidelizacion'
     | 'formas-pago'
     | 'bancos'
     | 'cuentas'
+    | 'cuentas-ultimo-nivel'
     | 'cuentas-banco'
   titulo?: string
   busquedaInicial?: string
@@ -40,6 +48,7 @@ const emit = defineEmits<{
 type Fila = { codigo: string; etiqueta: string }
 
 const q = ref('')
+const inputBusqueda = ref<HTMLInputElement | null>(null)
 const gridWrap = ref<HTMLElement | null>(null)
 const loading = ref(false)
 const items = ref<Fila[]>([])
@@ -62,9 +71,17 @@ const tituloModal = () => {
   if (props.entidad === 'subfamilias') return 'Buscar subfamilia'
   if (props.entidad === 'secciones') return 'Buscar seccion'
   if (props.entidad === 'subsecciones') return 'Buscar subseccion'
+  if (props.entidad === 'agrupaciones') return 'Buscar agrupacion'
+  if (props.entidad === 'impuestos') return 'Buscar impuesto'
+  if (props.entidad === 'actividades') return 'Buscar actividad'
+  if (props.entidad === 'almacenes') return 'Buscar almacen'
+  if (props.entidad === 'roles') return 'Buscar rol'
+  if (props.entidad === 'usuarios') return 'Buscar usuario'
+  if (props.entidad === 'tipos-calculo-fidelizacion') return 'Buscar tipo fidelizacion'
   if (props.entidad === 'formas-pago') return 'Buscar forma de pago'
   if (props.entidad === 'bancos') return 'Buscar banco'
   if (props.entidad === 'cuentas') return 'Buscar cuenta'
+  if (props.entidad === 'cuentas-ultimo-nivel') return 'Buscar cuenta contable'
   if (props.entidad === 'cuentas-banco') return 'Buscar banco'
   return 'Buscar proveedor'
 }
@@ -79,6 +96,15 @@ function cancelarBusquedaPendiente() {
   if (temporizador === null) return
   clearTimeout(temporizador)
   temporizador = null
+}
+
+function limpiarBusqueda() {
+  cancelarBusquedaPendiente()
+  omitirBusquedaDeQ = true
+  q.value = ''
+  indice.value = 0
+  void buscar()
+  void nextTick(() => inputBusqueda.value?.focus())
 }
 
 watch(
@@ -185,21 +211,34 @@ function aceptar(i?: number) {
         </header>
 
         <div class="buscar-bar">
-          <input
-            v-model="q"
-            type="search"
-            :placeholder="
-              entidad === 'clientes'
-                ? 'Codigo o razon social...'
-                : entidad === 'proveedores'
+          <div class="buscar-input-wrap">
+            <input
+              ref="inputBusqueda"
+              v-model="q"
+              type="search"
+              :placeholder="
+                entidad === 'clientes'
                   ? 'Codigo o razon social...'
-                  : entidad === 'trabajadores' || entidad === 'tiendas'
-                    ? 'Codigo o nombre...'
-                    : 'Codigo o descripcion...'
-            "
-            autofocus
-            @keyup.enter="aceptar()"
-          />
+                  : entidad === 'proveedores'
+                    ? 'Codigo o razon social...'
+                    : entidad === 'trabajadores' || entidad === 'tiendas'
+                      ? 'Codigo o nombre...'
+                      : 'Codigo o descripcion...'
+              "
+              autofocus
+              @keyup.enter="aceptar()"
+            />
+            <button
+              v-if="q.trim()"
+              type="button"
+              class="btn-limpiar-busqueda"
+              title="Limpiar busqueda"
+              tabindex="-1"
+              @click="limpiarBusqueda"
+            >
+              ×
+            </button>
+          </div>
         </div>
 
         <p v-if="error" class="error">{{ error }}</p>
@@ -221,7 +260,20 @@ function aceptar(i?: number) {
                     entidad === 'articulos' || entidad === 'puestos-trabajo'
                       ? 'Descripcion'
                       : entidad === 'formas-pago' ||
+                          entidad === 'macrofamilias' ||
+                          entidad === 'familias' ||
+                          entidad === 'subfamilias' ||
+                          entidad === 'secciones' ||
+                          entidad === 'subsecciones' ||
+                          entidad === 'agrupaciones' ||
+                          entidad === 'impuestos' ||
+                          entidad === 'actividades' ||
+                          entidad === 'almacenes' ||
+                          entidad === 'roles' ||
+                          entidad === 'usuarios' ||
+                          entidad === 'tipos-calculo-fidelizacion' ||
                           entidad === 'cuentas' ||
+                          entidad === 'cuentas-ultimo-nivel' ||
                           entidad === 'cuentas-banco' ||
                           entidad === 'bancos'
                         ? 'Descripcion'
@@ -316,12 +368,44 @@ function aceptar(i?: number) {
   gap: 0.35rem;
 }
 
-.buscar-bar input {
+.buscar-input-wrap {
+  position: relative;
   flex: 1;
-  padding: 0.4rem 0.55rem;
+  min-width: 0;
+}
+
+.buscar-input-wrap input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.4rem 1.85rem 0.4rem 0.55rem;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   font-size: 0.85rem;
+}
+
+.btn-limpiar-busqueda {
+  position: absolute;
+  top: 50%;
+  right: 0.3rem;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #64748b;
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.btn-limpiar-busqueda:hover {
+  background: #e2e8f0;
+  color: #334155;
 }
 
 .grid-wrap {

@@ -53,6 +53,11 @@ import TraspasoContableView from '@/views/facturacion/TraspasoContableView.vue'
 import ConfiguracionHubView from '@/views/configuracion/ConfiguracionHubView.vue'
 import DocumentosPlantillasView from '@/views/configuracion/DocumentosPlantillasView.vue'
 import TpvVentaView from '@/views/tpv/TpvVentaView.vue'
+import ListadosHubView from '@/views/listados/ListadosHubView.vue'
+import StockListadoView from '@/views/listados/StockListadoView.vue'
+import StockMinimosListadoView from '@/views/listados/StockMinimosListadoView.vue'
+import InformeIvaListadoView from '@/views/listados/InformeIvaListadoView.vue'
+import InformeTicketsListadoView from '@/views/listados/InformeTicketsListadoView.vue'
 import { getInstalacionEstado } from '@/api/instalacion'
 
 const articulosSeccionesPendientes = [
@@ -60,10 +65,7 @@ const articulosSeccionesPendientes = [
   { path: 'mantenimiento/subsecciones', name: 'subsecciones', titulo: 'Subsecciones' },
 ] as const
 
-const modulosPlaceholder = [
-  { path: 'inventario', name: 'inventario', titulo: 'Inventario' },
-  { path: 'listados', name: 'listados', titulo: 'Listados' },
-] as const
+const modulosPlaceholder = [{ path: 'inventario', name: 'inventario', titulo: 'Inventario' }] as const
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -116,6 +118,36 @@ const router = createRouter({
           props: { titulo: m.titulo },
           meta: { titulo: m.titulo },
         })),
+        {
+          path: 'listados',
+          name: 'listados',
+          component: ListadosHubView,
+          meta: { titulo: 'Listados', modulo: 'listados', accion: 'ver' },
+        },
+        {
+          path: 'listados/stock',
+          name: 'listados-stock',
+          component: StockListadoView,
+          meta: { titulo: 'Stock', modulo: 'listados', accion: 'ver' },
+        },
+        {
+          path: 'listados/stock-minimos',
+          name: 'listados-stock-minimos',
+          component: StockMinimosListadoView,
+          meta: { titulo: 'Stock bajo mínimos', modulo: 'listados', accion: 'ver' },
+        },
+        {
+          path: 'listados/informe-iva',
+          name: 'listados-informe-iva',
+          component: InformeIvaListadoView,
+          meta: { titulo: 'Informe de IVA', modulo: 'listados', accion: 'ver' },
+        },
+        {
+          path: 'listados/informe-tickets',
+          name: 'listados-informe-tickets',
+          component: InformeTicketsListadoView,
+          meta: { titulo: 'Informe de tickets', modulo: 'listados', accion: 'ver' },
+        },
         {
           path: 'tpv',
           name: 'tpv',

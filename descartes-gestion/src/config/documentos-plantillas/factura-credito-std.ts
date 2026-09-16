@@ -1,105 +1,108 @@
-import type { DocumentoPlantilla } from './types'
+import type { DocumentoPlantilla, PlantillaBloque } from './types'
 
-const VERDE_LEGACY = '#7f918c'
-const VERDE_SUAVE = '#edf1ef'
+const pageFacturaCredito: DocumentoPlantilla['page'] = {
+  format: 'A4',
+  orientation: 'portrait',
+  marginMm: { top: 10, right: 10, bottom: 12, left: 10 },
+}
 
-/**
- * Factura de crédito / diferida basada en `Detalles/FRA PROVES.pdf`
- * (Crystal Reports "Factura Estandard", 34 facturas de septiembre de 2026).
- *
- * Rasgos principales: membrete en la esquina superior derecha, título y datos
- * de factura/cliente en dos columnas, forma de pago, líneas agrupadas por
- * albarán, vencimientos a la izquierda y totales al pie derecho.
- */
-export const plantillaFacturaCredito: DocumentoPlantilla = {
-  id: 'factura-credito-std',
-  tipo: 'factura-credito',
-  nombre: 'Factura crédito / diferida',
-  descripcion: 'Plantilla Logicart según FRA PROVES.pdf (factura diferida legacy)',
-  version: 4,
-  page: {
-    format: 'A4',
-    orientation: 'portrait',
-    marginMm: { top: 10, right: 10, bottom: 10, left: 10 },
-  },
-  blocks: [
+/** Bloques compartidos; con Verifactu el QR va arriba a la izquierda (10, 10). */
+function bloquesFacturaCredito(conVerifactu: boolean): PlantillaBloque[] {
+  const empresaX = conVerifactu ? 40 : 10
+  const empresaW = conVerifactu ? 76 : 106
+
+  const blocks: PlantillaBloque[] = []
+  if (conVerifactu) {
+    blocks.push({
+      id: 'qr-tributario',
+      type: 'qr-verifactu',
+      x: 10,
+      y: 10,
+      w: 28,
+      h: 28,
+      label: 'QR tributario',
+      bind: ['verifactu.qrPayload', 'verifactu.url'],
+      props: { quietZoneMm: 1, errorCorrection: 'M', rotulo: 'VERI*FACTU' },
+    })
+  }
+
+  blocks.push(
     {
-      id: 'empresa-direccion',
-      type: 'campo',
-      x: 106,
-      y: 14,
-      w: 38,
-      h: 25,
+      id: 'empresa',
+      type: 'empresa-cabecera',
+      x: empresaX,
+      y: 10,
+      w: empresaW,
+      h: 28,
       bind: [
+        'empresa.nombre',
         'empresa.direccion',
         'empresa.cp',
         'empresa.poblacion',
         'empresa.provincia',
         'empresa.telefono',
+        'empresa.fax',
         'empresa.email',
       ],
-      props: { align: 'right', fontSizeMm: 1.75 },
-    },
-    {
-      id: 'emblema',
-      type: 'emblema',
-      x: 146,
-      y: 14,
-      w: 50,
-      h: 20,
-      label: 'Emblema',
-      bind: ['empresa.emblemaUrl'],
-      props: { fit: 'contain' },
     },
     {
       id: 'titulo',
       type: 'titulo-documento',
-      x: 10,
-      y: 51,
-      w: 75,
-      h: 10,
+      x: 118,
+      y: 12,
+      w: 82,
+      h: 14,
       label: 'FACTURA',
       bind: [],
-      props: {
-        fontSizeMm: 5.2,
-        fontWeight: 'bold',
-        accentColor: VERDE_LEGACY,
-      },
+      props: { fontSizeMm: 5.2, fontWeight: 'bold', etiquetaModo: 'CREDITO' },
+    },
+    {
+      id: 'sep-cabecera',
+      type: 'separador',
+      x: 10,
+      y: 40,
+      w: 190,
+      h: 2,
     },
     {
       id: 'numero',
       type: 'campo',
-      x: 10,
-      y: 63,
-      w: 72,
+      x: 12,
+      y: 44,
+      w: 90,
       h: 6,
       label: 'FACTURA',
       bind: ['documento.numero'],
-      props: {
-        inline: true,
-        accentColor: VERDE_LEGACY,
-        accentSoftColor: VERDE_LEGACY,
-        accentTextColor: '#ffffff',
-      },
+      props: { inline: true },
     },
     {
       id: 'fecha',
       type: 'campo',
-      x: 35,
-      y: 69,
-      w: 47,
+      x: 12,
+      y: 51,
+      w: 90,
       h: 5,
       label: 'Fecha',
       bind: ['documento.fecha'],
       props: { inline: true, etiquetaPlana: true, fontWeight: 'bold' },
     },
     {
+      id: 'forma-pago',
+      type: 'campo',
+      x: 12,
+      y: 57,
+      w: 90,
+      h: 5,
+      bind: ['documento.formaPago'],
+      props: { fontSizeMm: 2.4, fontWeight: 'bold' },
+    },
+    {
       id: 'cliente',
       type: 'bloque-cliente',
-      x: 84,
-      y: 63,
-      w: 112,
-      h: 38,
+      x: 106,
+      y: 44,
+      w: 94,
+      h: 40,
       bind: [
         'cliente.codigo',
         'cliente.nombre',
@@ -107,156 +110,123 @@ export const plantillaFacturaCredito: DocumentoPlantilla = {
         'cliente.cp',
         'cliente.poblacion',
         'cliente.provincia',
+        'cliente.pais',
         'cliente.telefono',
         'cliente.cif',
       ],
-      props: {
-        accentColor: VERDE_LEGACY,
-        accentSoftColor: VERDE_LEGACY,
-        accentTextColor: '#ffffff',
-      },
     },
     {
-      id: 'cuenta-cliente',
-      type: 'campo',
-      x: 120,
-      y: 99,
-      w: 76,
-      h: 5,
-      bind: ['cliente.cuentaBancaria'],
-      props: { fontSizeMm: 2 },
+      id: 'banco',
+      type: 'datos-bancarios',
+      x: 10,
+      y: 86,
+      w: 190,
+      h: 10,
+      bind: ['empresa.banco', 'empresa.iban', 'empresa.swift'],
     },
     {
-      id: 'forma-pago-cabecera',
+      id: 'sep-observaciones',
+      type: 'separador',
+      x: 10,
+      y: 98,
+      w: 190,
+      h: 2,
+    },
+    {
+      id: 'obs',
       type: 'campo',
       x: 10,
-      y: 79,
-      w: 72,
-      h: 6,
-      bind: ['documento.formaPago'],
-      props: { fontSizeMm: 2.25, fontWeight: 'bold' },
-    },
-    {
-      id: 'observaciones',
-      type: 'campo',
-      x: 10,
-      y: 88,
-      w: 58,
+      y: 100,
+      w: 190,
       h: 8,
       label: 'Observaciones',
       bind: ['documento.observaciones'],
-      props: {
-        accentColor: VERDE_LEGACY,
-        accentSoftColor: VERDE_LEGACY,
-        accentTextColor: '#ffffff',
-      },
     },
     {
       id: 'lineas',
       type: 'tabla-lineas',
       x: 10,
-      y: 106,
+      y: 110,
       w: 190,
-      h: 116,
-      props: {
-        agruparPorAlbaran: true,
-        mostrarCabeceraAlbaran: true,
-        permitirNotasLinea: true,
-        accentColor: VERDE_LEGACY,
-        accentSoftColor: VERDE_SUAVE,
-        accentTextColor: '#ffffff',
-      },
+      h: 124,
+      props: { agruparPorAlbaran: true, mostrarCabeceraAlbaran: true, permitirNotasLinea: true },
       columns: [
         { key: 'articulo', label: 'Artículo', width: 14 },
-        { key: 'descripcion', label: 'Descripción', width: 39 },
+        { key: 'descripcion', label: 'Descripción', width: 38 },
         { key: 'unidades', label: 'Unidades', width: 10, align: 'right' },
-        { key: 'precio', label: 'Precio', width: 10, align: 'right' },
+        { key: 'precio', label: 'Precio', width: 12, align: 'right' },
         { key: 'dto', label: 'Dto', width: 7, align: 'right' },
         { key: 'pjeIva', label: '%IVA', width: 7, align: 'right' },
-        { key: 'importe', label: 'Importe', width: 13, align: 'right' },
+        { key: 'importe', label: 'Importe', width: 12, align: 'right' },
       ],
       bind: ['lineas'],
-    },
-    {
-      id: 'nota-iva',
-      type: 'texto',
-      x: 10,
-      y: 224,
-      w: 105,
-      h: 6,
-      label: 'NOTA : El Precio no lleva el I.V.A. Incorporado',
-      props: { fontSizeMm: 2.25, fontWeight: 'bold' },
-    },
-    {
-      id: 'forma-pago-vencimientos',
-      type: 'campo',
-      x: 10,
-      y: 233,
-      w: 62,
-      h: 5,
-      bind: ['documento.formaPago'],
-      props: { fontSizeMm: 2.15, fontWeight: 'bold' },
     },
     {
       id: 'vencimientos',
       type: 'vencimientos',
       x: 10,
-      y: 239,
-      w: 51,
-      h: 27,
+      y: 238,
+      w: 62,
+      h: 32,
       bind: ['vencimientos'],
-      props: {
-        columnas: ['fecha', 'importe'],
-        accentColor: VERDE_LEGACY,
-        accentTextColor: '#ffffff',
-      },
+      props: { columnas: ['fecha', 'importe'] },
     },
     {
       id: 'totales',
       type: 'totales-iva',
-      x: 128,
-      y: 252,
-      w: 72,
-      h: 31,
+      x: 118,
+      y: 238,
+      w: 82,
+      h: 32,
       bind: ['totales.base', 'totales.ivas', 'totales.importe'],
-      props: { etiquetaTotal: 'IMPORTE FACTURA Eu' },
-    },
-    {
-      id: 'legal',
-      type: 'pie',
-      x: 6,
-      y: 284,
-      w: 160,
-      h: 5,
-      bind: ['empresa.razonSocial', 'empresa.nif', 'tienda.literalFacturaDiferida'],
-      props: {
-        fontSizeMm: 1.55,
-        rotateDeg: -90,
-        transformOrigin: 'top left',
-        plantilla:
-          '{{empresa.razonSocial}} NIF : {{empresa.nif}}. {{tienda.literalFacturaDiferida}}',
-      },
+      props: { etiquetaTotal: 'IMPORTE FACTURA EU' },
     },
     {
       id: 'pie',
       type: 'pie',
-      x: 170,
-      y: 286,
-      w: 30,
-      h: 5,
-      bind: ['documento.pagina'],
-      props: { plantilla: 'Página {{documento.pagina}}' },
-    },
-  ],
+      x: 10,
+      y: 284,
+      w: 190,
+      h: 6,
+      bind: ['empresa.razonSocial', 'empresa.nif', 'documento.pagina'],
+      props: {
+        plantilla: '{{empresa.razonSocial}} N.I.F.{{empresa.nif}}  Página {{documento.pagina}}',
+      },
+    }
+  )
+
+  return blocks
 }
 
-/** Misma composición que crédito, con el título propio de la rectificativa. */
+/** Factura de crédito con QR Verifactu (arriba izquierda). Esqueleto por defecto del tipo. */
+export const plantillaFacturaCredito: DocumentoPlantilla = {
+  id: 'factura-credito-std',
+  tipo: 'factura-credito',
+  nombre: 'Factura crédito (Verifactu)',
+  descripcion: 'Crédito / diferida con QR tributario arriba a la izquierda',
+  version: 7,
+  page: pageFacturaCredito,
+  blocks: bloquesFacturaCredito(true),
+}
+
+/** Misma composición sin bloque QR Verifactu. */
+export const plantillaFacturaCreditoSinVerifactu: DocumentoPlantilla = {
+  id: 'factura-credito-sin-verifactu',
+  tipo: 'factura-credito',
+  nombre: 'Factura crédito (sin Verifactu)',
+  descripcion: 'Crédito / diferida sin QR tributario',
+  version: 1,
+  page: pageFacturaCredito,
+  blocks: bloquesFacturaCredito(false),
+}
+
+/** Rectificativa con la composición de crédito Verifactu. */
 export const plantillaFacturaRectificativa: DocumentoPlantilla = {
   ...plantillaFacturaCredito,
   id: 'factura-rectificativa-std',
   tipo: 'factura-rectificativa',
-  nombre: 'Factura rectificativa',
-  descripcion: 'Rectificativa con la composición Logicart de factura diferida',
+  nombre: 'Factura rectificativa (Verifactu)',
+  descripcion: 'Rectificativa con QR y composición de factura de crédito',
   blocks: plantillaFacturaCredito.blocks.map((b) =>
     b.id === 'titulo' ? { ...b, label: 'FACTURA RECTIFICATIVA' } : b
   ),

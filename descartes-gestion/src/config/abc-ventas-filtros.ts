@@ -33,6 +33,12 @@ export const abcVentasFiltrosRangos: AbcFiltroRango[] = [
   { label: 'Tipo Descuento', desde: 'tipoDescuentoDesde', hasta: 'tipoDescuentoHasta', maxLength: 6, formato: '', modo: 0 },
 ]
 
+/** Tienda en la zona principal del formulario ABC. */
+export const abcVentasRangoTienda = abcVentasFiltrosRangos.find((r) => r.desde === 'tiendaDesde')!
+
+/** Resto de intervalos legacy (plegados en «Más filtros»). */
+export const abcVentasRangosAvanzados = abcVentasFiltrosRangos.filter((r) => r.desde !== 'tiendaDesde')
+
 /** Ancho visual del input en ch (acortado respecto a un campo full-width). */
 export function abcFiltroInputCh(maxLength: number): number {
   return Math.min(Math.max(maxLength + 1, 4), 20)

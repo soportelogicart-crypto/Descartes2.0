@@ -10,6 +10,8 @@ export type TiendaField = {
   span?: 1 | 2 | 3 | 4
   readOnly?: boolean
   required?: boolean
+  maxLength?: number
+  lookup?: boolean
   optionsSource?: 'almacenes' | 'impuestos' | 'formas-pago' | 'tipos-calculo-fidelizacion'
 }
 
@@ -74,7 +76,13 @@ export const tiendaTabs: TiendaTab[] = [
           inline('telefono2', 'Telefono 2'),
           inline('email', 'E-Mail', { span: 2 }),
           inline('pasaporteFitosanitario', 'Pas. fitosanitario', { span: 2 }),
-          inline('almacenCodigo', 'Almacen', { type: 'select', optionsSource: 'almacenes', span: 2, required: true }),
+          inline('almacenCodigo', 'Almacen', {
+            lookup: true,
+            optionsSource: 'almacenes',
+            span: 2,
+            required: true,
+            maxLength: 3,
+          }),
         ],
       },
       {
@@ -101,12 +109,36 @@ export const tiendaTabs: TiendaTab[] = [
         title: 'Impuestos',
         columns: 3,
         fields: [
-          inline('codIvaSuperReducido', 'Iva super reducido', { type: 'impuesto' }),
-          inline('codIvaReducido', 'Iva reducido', { type: 'impuesto' }),
-          inline('codIvaNormal', 'Iva normal', { type: 'impuesto' }),
-          inline('codIvaIncrementado', 'Iva incrementado', { type: 'impuesto' }),
-          inline('codIvaEsp5', 'Iva esp. 5', { type: 'impuesto' }),
-          inline('codIvaEsp6', 'Iva esp. 6', { type: 'impuesto' }),
+          inline('codIvaSuperReducido', 'Iva super reducido', {
+            lookup: true,
+            optionsSource: 'impuestos',
+            maxLength: 2,
+          }),
+          inline('codIvaReducido', 'Iva reducido', {
+            lookup: true,
+            optionsSource: 'impuestos',
+            maxLength: 2,
+          }),
+          inline('codIvaNormal', 'Iva normal', {
+            lookup: true,
+            optionsSource: 'impuestos',
+            maxLength: 2,
+          }),
+          inline('codIvaIncrementado', 'Iva incrementado', {
+            lookup: true,
+            optionsSource: 'impuestos',
+            maxLength: 2,
+          }),
+          inline('codIvaEsp5', 'Iva esp. 5', {
+            lookup: true,
+            optionsSource: 'impuestos',
+            maxLength: 2,
+          }),
+          inline('codIvaEsp6', 'Iva esp. 6', {
+            lookup: true,
+            optionsSource: 'impuestos',
+            maxLength: 2,
+          }),
         ],
       },
       {
@@ -123,14 +155,27 @@ export const tiendaTabs: TiendaTab[] = [
         title: 'Divisas y descuentos',
         columns: 4,
         fields: [
-          inline('divisa', 'Divisa', { type: 'select', optionsSource: 'formas-pago', span: 2, required: true }),
-          inline('divisaAlt', 'Divisa alternativa', { type: 'select', optionsSource: 'formas-pago', span: 2, required: true }),
+          inline('divisa', 'Divisa', {
+            lookup: true,
+            optionsSource: 'formas-pago',
+            span: 2,
+            required: true,
+            maxLength: 2,
+          }),
+          inline('divisaAlt', 'Divisa alternativa', {
+            lookup: true,
+            optionsSource: 'formas-pago',
+            span: 2,
+            required: true,
+            maxLength: 2,
+          }),
           inline('dto', 'Descuento', { type: 'number' }),
           cb('sumarDescuento', 'Dto acumulativo'),
           inline('tipoCalculoFidelizacion', 'Tipo calculo fidelizacion', {
-            type: 'select',
+            lookup: true,
             optionsSource: 'tipos-calculo-fidelizacion',
             span: 2,
+            maxLength: 20,
           }),
           cb('bloqueoFidelizacion', 'Bloqueo fidelizacion'),
           inline('pjeRetIrpf', '% Ret. IRPF', { type: 'number' }),

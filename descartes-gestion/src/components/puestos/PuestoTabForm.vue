@@ -3,6 +3,8 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import type { PuestoField, PuestoImpresoraDoc, PuestoSection } from '@/config/puestos-tabs'
 import DecimalInput from '@/components/common/DecimalInput.vue'
+import EntidadLookupField from '@/components/common/EntidadLookupField.vue'
+import { entidadDesdeOptionsSource } from '@/config/entidad-lookup'
 import {
   listarImpresorasSistema,
   type ImpresoraSistema,
@@ -582,6 +584,17 @@ function onNombreInput(row: PuestoImpresoraDoc, value: string) {
               {{ impresoras.length }} detectada(s) — o escriba el nombre a mano
             </p>
           </div>
+
+          <EntidadLookupField
+            v-else-if="entidadDesdeOptionsSource(field.optionsSource)"
+            :model-value="(modelValue[field.key] as string | number | null) ?? null"
+            :entidad="entidadDesdeOptionsSource(field.optionsSource)!"
+            :readonly="isReadOnly(field)"
+            :max-length="field.maxLength"
+            :field-key="field.key"
+            empty-as-null
+            @update:model-value="updateField(field.key, $event)"
+          />
 
           <select
             v-else-if="field.type === 'select'"

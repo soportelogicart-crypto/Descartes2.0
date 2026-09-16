@@ -12,6 +12,7 @@ import {
 import {
   CATALOGO_BLOQUES,
   CATALOGO_BLOQUES_ETIQUETA,
+  CATALOGO_GRUPOS_A4,
   CAMPOS_BIND_SUGERIDOS,
   crearBloquePorTipo,
   etiquetaTipoBloque,
@@ -28,6 +29,7 @@ const emit = defineEmits<{
 }>()
 
 const canvasRef = ref<HTMLElement | null>(null)
+const textoLibreRef = ref<HTMLTextAreaElement | null>(null)
 /** ~1 mm en pantalla a 96 dpi (proporción real). */
 const FOLIO_PX_PER_MM = 96 / 25.4
 const pxPerMm = ref(FOLIO_PX_PER_MM)
@@ -41,6 +43,8 @@ type DragState = {
   startX: number
   startY: number
   orig: Pick<PlantillaBloque, 'x' | 'y' | 'w' | 'h'>
+  /** Hasta que el ratón se mueva un poco, es un clic (no arrastre). */
+  pendiente?: boolean
 }
 
 const drag = ref<DragState | null>(null)
@@ -58,6 +62,13 @@ const PAGE_H = computed(() => pageDims.value.heightMm)
 
 const catalogo = computed(() =>
   esEtiqueta.value ? CATALOGO_BLOQUES_ETIQUETA : CATALOGO_BLOQUES
+)
+
+const catalogoAgrupado = computed(() =>
+  CATALOGO_GRUPOS_A4.map((g) => ({
+    ...g,
+    items: CATALOGO_BLOQUES.filter((c) => (c.grupo ?? 'cuerpo') === g.id),
+  })).filter((g) => g.items.length > 0)
 )
 
 const bindsSugeridos = computed(() => {
@@ -95,6 +106,14 @@ const bindText = computed({
       .map((s) => s.trim())
       .filter(Boolean)
     patchBlockContent(selected.value.id, { bind })
+  },
+})
+
+const labelBloque = computed({
+  get: () => selected.value?.label ?? '',
+  set: (v: string) => {
+    if (!selected.value || props.readonly) return
+    patchBlockContent(selected.value.id, { label: v })
   },
 })
 
@@ -251,9 +270,41 @@ function anadirBloque(type: PlantillaBloqueTipo) {
   if (plantilla.value.blocks.some((b) => b.id === block.id)) {
     block.id = `${block.id}-${Date.now().toString(36)}`
   }
-  plantilla.value = { ...plantilla.value, blocks: [...plantilla.value.blocks, clampBlock(block)] }
-  selectedId.value = block.id
+  const colocado =
+    !esEtiqueta.value && type !== 'qr-verifactu' ? colocarSinSolape(block) : clampBlock(block)
+  plantilla.value = { ...plantilla.value, blocks: [...plantilla.value.blocks, colocado] }
+  selectedId.value = colocado.id
   markDirty()
+  if (type === 'texto') void enfocarTextoLibre()
+}
+
+function rectsSolapan(
+  a: Pick<PlantillaBloque, 'x' | 'y' | 'w' | 'h'>,
+  b: Pick<PlantillaBloque, 'x' | 'y' | 'w' | 'h'>,
+  gap = 1
+) {
+  return a.x < b.x + b.w + gap && a.x + a.w + gap > b.x && a.y < b.y + b.h + gap && a.y + a.h + gap > b.y
+}
+
+/** Si el hueco por defecto está ocupado, baja el recuadro en pasos de 4 mm. */
+function colocarSinSolape(block: PlantillaBloque): PlantillaBloque {
+  let b = clampBlock(block)
+  const others = plantilla.value.blocks
+  for (let i = 0; i < 60; i++) {
+    if (!others.some((o) => rectsSolapan(b, o))) return b
+    const nextY = b.y + 4
+    if (nextY + b.h <= PAGE_H.value - 2) {
+      b = clampBlock({ ...b, y: nextY })
+      continue
+    }
+    const nextX = b.x + 4
+    if (nextX + b.w <= PAGE_W.value - 2) {
+      b = clampBlock({ ...b, x: nextX, y: plantilla.value.page.marginMm.top })
+      continue
+    }
+    break
+  }
+  return b
 }
 
 function quitarBloque(id?: string) {
@@ -280,6 +331,19 @@ function blockStyle(b: PlantillaBloque) {
 
 function round1(n: number) {
   return Math.round(n * 10) / 10
+}
+
+function snapMm(n: number) {
+  const step = esEtiqueta.value ? 0.5 : 1
+  return Math.round(n / step) * step
+}
+
+function nudgeSeleccionado(dx: number, dy: number) {
+  if (!selected.value || props.readonly) return
+  patchBlock(selected.value.id, {
+    x: selected.value.x + dx,
+    y: selected.value.y + dy,
+  })
 }
 
 function clampBlock(b: PlantillaBloque): PlantillaBloque {
@@ -368,9 +432,19 @@ function blockFontStyle(b: PlantillaBloque): Record<string, string> {
   return style
 }
 
-function onLabelInput(raw: string) {
-  if (!selected.value || props.readonly) return
-  patchBlockContent(selected.value.id, { label: raw })
+function esCampoFormulario(el: EventTarget | null): boolean {
+  if (!(el instanceof HTMLElement)) return false
+  if (el.closest('input, textarea, select, option, .inspector, .palette, [contenteditable="true"]')) {
+    return true
+  }
+  const tag = el.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable
+}
+
+async function enfocarTextoLibre() {
+  await nextTick()
+  textoLibreRef.value?.focus()
+  textoLibreRef.value?.select()
 }
 
 function selectBlock(id: string, e: MouseEvent) {
@@ -384,7 +458,7 @@ function clearSelection() {
 
 function startMove(b: PlantillaBloque, e: MouseEvent) {
   if (props.readonly) return
-  e.preventDefault()
+  if (e.button !== 0) return
   e.stopPropagation()
   selectedId.value = b.id
   drag.value = {
@@ -393,6 +467,7 @@ function startMove(b: PlantillaBloque, e: MouseEvent) {
     startX: e.clientX,
     startY: e.clientY,
     orig: { x: b.x, y: b.y, w: b.w, h: b.h },
+    pendiente: true,
   }
 }
 
@@ -413,12 +488,17 @@ function startResize(b: PlantillaBloque, e: MouseEvent) {
 function onPointerMove(e: MouseEvent) {
   const d = drag.value
   if (!d) return
+  const dist = Math.hypot(e.clientX - d.startX, e.clientY - d.startY)
+  if (d.pendiente) {
+    if (dist < 5) return
+    d.pendiente = false
+  }
   const dx = (e.clientX - d.startX) / pxPerMm.value
   const dy = (e.clientY - d.startY) / pxPerMm.value
   if (d.mode === 'move') {
-    patchBlock(d.blockId, { x: d.orig.x + dx, y: d.orig.y + dy })
+    patchBlock(d.blockId, { x: snapMm(d.orig.x + dx), y: snapMm(d.orig.y + dy) })
   } else {
-    patchBlock(d.blockId, { w: d.orig.w + dx, h: d.orig.h + dy })
+    patchBlock(d.blockId, { w: snapMm(d.orig.w + dx), h: snapMm(d.orig.h + dy) })
   }
 }
 
@@ -435,13 +515,26 @@ function onGeomInput(field: 'x' | 'y' | 'w' | 'h', raw: string) {
 
 function onKeydown(e: KeyboardEvent) {
   if (props.readonly) return
-  if (e.key === 'Delete' || e.key === 'Backspace') {
-    const t = e.target as HTMLElement | null
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
-    if (selectedId.value) {
-      e.preventDefault()
-      quitarBloque(selectedId.value)
-    }
+  if (esCampoFormulario(e.target)) return
+  if (e.key === 'Delete' && selectedId.value) {
+    e.preventDefault()
+    quitarBloque(selectedId.value)
+    return
+  }
+  if (!selectedId.value) return
+  const step = e.shiftKey ? 5 : 1
+  if (e.key === 'ArrowLeft') {
+    e.preventDefault()
+    nudgeSeleccionado(-step, 0)
+  } else if (e.key === 'ArrowRight') {
+    e.preventDefault()
+    nudgeSeleccionado(step, 0)
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    nudgeSeleccionado(0, -step)
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    nudgeSeleccionado(0, step)
   }
 }
 
@@ -530,6 +623,12 @@ watch(
   }
 )
 
+watch(selectedId, (id) => {
+  if (!id) return
+  const b = plantilla.value.blocks.find((x) => x.id === id)
+  if (b?.type === 'texto') void enfocarTextoLibre()
+})
+
 defineExpose({
   markClean() {
     dirty.value = false
@@ -546,7 +645,7 @@ defineExpose({
           Etiqueta {{ PAGE_W }}×{{ PAGE_H }} mm · arrastre recuadros · Supr para borrar
         </template>
         <template v-else>
-          Añada o quite recuadros · arrastre para mover · esquina para redimensionar · Supr para borrar
+          Arrastre para mover · esquina para tamaño · flechas 1 mm (Mayús 5 mm) · Supr borra
         </template>
       </span>
       <div v-if="esEtiqueta" class="tamano-etiq">
@@ -610,17 +709,35 @@ defineExpose({
     <div class="workspace">
       <aside class="palette">
         <h4>Añadir</h4>
-        <button
-          v-for="item in catalogo"
-          :key="item.type"
-          type="button"
-          class="pal-btn"
-          :disabled="readonly || !puedeAnadir(item.type)"
-          :title="item.unico && !puedeAnadir(item.type) ? 'Ya existe en la plantilla' : item.nombre"
-          @click="anadirBloque(item.type)"
-        >
-          + {{ item.nombre }}
-        </button>
+        <template v-if="esEtiqueta">
+          <button
+            v-for="item in catalogo"
+            :key="item.type"
+            type="button"
+            class="pal-btn"
+            :disabled="readonly || !puedeAnadir(item.type)"
+            :title="item.unico && !puedeAnadir(item.type) ? 'Ya existe en la plantilla' : item.nombre"
+            @click="anadirBloque(item.type)"
+          >
+            + {{ item.nombre }}
+          </button>
+        </template>
+        <template v-else>
+          <div v-for="grupo in catalogoAgrupado" :key="grupo.id" class="pal-grupo">
+            <h5>{{ grupo.titulo }}</h5>
+            <button
+              v-for="item in grupo.items"
+              :key="item.type"
+              type="button"
+              class="pal-btn"
+              :disabled="readonly || !puedeAnadir(item.type)"
+              :title="item.unico && !puedeAnadir(item.type) ? 'Ya está en la plantilla' : item.nombre"
+              @click="anadirBloque(item.type)"
+            >
+              + {{ item.nombre }}
+            </button>
+          </div>
+        </template>
       </aside>
 
       <div ref="canvasRef" class="canvas-wrap" @mousedown="clearSelection">
@@ -634,8 +751,10 @@ defineExpose({
             :style="blockStyle(b)"
             @mousedown="startMove(b, $event)"
             @click="selectBlock(b.id, $event)"
+            @dblclick="b.type === 'texto' && enfocarTextoLibre()"
           >
             <span class="block-label" :style="blockFontStyle(b)">{{ etiquetaBloque(b.type, b.label) }}</span>
+            <span v-if="selectedId === b.id" class="block-size">{{ b.w }}×{{ b.h }} mm</span>
             <span v-if="b.bind?.length && esEtiqueta" class="block-bind" :style="blockFontStyle(b)">
               {{ b.bind.join(' · ') }}
             </span>
@@ -652,27 +771,47 @@ defineExpose({
         </div>
       </div>
 
-      <aside class="inspector">
+      <aside class="inspector" @keydown.stop @keyup.stop>
         <template v-if="selected">
           <h4>Contenido</h4>
           <p class="tipo-tag">{{ etiquetaTipoBloque(selected.type) }}</p>
 
           <div class="geom">
-            <label>X <input type="number" step="0.5" :value="selected.x" :disabled="readonly" @change="onGeomInput('x', ($event.target as HTMLInputElement).value)" /></label>
-            <label>Y <input type="number" step="0.5" :value="selected.y" :disabled="readonly" @change="onGeomInput('y', ($event.target as HTMLInputElement).value)" /></label>
-            <label>W <input type="number" step="0.5" :value="selected.w" :disabled="readonly" @change="onGeomInput('w', ($event.target as HTMLInputElement).value)" /></label>
-            <label>H <input type="number" step="0.5" :value="selected.h" :disabled="readonly" @change="onGeomInput('h', ($event.target as HTMLInputElement).value)" /></label>
+            <label>Izq. <input type="number" step="0.5" :value="selected.x" :disabled="readonly" title="Distancia desde la izquierda (mm)" @change="onGeomInput('x', ($event.target as HTMLInputElement).value)" /></label>
+            <label>Arriba <input type="number" step="0.5" :value="selected.y" :disabled="readonly" title="Distancia desde arriba (mm)" @change="onGeomInput('y', ($event.target as HTMLInputElement).value)" /></label>
+            <label>Ancho <input type="number" step="0.5" :value="selected.w" :disabled="readonly" title="Ancho (mm)" @change="onGeomInput('w', ($event.target as HTMLInputElement).value)" /></label>
+            <label>Alto <input type="number" step="0.5" :value="selected.h" :disabled="readonly" title="Alto (mm)" @change="onGeomInput('h', ($event.target as HTMLInputElement).value)" /></label>
+          </div>
+          <div v-if="!readonly && !esEtiqueta" class="nudge">
+            <span>Mover 1 mm</span>
+            <button type="button" title="Arriba" @click="nudgeSeleccionado(0, -1)">↑</button>
+            <button type="button" title="Izquierda" @click="nudgeSeleccionado(-1, 0)">←</button>
+            <button type="button" title="Derecha" @click="nudgeSeleccionado(1, 0)">→</button>
+            <button type="button" title="Abajo" @click="nudgeSeleccionado(0, 1)">↓</button>
           </div>
 
-          <label class="field">
-            Etiqueta
-            <input
-              type="text"
-              :value="selected.label ?? ''"
-              :readonly="readonly"
-              placeholder="Texto visible del recuadro"
-              @input="onLabelInput(($event.target as HTMLInputElement).value)"
+          <label class="field" for="bloque-texto-libre">
+            {{ selected.type === 'texto' ? 'Texto a imprimir' : 'Nombre del recuadro' }}
+            <textarea
+              v-if="selected.type === 'texto'"
+              id="bloque-texto-libre"
+              ref="textoLibreRef"
+              v-model="labelBloque"
+              rows="4"
+              :disabled="readonly"
+              placeholder="Escriba aquí el texto (p. ej. Oferta, IVA incl.)"
             />
+            <input
+              v-else
+              id="bloque-texto-libre"
+              type="text"
+              v-model="labelBloque"
+              :disabled="readonly"
+              placeholder="Nombre interno del recuadro"
+            />
+            <span v-if="selected.type === 'texto'" class="help">
+              Pulse el recuadro y escriba aquí. Retroceso borra letras, no el recuadro.
+            </span>
           </label>
 
           <div v-if="muestraBarras" class="tipografia">
@@ -803,7 +942,7 @@ defineExpose({
           </label>
 
           <label
-            v-if="selected.type !== 'emblema' && selected.type !== 'texto'"
+            v-if="selected.type !== 'emblema' && selected.type !== 'texto' && selected.type !== 'qr-verifactu'"
             class="field"
           >
             Campos enlazados (uno por línea)
@@ -811,7 +950,7 @@ defineExpose({
           </label>
 
           <div
-            v-if="selected.type !== 'emblema' && selected.type !== 'texto' && !readonly"
+            v-if="selected.type !== 'emblema' && selected.type !== 'texto' && selected.type !== 'qr-verifactu' && !readonly"
             class="sugeridos"
           >
             <span class="help">Añadir sugerido:</span>
@@ -918,7 +1057,7 @@ defineExpose({
 
 .workspace {
   display: grid;
-  grid-template-columns: 8.5rem minmax(0, 1fr) minmax(12rem, 13.5rem);
+  grid-template-columns: 10.5rem minmax(0, 1fr) minmax(12rem, 13.5rem);
   gap: 0.5rem;
   align-items: start;
 }
@@ -938,6 +1077,46 @@ defineExpose({
   margin: 0 0 0.35rem;
   font-size: 0.75rem;
   color: #334155;
+}
+
+.pal-grupo {
+  margin-bottom: 0.45rem;
+}
+
+.pal-grupo h5 {
+  margin: 0 0 0.2rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.nudge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem;
+  margin: 0 0 0.55rem;
+  font-size: 0.68rem;
+  color: #64748b;
+}
+
+.nudge button {
+  width: 1.7rem;
+  height: 1.7rem;
+  padding: 0;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.nudge button:hover {
+  border-color: #2563eb;
+  color: #1d4ed8;
 }
 
 .pal-btn,
@@ -1024,6 +1203,16 @@ defineExpose({
   border-radius: 3px;
   font-size: 0.72rem;
   box-sizing: border-box;
+}
+
+.field textarea {
+  min-height: 5.5rem;
+  resize: vertical;
+  background: #fff;
+  color: #0f172a;
+  font-weight: 500;
+  font-size: 0.88rem;
+  line-height: 1.35;
 }
 
 .field {
@@ -1176,6 +1365,12 @@ defineExpose({
   line-height: 1.2;
 }
 
+.block-size {
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: #2563eb;
+}
+
 .block-cols {
   font-size: 0.68rem;
   color: #475569;
@@ -1187,8 +1382,8 @@ defineExpose({
   position: absolute;
   right: 0;
   bottom: 0;
-  width: 10px;
-  height: 10px;
+  width: 14px;
+  height: 14px;
   background: #2563eb;
   cursor: nwse-resize;
   border-radius: 2px 0 0 0;

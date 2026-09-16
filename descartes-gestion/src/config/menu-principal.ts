@@ -46,6 +46,12 @@ export const menuPrincipalSecciones: MenuPrincipalSeccion[] = [
     ruta: '/inventario',
     icono: 'inventario',
   },
-  { id: 'listados', titulo: 'Listados', ruta: '/listados', icono: 'listado' },
+  {
+    id: 'listados',
+    titulo: 'Listados',
+    modulo: 'listados',
+    ruta: '/listados',
+    icono: 'listado',
+  },
   { id: 'tpv', titulo: 'TPV', modulo: 'tpv', ruta: '/tpv', icono: 'tpv' },
 ]

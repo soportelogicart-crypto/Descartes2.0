@@ -1,30 +1,38 @@
 import type { PlantillaBloque, PlantillaBloqueTipo } from './types'
 
+export type BloqueCatalogoGrupo = 'cabecera' | 'cuerpo' | 'pie'
+
 export type BloqueCatalogoItem = {
   type: PlantillaBloqueTipo
   nombre: string
   /** Si true, solo puede haber uno de este tipo en la plantilla. */
   unico?: boolean
+  /** Agrupa el botón en el diseñador A4. */
+  grupo?: BloqueCatalogoGrupo
 }
 
+export const CATALOGO_GRUPOS_A4: { id: BloqueCatalogoGrupo; titulo: string }[] = [
+  { id: 'cabecera', titulo: 'Cabecera' },
+  { id: 'cuerpo', titulo: 'Cuerpo' },
+  { id: 'pie', titulo: 'Pie' },
+]
+
 export const CATALOGO_BLOQUES: BloqueCatalogoItem[] = [
-  { type: 'emblema', nombre: 'Emblema', unico: true },
-  { type: 'empresa-cabecera', nombre: 'Empresa', unico: true },
-  { type: 'titulo-documento', nombre: 'Título' },
-  { type: 'bloque-cliente', nombre: 'Cliente', unico: true },
-  { type: 'bloque-meta', nombre: 'Datos documento' },
-  { type: 'campo', nombre: 'Campo / texto libre' },
-  { type: 'texto', nombre: 'Texto fijo' },
-  { type: 'codigo-barras', nombre: 'Código de barras', unico: true },
-  { type: 'tabla-lineas', nombre: 'Tabla de líneas', unico: true },
-  { type: 'totales-iva', nombre: 'Totales IVA', unico: true },
-  { type: 'totales-ticket', nombre: 'Totales ticket', unico: true },
-  { type: 'datos-bancarios', nombre: 'Datos bancarios', unico: true },
-  { type: 'vencimientos', nombre: 'Vencimientos', unico: true },
-  { type: 'qr-verifactu', nombre: 'QR Verifactu', unico: true },
-  { type: 'pie', nombre: 'Pie de página', unico: true },
-  { type: 'literales-puesto', nombre: 'Literales ticket (puesto)', unico: true },
-  { type: 'separador', nombre: 'Separador' },
+  { type: 'emblema', nombre: 'Emblema', unico: true, grupo: 'cabecera' },
+  { type: 'qr-verifactu', nombre: 'QR tributario', unico: true, grupo: 'cabecera' },
+  { type: 'empresa-cabecera', nombre: 'Empresa', unico: true, grupo: 'cabecera' },
+  { type: 'titulo-documento', nombre: 'Título', grupo: 'cabecera' },
+  { type: 'bloque-cliente', nombre: 'Cliente', unico: true, grupo: 'cabecera' },
+  { type: 'bloque-meta', nombre: 'Datos documento', grupo: 'cabecera' },
+  { type: 'codigo-barras', nombre: 'Código de barras', unico: true, grupo: 'cabecera' },
+  { type: 'tabla-lineas', nombre: 'Tabla de líneas', unico: true, grupo: 'cuerpo' },
+  { type: 'campo', nombre: 'Campo', grupo: 'cuerpo' },
+  { type: 'texto', nombre: 'Texto fijo', grupo: 'cuerpo' },
+  { type: 'separador', nombre: 'Separador', grupo: 'cuerpo' },
+  { type: 'totales-iva', nombre: 'Totales IVA', unico: true, grupo: 'pie' },
+  { type: 'vencimientos', nombre: 'Vencimientos', unico: true, grupo: 'pie' },
+  { type: 'datos-bancarios', nombre: 'Datos bancarios', unico: true, grupo: 'pie' },
+  { type: 'pie', nombre: 'Pie de página', unico: true, grupo: 'pie' },
 ]
 
 /** Catálogo reducido para ticket térmico 80 mm. */
@@ -111,7 +119,12 @@ function nextId(prefix: string): string {
 }
 
 export function etiquetaTipoBloque(type: PlantillaBloqueTipo): string {
-  return CATALOGO_BLOQUES.find((c) => c.type === type)?.nombre ?? type
+  return (
+    CATALOGO_BLOQUES.find((c) => c.type === type)?.nombre ??
+    CATALOGO_BLOQUES_TICKET.find((c) => c.type === type)?.nombre ??
+    CATALOGO_BLOQUES_ETIQUETA.find((c) => c.type === type)?.nombre ??
+    type
+  )
 }
 
 export function crearBloquePorTipo(type: PlantillaBloqueTipo): PlantillaBloque {
@@ -205,7 +218,7 @@ export function crearBloquePorTipo(type: PlantillaBloqueTipo): PlantillaBloque {
         y: 100,
         w: 60,
         h: 12,
-        label: 'Texto libre',
+        label: 'Texto',
       }
     case 'codigo-barras':
       return {
@@ -269,15 +282,15 @@ export function crearBloquePorTipo(type: PlantillaBloqueTipo): PlantillaBloque {
       }
     case 'qr-verifactu':
       return {
-        id: 'qr-verifactu',
+        id: 'qr-tributario',
         type,
         x: 10,
-        y: 230,
-        w: 32,
-        h: 36,
-        label: 'QR Verifactu',
+        y: 10,
+        w: 28,
+        h: 28,
+        label: 'QR tributario',
         bind: ['verifactu.qrPayload', 'verifactu.url'],
-        props: { quietZoneMm: 1, errorCorrection: 'M' },
+        props: { quietZoneMm: 1, errorCorrection: 'M', rotulo: 'VERI*FACTU' },
       }
     case 'pie':
       return {

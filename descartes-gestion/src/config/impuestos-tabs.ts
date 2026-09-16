@@ -10,6 +10,8 @@ export type ImpuestoField = {
   layout?: 'inline' | 'checkbox'
   maxLength?: number
   step?: string
+  lookup?: boolean
+  optionsSource?: 'cuentas-ultimo-nivel'
 }
 
 export type ImpuestoSection = {
@@ -57,9 +59,21 @@ export const impuestoTabs: ImpuestoTab[] = [
         title: 'Cuentas contables',
         columns: 4,
         fields: [
-          inline('cuentaCtb', 'Cuenta Ctb.', { type: 'number', step: '1' }),
-          inline('cuentaCtbSoportadoIntra', 'Intr. Soport.', { type: 'number', step: '1' }),
-          inline('cuentaCtbRepercutidoIntra', 'Intr. Reper.', { type: 'number', step: '1' }),
+          inline('cuentaCtb', 'Cuenta Ctb.', {
+            maxLength: 10,
+            lookup: true,
+            optionsSource: 'cuentas-ultimo-nivel',
+          }),
+          inline('cuentaCtbSoportadoIntra', 'Intr. Soport.', {
+            maxLength: 10,
+            lookup: true,
+            optionsSource: 'cuentas-ultimo-nivel',
+          }),
+          inline('cuentaCtbRepercutidoIntra', 'Intr. Reper.', {
+            maxLength: 10,
+            lookup: true,
+            optionsSource: 'cuentas-ultimo-nivel',
+          }),
           inline('idWeb', 'Id WEB', { type: 'number', step: '1' }),
         ],
       },

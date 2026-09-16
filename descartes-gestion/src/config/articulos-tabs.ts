@@ -12,10 +12,14 @@ export type ArticuloField = {
   inputWidth?: string
   readOnly?: boolean
   required?: boolean
+  maxLength?: number
+  lookup?: boolean
   optionsSource?:
     | 'macrofamilias'
     | 'familias'
     | 'subfamilias'
+    | 'secciones'
+    | 'subsecciones'
     | 'agrupaciones'
     | 'impuestos'
     | 'proveedores'
@@ -74,16 +78,60 @@ export const articuloTabs: ArticuloTab[] = [
       {
         title: 'Clasificacion',
         columns: 2,
+        labelWidth: '6.25rem',
+        inputWidth: '100%',
         fields: [
-          inline('macroFamilia', 'Macrofamilia', { type: 'select', optionsSource: 'macrofamilias', required: true }),
-          inline('familia', 'Familia', { type: 'select', optionsSource: 'familias', required: true }),
-          inline('subfamilia', 'Subfamilia', { type: 'select', optionsSource: 'subfamilias', required: true }),
-          inline('seccion', 'Seccion'),
-          inline('subSeccion', 'Subseccion'),
-          inline('agrupacion', 'Agrupacion', { type: 'select', optionsSource: 'agrupaciones', required: true }),
-          inline('proveedorHabitual', 'Proveedor', { type: 'select', optionsSource: 'proveedores', required: true }),
-          inline('impuestoCodigo', 'Impuesto', { type: 'select', optionsSource: 'impuestos', required: true }),
-          inline('impuestoAgrario', 'Imp. agrario', { type: 'select', optionsSource: 'impuestos' }),
+          inline('macroFamilia', 'Macrofamilia', {
+            lookup: true,
+            optionsSource: 'macrofamilias',
+            required: true,
+            maxLength: 6,
+          }),
+          inline('familia', 'Familia', {
+            lookup: true,
+            optionsSource: 'familias',
+            required: true,
+            maxLength: 6,
+          }),
+          inline('subfamilia', 'Subfamilia', {
+            lookup: true,
+            optionsSource: 'subfamilias',
+            required: true,
+            maxLength: 6,
+          }),
+          inline('seccion', 'Seccion', {
+            lookup: true,
+            optionsSource: 'secciones',
+            maxLength: 6,
+          }),
+          inline('subSeccion', 'Subseccion', {
+            lookup: true,
+            optionsSource: 'subsecciones',
+            maxLength: 6,
+          }),
+          inline('agrupacion', 'Agrupacion', {
+            lookup: true,
+            optionsSource: 'agrupaciones',
+            required: true,
+            maxLength: 6,
+          }),
+          inline('proveedorHabitual', 'Proveedor', {
+            lookup: true,
+            optionsSource: 'proveedores',
+            required: true,
+            maxLength: 9,
+          }),
+          inline('impuestoCodigo', 'Impuesto', {
+            lookup: true,
+            optionsSource: 'impuestos',
+            required: true,
+            maxLength: 2,
+          }),
+          inline('impuestoAgrario', 'Imp. agrario', {
+            lookup: true,
+            optionsSource: 'impuestos',
+            maxLength: 2,
+          }),
         ],
       },
       {

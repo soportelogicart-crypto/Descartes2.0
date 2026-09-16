@@ -375,6 +375,7 @@ export function datosPreviewPorTipo(tipo: DocumentoTipo): DocumentoPreviewDatos 
         atendidoPor: '',
         observaciones: '',
         codigoBarras: '',
+        formaPago: 'CREDITO',
       },
       lineas: rect
         ? [

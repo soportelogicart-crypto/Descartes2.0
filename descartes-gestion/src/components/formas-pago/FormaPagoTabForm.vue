@@ -2,6 +2,8 @@
 import { computed } from 'vue'
 import type { FormaPagoField, FormaPagoFieldOption, FormaPagoSection } from '@/config/formas-pago-tabs'
 import DecimalInput from '@/components/common/DecimalInput.vue'
+import EntidadLookupField from '@/components/common/EntidadLookupField.vue'
+import { entidadDesdeOptionsSource } from '@/config/entidad-lookup'
 
 const props = defineProps<{
   sections: FormaPagoSection[]
@@ -118,8 +120,20 @@ function sectionClass(section: FormaPagoSection) {
             <template v-else>
               <span class="field-label">{{ field.label }}<em v-if="field.required"> *</em></span>
 
+              <EntidadLookupField
+                v-if="entidadDesdeOptionsSource(field.optionsSource)"
+                :model-value="(modelValue[field.key] as string | number | null) ?? null"
+                :entidad="entidadDesdeOptionsSource(field.optionsSource)!"
+                :readonly="isReadOnly(field)"
+                :max-length="field.maxLength"
+                :field-key="field.key"
+                @update:model-value="
+                  updateField(field.key, typeof $event === 'number' ? $event : $event ?? 0)
+                "
+              />
+
               <select
-                v-if="field.type === 'select'"
+                v-else-if="field.type === 'select'"
                 :value="selectValue(field)"
                 :disabled="isReadOnly(field)"
                 @change="onSelectChange(field, ($event.target as HTMLSelectElement).value)"

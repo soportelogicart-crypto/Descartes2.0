@@ -118,5 +118,4 @@ export const otrosModulosPermisos: NavPermisoItem[] = [
   { id: 'puestos', titulo: 'Puestos (legado)', modulo: 'puestos' },
   { id: 'albaranes-periodicos', titulo: 'Albaranes periódicos', modulo: 'albaranes-periodicos' },
   { id: 'inventario', titulo: 'Inventario', modulo: 'inventario' },
-  { id: 'listados', titulo: 'Listados', modulo: 'listados' },
 ]

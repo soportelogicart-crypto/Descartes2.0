@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import type { ArticuloField, ArticuloSection } from '@/config/articulos-tabs'
 import DecimalInput from '@/components/common/DecimalInput.vue'
+import EntidadBuscarModal, {
+  type EntidadBuscarResultado,
+} from '@/components/common/EntidadBuscarModal.vue'
+import ToolIcon from '@/components/common/ToolIcon.vue'
 
 const props = defineProps<{
   sections: ArticuloSection[]
@@ -17,112 +21,151 @@ const emit = defineEmits<{
   'update:modelValue': [value: Record<string, unknown>]
 }>()
 
-type FamiliaOpt = { value: string; label: string; macroFamiliaCodigo: string }
+type FamiliaOpt = { value: string; macroFamiliaCodigo: string }
 
-const macrofamiliasOptions = ref<{ value: string; label: string }[]>([])
+type LookupEntidad =
+  | 'macrofamilias'
+  | 'familias'
+  | 'subfamilias'
+  | 'secciones'
+  | 'subsecciones'
+  | 'agrupaciones'
+  | 'proveedores'
+  | 'impuestos'
+
+const LOOKUP_ENTIDAD: Record<NonNullable<ArticuloField['optionsSource']>, LookupEntidad> = {
+  macrofamilias: 'macrofamilias',
+  familias: 'familias',
+  subfamilias: 'subfamilias',
+  secciones: 'secciones',
+  subsecciones: 'subsecciones',
+  agrupaciones: 'agrupaciones',
+  proveedores: 'proveedores',
+  impuestos: 'impuestos',
+}
+
+const LOOKUP_TITULO: Record<LookupEntidad, string> = {
+  macrofamilias: 'Buscar macrofamilia',
+  familias: 'Buscar familia',
+  subfamilias: 'Buscar subfamilia',
+  secciones: 'Buscar seccion',
+  subsecciones: 'Buscar subseccion',
+  agrupaciones: 'Buscar agrupacion',
+  proveedores: 'Buscar proveedor',
+  impuestos: 'Buscar impuesto',
+}
+
 const familiasAll = ref<FamiliaOpt[]>([])
-const subfamiliasOptions = ref<{ value: string; label: string }[]>([])
-const agrupacionesOptions = ref<{ value: string; label: string }[]>([])
-const impuestosOptions = ref<{ value: string; label: string }[]>([])
-const proveedoresOptions = ref<{ value: string; label: string }[]>([])
 
 const allFields = computed(() => props.sections.flatMap((s) => s.fields))
 
-const familiasOptions = computed(() => {
-  const macro = String(props.modelValue.macroFamilia ?? '').trim()
-  if (!macro) return familiasAll.value
-  return familiasAll.value.filter((f) => f.macroFamiliaCodigo === macro)
-})
+const camposLookup = computed(() => allFields.value.filter((f) => isLookupField(f)))
 
 onMounted(async () => {
-  const needs = {
-    macrofamilias: allFields.value.some((f) => f.optionsSource === 'macrofamilias'),
-    familias: allFields.value.some((f) => f.optionsSource === 'familias'),
-    subfamilias: allFields.value.some((f) => f.optionsSource === 'subfamilias'),
-    agrupaciones: allFields.value.some((f) => f.optionsSource === 'agrupaciones'),
-    impuestos: allFields.value.some((f) => f.optionsSource === 'impuestos'),
-    proveedores: allFields.value.some((f) => f.optionsSource === 'proveedores'),
-  }
-
-  const requests: Promise<void>[] = []
-
-  if (needs.macrofamilias) {
-    requests.push(
-      api.get('/api/mantenimiento/macrofamilias', { params: { pageSize: 500 } }).then(({ data }) => {
-        macrofamiliasOptions.value = (data.items ?? []).map((f: { codigo: string; descripcion: string }) => ({
-          value: String(f.codigo).trim(),
-          label: `${String(f.codigo).trim()} - ${f.descripcion}`,
-        }))
+  const needsFamilias = allFields.value.some(
+    (f) => f.optionsSource === 'familias' || f.optionsSource === 'macrofamilias'
+  )
+  if (!needsFamilias) return
+  try {
+    const { data } = await api.get('/api/mantenimiento/familias', { params: { pageSize: 500 } })
+    familiasAll.value = (data.items ?? []).map(
+      (f: { codigo: string; macroFamiliaCodigo?: string }) => ({
+        value: String(f.codigo).trim(),
+        macroFamiliaCodigo: String(f.macroFamiliaCodigo ?? '').trim(),
       })
     )
+  } catch {
+    familiasAll.value = []
   }
-  if (needs.familias) {
-    requests.push(
-      api
-        .get('/api/mantenimiento/familias', { params: { pageSize: 500 } })
-        .then(({ data }) => {
-          familiasAll.value = (data.items ?? []).map(
-            (f: { codigo: string; descripcion: string; macroFamiliaCodigo?: string }) => ({
-              value: String(f.codigo).trim(),
-              label: `${String(f.codigo).trim()} - ${f.descripcion}`,
-              macroFamiliaCodigo: String(f.macroFamiliaCodigo ?? '').trim(),
-            })
-          )
-        })
-    )
-  }
-  if (needs.subfamilias) {
-    requests.push(
-      api.get('/api/mantenimiento/subfamilias', { params: { pageSize: 500 } }).then(({ data }) => {
-        subfamiliasOptions.value = (data.items ?? []).map((f: { codigo: string; descripcion: string }) => ({
-          value: String(f.codigo).trim(),
-          label: `${String(f.codigo).trim()} - ${f.descripcion}`,
-        }))
-      })
-    )
-  }
-  if (needs.agrupaciones) {
-    requests.push(
-      api.get('/api/mantenimiento/agrupaciones', { params: { pageSize: 500 } }).then(({ data }) => {
-        agrupacionesOptions.value = (data.items ?? []).map((f: { codigo: string; descripcion: string }) => ({
-          value: String(f.codigo).trim(),
-          label: `${String(f.codigo).trim()} - ${f.descripcion}`,
-        }))
-      })
-    )
-  }
-  if (needs.impuestos) {
-    requests.push(
-      api.get('/api/mantenimiento/impuestos', { params: { activo: true, pageSize: 100 } }).then(({ data }) => {
-        impuestosOptions.value = (data.items ?? []).map((i: { codigo: string; descripcion: string }) => ({
-          value: String(i.codigo).trim(),
-          label: `${String(i.codigo).trim()} - ${i.descripcion}`,
-        }))
-      })
-    )
-  }
-  if (needs.proveedores) {
-    requests.push(
-      api.get('/api/mantenimiento/proveedores', { params: { activo: true, pageSize: 500 } }).then(({ data }) => {
-        proveedoresOptions.value = (data.items ?? []).map((p: { codigo: string; nombre: string }) => ({
-          value: String(p.codigo).trim(),
-          label: `${String(p.codigo).trim()} - ${p.nombre}`,
-        }))
-      })
-    )
-  }
-
-  await Promise.all(requests)
 })
 
-function optionsFor(field: ArticuloField) {
-  if (field.optionsSource === 'macrofamilias') return macrofamiliasOptions.value
-  if (field.optionsSource === 'familias') return familiasOptions.value
-  if (field.optionsSource === 'subfamilias') return subfamiliasOptions.value
-  if (field.optionsSource === 'agrupaciones') return agrupacionesOptions.value
-  if (field.optionsSource === 'impuestos') return impuestosOptions.value
-  if (field.optionsSource === 'proveedores') return proveedoresOptions.value
-  return []
+function isLookupField(field: ArticuloField) {
+  return Boolean(field.lookup && field.optionsSource)
+}
+
+function lookupEntidad(field: ArticuloField): LookupEntidad | null {
+  if (!field.optionsSource || !field.lookup) return null
+  return LOOKUP_ENTIDAD[field.optionsSource] ?? null
+}
+
+const lookupOpen = ref(false)
+const lookupInicial = ref('')
+const lookupFieldKey = ref('')
+const lookupEtiquetas = ref<Record<string, string>>({})
+
+const lookupEntidadActiva = computed<LookupEntidad>(() => {
+  const field = allFields.value.find((f) => f.key === lookupFieldKey.value)
+  return (field && lookupEntidad(field)) || 'familias'
+})
+
+const lookupTituloActivo = computed(() => LOOKUP_TITULO[lookupEntidadActiva.value])
+
+function codigoCampo(value: unknown): string {
+  return String(value ?? '').trim()
+}
+
+function parseCodigoLookup(raw: string): string {
+  const s = raw.trim()
+  if (!s) return ''
+  const sep = s.indexOf(' - ')
+  return sep >= 0 ? s.slice(0, sep).trim() : s
+}
+
+async function resolverEtiquetaLookup(field: ArticuloField, codigoRaw: string) {
+  const entidad = lookupEntidad(field)
+  const codigo = codigoRaw.trim()
+  if (!entidad || !codigo) {
+    lookupEtiquetas.value = { ...lookupEtiquetas.value, [field.key]: '' }
+    return
+  }
+  try {
+    const { data } = await api.get(`/api/mantenimiento/${entidad}/${encodeURIComponent(codigo)}`)
+    const etiqueta =
+      entidad === 'proveedores'
+        ? String(data?.nombre ?? '').trim()
+        : String(data?.descripcion ?? '').trim()
+    lookupEtiquetas.value = { ...lookupEtiquetas.value, [field.key]: etiqueta }
+  } catch {
+    lookupEtiquetas.value = { ...lookupEtiquetas.value, [field.key]: '' }
+  }
+}
+
+watch(
+  () =>
+    camposLookup.value
+      .map((f) => `${f.key}\u0000${codigoCampo(props.modelValue[f.key])}`)
+      .join('\u0001'),
+  () => {
+    for (const field of camposLookup.value) {
+      void resolverEtiquetaLookup(field, codigoCampo(props.modelValue[field.key]))
+    }
+  },
+  { immediate: true }
+)
+
+function abrirLookup(field: ArticuloField) {
+  if (props.readonly || isReadOnly(field)) return
+  lookupFieldKey.value = field.key
+  lookupInicial.value = codigoCampo(props.modelValue[field.key])
+  lookupOpen.value = true
+}
+
+function onLookupSeleccionado(sel: EntidadBuscarResultado) {
+  lookupOpen.value = false
+  const field = allFields.value.find((f) => f.key === lookupFieldKey.value)
+  if (!field) return
+  updateField(field.key, sel.codigo.trim() || null)
+  lookupEtiquetas.value = { ...lookupEtiquetas.value, [field.key]: sel.etiqueta }
+}
+
+function onLookupInput(field: ArticuloField, raw: string) {
+  updateField(field.key, parseCodigoLookup(raw) || null)
+}
+
+function onLookupBlur(field: ArticuloField, raw: string) {
+  const codigo = parseCodigoLookup(raw)
+  updateField(field.key, codigo || null)
+  void resolverEtiquetaLookup(field, codigo)
 }
 
 function updateField(key: string, value: unknown) {
@@ -220,7 +263,12 @@ function sectionZoneClass(section: ArticuloSection) {
 
 <template>
   <div class="tab-form" :class="{ 'tab-form-tarifas': isTarifasLayout }">
-    <fieldset v-for="section in sections" :key="section.title" class="form-section" :class="sectionZoneClass(section)">
+    <fieldset
+      v-for="section in sections"
+      :key="section.title"
+      class="form-section"
+      :class="[sectionZoneClass(section), section.title === 'Clasificacion' ? 'section-clasificacion' : '']"
+    >
       <legend>{{ section.title }}</legend>
       <div
         v-if="section.columnHeaders?.length"
@@ -242,6 +290,7 @@ function sectionZoneClass(section: ArticuloSection) {
             field.type === 'number' ? 'field-number' : '',
             section.hideFieldLabels ? 'field-no-label' : '',
             isInvalid(field) ? 'field-invalid' : '',
+            isLookupField(field) ? 'field-lookup' : '',
             anchoInput(field, section) ? 'field-ancho-fijo' : '',
           ]"
           :style="fieldStyle(field, section)"
@@ -268,16 +317,37 @@ function sectionZoneClass(section: ArticuloSection) {
             @change="updateField(field.key, ($event.target as HTMLInputElement).checked)"
           />
 
-          <select
-            v-else-if="field.type === 'select'"
-            :data-field-key="field.key"
-            :value="modelValue[field.key] != null ? String(modelValue[field.key]).trim() : ''"
-            :disabled="isReadOnly(field)"
-            @change="updateField(field.key, ($event.target as HTMLSelectElement).value || null)"
-          >
-            <option value="">--</option>
-            <option v-for="opt in optionsFor(field)" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-          </select>
+          <div v-else-if="isLookupField(field)" class="lookup-row">
+            <div
+              class="lookup-combo"
+              :class="{ 'lookup-combo-readonly': isReadOnly(field) }"
+              :title="lookupEtiquetas[field.key] || undefined"
+            >
+              <input
+                type="text"
+                class="lookup-codigo"
+                :data-field-key="field.key"
+                :value="codigoCampo(modelValue[field.key])"
+                :readonly="isReadOnly(field)"
+                :maxlength="field.maxLength"
+                :aria-label="`${field.label} codigo`"
+                @input="onLookupInput(field, ($event.target as HTMLInputElement).value)"
+                @blur="onLookupBlur(field, ($event.target as HTMLInputElement).value)"
+              />
+              <span class="lookup-nombre-inner" aria-hidden="true">{{
+                lookupEtiquetas[field.key] || ''
+              }}</span>
+            </div>
+            <button
+              type="button"
+              class="btn-lupa"
+              :title="LOOKUP_TITULO[lookupEntidad(field)!]"
+              :disabled="isReadOnly(field)"
+              @click="abrirLookup(field)"
+            >
+              <ToolIcon name="buscar" />
+            </button>
+          </div>
 
           <input
             v-else-if="field.type === 'date'"
@@ -308,6 +378,15 @@ function sectionZoneClass(section: ArticuloSection) {
         </div>
       </div>
     </fieldset>
+
+    <EntidadBuscarModal
+      :open="lookupOpen"
+      :entidad="lookupEntidadActiva"
+      :titulo="lookupTituloActivo"
+      :busqueda-inicial="lookupInicial"
+      @seleccionar="onLookupSeleccionado"
+      @cerrar="lookupOpen = false"
+    />
   </div>
 </template>
 
@@ -418,10 +497,17 @@ function sectionZoneClass(section: ArticuloSection) {
 
 .field-invalid input,
 .field-invalid select,
-.field-invalid textarea {
+.field-invalid textarea,
+.field-invalid .lookup-combo {
   border-color: #dc2626 !important;
   background: #fef2f2 !important;
   box-shadow: 0 0 0 1px #fecaca;
+}
+
+.field-invalid .lookup-combo .lookup-codigo,
+.field-invalid .lookup-combo .lookup-nombre-inner {
+  background: transparent !important;
+  box-shadow: none;
 }
 
 .field.span-2 {
@@ -491,7 +577,7 @@ function sectionZoneClass(section: ArticuloSection) {
 }
 
 /* Con ancho de pista manda la rejilla, no el tope por tipo de campo. */
-.field.field-ancho-fijo input,
+.field.field-ancho-fijo input:not(.lookup-codigo),
 .field.field-ancho-fijo select {
   max-width: none;
   width: 100%;
@@ -537,11 +623,133 @@ input[type='checkbox'] {
   height: 0.9rem;
 }
 
-input:read-only,
+input:read-only:not(.lookup-codigo),
 textarea:read-only,
 select:disabled {
   background: #e8edf2;
   color: #475569;
+}
+
+.field-lookup.field-inline {
+  grid-template-columns: var(--label-col, minmax(5.2rem, auto)) minmax(0, 1fr);
+}
+
+.section-clasificacion {
+  /* Misma columna de codigo en todos los campos de la seccion. */
+  --lookup-codigo-w: 3.35rem;
+}
+
+.section-clasificacion .field-inline {
+  grid-template-columns: var(--label-col, minmax(6.25rem, auto)) minmax(0, 1fr);
+}
+
+.lookup-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+  min-width: 0;
+  width: 100%;
+  position: relative;
+  z-index: 1;
+}
+
+.lookup-combo {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: var(--lookup-codigo-w, 3.35rem) minmax(0, 1fr);
+  align-items: center;
+  min-height: 1.625rem;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  background: #fff;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.lookup-combo-readonly {
+  background: #e8edf2;
+}
+
+.lookup-combo .lookup-codigo {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0;
+  height: 100%;
+  min-height: 1.625rem;
+  padding: 0.15rem 0.25rem;
+  border: none !important;
+  border-right: 1px solid #cbd5e1 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  font-size: 0.75rem;
+  line-height: 1.25;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.lookup-combo-readonly .lookup-codigo {
+  color: #475569;
+}
+
+.lookup-nombre-inner {
+  min-width: 0;
+  min-height: 1.625rem;
+  display: block;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.8125rem;
+  line-height: 1.3;
+  color: #1e293b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+  background: transparent;
+}
+
+.lookup-combo-readonly .lookup-nombre-inner {
+  color: #475569;
+}
+
+.lookup-combo:has(.lookup-nombre-inner:not(:empty)) .lookup-nombre-inner {
+  background: #fff;
+}
+
+.lookup-combo-readonly:has(.lookup-nombre-inner:not(:empty)) .lookup-nombre-inner {
+  background: #e8edf2;
+}
+
+.btn-lupa {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.7rem;
+  min-height: 1.625rem;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  background: #fff;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.btn-lupa :deep(.tool-icon) {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.btn-lupa:hover:not(:disabled) {
+  background: #e0f2fe;
+  border-color: #38bdf8;
+}
+
+.btn-lupa:disabled {
+  background: #f1f5f9;
+  cursor: default;
+  opacity: 0.65;
 }
 
 @media (max-width: 720px) {

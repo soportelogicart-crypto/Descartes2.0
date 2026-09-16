@@ -546,6 +546,26 @@ return [
     ],
   ],
   /**
+   * Cuentas imputables: plan contable restringido a cuentas de ultimo nivel
+   * (UltNivel), p. ej. ficha Impuestos → cuentas contables.
+   */
+  'cuentas-ultimo-nivel' => [
+    'table' => 'Cuentas',
+    'primaryKey' => 'Codigo',
+    'modulo' => 'proveedores',
+    'hardDelete' => true,
+    'searchColumns' => ['Codigo', 'Descripcion'],
+    'fixedWhere' => 'ISNULL([UltNivel], 0) = 1',
+    'fields' => [
+      'codigo' => 'Codigo',
+      'descripcion' => 'Descripcion',
+    ],
+    'stringMaxLengths' => [
+      'Codigo' => 10,
+      'Descripcion' => 40,
+    ],
+  ],
+  /**
    * Cuentas de banco: equivalente a la consulta legacy "CuentasBan" (ficha
    * Proveedores → campo Banco). Solo cuentas de ultimo nivel del subgrupo 572
    * (bancos c/c a la vista del PGC), que es lo que lista el buscador legacy.

@@ -9,6 +9,7 @@ import {
   esPlantillaTicket,
   parseClaveTamanoEtiqueta,
   perteneceAlScope,
+  plantillasPorTipo,
   scopeDesdeRuta,
   type DocumentosPlantillasScope,
 } from '@/config/documentos-plantillas'
@@ -111,7 +112,11 @@ const modalTipo = ref<DocumentoTipo>('albaran')
 const modalNombre = ref('')
 /** Clave `WxH` del tamaño al crear plantilla etiqueta. */
 const modalTamanoEtiqueta = ref('50x30')
+/** Id del esqueleto de código al crear plantilla (varios por tipo, p. ej. crédito con/sin Verifactu). */
+const modalEsqueletoId = ref('')
 const modalError = ref<string | null>(null)
+
+const modalEsqueletosOpciones = computed(() => plantillasPorTipo(modalTipo.value))
 
 const confirmEliminar = ref(false)
 const confirmDescartar = ref(false)
@@ -139,7 +144,7 @@ const modalTitulo = computed(() =>
 const esqueletoMasReciente = computed(() => {
   const item = actual.value
   if (!item) return null
-  const base = esqueletoPorTipo(item.tipo)
+  const base = esqueletoPorTipo(item.tipo, item.definicion.id)
   if (!base) return null
   return base.version > Number(item.definicion.version ?? 1) ? base.version : null
 })
@@ -255,7 +260,8 @@ function abrirModalNueva() {
       ? draft.value.tipo
       : scopeMeta.value.tipoDefault
   modalTipo.value = tipoActual
-  const base = esqueletoPorTipo(modalTipo.value)
+  syncModalEsqueletoId()
+  const base = esqueletoPorTipo(modalTipo.value, modalEsqueletoId.value || undefined)
   modalNombre.value = base?.nombre ?? 'Nueva plantilla'
   modalTamanoEtiqueta.value = '50x30'
   if (modalTipo.value === 'etiqueta' && base) {
@@ -281,9 +287,23 @@ function abrirModalGuardarComo() {
   modalCrear.value = true
 }
 
+function syncModalEsqueletoId() {
+  const opts = modalEsqueletosOpciones.value
+  if (!opts.some((p) => p.id === modalEsqueletoId.value)) {
+    modalEsqueletoId.value = opts[0]?.id ?? ''
+  }
+}
+
+function onEsqueletoModalChange() {
+  if (modalModo.value !== 'nueva') return
+  const base = esqueletoPorTipo(modalTipo.value, modalEsqueletoId.value || undefined)
+  if (base) modalNombre.value = base.nombre
+}
+
 function onTipoModalChange() {
   if (modalModo.value !== 'nueva') return
-  const base = esqueletoPorTipo(modalTipo.value)
+  syncModalEsqueletoId()
+  const base = esqueletoPorTipo(modalTipo.value, modalEsqueletoId.value || undefined)
   if (modalTipo.value === 'etiqueta') {
     const parsed = parseClaveTamanoEtiqueta(modalTamanoEtiqueta.value) ?? { widthMm: 50, heightMm: 30 }
     modalNombre.value = `Etiqueta ${parsed.widthMm}×${parsed.heightMm}`
@@ -325,7 +345,7 @@ async function confirmarModalCrear() {
     if (!perteneceAlScope(modalTipo.value, scope.value)) {
       modalTipo.value = scopeMeta.value.tipoDefault
     }
-    const base = esqueletoPorTipo(modalTipo.value)
+    const base = esqueletoPorTipo(modalTipo.value, modalEsqueletoId.value || undefined)
     if (!base) {
       modalError.value = 'Tipo no válido.'
       return
@@ -461,7 +481,7 @@ async function onProbarTicket() {
 
 function onResetearEsqueleto() {
   if (!draft.value) return
-  const base = esqueletoPorTipo(draft.value.tipo)
+  const base = esqueletoPorTipo(draft.value.tipo, draft.value.id)
   if (!base) {
     errorMsg.value = 'No hay esqueleto base para este tipo.'
     return
@@ -666,6 +686,17 @@ function marcarDirty() {
           <p v-else-if="modalModo === 'nueva' && scopeUnicoTipo" class="campo-fijo">
             Tipo: <strong>{{ etiquetaTipo(modalTipo) }}</strong>
           </p>
+          <label
+            v-if="modalModo === 'nueva' && modalEsqueletosOpciones.length > 1"
+            class="campo"
+          >
+            <span>Diseño base</span>
+            <select v-model="modalEsqueletoId" @change="onEsqueletoModalChange">
+              <option v-for="p in modalEsqueletosOpciones" :key="p.id" :value="p.id">
+                {{ p.nombre }}
+              </option>
+            </select>
+          </label>
           <label v-if="modalModo === 'nueva' && modalTipo === 'etiqueta'" class="campo">
             <span>Tamaño</span>
             <select v-model="modalTamanoEtiqueta" @change="onTamanoEtiquetaModalChange">

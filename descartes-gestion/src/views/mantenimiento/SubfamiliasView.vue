@@ -22,6 +22,7 @@ import SubfamiliasGrid from '@/components/subfamilias/SubfamiliasGrid.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
 import DecimalInput from '@/components/common/DecimalInput.vue'
+import EntidadLookupField from '@/components/common/EntidadLookupField.vue'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 
 const MODULO = 'subfamilias'
@@ -506,14 +507,14 @@ async function onUltimo() {
           <div class="section-grid">
             <label class="field" :class="{ 'campo-invalido': camposInvalidos.includes('familiaCodigo') }">
               <span class="field-label">Familia *</span>
-              <select
-                v-model="ficha.familiaCodigo"
-                data-field-key="familiaCodigo"
-                :disabled="soloLecturaFicha"
-              >
-                <option value="">--</option>
-                <option v-for="opt in familiaOpciones" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-              </select>
+              <EntidadLookupField
+                :model-value="ficha.familiaCodigo ?? null"
+                entidad="familias"
+                :readonly="soloLecturaFicha"
+                field-key="familiaCodigo"
+                empty-as-null
+                @update:model-value="ficha.familiaCodigo = ($event as string) ?? ''"
+              />
             </label>
             <label class="field">
               <span class="field-label">Cuenta Ctb.</span>

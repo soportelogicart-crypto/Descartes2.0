@@ -151,8 +151,9 @@ export const puestoTabs: PuestoTab[] = [
           {
             key: 'tiendaCodigo',
             label: 'Tienda arqueo',
-            type: 'select',
+            lookup: true,
             optionsSource: 'tiendas',
+            maxLength: 2,
             span: 2,
             layout: 'inline',
           },
@@ -207,8 +208,24 @@ export const puestoTabs: PuestoTab[] = [
         fields: [
           { key: 'tarifa', label: 'Tarifa', type: 'number', layout: 'inline' },
           { key: 'teclado', label: 'Teclado', type: 'number', layout: 'inline' },
-          { key: 'trabajadorCodigo', label: 'Vendedor', type: 'select', optionsSource: 'trabajadores', span: 2, layout: 'inline' },
-          { key: 'usuarioCodigo', label: 'Usuario', type: 'select', optionsSource: 'usuarios', span: 2, layout: 'inline' },
+          {
+            key: 'trabajadorCodigo',
+            label: 'Vendedor',
+            lookup: true,
+            optionsSource: 'trabajadores',
+            maxLength: 4,
+            span: 2,
+            layout: 'inline',
+          },
+          {
+            key: 'usuarioCodigo',
+            label: 'Usuario',
+            lookup: true,
+            optionsSource: 'usuarios',
+            maxLength: 6,
+            span: 2,
+            layout: 'inline',
+          },
         ],
       },
       {

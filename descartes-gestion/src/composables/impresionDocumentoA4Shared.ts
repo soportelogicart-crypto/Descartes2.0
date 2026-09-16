@@ -30,7 +30,11 @@ export function clonePlantilla(p: DocumentoPlantilla): DocumentoPlantilla {
   return JSON.parse(JSON.stringify(p)) as DocumentoPlantilla
 }
 
-export function esqueletoPorTipo(tipo: string): DocumentoPlantilla | null {
+export function esqueletoPorTipo(tipo: string, plantillaId?: string): DocumentoPlantilla | null {
+  if (plantillaId) {
+    const byId = documentosPlantillas.find((p) => p.id === plantillaId)
+    if (byId) return clonePlantilla(byId)
+  }
   const base = documentosPlantillas.find((p) => p.tipo === tipo)
   return base ? clonePlantilla(base) : null
 }
@@ -73,7 +77,7 @@ export function literalesDesdePuesto(puesto: PuestoDoc): string[] {
 
 /** Si la plantilla guardada es el esqueleto base de una versión anterior, usa la del código. */
 function plantillaVigente(guardada: DocumentoPlantilla, tipo: string): DocumentoPlantilla {
-  const skeleton = esqueletoPorTipo(tipo)
+  const skeleton = esqueletoPorTipo(tipo, guardada.id) ?? esqueletoPorTipo(tipo)
   if (!skeleton) return guardada
   const mismaBase = !guardada.id || guardada.id === skeleton.id
   const vGuardada = Number(guardada.version || 0)

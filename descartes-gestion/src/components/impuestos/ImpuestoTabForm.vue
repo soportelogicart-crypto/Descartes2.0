@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import type { ImpuestoField, ImpuestoSection } from '@/config/impuestos-tabs'
 import DecimalInput from '@/components/common/DecimalInput.vue'
-
+import EntidadLookupField from '@/components/common/EntidadLookupField.vue'
 const props = defineProps<{
   sections: ImpuestoSection[]
   modelValue: Record<string, unknown>
@@ -34,13 +34,18 @@ function isReadOnly(field: ImpuestoField) {
   return props.readonly || field.readOnly || (field.key === 'codigo' && props.codigoReadOnly)
 }
 
-function displayNumber(key: string) {
-  const value = props.modelValue[key]
-  return value == null || value === '' ? 0 : value
-}
-
 function sectionClass(section: ImpuestoSection) {
   return `cols-${section.columns ?? 4}`
+}
+
+function isCuentaLookup(field: ImpuestoField) {
+  return Boolean(field.lookup && field.optionsSource === 'cuentas-ultimo-nivel')
+}
+
+function cuentaModelValue(key: string): number | null {
+  const value = props.modelValue[key]
+  if (value == null || value === '') return null
+  return Number(value)
 }
 </script>
 
@@ -70,6 +75,17 @@ function sectionClass(section: ImpuestoSection) {
             :checked="Boolean(modelValue[field.key])"
             :disabled="isReadOnly(field)"
             @change="updateField(field.key, ($event.target as HTMLInputElement).checked)"
+          />
+
+          <EntidadLookupField
+            v-else-if="isCuentaLookup(field)"
+            :model-value="cuentaModelValue(field.key)"
+            entidad="cuentas-ultimo-nivel"
+            :readonly="isReadOnly(field)"
+            :max-length="field.maxLength ?? 10"
+            :field-key="field.key"
+            titulo-modal="Buscar cuenta contable"
+            @update:model-value="updateField(field.key, $event ?? 0)"
           />
 
           <DecimalInput

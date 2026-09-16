@@ -6,6 +6,8 @@ import { useOrdenCabeceraGrid } from '@/composables/useOrdenCabeceraGrid'
 import { GRID_LIMITE_INICIAL } from '@/composables/useGridPageSize'
 import GridFilterRow from '@/components/common/GridFilterRow.vue'
 import DecimalInput from '@/components/common/DecimalInput.vue'
+import EntidadLookupField from '@/components/common/EntidadLookupField.vue'
+import { entidadDesdeOptionsSource, type OptionsSourceLookup } from '@/config/entidad-lookup'
 
 const props = defineProps<{
   filas: ArticuloFila[]
@@ -169,8 +171,17 @@ function optionsFor(col: ArticuloColumn) {
               </template>
 
               <template v-else>
+                <EntidadLookupField
+                  v-if="col.optionsSource && entidadDesdeOptionsSource(col.optionsSource as OptionsSourceLookup)"
+                  :model-value="(fila[col.key as keyof ArticuloFila] as string | number | null) ?? null"
+                  :entidad="entidadDesdeOptionsSource(col.optionsSource as OptionsSourceLookup)!"
+                  compact
+                  @click.stop
+                  @update:model-value="onCellChange(index, col.key, $event ?? '')"
+                />
+
                 <select
-                  v-if="col.type === 'select'"
+                  v-else-if="col.type === 'select'"
                   :value="String(fila[col.key as keyof ArticuloFila] ?? '')"
                   @click.stop
                   @change="onCellChange(index, col.key, ($event.target as HTMLSelectElement).value || '')"

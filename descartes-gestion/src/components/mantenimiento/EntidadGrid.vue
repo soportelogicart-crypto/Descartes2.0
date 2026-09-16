@@ -5,7 +5,9 @@ import { type ColumnFilter } from '@/composables/useGridColumnFilters'
 import { useOrdenCabeceraGrid } from '@/composables/useOrdenCabeceraGrid'
 import { GRID_LIMITE_INICIAL } from '@/composables/useGridPageSize'
 import DecimalInput from '@/components/common/DecimalInput.vue'
+import EntidadLookupField from '@/components/common/EntidadLookupField.vue'
 import GridFilterRow from '@/components/common/GridFilterRow.vue'
+import { entidadDesdeOptionsSource } from '@/config/entidad-lookup'
 
 export type GridOptionsMap = Record<string, { value: string; label: string }[]>
 
@@ -86,6 +88,10 @@ function optionsFor(col: GridColumn) {
   return props.optionsMap?.[col.optionsSource] ?? []
 }
 
+function lookupEntidadCol(col: GridColumn) {
+  return entidadDesdeOptionsSource(col.optionsSource)
+}
+
 function onSeleccionar(fila: GridFila) {
   emit('seleccionar', indiceOriginal(fila))
 }
@@ -149,8 +155,20 @@ function onRowDblClick(fila: GridFila) {
 
           <template v-else>
             <td v-for="col in columns" :key="col.key" @click.stop="readonly ? onSeleccionar(fila) : undefined">
+              <EntidadLookupField
+                v-if="lookupEntidadCol(col)"
+                :model-value="(fila[col.key] as string | number | null) ?? null"
+                :entidad="lookupEntidadCol(col)!"
+                :readonly="isReadOnly(col, fila)"
+                :max-length="col.maxLength"
+                compact
+                empty-as-null
+                @click.stop
+                @update:model-value="onCellChange(index, col.key, $event ?? '')"
+              />
+
               <select
-                v-if="col.type === 'select'"
+                v-else-if="col.type === 'select'"
                 :value="String(fila[col.key] ?? '')"
                 :disabled="isReadOnly(col, fila)"
                 @change="onCellChange(index, col.key, ($event.target as HTMLSelectElement).value || '')"

@@ -13,6 +13,8 @@ export type FormaPagoField = {
   maxLength?: number
   step?: string
   options?: FormaPagoFieldOption[]
+  lookup?: boolean
+  optionsSource?: 'cuentas-ultimo-nivel'
 }
 
 export type FormaPagoSection = {
@@ -125,7 +127,11 @@ export const formaPagoTabs: FormaPagoTab[] = [
             type: 'select',
             options: COBRO_PAGO_OPTIONS,
           }),
-          inline('cuentaCtb', 'Cuenta Contable', { type: 'number', step: '1' }),
+          inline('cuentaCtb', 'Cuenta Contable', {
+            lookup: true,
+            optionsSource: 'cuentas-ultimo-nivel',
+            maxLength: 10,
+          }),
           inline('nota', 'Nota', { span: 4, maxLength: 100 }),
           check('activo', 'Activo'),
         ],

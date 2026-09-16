@@ -95,7 +95,11 @@ const secciones = computed(() =>
               ? facturacionSeccionVisible.value
               : seccion.id === 'tpv'
                 ? puede('tpv', 'ver')
-                : true,
+                : seccion.id === 'listados'
+                  ? puede('listados', 'ver')
+                  : seccion.id === 'inventario'
+                    ? puede('inventario', 'ver')
+                    : true,
     activa:
       seccion.id === 'mantenimiento'
         ? route.path.startsWith('/mantenimiento')
@@ -480,6 +484,20 @@ async function logout() {
             Venta táctil
           </RouterLink>
           <span v-else class="nav-link nav-child disabled" title="Sin permiso">Venta táctil</span>
+        </nav>
+
+        <!-- Listados: hub de informes -->
+        <nav v-else-if="seccion.id === 'listados'" v-show="seccionesAbiertas.listados">
+          <RouterLink
+            v-if="seccion.habilitado"
+            to="/listados"
+            class="nav-link nav-child"
+            :class="{ active: route.path === '/listados' || route.path.startsWith('/listados/') }"
+            @click="cerrarMenu"
+          >
+            Catálogo de informes
+          </RouterLink>
+          <span v-else class="nav-link nav-child disabled" title="Sin permiso">Catálogo de informes</span>
         </nav>
 
         <!-- Resto de secciones: placeholder hasta completar -->

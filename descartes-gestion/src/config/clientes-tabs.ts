@@ -69,7 +69,7 @@ export const clienteTabs: ClienteTab[] = [
           inline('iban', 'IBAN', { span: 2, maxLength: 34 }),
           inline('referenciaMandato', 'Referencia mandato', { maxLength: 35 }),
           inline('fechaFirmaMandato', 'Fecha aceptacion', { type: 'date' }),
-          inline('tiendaCodigo', 'Tienda', { type: 'select', optionsSource: 'tiendas' }),
+          inline('tiendaCodigo', 'Tienda', { lookup: true, optionsSource: 'tiendas', maxLength: 2 }),
         ],
       },
       {
@@ -134,9 +134,9 @@ export const clienteTabs: ClienteTab[] = [
         columns: 2,
         row: 'mkt1',
         fields: [
-          inline('agenteOrigen', 'Agente', { type: 'select', optionsSource: 'trabajadores' }),
-          inline('vendedor', 'Representante', { type: 'select', optionsSource: 'trabajadores' }),
-          inline('actividad', 'Actividad', { type: 'select', optionsSource: 'actividades', span: 2 }),
+          inline('agenteOrigen', 'Agente', { lookup: true, optionsSource: 'trabajadores', maxLength: 4 }),
+          inline('vendedor', 'Representante', { lookup: true, optionsSource: 'trabajadores', maxLength: 4 }),
+          inline('actividad', 'Actividad', { lookup: true, optionsSource: 'actividades', span: 2, maxLength: 6 }),
         ],
       },
       {
@@ -246,9 +246,10 @@ export const clienteTabs: ClienteTab[] = [
           inline('agencia', 'Agencia bancaria', { maxLength: 40 }),
           inline('cuentaBancaria', 'Cuenta bancaria', { span: 2, maxLength: 20 }),
           inline('formaPago', 'Forma pago', {
-            type: 'select',
+            lookup: true,
             optionsSource: 'formas-pago',
             required: true,
+            maxLength: 2,
           }),
           inline('tratamientoFiscal', 'Tratamiento', {
             type: 'select',
@@ -297,7 +298,7 @@ export const clienteTabs: ClienteTab[] = [
           inline('copiasFactura', 'Copias Factura', { type: 'number' }),
           inline('copiasFContado', 'Copias Contado', { type: 'number' }),
           cb('generarTraspaso', 'Generar Traspaso en Pedidos Cliente', { span: 2 }),
-          inline('almacenTraspaso', 'Al Almacen', { type: 'select', optionsSource: 'almacenes' }),
+          inline('almacenTraspaso', 'Al Almacen', { lookup: true, optionsSource: 'almacenes', maxLength: 3 }),
           cb('solicitarImpresionAlbaran', 'Solicitar Impresion Albaran', { span: 2 }),
           cb('facturacionManual', 'Bloquear facturacion automatica', { span: 2 }),
           inline('empresaFacturacion', 'Cliente facturacion', {
