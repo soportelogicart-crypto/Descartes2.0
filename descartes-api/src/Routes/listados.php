@@ -30,6 +30,8 @@ return function (App $app): void {
       ->add($setPermiso('listados', 'ver'));
     $group->get('/informe-tickets', [ListadosController::class, 'listInformeTickets'])
       ->add($setPermiso('listados', 'ver'));
+    $group->get('/extracto-clientes', [ListadosController::class, 'listExtractoClientes'])
+      ->add($setPermiso('listados', 'ver'));
   })
     ->add(PermissionMiddleware::class)
     ->add(AuthMiddleware::class);

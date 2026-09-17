@@ -11,9 +11,13 @@ import {
   type AbcFiltroRango,
 } from '@/config/abc-ventas-filtros'
 import { hoyIso, rangoAtajoFecha, type AtajoFechaId } from '@/composables/useAtajosFecha'
+import { imprimirListadoHtml } from '@/composables/imprimirListadoHtml'
+import { useAuthStore } from '@/stores/auth'
 
+const auth = useAuthStore()
 const loading = ref(false)
 const error = ref<string | null>(null)
+const mensaje = ref<string | null>(null)
 const data = ref<AbcVentasResponse | null>(null)
 
 const form = ref<AbcVentasFiltros>({
@@ -106,7 +110,73 @@ async function generar() {
 }
 
 function imprimir() {
-  window.print()
+  const d = data.value
+  if (!d) return
+  const thead = [
+    'Codigo',
+    'Articulo',
+    'Unidades',
+    'Dto.',
+    'Importe',
+    'Coste',
+    'Margen',
+    '%Margen',
+    '%Sob.Tot',
+    'M.Agr.',
+  ]
+  const filas: string[][] = []
+  for (const g of d.grupos) {
+    filas.push([`${g.codigo || '-'} — ${g.nombre || '(sin nombre)'}`, '', '', '', '', '', '', '', '', ''])
+    for (const a of g.articulos) {
+      filas.push([
+        a.codigo,
+        a.descripcion,
+        fmtQty(a.unidades),
+        fmt(a.dto),
+        fmt(a.importe),
+        fmt(a.coste),
+        fmt(a.margen),
+        fmt(a.pjeMargen),
+        fmt(a.pjeSobreTotal),
+        fmt(a.mAgr),
+      ])
+    }
+    const t = rowTotales(g.totales)
+    filas.push(['TOTAL', '', t.unidades, t.dto, t.importe, t.coste, t.margen, t.pjeMargen, t.pjeSobreTotal, ''])
+  }
+  const tg = rowTotales(d.totales)
+  filas.push([
+    'TOTAL GENERAL',
+    '',
+    tg.unidades,
+    tg.dto,
+    tg.importe,
+    tg.coste,
+    tg.margen,
+    tg.pjeMargen,
+    '100,00',
+    '',
+  ])
+  const meta = [
+    `Periodo: ${d.fechaDesde} — ${d.fechaHasta}`,
+    `${ivaLabel.value} · Orden: ${d.orden} · Dimensión: ${d.dimension}`,
+    `Divisa: ${d.divisa || 'EU'}`,
+  ]
+  const u = auth.usuario?.nombre
+  if (u) meta.push(`Usuario: ${u}`)
+  meta.push(`Generado: ${new Date().toLocaleString('es-ES')}`)
+  const res = imprimirListadoHtml({
+    titulo: 'ABC de ventas',
+    metaLineas: meta,
+    thead,
+    filas,
+    pie: [
+      `Importe total: ${fmt(d.totales.importe)}`,
+      `Margen total: ${fmt(d.totales.margen)}`,
+    ],
+    filenameFallback: 'abc-ventas.html',
+  })
+  mensaje.value = res.message
 }
 
 function fmt(n: number | undefined) {
@@ -300,6 +370,7 @@ function rowTotales(t: AbcVentasTotales) {
     </form>
 
     <p v-if="error" class="error no-print">{{ error }}</p>
+    <p v-if="mensaje" class="hint ok no-print">{{ mensaje }}</p>
     <p v-if="loading" class="hint no-print">Generando listado...</p>
 
     <template v-if="data">

@@ -10,13 +10,13 @@ Sustituir el placeholder de `/listados` por un **hub buscable** y, informe a inf
 
 | Fase | Entrega | Estado |
 |------|---------|--------|
-| **0** | `research.md`, `spec.md`, este `plan.md`, `tasks.md` | En curso |
+| **0** | `research.md`, `spec.md`, este `plan.md`, `tasks.md` | Hecho |
 | **1 — Hub (P1)** | `listados-nav.ts`, `ListadosHubView`, permiso `listados`, recientes | **Hecho en código** |
-| **2 — Shell informe** | Componente/layout compartido: fechas, tienda, Más filtros, Generar, export, preview A4 listado | Pendiente |
+| **2 — Shell informe** | Componente/layout compartido: fechas, tienda, Más filtros, Generar, export, preview A4 listado | Hecho (T010 refactor opcional) |
 | **3 — Stock MVP** | API + ficha `stock` con `agruparPor` | Hecho |
-| **4 — Resto v1** | `stock-minimos`, `informe-iva` hechos; `informe-tickets`, `extracto-clientes` pendientes | En curso |
-| **5 — ABC UX** | Compactar rangos ABC en Más filtros (mismo endpoint) | Pendiente |
-| **6 — P2 mantenimientos** | Botón Listado = export grid filtrado (no `window.print`) | Pendiente |
+| **4 — Resto v1** | Informes v1 (stock, mínimos, IVA, tickets, extracto clientes) | Hecho |
+| **5 — ABC UX** | Compactar rangos ABC en Más filtros (mismo endpoint) | Hecho |
+| **6 — P2 mantenimientos** | Botón Listado = export grid filtrado (no `window.print`) | Hecho |
 
 ## Technical context
 

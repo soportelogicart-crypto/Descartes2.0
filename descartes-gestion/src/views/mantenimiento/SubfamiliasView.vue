@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import MantenimientoListadoButton from '@/components/mantenimiento/MantenimientoListadoButton.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import { extractApiError, useMantenimiento } from '@/composables/useMantenimiento'
@@ -8,7 +9,7 @@ import {
   filtrosIniciales,
   type ColumnFilter,
 } from '@/composables/useGridColumnFilters'
-import {
+import { subfamiliaColumns, 
   SUBFAMILIA_CAMPOS_OBLIGATORIOS,
   camposSubfamiliaObligatoriosVacios,
   clonarSubfamilia,
@@ -174,9 +175,6 @@ function seleccionar(index: number) {
   indiceSeleccionado.value = index
 }
 
-function onListado() {
-  window.print()
-}
 
 async function abrirFichaPorCodigo(codigo: string) {
   try {
@@ -346,10 +344,15 @@ async function onUltimo() {
       <template v-if="vista === 'grid'">
         <div class="mantenimiento-listado">
         <div class="toolbar">
-          <button type="button" class="tool-btn" @click="onListado">
+          <MantenimientoListadoButton
+            titulo="Subfamilias"
+            :columnas="subfamiliaColumns"
+            :filas="filas"
+            @aviso="mensaje = $event"
+          >
             <ToolIcon name="listado" />
             <span>Listado</span>
-          </button>
+          </MantenimientoListadoButton>
           <button v-if="puedeCrear" type="button" class="tool-btn" :disabled="loading" @click="onNuevo">
             <ToolIcon name="nuevo" />
             <span>Nuevo</span>

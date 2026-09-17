@@ -48,7 +48,7 @@ export type AlbaranCompraLinea = {
   /** Si 0 → usar almacén de cabecera. */
   almacen?: number | null
   articuloOriginal?: string | null
-  /** PrecioVen1 del maestro (solo lectura; no se persiste en la línea). */
+  /** PVP tarifa tienda (PrecioVenN del maestro; no se persiste en la línea). */
   precioVenta?: number | null
 }
 
@@ -63,6 +63,8 @@ export type AlbaranCompraDetalle = AlbaranCompraResumen & {
   importeTransporte?: number
   coeficienteTransporte?: number
   brutoConTransporte?: number
+  /** Tarifa de venta de la tienda (Empresas_Ges.Tarifa). */
+  tarifaVenta?: number
   lUpdate?: string | null
   /** TrasCtb=0 y preferiblemente Actualizado=0. */
   editable?: boolean

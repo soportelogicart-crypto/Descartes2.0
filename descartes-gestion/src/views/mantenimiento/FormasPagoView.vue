@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import MantenimientoListadoButton from '@/components/mantenimiento/MantenimientoListadoButton.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   clonarFilaGrid,
@@ -193,9 +194,6 @@ function actualizarFila(_index: number, fila: GridFila) {
   )
 }
 
-function onListado() {
-  window.print()
-}
 
 async function onGuardarGrid() {
   const fila = filaSeleccionada.value
@@ -380,7 +378,12 @@ async function onUltimo() {
       <template v-if="vista === 'grid'">
         <div class="mantenimiento-listado">
         <div class="toolbar">
-          <button type="button" class="tool-btn" @click="onListado">Listado</button>
+          <MantenimientoListadoButton
+            titulo="Formas de pago"
+            :columnas="columns"
+            :filas="filas"
+            @aviso="mensaje = $event"
+          />
           <button v-if="puedeCrear" type="button" class="tool-btn" :disabled="loading" @click="onNuevo">
             Nuevo
           </button>

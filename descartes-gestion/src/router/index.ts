@@ -58,6 +58,7 @@ import StockListadoView from '@/views/listados/StockListadoView.vue'
 import StockMinimosListadoView from '@/views/listados/StockMinimosListadoView.vue'
 import InformeIvaListadoView from '@/views/listados/InformeIvaListadoView.vue'
 import InformeTicketsListadoView from '@/views/listados/InformeTicketsListadoView.vue'
+import ExtractoClientesListadoView from '@/views/listados/ExtractoClientesListadoView.vue'
 import { getInstalacionEstado } from '@/api/instalacion'
 
 const articulosSeccionesPendientes = [
@@ -147,6 +148,12 @@ const router = createRouter({
           name: 'listados-informe-tickets',
           component: InformeTicketsListadoView,
           meta: { titulo: 'Informe de tickets', modulo: 'listados', accion: 'ver' },
+        },
+        {
+          path: 'listados/extracto-clientes',
+          name: 'listados-extracto-clientes',
+          component: ExtractoClientesListadoView,
+          meta: { titulo: 'Extracto de clientes', modulo: 'listados', accion: 'ver' },
         },
         {
           path: 'tpv',
@@ -470,7 +477,7 @@ router.beforeEach(async (to) => {
   if (modulo) {
     const { puede } = usePermisos()
     if (!puede(modulo, accion)) {
-      return { name: 'home' }
+      return { name: 'home', query: { sinPermiso: modulo } }
     }
   }
 

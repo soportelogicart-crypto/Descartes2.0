@@ -134,10 +134,21 @@ final class AlbaranCompraConsultaService
       return null;
     }
 
+    $empresaTrim = trim((string) ($cab['Empresa'] ?? $empresa));
+    $tarifaVenta = $this->tarifaEmpresa($empresaTrim);
+
     $linStmt = $this->pdo->prepare(
       'SELECT l.NroLin, l.Articulo, l.Descripcion, l.Cantidad, l.Precio, l.PjeDto,
               l.Dto1, l.Dto2, l.Dto3, l.Pedido, l.Lote, l.Almacen, l.ArticuloOriginal,
-              ISNULL(a.PrecioVen1, 0) AS PrecioVen1
+              ISNULL(a.PrecioVen1, 0) AS PrecioVen1,
+              ISNULL(a.PrecioVen2, 0) AS PrecioVen2,
+              ISNULL(a.PrecioVen3, 0) AS PrecioVen3,
+              ISNULL(a.PrecioVen4, 0) AS PrecioVen4,
+              ISNULL(a.PrecioVen5, 0) AS PrecioVen5,
+              ISNULL(a.PrecioVen6, 0) AS PrecioVen6,
+              ISNULL(a.PrecioVen7, 0) AS PrecioVen7,
+              ISNULL(a.PrecioVen8, 0) AS PrecioVen8,
+              ISNULL(a.PrecioVen9, 0) AS PrecioVen9
        FROM AlbaranesComprasLin l
        LEFT JOIN Articulos a ON RTRIM(a.Codigo) = RTRIM(l.Articulo)
        WHERE l.Empresa = :empresa AND l.Albaran = :albaran
@@ -147,10 +158,11 @@ final class AlbaranCompraConsultaService
 
     $lineas = [];
     while ($lin = $linStmt->fetch(PDO::FETCH_ASSOC)) {
-      $lineas[] = $this->mapLinea($lin);
+      $lineas[] = $this->mapLinea($lin, $tarifaVenta);
     }
 
     $detalle = $this->mapResumen($cab);
+    $detalle['tarifaVenta'] = $tarifaVenta;
     $detalle['observaciones'] = $this->textoNtext($cab['Observaciones'] ?? null);
     $detalle['albaranDevolucionEstado'] = isset($cab['AlbaranDevolucionEstado'])
       ? (int) $cab['AlbaranDevolucionEstado']
@@ -201,7 +213,7 @@ final class AlbaranCompraConsultaService
    * @param array<string, mixed> $lin
    * @return array<string, mixed>
    */
-  private function mapLinea(array $lin): array
+  private function mapLinea(array $lin, int $tarifaVenta = 1): array
   {
     $pedido = isset($lin['Pedido']) ? (int) $lin['Pedido'] : 0;
 
@@ -219,8 +231,42 @@ final class AlbaranCompraConsultaService
       'lote' => $this->trimOrNull($lin['Lote'] ?? null),
       'almacen' => isset($lin['Almacen']) && $lin['Almacen'] !== null ? (int) $lin['Almacen'] : null,
       'articuloOriginal' => $this->trimOrNull($lin['ArticuloOriginal'] ?? null),
-      'precioVenta' => (float) ($lin['PrecioVen1'] ?? 0),
+      'precioVenta' => $this->pvpTarifaArticulo($lin, $tarifaVenta),
     ];
+  }
+
+  private function tarifaEmpresa(string $empresa): int
+  {
+    if ($empresa === '') {
+      return 1;
+    }
+    try {
+      $st = $this->pdo->prepare(
+        'SELECT ISNULL(Tarifa, 1) AS Tarifa FROM Empresas_Ges WHERE RTRIM(Codigo) = :e'
+      );
+      $st->execute(['e' => $empresa]);
+      $v = $st->fetchColumn();
+      $n = $v !== false ? (int) $v : 1;
+      return min(9, max(1, $n));
+    } catch (\Throwable $e) {
+      return 1;
+    }
+  }
+
+  /**
+   * PVP según tarifa de la tienda (legacy albarán compra).
+   *
+   * @param array<string, mixed> $lin
+   */
+  private function pvpTarifaArticulo(array $lin, int $tarifaVenta): float
+  {
+    $tarifaVenta = min(9, max(1, $tarifaVenta));
+    $col = 'PrecioVen' . $tarifaVenta;
+    $pvp = (float) ($lin[$col] ?? 0);
+    if ($pvp > 0.0000001) {
+      return $pvp;
+    }
+    return (float) ($lin['PrecioVen1'] ?? 0);
   }
 
   private function asBool($value): bool

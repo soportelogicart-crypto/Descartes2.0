@@ -133,3 +133,39 @@ export async function generarInformeTickets(params: {
   const { data } = await api.get<InformeTicketsResult>('/api/listados/informe-tickets', { params })
   return data
 }
+
+export type ExtractoClientesFila = {
+  fecha: string
+  tipo: 'factura' | 'albaran' | 'cobro'
+  documento: string
+  empresa: string
+  concepto: string
+  debe: number
+  haber: number
+  saldo: number
+}
+
+export type ExtractoClientesResult = {
+  fechaDesde: string
+  fechaHasta: string
+  cliente: string
+  razonSocial: string
+  empresa: string
+  saldoAnterior: number
+  saldoFinal: number
+  riesgoAcumulado: number
+  items: ExtractoClientesFila[]
+  totales: { movimientos: number; debe: number; haber: number; neto: number }
+  truncado: boolean
+  limite: number
+}
+
+export async function generarExtractoClientes(params: {
+  fechaDesde: string
+  fechaHasta: string
+  cliente: string
+  empresa?: string
+}): Promise<ExtractoClientesResult> {
+  const { data } = await api.get<ExtractoClientesResult>('/api/listados/extracto-clientes', { params })
+  return data
+}

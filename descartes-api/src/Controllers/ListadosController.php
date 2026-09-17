@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Descartes\Api\Controllers;
 
 use Descartes\Api\Http\ErrorResponse;
+use Descartes\Api\Services\Listados\ExtractoClientesListadoService;
 use Descartes\Api\Services\Listados\InformeIvaListadoService;
 use Descartes\Api\Services\Listados\InformeTicketsListadoService;
 use Descartes\Api\Services\Listados\StockListadoService;
@@ -20,6 +21,7 @@ final class ListadosController
   private StockMinimosListadoService $stockMinimos;
   private InformeIvaListadoService $informeIva;
   private InformeTicketsListadoService $informeTickets;
+  private ExtractoClientesListadoService $extractoClientes;
   private LoggerInterface $logger;
 
   public function __construct(
@@ -27,12 +29,14 @@ final class ListadosController
     StockMinimosListadoService $stockMinimos,
     InformeIvaListadoService $informeIva,
     InformeTicketsListadoService $informeTickets,
+    ExtractoClientesListadoService $extractoClientes,
     LoggerInterface $logger
   ) {
     $this->stock = $stock;
     $this->stockMinimos = $stockMinimos;
     $this->informeIva = $informeIva;
     $this->informeTickets = $informeTickets;
+    $this->extractoClientes = $extractoClientes;
     $this->logger = $logger;
   }
 
@@ -83,6 +87,19 @@ final class ListadosController
       $this->logger->error('listados.informe-tickets', ['error' => $e->getMessage()]);
 
       return ErrorResponse::json($response, 500, 'No se pudo generar el informe de tickets');
+    }
+  }
+
+  public function listExtractoClientes(Request $request, Response $response): Response
+  {
+    try {
+      return $this->json($response, 200, $this->extractoClientes->generar($request->getQueryParams()));
+    } catch (InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage());
+    } catch (\Throwable $e) {
+      $this->logger->error('listados.extracto-clientes', ['error' => $e->getMessage()]);
+
+      return ErrorResponse::json($response, 500, 'No se pudo generar el extracto de clientes');
     }
   }
 

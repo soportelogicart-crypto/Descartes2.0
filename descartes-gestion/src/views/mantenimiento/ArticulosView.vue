@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import MantenimientoListadoButton from '@/components/mantenimiento/MantenimientoListadoButton.vue'
 import { computed, nextTick, onActivated, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api/client'
@@ -9,7 +10,7 @@ import {
   filtrosIniciales,
   type ColumnFilter,
 } from '@/composables/useGridColumnFilters'
-import {
+import { articuloColumns, 
   articuloFilaVacia,
   clonarArticuloFila,
   type ArticuloFila,
@@ -64,6 +65,12 @@ const mensaje = ref<string | null>(null)
 const familiaOpciones = ref<{ value: string; label: string }[]>([])
 const impuestoOpciones = ref<{ value: string; label: string }[]>([])
 const proveedorOpciones = ref<{ value: string; label: string }[]>([])
+
+const listadoOptionsMap = computed(() => ({
+  familias: familiaOpciones.value,
+  impuestos: impuestoOpciones.value,
+  proveedores: proveedorOpciones.value,
+}))
 
 function etiquetaOpcion(
   opciones: { value: string; label: string }[],
@@ -376,9 +383,6 @@ function seleccionar(index: number) {
   indiceSeleccionado.value = index
 }
 
-function onListado() {
-  window.print()
-}
 
 async function abrirFichaPorCodigo(codigo: string, opts?: { sincronizarRuta?: boolean }) {
   try {
@@ -618,7 +622,13 @@ const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
       <template v-if="vista === 'grid'">
         <div class="mantenimiento-listado">
         <div class="toolbar">
-          <button type="button" class="tool-btn" @click="onListado">Listado</button>
+          <MantenimientoListadoButton
+            titulo="Artículos"
+            :columnas="articuloColumns"
+            :filas="filas"
+            :options-map="listadoOptionsMap"
+            @aviso="mensaje = $event"
+          />
           <button
             v-if="puedeCrear"
             type="button"

@@ -67,6 +67,16 @@ export async function eliminarLineaCola(articulo: string, nroLin: number): Promi
   await api.delete(`/api/etiquetas/${encodeURIComponent(articulo)}/${nroLin}`)
 }
 
+/** POST /api/etiquetas/eliminar-lote — quitar varias líneas sin imprimir. */
+export async function eliminarLineasColaLote(
+  lineas: { articulo: string; nroLin: number }[]
+): Promise<{ eliminadas: number }> {
+  const { data } = await api.post<{ eliminadas: number }>('/api/etiquetas/eliminar-lote', {
+    lineas,
+  })
+  return data
+}
+
 // —— Impresión / orígenes ——
 
 /** POST /api/etiquetas/imprimir — DELETE líneas impresas OK. */

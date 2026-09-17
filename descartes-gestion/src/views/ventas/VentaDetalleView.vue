@@ -125,12 +125,15 @@ const periodicidadPlantilla = computed(() =>
 )
 /** Flujo legacy: tienda → reservar albaran → buscar cliente → grabar cabecera */
 const pasoAlta = ref<'tienda' | 'cliente' | 'listo'>('listo')
+/** Evita que el watch de tienda dispare busqueda antes de terminar iniciarNuevaVenta. */
+const iniciandoAltaVenta = ref(false)
 const buscarClienteOpen = ref(false)
 const buscarArticuloOpen = ref(false)
 const buscarVendedorOpen = ref(false)
 const finalizarTrasVendedor = ref(false)
 const lineaArticuloIdx = ref(0)
 const articuloBusquedaInicial = ref('')
+const clienteBusquedaInicial = ref('')
 /** Tras alta de cabecera: no recargar (ya tenemos la ficha) y quedar en edicion. */
 const omitirProximaCarga = ref(false)
 const cabeceraForm = ref<{
@@ -907,6 +910,7 @@ function irA(v: VentaResumen) {
 }
 
 function iniciarNuevaVenta() {
+  iniciandoAltaVenta.value = true
   error.value = null
   mensaje.value = null
   esNuevo.value = true
@@ -925,21 +929,81 @@ function iniciarNuevaVenta() {
   void (async () => {
     await puesto.cargarVendedorPuesto()
     await precargarVendedorDelPuesto()
-    await cabeceraForm.value?.focusTienda()
-    mensaje.value = esPlantillaAlta.value
-      ? 'Nueva plantilla periódica: elija tienda, cliente y líneas. Guarde y Finalice como Presupuesto.'
-      : 'Nueva venta: elija tienda y pulse Intro'
+    if (esPlantillaAlta.value) {
+      mensaje.value =
+        'Nueva plantilla periódica: elija cliente y líneas. Guarde y Finalice como Presupuesto.'
+    }
+    try {
+      await intentarAvanzarAlPasoCliente()
+    } finally {
+      iniciandoAltaVenta.value = false
+    }
   })()
 }
 
 function onNuevo() {
   if (route.name === 'ventas-nuevo') {
     iniciarNuevaVenta()
-    mensaje.value = 'Nueva venta: elija tienda y pulse Intro'
     return
   }
   router.push({ name: 'ventas-nuevo' })
 }
+
+/** Paso tienda → cliente (sin reservar número; solo prepara empresa/puesto/vendedor). */
+async function avanzarDesdeTienda(): Promise<boolean> {
+  if (!esNuevo.value || !ficha.value || loading.value) return false
+  if (pasoAlta.value !== 'tienda') {
+    return pasoAlta.value === 'cliente' || pasoAlta.value === 'listo'
+  }
+  if (!ficha.value.empresa.trim()) {
+    error.value = 'Seleccione la tienda'
+    return false
+  }
+  if (!puedeCrear.value) {
+    error.value = 'No tiene permiso para crear ventas (rol sin accion Crear en Ventas)'
+    return false
+  }
+  loading.value = true
+  error.value = null
+  try {
+    ficha.value = {
+      ...ficha.value,
+      tipo: 'A',
+      albaran: 0,
+      puesto: ficha.value.puesto || puesto.puestoCodigo || '',
+    }
+    await cargarPreciosIvaIncluido(ficha.value.empresa, { aplicarAlmacen: true })
+    await precargarVendedorDelPuesto()
+    pasoAlta.value = 'cliente'
+    mensaje.value = null
+    return true
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo preparar la venta')
+    return false
+  } finally {
+    loading.value = false
+  }
+}
+
+async function intentarAvanzarAlPasoCliente() {
+  if (!esNuevo.value || pasoAlta.value !== 'tienda') return
+  if (!ficha.value?.empresa.trim()) {
+    await cabeceraForm.value?.focusTienda()
+    return
+  }
+  const ok = await avanzarDesdeTienda()
+  if (!ok || pasoAlta.value !== 'cliente') return
+  await nextTick()
+  await cabeceraForm.value?.focusCliente()
+}
+
+watch(
+  () => (esNuevo.value && pasoAlta.value === 'tienda' ? String(ficha.value?.empresa ?? '').trim() : ''),
+  (empresa, prev) => {
+    if (iniciandoAltaVenta.value || !empresa || empresa === prev) return
+    void intentarAvanzarAlPasoCliente()
+  }
+)
 
 function onKeyEnter(e: KeyboardEvent) {
   // Solo captura Intro durante el alta de cabecera; no interferir con lineas/modales.
@@ -1039,7 +1103,21 @@ async function aplicarArticuloEnLinea(
   if (index === lineas.value.length - 1) {
     lineas.value.push(lineaVacia())
   }
-  await focusArticuloLinea(index + 1)
+  enfocarTrasResolverArticulo(index)
+}
+
+function enfocarTrasResolverArticulo(index: number) {
+  const linea = lineas.value[index]
+  if (!linea) return
+  if (esLineaComentario(linea)) {
+    focusLineaCampo(index, 'descripcion')
+    return
+  }
+  if (String(linea.descripcion ?? '').trim()) {
+    focusLineaCampo(index, 'cantidad')
+  } else {
+    focusLineaCampo(index, 'descripcion')
+  }
 }
 
 async function onArticuloSeleccionado(sel: { codigo: string; etiqueta: string }) {
@@ -1058,7 +1136,7 @@ async function onArticuloSeleccionado(sel: { codigo: string; etiqueta: string })
     if (idx === lineas.value.length - 1) {
       lineas.value.push(lineaVacia())
     }
-    await focusArticuloLinea(idx + 1)
+    enfocarTrasResolverArticulo(idx)
   }
 }
 
@@ -1095,9 +1173,102 @@ function onArticuloInput(index: number) {
   barcodeWatcher.onInput(String(lineas.value[index]?.articulo ?? ''))
 }
 
-async function onArticuloKeydown(e: KeyboardEvent, index: number) {
+const VENTA_LINEA_CAMPOS = [
+  'articulo',
+  'descripcion',
+  'lote',
+  'cantidad',
+  'precio',
+  'pjeDto',
+] as const
+
+type VentaLineaCampo = (typeof VENTA_LINEA_CAMPOS)[number]
+
+function esTeclaIntroLinea(e: KeyboardEvent): boolean {
+  return e.key === 'Enter' || e.key === 'NumpadEnter'
+}
+
+function lineaIdxDesdeTarget(target: EventTarget | null): number {
+  const row = (target as HTMLElement | null)?.closest?.('tr[data-linea-idx]')
+  if (!row) return -1
+  const idx = Number(row.getAttribute('data-linea-idx'))
+  return Number.isFinite(idx) ? idx : -1
+}
+
+function campoLineaDesdeTarget(target: EventTarget | null): VentaLineaCampo | null {
+  if (!(target instanceof HTMLElement)) return null
+  if (target.closest('.col-art')) return 'articulo'
+  const td = target.closest('td[data-linea-field]')
+  if (!td) return null
+  const f = td.getAttribute('data-linea-field')
+  if (!f || !VENTA_LINEA_CAMPOS.includes(f as VentaLineaCampo)) return null
+  return f as VentaLineaCampo
+}
+
+function camposNavegablesLinea(l: VentaLinea): VentaLineaCampo[] {
+  if (esLineaComentario(l)) return ['articulo', 'descripcion']
+  return [...VENTA_LINEA_CAMPOS]
+}
+
+function focusLineaCampo(idx: number, field: VentaLineaCampo) {
+  void nextTick(() => {
+    const row = document.querySelector(`tr[data-linea-idx="${idx}"]`)
+    if (!row) return
+    if (field === 'articulo') {
+      const el = row.querySelector<HTMLInputElement>('.col-art input')
+      if (el && !el.readOnly) {
+        el.focus()
+        el.select()
+      }
+      return
+    }
+    const td = row.querySelector(`td[data-linea-field="${field}"]`)
+    const el = td?.querySelector('input')
+    if (el && !el.readOnly && !el.disabled) {
+      el.focus()
+      el.select()
+    }
+  })
+}
+
+async function onArticuloIntroVenta(idx: number) {
+  barcodeWatcher.cancel()
+  const linea = lineas.value[idx]
+  const codigo = String(linea?.articulo ?? '').trim()
+  if (!codigo) {
+    abrirBuscarArticulo(idx)
+    return
+  }
+  if (codigo.toUpperCase() === 'NO') {
+    await aplicarComentarioEnLinea(idx)
+    return
+  }
+  const desc = String(linea?.descripcion ?? '').trim()
+  if (desc && String(linea?.articulo ?? '').trim() === codigo) {
+    focusLineaCampo(idx, 'cantidad')
+    return
+  }
+  await resolverArticuloEnLinea(idx, codigo)
+}
+
+async function avanzarSiguienteLineaVenta(idx: number) {
+  const linea = lineas.value[idx]
+  if (linea && !esLineaComentario(linea)) {
+    linea.importe = importeLinea(linea)
+  }
+  if (idx === lineas.value.length - 1) {
+    lineas.value.push(lineaVacia())
+  }
+  await nextTick()
+  focusLineaCampo(idx + 1, 'articulo')
+}
+
+function onLineasPanelKeydown(e: KeyboardEvent) {
   if (!puedeEditarLineas.value) {
-    if (!tieneCliente.value) {
+    if (
+      (esTeclaIntroLinea(e) || e.key === 'F4') &&
+      !tieneCliente.value
+    ) {
       error.value = 'Seleccione el cliente antes de introducir artículos'
       abrirBuscarCliente()
     } else if (soloLectura.value && puedeEditar.value && !bloqueado.value) {
@@ -1105,18 +1276,82 @@ async function onArticuloKeydown(e: KeyboardEvent, index: number) {
     }
     return
   }
+
+  const target = e.target
+  if (!(target instanceof HTMLInputElement) || target.readOnly || target.disabled) return
+
+  const idx = lineaIdxDesdeTarget(target)
+  if (idx < 0) return
+
+  if (e.key === 'F4' && target.closest('.col-art')) {
+    e.preventDefault()
+    e.stopPropagation()
+    barcodeWatcher.cancel()
+    abrirBuscarArticulo(idx)
+    return
+  }
+
+  if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    e.stopPropagation()
+    const field = campoLineaDesdeTarget(target)
+    if (field && idx > 0) focusLineaCampo(idx - 1, field)
+    return
+  }
+
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    e.stopPropagation()
+    const field = campoLineaDesdeTarget(target)
+    if (field && idx < lineas.value.length - 1) focusLineaCampo(idx + 1, field)
+    return
+  }
+
+  if (e.key === 'Delete') {
+    e.preventDefault()
+    e.stopPropagation()
+    removeLinea(idx)
+    const nextIdx = Math.min(idx, lineas.value.length - 1)
+    focusLineaCampo(nextIdx, 'articulo')
+    return
+  }
+
+  if (!esTeclaIntroLinea(e)) return
+
+  if (target.closest('.col-art')) {
+    e.preventDefault()
+    e.stopPropagation()
+    void onArticuloIntroVenta(idx)
+    return
+  }
+
+  const field = campoLineaDesdeTarget(target)
+  if (!field || field === 'articulo') return
+  const linea = lineas.value[idx]
+  if (!linea) return
+  const nav = camposNavegablesLinea(linea)
+  const pos = nav.indexOf(field)
+  if (pos < 0) return
+
+  e.preventDefault()
+  e.stopPropagation()
+  target.blur()
+
+  if (pos < nav.length - 1) {
+    focusLineaCampo(idx, nav[pos + 1])
+    return
+  }
+  void avanzarSiguienteLineaVenta(idx)
+}
+
+async function onArticuloKeydown(e: KeyboardEvent, index: number) {
+  if (!puedeEditarLineas.value) return
   if (e.key === 'F4') {
     e.preventDefault()
     e.stopPropagation()
     barcodeWatcher.cancel()
     abrirBuscarArticulo(index)
-    return
   }
-  if (e.key !== 'Enter') return
-  e.preventDefault()
-  e.stopPropagation()
-  barcodeWatcher.cancel()
-  await resolverArticuloEnLinea(index, String(lineas.value[index]?.articulo ?? ''))
 }
 
 async function onIntroCabecera() {
@@ -1124,33 +1359,10 @@ async function onIntroCabecera() {
   error.value = null
 
   if (pasoAlta.value === 'tienda') {
-    if (!ficha.value.empresa.trim()) {
-      error.value = 'Seleccione la tienda'
-      return
-    }
-    if (!puedeCrear.value) {
-      error.value = 'No tiene permiso para crear ventas (rol sin accion Crear en Ventas)'
-      return
-    }
-    loading.value = true
-    try {
-      // El numero de albaran se asigna al grabar (Guardar y finalizar), no al empezar:
-      // asi una venta abandonada no consume numeracion.
-      ficha.value = {
-        ...ficha.value,
-        tipo: 'A',
-        albaran: 0,
-        puesto: ficha.value.puesto || puesto.puestoCodigo || '',
-      }
-      await cargarPreciosIvaIncluido(ficha.value.empresa, { aplicarAlmacen: true })
-      await precargarVendedorDelPuesto()
-      pasoAlta.value = 'cliente'
-      mensaje.value = null
+    const ok = await avanzarDesdeTienda()
+    if (ok) {
+      await nextTick()
       await cabeceraForm.value?.focusCliente()
-    } catch (e: unknown) {
-      error.value = extractApiError(e, 'No se pudo preparar la venta')
-    } finally {
-      loading.value = false
     }
     return
   }
@@ -1161,26 +1373,28 @@ async function onIntroCabecera() {
   }
 }
 
-function abrirBuscarCliente() {
+async function abrirBuscarCliente(codigoSugerido?: string) {
   if (esNuevo.value && pasoAlta.value === 'tienda') {
-    error.value = 'Primero confirme la tienda para reservar el número de albarán.'
-    void cabeceraForm.value?.focusTienda()
-    return
+    await intentarAvanzarAlPasoCliente()
   }
   if (soloLectura.value) {
     if (!puedeEditar.value || bloqueado.value) return
     modoEdicion.value = true
   }
+  const desdeCampo = String(codigoSugerido ?? ficha.value?.cliente ?? '').trim()
+  clienteBusquedaInicial.value = desdeCampo
   buscarClienteOpen.value = true
 }
 
 async function onClienteKeydown(e: KeyboardEvent) {
-  if (esNuevo.value && pasoAlta.value !== 'cliente') {
+  if (esNuevo.value && pasoAlta.value === 'tienda') {
     if (e.key === 'Enter' || e.key === 'F4') {
       e.preventDefault()
       e.stopPropagation()
-      error.value = 'Primero confirme la tienda para reservar el número de albarán.'
-      await cabeceraForm.value?.focusTienda()
+      await intentarAvanzarAlPasoCliente()
+      if (e.key === 'F4' && pasoAlta.value === 'cliente') {
+        buscarClienteOpen.value = true
+      }
     }
     return
   }
@@ -1198,7 +1412,11 @@ async function onClienteKeydown(e: KeyboardEvent) {
   e.preventDefault()
   e.stopPropagation()
   const codigo = String(ficha.value?.cliente ?? '').trim()
-  await confirmarCliente(codigo || CLIENTE_SIN_NOMBRE, { abrirBusquedaSiNoExiste: Boolean(codigo) })
+  if (!codigo) {
+    await confirmarCliente(CLIENTE_SIN_NOMBRE)
+    return
+  }
+  await confirmarCliente(codigo, { abrirBusquedaSiNoExiste: true })
 }
 
 async function cargarDatosCliente(codigo: string): Promise<{
@@ -1278,9 +1496,8 @@ async function onClienteSeleccionado(
   buscarClienteOpen.value = false
   if (!ficha.value) return
   if (esNuevo.value && pasoAlta.value === 'tienda') {
-    error.value = 'Primero confirme la tienda.'
-    await cabeceraForm.value?.focusTienda()
-    return
+    const ok = await avanzarDesdeTienda()
+    if (!ok) return
   }
   loading.value = true
   error.value = null
@@ -1325,7 +1542,7 @@ async function onClienteSeleccionado(
   } catch (e: unknown) {
     if (opts?.abrirBusquedaSiNoExiste) {
       error.value = 'Cliente no encontrado. Selecciónelo en la búsqueda.'
-      abrirBuscarCliente()
+      await abrirBuscarCliente(sel.codigo)
     } else {
       error.value = extractApiError(e, 'No se pudo asignar el cliente')
     }
@@ -1969,13 +2186,10 @@ onMounted(() => {
     </p>
 
     <p v-if="esConsultaRecuperada && !modoEdicion && docKind" class="banner-doc">{{ docAviso }}</p>
-    <div v-if="esNuevo && pasoAlta === 'tienda'" class="paso-accion">
-      <span>Confirme la <strong>tienda</strong> para comenzar.</span>
-      <button type="button" class="btn-paso primary" :disabled="loading" @click="onIntroCabecera">
-        Continuar
-      </button>
-    </div>
-    <div v-else-if="esNuevo && pasoAlta === 'cliente'" class="paso-accion">
+    <div
+      v-if="esNuevo && pasoAlta === 'cliente'"
+      class="paso-accion"
+    >
       <span>¿A quién se realiza la venta?</span>
       <div class="paso-botones">
         <button type="button" class="btn-paso" :disabled="loading" @click="abrirBuscarCliente">
@@ -2068,9 +2282,14 @@ onMounted(() => {
                 <th v-if="puedeEditarLineas"></th>
               </tr>
             </thead>
-            <tbody>
-              <tr v-for="(l, i) in lineas" :key="i" :class="{ comentario: esLineaComentario(l) }">
-                <td>
+            <tbody @keydown="onLineasPanelKeydown">
+              <tr
+                v-for="(l, i) in lineas"
+                :key="i"
+                :data-linea-idx="i"
+                :class="{ comentario: esLineaComentario(l) }"
+              >
+                <td class="col-art">
                   <div class="celda-articulo">
                     <input
                       :ref="(el) => setArticuloInputRef(el, i)"
@@ -2093,7 +2312,7 @@ onMounted(() => {
                     </button>
                   </div>
                 </td>
-                <td>
+                <td data-linea-field="descripcion">
                   <input
                     :ref="(el) => setDescripcionInputRef(el, i)"
                     v-model="l.descripcion"
@@ -2102,14 +2321,14 @@ onMounted(() => {
                     :placeholder="esLineaComentario(l) ? 'Texto del comentario…' : ''"
                   />
                 </td>
-                <td>
+                <td data-linea-field="lote">
                   <input
                     v-model="l.loteVenta"
                     maxlength="30"
                     :readonly="!puedeEditarLineas || esLineaComentario(l)"
                   />
                 </td>
-                <td class="num">
+                <td class="num" data-linea-field="cantidad">
                   <DecimalInput
                     v-model="l.cantidad"
                     :empty-as-null="false"
@@ -2117,7 +2336,7 @@ onMounted(() => {
                     @blur="redondearCampoLinea(l, 'cantidad')"
                   />
                 </td>
-                <td class="num">
+                <td class="num" data-linea-field="precio">
                   <DecimalInput
                     v-model="l.precio"
                     :empty-as-null="false"
@@ -2125,7 +2344,7 @@ onMounted(() => {
                     @blur="redondearCampoLinea(l, 'precio')"
                   />
                 </td>
-                <td class="num">
+                <td class="num" data-linea-field="pjeDto">
                   <DecimalInput
                     v-model="l.pjeDto"
                     :empty-as-null="false"
@@ -2144,9 +2363,12 @@ onMounted(() => {
           </table>
         </div>
         <p class="hint">
-          En codigo: <strong>Intro</strong> carga el articulo (si existe) o abre busqueda;
-          <strong> F4</strong> / doble clic abre siempre la busqueda.
-          Código <strong>NO</strong> = línea de comentario (sin importe).
+          <strong>Intro</strong> avanza al siguiente campo de la misma línea (en código: resolver artículo);
+          en el último campo pasa a la línea siguiente.
+          <strong>Flechas</strong> arriba/abajo cambian de línea;
+          <strong>Supr</strong> elimina la línea.
+          <strong>F4</strong> / doble clic: buscar artículo.
+          Código <strong>NO</strong> = comentario (sin importe).
           Tipo actual: <strong>{{ ficha.tipo }}</strong>
           <span v-if="ficha.impreso"> · Impreso</span>
         </p>
@@ -2179,6 +2401,8 @@ onMounted(() => {
       :open="buscarClienteOpen"
       entidad="clientes"
       titulo="Buscar cliente"
+      :busqueda-inicial="clienteBusquedaInicial"
+      :codigo-actual="ficha?.cliente || ''"
       @seleccionar="onClienteSeleccionado"
       @cerrar="buscarClienteOpen = false"
     />

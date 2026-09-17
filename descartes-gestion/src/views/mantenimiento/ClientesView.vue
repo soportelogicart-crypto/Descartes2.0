@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import MantenimientoListadoButton from '@/components/mantenimiento/MantenimientoListadoButton.vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { api } from '@/api/client'
@@ -336,9 +337,6 @@ function actualizarFila(_index: number, fila: GridFila) {
   )
 }
 
-function onListado() {
-  window.print()
-}
 
 async function onGuardarGrid() {
   const fila = filaSeleccionada.value
@@ -696,7 +694,13 @@ async function onUltimo() {
       <template v-if="vista === 'grid'">
         <div class="mantenimiento-listado">
         <div class="toolbar">
-          <button type="button" class="tool-btn" @click="onListado">Listado</button>
+          <MantenimientoListadoButton
+            titulo="Clientes"
+            :columnas="columns"
+            :filas="filas"
+            :options-map="optionsMap"
+            @aviso="mensaje = $event"
+          />
           <button v-if="puedeCrear" type="button" class="tool-btn" @click="onNuevo">
             Nuevo
           </button>

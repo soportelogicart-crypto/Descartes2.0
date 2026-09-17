@@ -179,6 +179,7 @@ return function (App $app): void {
   $container->set(\Descartes\Api\Services\Listados\StockMinimosListadoService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Listados\StockMinimosListadoService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Listados\InformeIvaListadoService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Listados\InformeIvaListadoService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Listados\InformeTicketsListadoService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Listados\InformeTicketsListadoService($c->get(PDO::class)));
+  $container->set(\Descartes\Api\Services\Listados\ExtractoClientesListadoService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Listados\ExtractoClientesListadoService($c->get(PDO::class), $c->get(ClientesRiesgoRepository::class)));
   $container->set(\Descartes\Api\Services\Facturacion\GeneracionFacturasManualService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\GeneracionFacturasManualService(
     $c->get(PDO::class),
     $c->get(\Descartes\Api\Services\Facturacion\RecibosFacturaService::class)

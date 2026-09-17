@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import MantenimientoListadoButton from '@/components/mantenimiento/MantenimientoListadoButton.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import { resolverArticulo as resolverArticuloApi } from '@/api/articulos'
@@ -205,9 +206,6 @@ function seleccionar(index: number) {
   indiceSeleccionado.value = index
 }
 
-function onListado() {
-  window.print()
-}
 
 async function abrirFicha(index?: number) {
   const idx = index ?? indiceSeleccionado.value
@@ -386,7 +384,12 @@ function numModel(key: keyof typeof form): number {
       <template v-if="vista === 'grid'">
         <div class="listado-panel">
           <div class="toolbar">
-            <button type="button" class="tool-btn" @click="onListado">Listado</button>
+            <MantenimientoListadoButton
+            titulo="Ofertas proveedores"
+            :columnas="columns"
+            :filas="filas"
+            @aviso="mensaje = $event"
+          />
             <button v-if="puedeCrear" type="button" class="tool-btn" :disabled="loading" @click="onNuevo">
               Nuevo
             </button>

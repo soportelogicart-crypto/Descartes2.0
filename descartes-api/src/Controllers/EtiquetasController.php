@@ -96,6 +96,24 @@ final class EtiquetasController
     }
   }
 
+  public function eliminarLote(Request $request, Response $response): Response
+  {
+    $body = (array) json_decode((string) $request->getBody(), true);
+    $lineas = $body['lineas'] ?? null;
+    if (!is_array($lineas) || $lineas === []) {
+      return ErrorResponse::json($response, 400, 'Se espera { lineas: [...] }', 'VALIDACION');
+    }
+
+    try {
+      $result = $this->cola->eliminarLote($lineas);
+      return $this->json($response, 200, $result);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
   public function confirmarImpresion(Request $request, Response $response): Response
   {
     $body = (array) json_decode((string) $request->getBody(), true);

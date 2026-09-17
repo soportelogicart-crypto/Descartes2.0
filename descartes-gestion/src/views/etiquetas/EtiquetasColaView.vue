@@ -8,6 +8,7 @@ import {
   actualizarLineaCola,
   crearLineaCola,
   eliminarLineaCola,
+  eliminarLineasColaLote,
   listarColaEtiquetas,
 } from '@/api/etiquetas'
 import { resolverArticulo } from '@/api/articulos'
@@ -48,7 +49,9 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(leerGridPageSize(100))
 
+/** Por defecto solo la cola de este puesto (cada PC suele tener su puesto). */
 const filtroPuesto = ref(true)
+const filtroEmpresa = ref(true)
 const referencia = ref('')
 const copias = ref(1)
 const refInput = ref<HTMLInputElement | null>(null)
@@ -56,6 +59,8 @@ const buscarOpen = ref(false)
 
 const confirmBorrar = ref(false)
 const pendienteBorrar = ref<EtiquetaColaLinea | null>(null)
+const confirmBorrarLote = ref(false)
+const pendienteBorrarLote = ref<EtiquetaColaLinea[]>([])
 const borrando = ref(false)
 
 /** Preview modal (T024) — líneas pendientes de confirmar impresión. */
@@ -147,8 +152,16 @@ async function cargar(opts?: { keepFocus?: boolean }) {
   loading.value = true
   error.value = null
   try {
+    if (filtroPuesto.value && !String(puesto.puestoCodigo ?? '').trim()) {
+      items.value = []
+      total.value = 0
+      error.value =
+        'Este equipo no tiene puesto configurado. Desmarque «Solo este puesto» para ver toda la cola o configure el puesto.'
+      return
+    }
     const data = await listarColaEtiquetas({
       puesto: filtroPuesto.value ? puesto.puestoCodigo || undefined : undefined,
+      empresa: filtroEmpresa.value ? puesto.empresaCodigo || undefined : undefined,
       page: page.value,
       pageSize: pageSize.value,
     })
@@ -263,7 +276,8 @@ function onPageSize(s: number) {
 function focusReferencia() {
   void nextTick(() => {
     const el = refInput.value
-    if (!el || buscarOpen.value || previewOpen.value || confirmBorrar.value) return
+    if (!el || buscarOpen.value || previewOpen.value || confirmBorrar.value || confirmBorrarLote.value)
+      return
     el.focus({ preventScroll: true })
   })
 }
@@ -272,10 +286,11 @@ function focusReferencia() {
 function onReferenciaBlur(e: FocusEvent) {
   const next = e.relatedTarget as HTMLElement | null
   if (next && next.closest?.('.alta-bar')) return
-  if (buscarOpen.value || previewOpen.value || confirmBorrar.value || adding.value) return
+  if (buscarOpen.value || previewOpen.value || confirmBorrar.value || confirmBorrarLote.value || adding.value)
+    return
   // Retraso breve: permite click en lupa / botones sin pelear el foco
   window.setTimeout(() => {
-    if (buscarOpen.value || previewOpen.value || confirmBorrar.value) return
+    if (buscarOpen.value || previewOpen.value || confirmBorrar.value || confirmBorrarLote.value) return
     if (document.activeElement?.closest?.('.alta-bar, .grid-wrap, .print-bar')) return
     focusReferencia()
   }, 120)
@@ -394,7 +409,47 @@ async function confirmarBorrar() {
   }
 }
 
-function onFiltroPuestoChange() {
+function pedirBorrarSeleccion() {
+  if (!puedeEliminar.value) return
+  const lineas = lineasSeleccionadas()
+  if (lineas.length === 0) {
+    error.value = 'Marque las líneas a quitar de la cola'
+    return
+  }
+  pendienteBorrarLote.value = lineas
+  confirmBorrarLote.value = true
+}
+
+function pedirBorrarPagina() {
+  if (!puedeEliminar.value || items.value.length === 0) return
+  pendienteBorrarLote.value = [...items.value]
+  confirmBorrarLote.value = true
+}
+
+async function confirmarBorrarLote() {
+  const lineas = pendienteBorrarLote.value
+  confirmBorrarLote.value = false
+  pendienteBorrarLote.value = []
+  if (!lineas.length) return
+
+  borrando.value = true
+  error.value = null
+  mensaje.value = null
+  try {
+    const res = await eliminarLineasColaLote(
+      lineas.map((l) => ({ articulo: l.articulo, nroLin: l.nroLin }))
+    )
+    mensaje.value = `Eliminadas ${res.eliminadas} línea(s) de la cola`
+    seleccion.value = new Set()
+    await cargar()
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudieron eliminar las líneas')
+  } finally {
+    borrando.value = false
+  }
+}
+
+function onFiltroColaChange() {
   page.value = 1
   void cargar()
 }
@@ -417,6 +472,8 @@ watch(
   () => [puesto.puestoCodigo, puesto.empresaCodigo] as const,
   () => {
     void cargarOpcionesPrint()
+    page.value = 1
+    void cargar()
   }
 )
 
@@ -433,8 +490,11 @@ onUnmounted(() => {
         <p class="hint">
           Añade por código, EAN o escáner. Edita
           <strong>cantidad</strong> (copias) e imprime más adelante.
+          La cola es común en la base de datos: cada línea guarda el
+          <strong>puesto</strong> que la generó (p. ej. desde albarán de compra).
           <span v-if="puesto.puestoCodigo" class="puesto-activa">
-            Puesto {{ puesto.puestoCodigo }}
+            Este equipo: puesto {{ puesto.puestoCodigo }}
+            <template v-if="puesto.empresaCodigo"> · tienda {{ puesto.empresaCodigo }}</template>
           </span>
         </p>
       </div>
@@ -484,8 +544,13 @@ onUnmounted(() => {
         {{ adding ? 'Añadiendo…' : 'Añadir' }}
       </button>
       <label class="filtro-puesto">
-        <input v-model="filtroPuesto" type="checkbox" @change="onFiltroPuestoChange" />
-        Solo este puesto
+        <input v-model="filtroPuesto" type="checkbox" @change="onFiltroColaChange" />
+        Solo puesto
+        {{ puesto.puestoCodigo || '—' }}
+      </label>
+      <label class="filtro-puesto">
+        <input v-model="filtroEmpresa" type="checkbox" @change="onFiltroColaChange" />
+        Solo tienda {{ puesto.empresaCodigo || '—' }}
       </label>
     </form>
 
@@ -527,6 +592,25 @@ onUnmounted(() => {
           @click="imprimirTodas"
         >
           Imprimir todas (página)
+        </button>
+      </template>
+      <template v-if="puedeEliminar">
+        <button
+          type="button"
+          class="btn-del-bar"
+          :disabled="borrando || imprimiendo || numSeleccionadas === 0"
+          @click="pedirBorrarSeleccion"
+        >
+          Quitar selección ({{ numSeleccionadas }})
+        </button>
+        <button
+          type="button"
+          class="btn-del-bar btn-del-sec"
+          :disabled="borrando || imprimiendo || items.length === 0"
+          title="Quitar todas las líneas visibles en esta página"
+          @click="pedirBorrarPagina"
+        >
+          Quitar página ({{ items.length }})
         </button>
       </template>
     </div>
@@ -658,6 +742,19 @@ onUnmounted(() => {
       confirm-label="Eliminar"
       @confirm="confirmarBorrar"
       @cancel="confirmBorrar = false; pendienteBorrar = null"
+    />
+
+    <ConfirmDialog
+      :open="confirmBorrarLote"
+      title="Quitar varias de la cola"
+      :message="
+        pendienteBorrarLote.length
+          ? `¿Eliminar ${pendienteBorrarLote.length} línea(s) de la cola?`
+          : ''
+      "
+      confirm-label="Eliminar"
+      @confirm="confirmarBorrarLote"
+      @cancel="confirmBorrarLote = false; pendienteBorrarLote = []"
     />
   </section>
 </template>
@@ -962,6 +1059,31 @@ th {
 }
 
 .btn-del:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-del-bar {
+  padding: 0.4rem 0.65rem;
+  border: 1px solid #fca5a5;
+  border-radius: 4px;
+  background: #fff;
+  color: #b91c1c;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-del-bar.btn-del-sec {
+  border-color: #94a3b8;
+  color: #475569;
+}
+
+.btn-del-bar:hover:not(:disabled) {
+  background: #fef2f2;
+}
+
+.btn-del-bar:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }

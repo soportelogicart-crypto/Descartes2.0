@@ -21,6 +21,7 @@ import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EntidadGrid, { type GridOptionsMap } from './EntidadGrid.vue'
 import MantenimientoForm from './MantenimientoForm.vue'
+import MantenimientoListadoButton from '@/components/mantenimiento/MantenimientoListadoButton.vue'
 
 const props = defineProps<{
   entidad: string
@@ -205,10 +206,6 @@ async function aplicarFiltroActivo() {
   await cargar()
 }
 
-function onListado() {
-  window.print()
-}
-
 function onNuevo() {
   if (!puedeCrear.value) return
   esNuevo.value = true
@@ -298,7 +295,13 @@ function cancelarFormulario() {
           >
             Buscar
           </button>
-          <button type="button" class="tool-btn" @click="onListado">Listado</button>
+          <MantenimientoListadoButton
+            :titulo="config.titulo"
+            :columnas="columns"
+            :filas="filas"
+            :options-map="optionsMap"
+            @aviso="mensaje = $event"
+          />
           <button v-if="puedeCrear" type="button" class="tool-btn" :disabled="loading" @click="onNuevo">
             Nuevo
           </button>

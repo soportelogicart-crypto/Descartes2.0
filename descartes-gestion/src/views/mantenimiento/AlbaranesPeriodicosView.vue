@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import MantenimientoListadoButton from '@/components/mantenimiento/MantenimientoListadoButton.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
@@ -279,9 +280,6 @@ function seleccionar(index: number) {
   indiceSeleccionado.value = index
 }
 
-function onListado() {
-  window.print()
-}
 
 function abrirPlantilla(fila?: GridFila) {
   const row = fila ?? filaSeleccionada.value
@@ -545,10 +543,12 @@ async function generarAhora() {
 
       <div class="mantenimiento-listado listado-panel">
         <div class="toolbar">
-          <button type="button" class="tool-btn" @click="onListado">
-            <ToolIcon name="listado" />
-            <span>Listado</span>
-          </button>
+          <MantenimientoListadoButton
+            titulo="Albaranes periódicos"
+            :columnas="columns"
+            :filas="filas"
+            @aviso="mensaje = $event"
+          />
           <button
             v-if="puedeNuevaPlantilla"
             type="button"

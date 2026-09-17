@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import MantenimientoListadoButton from '@/components/mantenimiento/MantenimientoListadoButton.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { extractApiError, useMantenimiento } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
@@ -8,7 +9,7 @@ import {
   filtrosIniciales,
   type ColumnFilter,
 } from '@/composables/useGridColumnFilters'
-import {
+import { almacenColumns, 
   almacenVacio,
   clonarFila,
   payloadAlmacen,
@@ -260,9 +261,6 @@ async function onGuardarGrid() {
   }
 }
 
-function onListado() {
-  window.print()
-}
 
 async function onCambioFiltroActivo() {
   page.value = 1
@@ -433,10 +431,12 @@ async function onUltimo() {
       <template v-if="vista === 'grid'">
         <div class="mantenimiento-listado">
         <div class="toolbar">
-          <button type="button" class="tool-btn" @click="onListado">
-            <ToolIcon name="listado" />
-            <span>Listado</span>
-          </button>
+          <MantenimientoListadoButton
+            titulo="Almacenes"
+            :columnas="almacenColumns"
+            :filas="filas"
+            @aviso="mensaje = $event"
+          />
           <button
             v-if="puedeCrear"
             type="button"

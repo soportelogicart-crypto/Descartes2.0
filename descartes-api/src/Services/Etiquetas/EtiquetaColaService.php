@@ -333,6 +333,17 @@ final class EtiquetaColaService
   }
 
   /**
+   * Quita varias líneas de la cola (misma lógica que confirmar impresión, sin imprimir).
+   *
+   * @param list<array{articulo?: mixed, nroLin?: mixed}> $lineas
+   * @return array{eliminadas: int}
+   */
+  public function eliminarLote(array $lineas): array
+  {
+    return $this->confirmarImpresion($lineas);
+  }
+
+  /**
    * Encola líneas desde un albarán de compra (005 / T030 / US5).
    * Copias = CEIL(ABS(cantidad línea)) mínimo 1.
    * Omite líneas sin artículo o sin EAN según flags de tienda.

@@ -59,7 +59,7 @@ export const LISTADOS_CATALOGO: ListadoCatalogoItem[] = [
     kind: 'informe',
     ruta: '/listados/extracto-clientes',
     modulo: 'listados',
-    disponible: false,
+    disponible: true,
   },
   {
     id: 'ventas-arqueo',

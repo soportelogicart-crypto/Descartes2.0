@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import MantenimientoListadoButton from '@/components/mantenimiento/MantenimientoListadoButton.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import {
@@ -297,9 +298,6 @@ async function onGuardarGrid() {
   }
 }
 
-function onListado() {
-  window.print()
-}
 
 function cargarFichaDesdeData(data: Record<string, unknown>, codigo: string) {
   ficha.value = {
@@ -539,7 +537,13 @@ async function onUltimo() {
       <template v-if="vista === 'grid'">
         <div class="mantenimiento-listado">
         <div class="toolbar">
-          <button type="button" class="tool-btn" @click="onListado">Listado</button>
+          <MantenimientoListadoButton
+            titulo="Trabajadores"
+            :columnas="columns"
+            :filas="filas"
+            :options-map="optionsMap"
+            @aviso="mensaje = $event"
+          />
           <button v-if="puedeCrear" type="button" class="tool-btn" :disabled="loading" @click="onNuevo">
             Nuevo
           </button>

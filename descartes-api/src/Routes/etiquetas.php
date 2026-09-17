@@ -37,6 +37,8 @@ return function (App $app): void {
     // Rutas estáticas antes de {articulo}/{nroLin}
     $group->post('/imprimir', [EtiquetasController::class, 'confirmarImpresion'])
       ->add($setPermiso('etiquetas', 'editar'));
+    $group->post('/eliminar-lote', [EtiquetasController::class, 'eliminarLote'])
+      ->add($setPermiso('etiquetas', 'eliminar'));
     $group->post('/desde-albaran-compra', [EtiquetasController::class, 'desdeAlbaranCompra'])
       ->add($setPermiso('etiquetas', 'crear'));
     $group->get('/preview-datos', [EtiquetasController::class, 'previewDatos'])

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import MantenimientoListadoButton from '@/components/mantenimiento/MantenimientoListadoButton.vue'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import {
@@ -383,9 +384,6 @@ function seleccionar(index: number) {
   indiceSeleccionado.value = index
 }
 
-function onListado() {
-  window.print()
-}
 
 async function abrirFichaPorCampana(campana: string | number) {
   const emp = exigirEmpresa()
@@ -640,10 +638,12 @@ async function resolverClienteLinea(lin: CampanaLinea) {
       <template v-if="vista === 'grid'">
         <div class="listado-panel">
           <div class="toolbar">
-            <button type="button" class="tool-btn" @click="onListado">
-              <ToolIcon name="listado" />
-              <span>Listado</span>
-            </button>
+            <MantenimientoListadoButton
+            titulo="Campañas"
+            :columnas="columns"
+            :filas="filas"
+            @aviso="mensaje = $event"
+          />
             <button v-if="puedeCrear" type="button" class="tool-btn" :disabled="loading" @click="onNuevo">
               <ToolIcon name="nuevo" />
               <span>Nuevo</span>

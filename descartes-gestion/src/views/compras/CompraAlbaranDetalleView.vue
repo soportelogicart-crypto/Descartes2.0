@@ -115,6 +115,22 @@ const pvpModalOpen = ref(false)
 const pvpLineaIdx = ref(-1)
 const pendingLineaIdx = ref(-1)
 const pvpPorArticulo = ref(new Map<string, number>())
+const tarifaPorEmpresa = ref(new Map<string, number>())
+const tarifaVentaDoc = ref(1)
+
+function clampTarifaVenta(n: unknown): number {
+  const v = Number(n)
+  if (!Number.isFinite(v)) return 1
+  return Math.min(9, Math.max(1, Math.trunc(v)))
+}
+
+function tarifaEmpresaActual(): number {
+  const emp = String(form.value.empresa ?? '').trim()
+  if (emp && tarifaPorEmpresa.value.has(emp)) {
+    return tarifaPorEmpresa.value.get(emp)!
+  }
+  return tarifaVentaDoc.value
+}
 
 type FormLinea = {
   nroLin?: number
@@ -157,7 +173,7 @@ const form = ref({
   albaranDevolucion: false,
   observaciones: '',
   importeTransporte: 0,
-  /** Editable como en ponc; con líneas se sincroniza a bruto+transporte. */
+  /** Editable manual (legacy); no se rellena desde líneas si transporte = 0. */
   brutoConTransporte: 0,
   coeficienteTransporte: 0,
   lineas: [] as FormLinea[],
@@ -481,7 +497,7 @@ const margenMostrado = computed(() => {
   let acum = 0
   for (const l of form.value.lineas) {
     if (!String(l.articulo ?? '').trim()) continue
-    const imp = importeLineaBase(l)
+    const imp = importeLinea(l)
     if (imp <= 0.0001) continue
     peso += imp
     acum += imp * margenLineaPct(l)
@@ -542,6 +558,10 @@ function sincronizarTransporteDesdeOrigen() {
   }
 
   if (ajusteTransporteOrigen.value === 'transporte') {
+    if (t <= 0.0000001) {
+      form.value.coeficienteTransporte = 0
+      return
+    }
     if (bt > t + 0.0001) {
       form.value.coeficienteTransporte = roundN(t / brutoDesdeBt, 4)
     } else if (brutoLin > 0) {
@@ -610,6 +630,7 @@ function aplicarFicha(data: AlbaranCompraDetalle | null | undefined) {
     throw new Error('Datos de albarán no válidos')
   }
   ficha.value = data
+  tarifaVentaDoc.value = clampTarifaVenta(data.tarifaVenta ?? tarifaEmpresaActual())
   pasoAlta.value = 'listo'
   ajusteTransporteOrigen.value = 'transporte'
   const coef = coefDesdeCabecera(
@@ -655,7 +676,18 @@ function aplicarFicha(data: AlbaranCompraDetalle | null | undefined) {
       },
     })),
   }
-  void cargarPvpsLineas(data.lineas ?? [])
+  void refrescarPvpsLineas()
+}
+
+async function refrescarPvpsLineas() {
+  const arts = form.value.lineas
+    .filter((l) => String(l.articulo ?? '').trim())
+    .map((l) => ({
+      articulo: l.articulo,
+      precioVenta: Number(l.pvp ?? 0) > 0 ? l.pvp : undefined,
+    }))
+  if (!arts.length) return
+  await cargarPvpsLineas(arts)
 }
 
 async function cargarTiendas() {
@@ -663,10 +695,18 @@ async function cargarTiendas() {
     const { data } = await api.get('/api/mantenimiento/tiendas', {
       params: { activo: true, pageSize: 200 },
     })
-    tiendas.value = (data.items ?? []).map((t: { codigo: string; nombre: string }) => ({
-      value: String(t.codigo).trim(),
-      label: `${String(t.codigo).trim()} - ${t.nombre}`,
-    }))
+    const mapTarifa = new Map<string, number>()
+    tiendas.value = (data.items ?? []).map(
+      (t: { codigo: string; nombre: string; tarifa?: number | null }) => {
+        const cod = String(t.codigo).trim()
+        mapTarifa.set(cod, clampTarifaVenta(t.tarifa))
+        return {
+          value: cod,
+          label: `${cod} - ${t.nombre}`,
+        }
+      }
+    )
+    tarifaPorEmpresa.value = mapTarifa
   } catch {
     tiendas.value = []
   }
@@ -941,10 +981,17 @@ function buildPayload(): AlbaranCompraPayload {
   }
 }
 
-function pvpDesdeDatosArticulo(data: Record<string, unknown>): number {
-  const directo = Number(data.precioVen1 ?? data.precioVenta ?? 0) || 0
-  if (directo > 0) return directo
+function pvpDesdeDatosArticulo(
+  data: Record<string, unknown>,
+  tarifa = tarifaEmpresaActual()
+): number {
+  const t = clampTarifaVenta(tarifa)
+  const principal = Number(data[`precioVen${t}`] ?? (t === 1 ? data.precioVenta : 0) ?? 0) || 0
+  if (principal > 0) return principal
+  const ven1 = Number(data.precioVen1 ?? data.precioVenta ?? 0) || 0
+  if (ven1 > 0) return ven1
   for (let i = 2; i <= 9; i++) {
+    if (i === t) continue
     const n = Number(data[`precioVen${i}`] ?? 0) || 0
     if (n > 0) return n
   }
@@ -980,7 +1027,7 @@ async function cargarPvpsLineas(lineas: Array<{ articulo?: string | null; precio
     }
     try {
       const artRes = await resolverArticulo(art)
-      const pvp = pvpDesdeDatosArticulo(artRes)
+      const pvp = pvpDesdeDatosArticulo(artRes, tarifaEmpresaActual())
       if (pvp > 0) registrarPvp(String(artRes.codigo ?? art).trim() || art, pvp)
     } catch {
       /* el artículo puede no tener PVP */
@@ -1929,8 +1976,31 @@ watch(
   () => {
     if (!ficha.value) return
     if (brutoMercancia.value <= 0) return
+    if ((Number(form.value.importeTransporte) || 0) <= 0.0000001) return
     ajusteTransporteOrigen.value = 'transporte'
     sincronizarTransporteDesdeOrigen()
+  }
+)
+
+watch(
+  () =>
+    form.value.lineas
+      .map((l) => String(l.articulo ?? '').trim())
+      .filter(Boolean)
+      .join('\u0001'),
+  () => {
+    void refrescarPvpsLineas()
+  }
+)
+
+watch(
+  () => form.value.empresa,
+  () => {
+    pvpPorArticulo.value = new Map()
+    for (const l of form.value.lineas) {
+      if (String(l.articulo ?? '').trim()) l.pvp = 0
+    }
+    void refrescarPvpsLineas()
   }
 )
 </script>

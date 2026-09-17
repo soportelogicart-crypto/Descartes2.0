@@ -857,12 +857,12 @@ final class AlbaranCompraEscrituraService
   private function prepararLineasYTotales(array $lineas, array $body): array
   {
     $transporte = max(0.0, (float) ($body['importeTransporte'] ?? 0));
+    $brutoConBody = max(0.0, (float) ($body['brutoConTransporte'] ?? 0));
     $netoBase = $this->sumNetoLineas($lineas);
     $coef = 0.0;
     $lineasGuardar = $lineas;
 
     if ($transporte > 0.00001) {
-      $brutoConBody = (float) ($body['brutoConTransporte'] ?? 0);
       $brutoSinTrans = $brutoConBody > $transporte + 0.00001
         ? $brutoConBody - $transporte
         : $netoBase;
@@ -892,7 +892,12 @@ final class AlbaranCompraEscrituraService
         'importeDtos' => round(max(0.0, $brutoFinal - $netoFinal), 2),
         'importeIva' => round($importeIva, 2),
         'importeRec' => round($importeRec, 2),
-        'brutoConTransporte' => round($netoFinal, 2),
+        'brutoConTransporte' => $transporte > 0.00001
+          ? round(
+            $brutoConBody > 0.00001 ? $brutoConBody : ($netoFinal + $transporte),
+            2
+          )
+          : round($brutoConBody, 2),
         'coeficienteTransporte' => $coef,
         'importeTransporte' => round($transporte, 2),
       ],

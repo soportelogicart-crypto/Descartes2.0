@@ -9,7 +9,7 @@ Convención: `[X]` hecho, `[ ]` pendiente.
 - [X] T003 Recientes (localStorage usuario + equipo, máx. 8)
 - [X] T004 Ruta `/listados` con `meta.modulo: listados`
 - [X] T005 Filtrar tarjetas por permiso del módulo de cada ítem
-- [ ] T006 Prueba manual: sin `listados` → no entra; con permiso → ABC en ≤3 clics
+- [X] T006 Prueba manual: permiso `listados` verificado (on/off en Roles)
 
 ## Fase 2 — Shell informe (US2 base)
 
@@ -31,7 +31,7 @@ Convención: `[X]` hecho, `[ ]` pendiente.
 - [X] T030 Stock bajo mínimos (`Minimo` + stock calculado, API + vista)
 - [X] T031 Informe IVA (ventas por tipo IVA, periodo + tienda)
 - [X] T032 Informe tickets / diario ventas
-- [ ] T033 Extracto clientes (o diferir según SQL)
+- [X] T033 Extracto clientes (API + vista; cobros vía FechaCobro albarán)
 
 ## Fase 5 — ABC UX (US3)
 
@@ -39,5 +39,5 @@ Convención: `[X]` hecho, `[ ]` pendiente.
 
 ## Fase 6 — Mantenimientos (US4, P2)
 
-- [ ] T050 Composable export grid filtrado
-- [ ] T051 Sustituir `window.print()` en botones Listado de entidades
+- [X] T050 Composable export grid filtrado (`exportGridListado` + `MantenimientoListadoButton`)
+- [X] T051 Sustituir `window.print()` en botones Listado de entidades
