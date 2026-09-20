@@ -14,6 +14,7 @@ import { etiquetasMenuItems } from '@/config/etiquetas-nav'
 import { moduloDeEntradaMenu } from '@/config/mantenimiento-nav-permisos'
 import { menuPrincipalSecciones } from '@/config/menu-principal'
 import { puedeAccederHubListados } from '@/config/listados-nav'
+import { abcComprasListadoPorDimension } from '@/config/abc-compras-dimensiones'
 import { abcVentasListadoPorDimension } from '@/config/abc-ventas-dimensiones'
 import { stockListadoPorAgrupar } from '@/config/stock-listado-config'
 import { entidades } from '@/config/entidades'
@@ -183,6 +184,12 @@ const tituloPantalla = computed(() => {
     if (d) return d.titulo
     const p = route.path.replace(/\/+$/, '') || '/'
     if (p === '/listados/abc-ventas') return 'ABC de ventas'
+  }
+  if (route.name === 'listados-abc-compras' || route.path.startsWith('/listados/abc-compras')) {
+    const d = abcComprasListadoPorDimension(String(route.params.dimension ?? ''))
+    if (d) return d.titulo
+    const p = route.path.replace(/\/+$/, '') || '/'
+    if (p === '/listados/abc-compras') return 'ABC de compras'
   }
   return typeof route.meta.titulo === 'string' && route.meta.titulo.trim() !== ''
     ? route.meta.titulo

@@ -6,6 +6,7 @@ import { installGlobalErrorReporting } from './api/clientLogger'
 import { registerElectronNavigation } from './bridge/electronNavigation'
 import './style.css'
 import './assets/mantenimiento-listado.css'
+import './views/listados/abc-listado-hub.css'
 
 installGlobalErrorReporting()
 

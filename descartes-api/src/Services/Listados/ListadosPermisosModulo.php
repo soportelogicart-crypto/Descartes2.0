@@ -35,6 +35,19 @@ final class ListadosPermisosModulo
     'vendedores',
   ];
 
+  /** @var list<string> */
+  private const ABC_COMPRAS_DIMENSION = [
+    'macrofamilias',
+    'subfamilias',
+    'familias',
+    'articulos',
+    'agrupaciones',
+    'proveedores',
+    'secciones',
+    'subsecciones',
+    'almacenes',
+  ];
+
   public static function stock(?string $agruparPor): string
   {
     $k = strtolower(trim((string) $agruparPor));
@@ -55,6 +68,16 @@ final class ListadosPermisosModulo
     return 'ventas-abc-' . $k;
   }
 
+  public static function abcCompras(?string $dimension): string
+  {
+    $k = strtolower(trim((string) $dimension));
+    if ($k === '' || !in_array($k, self::ABC_COMPRAS_DIMENSION, true)) {
+      $k = 'macrofamilias';
+    }
+
+    return 'compras-abc-' . $k;
+  }
+
   /** @return list<string> */
   public static function todosSubmodulos(): array
   {
@@ -64,6 +87,9 @@ final class ListadosPermisosModulo
     }
     foreach (self::ABC_DIMENSION as $k) {
       $mods[] = 'ventas-abc-' . $k;
+    }
+    foreach (self::ABC_COMPRAS_DIMENSION as $k) {
+      $mods[] = 'compras-abc-' . $k;
     }
 
     return $mods;
@@ -78,6 +104,9 @@ final class ListadosPermisosModulo
     }
     foreach (self::ABC_DIMENSION as $k) {
       $map['ventas-abc-' . $k] = 'ventas-abc';
+    }
+    foreach (self::ABC_COMPRAS_DIMENSION as $k) {
+      $map['compras-abc-' . $k] = 'compras-abc';
     }
 
     return $map;

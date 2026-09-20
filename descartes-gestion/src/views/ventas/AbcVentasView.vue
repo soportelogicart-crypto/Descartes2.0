@@ -71,6 +71,7 @@ import {
   construirHtmlInformeAbcVentas,
 } from '@/composables/abcVentasInformeHtml'
 import { imprimirListadoHtml } from '@/composables/imprimirListadoHtml'
+import { exportarAbcVentasExcel } from '@/composables/abcInformeExcel'
 import {
   abcVentasListadoPorDimension,
   etiquetaBloqueGrupoAbc,
@@ -541,6 +542,14 @@ function etiquetaTotalBloqueGeo(): string {
   return agr === 'provincia' ? 'TOTAL PROVINCIA' : 'TOTAL C.P.'
 }
 
+function exportarExcel() {
+  const d = data.value
+  if (!d || !defListado.value) return
+  const slug = dimensionEfectiva.value || d.dimension || 'abc'
+  exportarAbcVentasExcel(d, `abc-ventas-${slug}.csv`)
+  mensaje.value = 'Excel (CSV) generado'
+}
+
 async function imprimir() {
   const d = data.value
   if (!d) return
@@ -588,6 +597,9 @@ function rowTotales(t: AbcVentasTotales) {
         <h2>{{ defListado?.titulo ?? 'ABC de ventas' }}</h2>
       </div>
       <div class="head-actions">
+        <button type="button" class="btn-accion" :disabled="!tieneDatos" @click="exportarExcel">
+          Excel (CSV)
+        </button>
         <button type="button" class="btn-accion" :disabled="!tieneDatos" @click="imprimir">Imprimir</button>
       </div>
     </div>
@@ -1489,186 +1501,7 @@ function rowTotales(t: AbcVentasTotales) {
 
 <style scoped>
 @import '../listados/listado-informe-layout.css';
-
-.volver-hub {
-  display: block;
-  margin-bottom: 0.15rem;
-  padding: 0;
-  border: none;
-  background: none;
-  font: inherit;
-  font-size: 0.72rem;
-  color: #2563eb;
-  cursor: pointer;
-  text-align: left;
-}
-
-.volver-hub:hover {
-  text-decoration: underline;
-}
-
-.abc-form-view .head-compact h2 {
-  font-size: 1.05rem;
-}
-
-.abc-form-view {
-  --stock-col-etiq: 6.25rem;
-}
-
-.layout-abc {
-  grid-template-columns: minmax(17rem, 22rem) minmax(0, 1fr);
-  align-items: start;
-}
-
-.panel-filtros-compact {
-  max-height: none;
-  overflow: visible;
-  padding: 0.35rem 0.4rem;
-  gap: 0.3rem;
-}
-
-.panel-filtros-compact fieldset {
-  padding: 0.3rem 0.35rem 0.35rem;
-}
-
-.panel-filtros-compact legend {
-  font-size: 0.68rem;
-}
-
-.opciones-fila {
-  display: flex;
-  flex-direction: column;
-  gap: 0.22rem;
-}
-
-.opciones-fila label {
-  display: grid !important;
-  grid-template-columns: var(--stock-col-etiq) minmax(0, 1fr);
-  align-items: center;
-  gap: 0.35rem;
-  flex-direction: row !important;
-  font-size: 0.75rem !important;
-  color: #475569 !important;
-}
-
-.opciones-fila label > span {
-  text-align: right;
-  line-height: 1.2;
-}
-
-.opciones-fila select {
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-  padding: 0.2rem 0.35rem !important;
-  font-size: 0.78rem !important;
-}
-
-.bloque-intervalos-col {
-  padding-left: 0;
-  padding-right: 0;
-}
-
-.intervalos-col {
-  display: grid;
-  grid-template-columns: var(--stock-col-etiq) minmax(0, 1fr) minmax(0, 1fr);
-  column-gap: 0.35rem;
-  row-gap: 0.22rem;
-  align-items: center;
-  width: 100%;
-}
-
-.intervalos-col .rango-head,
-.intervalos-col .rango-row {
-  display: contents;
-}
-
-.intervalos-col .rango-head span:nth-child(2),
-.intervalos-col .rango-head span:nth-child(3) {
-  font-size: 0.72rem;
-  color: #64748b;
-  text-align: center;
-  padding-bottom: 0.05rem;
-}
-
-.intervalos-col .rango-label {
-  text-align: right;
-  font-size: 0.75rem;
-  line-height: 1.2;
-  color: #475569;
-  padding-right: 0.05rem;
-}
-
-.celda-intervalo {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-}
-
-.celda-intervalo input,
-.celda-intervalo :deep(input) {
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-  padding: 0.2rem 0.35rem;
-  border: 1px solid #94a3b8;
-  border-radius: 4px;
-  font: inherit;
-  font-size: 0.78rem;
-  line-height: 1.25;
-  background: #fff;
-}
-
-.celda-intervalo input.numerico {
-  font-variant-numeric: tabular-nums;
-  font-family: ui-monospace, Consolas, monospace;
-  text-align: right;
-}
-
-.intervalos-col .con-lupa {
-  display: flex;
-  align-items: center;
-  gap: 0.2rem;
-  width: 100%;
-  min-width: 0;
-}
-
-.intervalos-col .con-lupa input {
-  flex: 1;
-  min-width: 0;
-}
-
-.intervalos-col .btn-lupa {
-  width: 1.35rem;
-  height: 1.35rem;
-  flex-shrink: 0;
-}
-
-.btn-buscar-compact {
-  margin-top: 0.1rem;
-  padding: 0.32rem 0.55rem;
-  font-size: 0.82rem;
-}
-
-.informe-wrap {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-}
-
-.informe {
-  background: #fff;
-  border: 1px solid #94a3b8;
-  border-radius: 4px;
-  padding: 0.75rem;
-  color: #0f172a;
-}
-
-.informe.abc-legacy-informe {
-  border: none;
-  border-radius: 0;
-  padding: 0.35rem 0.25rem;
-}
+@import '../listados/abc-form-view.css';
 
 .abc-legacy-informe .legacy-top {
   display: flex;
@@ -1722,53 +1555,6 @@ function rowTotales(t: AbcVentasTotales) {
   border: none;
   border-top: 3px solid #6b2d2d;
   margin: 0 0 0.5rem;
-}
-
-.abc-legacy-informe .table-scroll {
-  border: none;
-  border-radius: 0;
-}
-
-.abc-table.abc-legacy {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.78rem;
-}
-
-.abc-table.abc-legacy th,
-.abc-table.abc-legacy td {
-  border: none;
-  padding: 2px 5px;
-  vertical-align: top;
-}
-
-.abc-table.abc-legacy thead th {
-  background: #006f6f;
-  color: #fff;
-  font-weight: 700;
-  text-align: left;
-}
-
-.abc-table.abc-legacy th.col-num,
-.abc-table.abc-legacy td.col-num,
-.abc-table.abc-legacy th.col-pct,
-.abc-table.abc-legacy td.col-pct {
-  text-align: right;
-}
-
-.abc-table.abc-legacy .lab-tot {
-  text-align: right;
-}
-
-.abc-table.abc-legacy tr.total-intermedio td {
-  border-top: 1px solid #333;
-  font-weight: 700;
-}
-
-.abc-table.abc-legacy tr.total-general td {
-  border-top: 1px solid #333;
-  border-bottom: 3px double #333;
-  font-weight: 700;
 }
 
 .informe.abc-flujo-continuo {
@@ -1849,109 +1635,6 @@ function rowTotales(t: AbcVentasTotales) {
   font-size: 1rem;
   font-weight: 700;
   color: #0f172a;
-}
-
-.grupo {
-  margin-bottom: 1.25rem;
-}
-
-.grupo-tit {
-  margin: 0 0 0.4rem;
-  font-size: 0.95rem;
-  font-weight: 700;
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-}
-
-.grupo-dim {
-  font-size: 0.82rem;
-  letter-spacing: 0.02em;
-}
-
-.grupo-det {
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: #334155;
-}
-
-.table-scroll {
-  overflow-x: auto;
-  border: 1px solid #cbd5e1;
-  border-radius: 4px;
-}
-
-.abc-table {
-  width: max-content;
-  min-width: 0;
-  max-width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-  font-size: 0.78rem;
-}
-
-.abc-table th,
-.abc-table td {
-  border-right: 1px solid #e2e8f0;
-  border-bottom: 1px solid #e2e8f0;
-  padding: 0.28rem 0.4rem;
-  vertical-align: middle;
-}
-
-.abc-table th:last-child,
-.abc-table td:last-child {
-  border-right: none;
-}
-
-.abc-table th {
-  background: #e2e8f0;
-  text-align: left;
-  font-weight: 700;
-  white-space: nowrap;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-}
-
-.abc-table tbody tr:nth-child(even):not(.total-row) {
-  background: #f8fafc;
-}
-
-.col-codigo {
-  width: 5.5rem;
-  font-family: ui-monospace, Consolas, monospace;
-}
-
-.col-articulo {
-  width: 14rem;
-  max-width: 14rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.col-num,
-.col-pct {
-  width: 5.6rem;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  font-family: ui-monospace, Consolas, monospace;
-}
-
-.col-pct {
-  width: 4.8rem;
-}
-
-.abc-table th.col-num,
-.abc-table th.col-pct {
-  text-align: right;
-}
-
-.total-row td {
-  border-top: 2px solid #475569;
-  font-weight: 700;
-  background: #f1f5f9;
 }
 
 .total-general {

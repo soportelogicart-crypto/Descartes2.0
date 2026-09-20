@@ -1,28 +1,28 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ABC_VENTAS_LISTADOS } from '@/config/abc-ventas-dimensiones'
+import { ABC_COMPRAS_LISTADOS } from '@/config/abc-compras-dimensiones'
 import { useListadosRecientes } from '@/composables/useListadosRecientes'
 import { usePermisos } from '@/composables/usePermisos'
-import { puedeVerSubmenuAbc } from '@/config/listados-permisos'
+import { puedeVerSubmenuAbcCompras } from '@/config/listados-permisos'
 
 const router = useRouter()
 const { registrarReciente } = useListadosRecientes()
 const { puede } = usePermisos()
 
 const opciones = computed(() =>
-  ABC_VENTAS_LISTADOS.map((item) => ({
+  ABC_COMPRAS_LISTADOS.map((item) => ({
     item,
-    habilitado: puedeVerSubmenuAbc(puede, item.dimension),
+    habilitado: puedeVerSubmenuAbcCompras(puede, item.dimension),
   })),
 )
 
-onMounted(() => registrarReciente('abc-ventas'))
+onMounted(() => registrarReciente('abc-compras'))
 
 function abrir(dimension: string, habilitado: boolean) {
   if (!habilitado) return
-  registrarReciente('abc-ventas')
-  void router.push({ name: 'listados-abc-ventas', params: { dimension } })
+  registrarReciente('abc-compras')
+  void router.push({ name: 'listados-abc-compras', params: { dimension } })
 }
 
 function etiquetaCorta(titulo: string): string {
@@ -34,8 +34,8 @@ function etiquetaCorta(titulo: string): string {
 <template>
   <section class="abc-hub">
     <header class="cabecera">
-      <h2>ABC de ventas</h2>
-      <p class="intro">Elija la dimensión de agrupación (menú VentasABC legacy).</p>
+      <h2>ABC de compras</h2>
+      <p class="intro">Elija la dimensión de agrupación (menú ComprasAbc legacy).</p>
     </header>
     <ul class="opciones">
       <li v-for="row in opciones" :key="row.item.catalogId">

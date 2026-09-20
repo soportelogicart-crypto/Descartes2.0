@@ -1,6 +1,8 @@
 import { api } from '@/api/client'
 import type { VentaDetalle } from '@/types/ventas'
 import type {
+  AbcComprasFiltros,
+  AbcComprasResponse,
   AlbaranCompraDetalle,
   AlbaranCompraListParams,
   AlbaranCompraPayload,
@@ -16,6 +18,13 @@ import type {
   RecepcionPedidoPayload,
   RecepcionPedidoResultado,
 } from '@/types/compras'
+
+export async function obtenerAbcCompras(filtros: AbcComprasFiltros) {
+  const params: Record<string, string | number | boolean | undefined> = { ...filtros }
+  if (params.soloActualizado === true) params.soloActualizado = 'true'
+  const { data } = await api.get<AbcComprasResponse>('/api/compras/abc', { params })
+  return data
+}
 
 export async function pingCompras(): Promise<{
   ok: boolean

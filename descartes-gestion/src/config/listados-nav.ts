@@ -1,8 +1,10 @@
 import type { NavPermisoNodo } from '@/config/mantenimiento-nav-permisos'
 import {
+  ABC_COMPRAS_MODULOS_PERMISO,
   ABC_VENTAS_MODULOS_PERMISO,
   STOCK_LISTADO_MODULOS_PERMISO,
   puedeAccederHubAbc,
+  puedeAccederHubAbcCompras,
   puedeAccederHubStock,
 } from '@/config/listados-permisos'
 
@@ -114,6 +116,17 @@ export const LISTADOS_CATALOGO: ListadoCatalogoItem[] = [
     disponible: true,
   },
   {
+    id: 'abc-compras',
+    titulo: 'ABC de compras',
+    descripcion: 'Análisis de compras por periodo; elija la dimensión de agrupación.',
+    categoria: 'compras',
+    palabrasClave: ['abc', 'compras', 'proveedor', 'familia', 'articulo', 'almacen'],
+    kind: 'informe',
+    ruta: '/listados/abc-compras',
+    modulo: 'compras-abc',
+    disponible: true,
+  },
+  {
     id: 'stock',
     titulo: 'Listado de stock',
     descripcion:
@@ -216,7 +229,11 @@ export function normalizarTextoBusqueda(texto: string): string {
 }
 
 const INFORMES_SIN_SUBMENU = LISTADOS_CATALOGO.filter(
-  (i) => i.kind === 'informe' && i.id !== 'stock' && i.id !== 'abc-ventas',
+  (i) =>
+    i.kind === 'informe' &&
+    i.id !== 'stock' &&
+    i.id !== 'abc-ventas' &&
+    i.id !== 'abc-compras',
 )
 
 /** Matriz de permisos en Mantenimiento → Roles (sección Listados). */
@@ -258,6 +275,19 @@ export const listadosNavPermisos: NavPermisoNodo[] = [
       })),
     ],
   },
+  {
+    tipo: 'grupo',
+    id: 'listados-abc-compras-submenu',
+    titulo: 'ABC de compras (dimensiones)',
+    children: [
+      { id: 'compras-abc-padre', titulo: 'Acceso al submenú (general)', modulo: 'compras-abc' },
+      ...ABC_COMPRAS_MODULOS_PERMISO.map((s) => ({
+        id: s.id,
+        titulo: s.titulo,
+        modulo: s.modulo,
+      })),
+    ],
+  },
 ]
 
 type PuedeFn = (modulo: string, accion: 'ver' | 'crear' | 'editar' | 'eliminar') => boolean
@@ -275,6 +305,7 @@ export function itemHabilitadoEnCatalogo(item: ListadoCatalogoItem, puede: Puede
   if (!item.disponible) return false
   if (item.id === 'stock') return puedeAccederHubStock(puede)
   if (item.id === 'abc-ventas') return puedeAccederHubAbc(puede)
+  if (item.id === 'abc-compras') return puedeAccederHubAbcCompras(puede)
   return puede(item.modulo, 'ver')
 }
 

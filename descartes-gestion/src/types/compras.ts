@@ -265,3 +265,119 @@ export type FacturaCompraListParams = {
   page?: number
   pageSize?: number
 }
+
+// —— ABC de compras ——
+
+export type AbcComprasDimensionId =
+  | 'macrofamilias'
+  | 'subfamilias'
+  | 'familias'
+  | 'articulos'
+  | 'agrupaciones'
+  | 'proveedores'
+  | 'secciones'
+  | 'subsecciones'
+  | 'almacenes'
+
+export type AbcComprasImArticulosModo = 'si' | 'no' | 'desglosado'
+
+export type AbcComprasFiltros = {
+  dimension: AbcComprasDimensionId
+  orden:
+    | 'margen'
+    | 'importe'
+    | 'cantidad'
+    | 'coste'
+    | 'macrofamilias'
+    | 'subfamilias'
+    | 'familias'
+  imArticulos: AbcComprasImArticulosModo
+  divisa?: 'EU' | 'PES'
+  valor: 'precioMedio' | 'precioMedioActual' | 'ultimoPrecio' | 'sinValorTarifa'
+  formatoJerarquia?:
+    | 'normal'
+    | 'extendido'
+    | 'pesoKilogramos'
+    | 'mediaImporte'
+    | 'agrSinTotales'
+    | 'agrConTotales'
+  soloActualizado?: boolean
+  fechaDesde: string
+  fechaHasta: string
+  macroFamiliaDesde?: string
+  macroFamiliaHasta?: string
+  familiaDesde?: string
+  familiaHasta?: string
+  subfamiliaDesde?: string
+  subfamiliaHasta?: string
+  agrupacionDesde?: string
+  agrupacionHasta?: string
+  articuloDesde?: string
+  articuloHasta?: string
+  tiendaDesde?: string
+  tiendaHasta?: string
+  proveedorDesde?: string
+  proveedorHasta?: string
+  almacenDesde?: string
+  almacenHasta?: string
+  seccionDesde?: string
+  seccionHasta?: string
+  subSeccionDesde?: string
+  subSeccionHasta?: string
+  loteDesde?: string
+  loteHasta?: string
+  ultimaVentaDesde?: string
+  ultimaVentaHasta?: string
+  centralDesde?: string
+  centralHasta?: string
+}
+
+export type AbcComprasArticulo = {
+  codigo: string
+  descripcion: string
+  unidades: number
+  dto: number
+  importe: number
+  coste: number
+  margen: number
+  pjeMargen: number
+  pjeSobreTotal?: number
+  mAgr: number
+}
+
+export type AbcComprasTotales = {
+  unidades: number
+  dto: number
+  importe: number
+  coste: number
+  margen: number
+  pjeMargen?: number
+  pjeSobreTotal?: number
+}
+
+export type AbcComprasGrupo = {
+  codigo: string
+  nombre: string
+  totales: AbcComprasTotales
+  articulos: AbcComprasArticulo[]
+  /** Subfamilias + formato extendido (jerarquía superior). */
+  metaFamiliaCodigo?: string
+  metaFamiliaNombre?: string
+  metaMacroCodigo?: string
+  metaMacroNombre?: string
+}
+
+export type AbcComprasResponse = {
+  dimension: string
+  orden: string
+  valor: string
+  imArticulos: AbcComprasImArticulosModo
+  divisa?: string
+  formatoJerarquia?: string
+  mostrarTotalGrupo?: boolean
+  fechaDesde: string
+  fechaHasta: string
+  totales: AbcComprasTotales
+  grupos: AbcComprasGrupo[]
+  bloques?: null
+}

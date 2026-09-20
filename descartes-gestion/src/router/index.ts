@@ -42,6 +42,7 @@ import ValesView from '@/views/ventas/ValesView.vue'
 import PedidosClientesView from '@/views/ventas/PedidosClientesView.vue'
 import PedidoDetalleView from '@/views/ventas/PedidoDetalleView.vue'
 import AbcVentasListadoShell from '@/views/listados/AbcVentasListadoShell.vue'
+import AbcComprasListadoShell from '@/views/listados/AbcComprasListadoShell.vue'
 import GeneracionFacturasManualView from '@/views/facturacion/GeneracionFacturasManualView.vue'
 import GeneracionFacturasView from '@/views/facturacion/GeneracionFacturasView.vue'
 import ImpresionFacturasView from '@/views/facturacion/ImpresionFacturasView.vue'
@@ -62,8 +63,10 @@ import ExtractoClientesListadoView from '@/views/listados/ExtractoClientesListad
 import { getInstalacionEstado } from '@/api/instalacion'
 import { puedeAccederHubListados } from '@/config/listados-nav'
 import {
+  abcComprasModuloPermiso,
   abcVentasModuloPermiso,
   puedeAccederHubAbc,
+  puedeAccederHubAbcCompras,
   puedeAccederHubStock,
   stockListadoModuloPermiso,
 } from '@/config/listados-permisos'
@@ -167,6 +170,12 @@ const router = createRouter({
           name: 'listados-abc-ventas',
           component: AbcVentasListadoShell,
           meta: { titulo: 'ABC de ventas', modulo: 'ventas-abc', accion: 'ver' },
+        },
+        {
+          path: 'listados/abc-compras/:dimension?',
+          name: 'listados-abc-compras',
+          component: AbcComprasListadoShell,
+          meta: { titulo: 'ABC de compras', modulo: 'compras-abc', accion: 'ver' },
         },
         {
           path: 'tpv',
@@ -512,6 +521,18 @@ router.beforeEach(async (to) => {
       }
     } else if (!puedeAccederHubAbc(puede)) {
       return { name: 'home', query: { sinPermiso: 'ventas-abc' } }
+    }
+  } else if (to.name === 'listados-abc-compras') {
+    const dimension = String(to.params.dimension ?? '').trim()
+    if (dimension) {
+      if (!puede(abcComprasModuloPermiso(dimension), 'ver')) {
+        return {
+          path: '/listados/abc-compras',
+          query: { sinPermiso: abcComprasModuloPermiso(dimension) },
+        }
+      }
+    } else if (!puedeAccederHubAbcCompras(puede)) {
+      return { name: 'home', query: { sinPermiso: 'compras-abc' } }
     }
   } else {
     const modulo = to.meta.modulo as string | undefined

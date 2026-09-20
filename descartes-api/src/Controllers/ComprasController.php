@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Descartes\Api\Controllers;
 
 use Descartes\Api\Http\ErrorResponse;
+use Descartes\Api\Services\Compras\AbcComprasService;
 use Descartes\Api\Services\Compras\AlbaranCompraConsultaService;
+use InvalidArgumentException;
 use Descartes\Api\Services\Compras\AlbaranCompraConversionVentaService;
 use Descartes\Api\Services\Compras\AlbaranCompraEscrituraService;
 use Descartes\Api\Services\Compras\FacturaCompraConsultaService;
@@ -28,6 +30,7 @@ final class ComprasController
   private PedidoProveedorEscrituraService $pedidosEscritura;
   private PedidoProveedorRecepcionService $recepcion;
   private FacturaCompraConsultaService $facturas;
+  private AbcComprasService $abcCompras;
 
   public function __construct(
     AlbaranCompraConsultaService $albaranes,
@@ -36,7 +39,8 @@ final class ComprasController
     PedidoProveedorConsultaService $pedidos,
     PedidoProveedorEscrituraService $pedidosEscritura,
     PedidoProveedorRecepcionService $recepcion,
-    FacturaCompraConsultaService $facturas
+    FacturaCompraConsultaService $facturas,
+    AbcComprasService $abcCompras
   ) {
     $this->albaranes = $albaranes;
     $this->escritura = $escritura;
@@ -45,6 +49,7 @@ final class ComprasController
     $this->pedidosEscritura = $pedidosEscritura;
     $this->recepcion = $recepcion;
     $this->facturas = $facturas;
+    $this->abcCompras = $abcCompras;
   }
 
   public function ping(Request $request, Response $response): Response
@@ -54,6 +59,17 @@ final class ComprasController
       'modulo' => 'compras',
       'message' => 'API Compras montada',
     ]);
+  }
+
+  public function listAbcCompras(Request $request, Response $response): Response
+  {
+    try {
+      return $this->json($response, 200, $this->abcCompras->generar($request->getQueryParams()));
+    } catch (InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
   }
 
   public function listAlbaranes(Request $request, Response $response): Response

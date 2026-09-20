@@ -1,4 +1,5 @@
 import {
+  ABC_COMPRAS_MODULOS_PERMISO,
   ABC_VENTAS_MODULOS_PERMISO,
   STOCK_LISTADO_MODULOS_PERMISO,
 } from '@/config/listados-permisos'
@@ -9,6 +10,10 @@ const padreStockSubmodulos = Object.fromEntries(
 
 const padreAbcSubmodulos = Object.fromEntries(
   ABC_VENTAS_MODULOS_PERMISO.map((s) => [s.modulo, 'ventas-abc']),
+) as Record<string, string>
+
+const padreAbcComprasSubmodulos = Object.fromEntries(
+  ABC_COMPRAS_MODULOS_PERMISO.map((s) => [s.modulo, 'compras-abc']),
 ) as Record<string, string>
 
 /**
@@ -37,6 +42,7 @@ export const MODULO_PADRE: Record<string, string> = {
   'ventas-vales': 'ventas',
   'ventas-pedidos': 'ventas',
   'ventas-abc': 'ventas',
+  'compras-abc': 'compras',
   'listados-informe-tickets': 'listados',
   'listados-extracto-clientes': 'listados',
   'listados-stock': 'listados',
@@ -50,4 +56,5 @@ export const MODULO_PADRE: Record<string, string> = {
   'facturacion-retroceso': 'facturacion',
   ...padreStockSubmodulos,
   ...padreAbcSubmodulos,
+  ...padreAbcComprasSubmodulos,
 }

@@ -11,6 +11,7 @@ const avisoPermiso = computed(() => {
   const etiquetas: Record<string, string> = {
     listados: 'Listados',
     'ventas-abc': 'ABC de ventas',
+    'compras-abc': 'ABC de compras',
   }
   const nombre = etiquetas[m] ?? m
   return `No tiene permiso para acceder a «${nombre}». Si necesita entrar, pida al administrador que active el módulo en su rol.`

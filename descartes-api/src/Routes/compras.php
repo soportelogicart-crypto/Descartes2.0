@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Descartes\Api\Controllers\ComprasController;
 use Descartes\Api\Middleware\AuthMiddleware;
 use Descartes\Api\Middleware\PermissionMiddleware;
+use Descartes\Api\Services\Listados\ListadosPermisosModulo;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Slim\App;
@@ -26,9 +27,21 @@ return function (App $app): void {
     };
   };
 
-  $app->group('/api/compras', function (RouteCollectorProxy $group) use ($setPermiso) {
+  $permisoAbcComprasSubmenu = function (ServerRequestInterface $request, RequestHandlerInterface $handler) {
+    $q = $request->getQueryParams();
+    $modulo = ListadosPermisosModulo::abcCompras($q['dimension'] ?? null);
+
+    return $handler->handle(
+      $request->withAttribute('permisoModulo', $modulo)->withAttribute('permisoAccion', 'ver')
+    );
+  };
+
+  $app->group('/api/compras', function (RouteCollectorProxy $group) use ($setPermiso, $permisoAbcComprasSubmenu) {
     $group->get('/ping', [ComprasController::class, 'ping'])
       ->add($setPermiso('compras', 'ver'));
+
+    $group->get('/abc', [ComprasController::class, 'listAbcCompras'])
+      ->add($permisoAbcComprasSubmenu);
 
     // Albaranes
     $group->get('/albaranes', [ComprasController::class, 'listAlbaranes'])

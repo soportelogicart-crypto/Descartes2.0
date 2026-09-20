@@ -14,6 +14,13 @@ export function dimensionDesdePathAbcVentas(fullPath: string): string {
   return m?.[1]?.trim() ?? ''
 }
 
+/** Segmento `dimension` en rutas `/listados/abc-compras/:dimension`. */
+export function dimensionDesdePathAbcCompras(fullPath: string): string {
+  const path = (fullPath.split('?')[0] || '/').replace(/\/+$/, '') || '/'
+  const m = path.match(/^\/listados\/abc-compras\/([^/]+)$/)
+  return m?.[1]?.trim() ?? ''
+}
+
 /**
  * KeepAlive cachea por fullPath; useRoute() sigue cambiando en instancias inactivas.
  * Usar pathInstancia + esEstaInstanciaActiva() para no reaccionar a otras pestañas.
