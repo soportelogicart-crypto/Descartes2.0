@@ -38,7 +38,7 @@ final class PermissionService
       return true;
     }
 
-    $padre = RolService::MODULO_PADRE[$modulo] ?? null;
+    $padre = RolService::moduloPadre()[$modulo] ?? null;
     if ($padre === null) {
       return false;
     }
@@ -69,11 +69,11 @@ final class PermissionService
       ];
     }
 
-    foreach (RolService::MODULOS as $modulo) {
+    foreach (RolService::modulos() as $modulo) {
       if (isset($permisos[$modulo])) {
         continue;
       }
-      $padre = RolService::MODULO_PADRE[$modulo] ?? null;
+      $padre = RolService::moduloPadre()[$modulo] ?? null;
       if ($padre !== null && isset($permisos[$padre])) {
         $permisos[$modulo] = $permisos[$padre];
       }

@@ -481,11 +481,7 @@ async function printHtmlSized(payload, opts) {
       await new Promise((r) => setTimeout(r, 350))
 
       let result = await printOnce(win, silent)
-      if (
-        !result.success &&
-        silent &&
-        /empty|invalid|page size/i.test(String(result.failureReason || ''))
-      ) {
+      if (!result.success && silent) {
         result = await printOnce(win, false)
       }
 

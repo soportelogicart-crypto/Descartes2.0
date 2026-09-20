@@ -64,8 +64,8 @@ function onExcel() {
   emit('aviso', 'Excel (CSV) exportado')
 }
 
-function onImprimir() {
-  const msg = exportarGridImprimir({
+async function onImprimir() {
+  const msg = await exportarGridImprimir({
     titulo: props.titulo,
     columnas: props.columnas,
     filas: props.filas,

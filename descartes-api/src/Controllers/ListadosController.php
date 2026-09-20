@@ -77,6 +77,27 @@ final class ListadosController
     }
   }
 
+  public function pdfInformeIva(Request $request, Response $response): Response
+  {
+    $body = (array) json_decode((string) $request->getBody(), true);
+    try {
+      $pdf = $this->informeIva->informePdf($body !== [] ? $body : $request->getQueryParams());
+      $response->getBody()->write($pdf);
+
+      return $response
+        ->withHeader('Content-Type', 'application/pdf')
+        ->withHeader('Content-Disposition', 'attachment; filename="informe-iva.pdf"')
+        ->withHeader('Content-Length', (string) strlen($pdf))
+        ->withStatus(200);
+    } catch (InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage());
+    } catch (\Throwable $e) {
+      $this->logger->error('listados.informe-iva.pdf', ['error' => $e->getMessage()]);
+
+      return ErrorResponse::json($response, 500, 'No se pudo generar el PDF del informe de IVA');
+    }
+  }
+
   public function listInformeTickets(Request $request, Response $response): Response
   {
     try {

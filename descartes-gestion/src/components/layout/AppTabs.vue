@@ -5,8 +5,14 @@ import { useTabsStore, type AppTab } from '@/stores/tabs'
 const tabs = useTabsStore()
 const router = useRouter()
 
+function normalizarPath(path: string): string {
+  return (path.split('?')[0] || '/').replace(/\/+$/, '') || '/'
+}
+
 async function activar(tab: AppTab) {
-  if (tabs.activeId === tab.id) return
+  const pathActual = normalizarPath(router.currentRoute.value.fullPath)
+  const pathTab = normalizarPath(tab.fullPath)
+  if (tabs.activeId === tab.id && pathActual === pathTab) return
   await router.push(tab.fullPath)
 }
 

@@ -45,12 +45,78 @@ final class StockListadoService
       $almacen = 0;
     }
 
-    $ocultarCero = filter_var($query['ocultarCero'] ?? true, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
-    $ocultarCero = $ocultarCero !== false;
+    $stockFiltro = $this->normalizarStockFiltro((string) ($query['stockFiltro'] ?? ''));
+    $ocultarCero = filter_var($query['ocultarCero'] ?? null, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
+    if ($ocultarCero === null) {
+      $ocultarCero = $stockFiltro === 'superior_0';
+    }
 
     [$groupCod, $groupNom, $groupBySql] = $this->groupExpressions($agrupar);
 
-    $having = $ocultarCero ? 'HAVING ABS(SUM(det.[unidades])) > 0.0001' : '';
+    $havingParts = [];
+    if ($ocultarCero || $stockFiltro === 'superior_0') {
+      $havingParts[] = 'SUM(det.[unidades]) > 0.0001';
+    }
+    if ($stockFiltro === 'menor_0') {
+      $havingParts[] = 'SUM(det.[unidades]) < -0.0001';
+    } elseif ($stockFiltro === 'igual_0') {
+      $havingParts[] = 'ABS(SUM(det.[unidades])) <= 0.0001';
+    } elseif ($stockFiltro === 'diferente_0') {
+      $havingParts[] = 'ABS(SUM(det.[unidades])) > 0.0001';
+    }
+    $having = $havingParts !== [] ? 'HAVING ' . implode(' AND ', $havingParts) : '';
+
+    $incluirSinFilasStock = $agrupar === 'articulo' || $this->filtroMaestroDeArticuloActivo($query);
+
+    $whereStock = [];
+    $whereArticulo = [];
+    $params = [];
+    if ($almacen > 0) {
+      $whereStock[] = 's.[Almacen] = :almacenLegacy';
+      $params['almacenLegacy'] = $almacen;
+    }
+    ListadosFiltrosSql::filtroRangoEntero($whereStock, $params, 's.[Almacen]', $query, 'almacenDesde', 'almacenHasta');
+    ListadosFiltrosSql::filtroRangoEntero($whereStock, $params, 's.[Año]', $query, 'anoDesde', 'anoHasta');
+    ListadosFiltrosSql::filtroRangoEntero($whereStock, $params, 's.[Mes]', $query, 'mesDesde', 'mesHasta');
+    ListadosFiltrosSql::filtroRangoTexto($whereArticulo, $params, 'f.[MacroFamilia]', $query, 'macrofamiliaDesde', 'macrofamiliaHasta', null, 'mf');
+    ListadosFiltrosSql::filtroRangoTexto($whereArticulo, $params, 'a.[Familia]', $query, 'familiaDesde', 'familiaHasta', null, 'fam');
+    ListadosFiltrosSql::filtroRangoTexto($whereArticulo, $params, 'a.[Subfamilia]', $query, 'subfamiliaDesde', 'subfamiliaHasta', null, 'sf');
+    ListadosFiltrosSql::filtroRangoTexto($whereArticulo, $params, 'a.[Agrupacion]', $query, 'agrupacionDesde', 'agrupacionHasta', null, 'ag');
+    ListadosFiltrosSql::filtroRangoTexto($whereArticulo, $params, 'a.[Codigo]', $query, 'articuloDesde', 'articuloHasta', null, 'art');
+    ListadosFiltrosSql::filtroRangoTexto($whereArticulo, $params, 'a.[UltProveedor]', $query, 'proveedorDesde', 'proveedorHasta', null, 'prov');
+    ListadosFiltrosSql::filtroRangoTexto($whereArticulo, $params, 'a.[Seccion]', $query, 'seccionDesde', 'seccionHasta', null, 'sec');
+    ListadosFiltrosSql::filtroRangoTexto($whereArticulo, $params, 'a.[SubSeccion]', $query, 'subseccionDesde', 'subseccionHasta', null, 'ssec');
+    ListadosFiltrosSql::filtroRangoFechaUltimaVentaArticulo($whereArticulo, $params, $query);
+    ListadosFiltrosSql::filtroRangoFecha($whereArticulo, $params, 'a.[FechaAlta]', $query, 'fechaAltaDesde', 'fechaAltaHasta', 'fAlta');
+    ListadosFiltrosSql::filtroRangoFecha($whereArticulo, $params, 'a.[FechaUltComp]', $query, 'ultCompraDesde', 'ultCompraHasta', 'ultComp');
+    ListadosFiltrosSql::filtroRangoTexto($whereArticulo, $params, 'a.[Ubicacion]', $query, 'ubicacionDesde', 'ubicacionHasta', null, 'ubic');
+    if ($stockFiltro === 'bloqueo_venta') {
+      $whereArticulo[] = 'ISNULL(a.[BloqueoVenta], 0) <> 0';
+    }
+
+    if ($incluirSinFilasStock) {
+      $onStock = $whereStock === [] ? '' : ' AND ' . implode(' AND ', $whereStock);
+      $whereSql = $whereArticulo === [] ? '' : 'WHERE ' . implode(' AND ', $whereArticulo);
+      $fromJoin = "FROM [Articulos] a
+              LEFT JOIN [Stock] s ON RTRIM(s.[Codigo]) = RTRIM(a.[Codigo]){$onStock}
+              LEFT JOIN [Familias] f ON RTRIM(f.[Codigo]) = RTRIM(a.[Familia])
+              LEFT JOIN [Subfamilias] sf ON RTRIM(sf.[Subfamilia]) = RTRIM(a.[Subfamilia])
+              LEFT JOIN [MacroFamilias] mf ON RTRIM(mf.[Codigo]) = RTRIM(f.[MacroFamilia])
+              LEFT JOIN [Agrupaciones] ag ON RTRIM(ag.[Codigo]) = RTRIM(a.[Agrupacion])
+              LEFT JOIN [Proveedores] p ON RTRIM(p.[Codigo]) = RTRIM(a.[UltProveedor])";
+      $articuloSql = "RTRIM(ISNULL(a.[Codigo], ''))";
+    } else {
+      $where = array_merge($whereStock, $whereArticulo);
+      $whereSql = $where === [] ? '' : 'WHERE ' . implode(' AND ', $where);
+      $fromJoin = "FROM [Stock] s
+              INNER JOIN [Articulos] a ON RTRIM(a.[Codigo]) = RTRIM(s.[Codigo])
+              LEFT JOIN [Familias] f ON RTRIM(f.[Codigo]) = RTRIM(a.[Familia])
+              LEFT JOIN [Subfamilias] sf ON RTRIM(sf.[Subfamilia]) = RTRIM(a.[Subfamilia])
+              LEFT JOIN [MacroFamilias] mf ON RTRIM(mf.[Codigo]) = RTRIM(f.[MacroFamilia])
+              LEFT JOIN [Agrupaciones] ag ON RTRIM(ag.[Codigo]) = RTRIM(a.[Agrupacion])
+              LEFT JOIN [Proveedores] p ON RTRIM(p.[Codigo]) = RTRIM(a.[UltProveedor])";
+      $articuloSql = "RTRIM(ISNULL(s.[Codigo], ''))";
+    }
 
     $sql = "SELECT TOP " . (self::LIMITE_FILAS + 1) . "
               {$groupCod} AS grupoCodigo,
@@ -59,12 +125,12 @@ final class StockListadoService
               COUNT(DISTINCT det.[articulo]) AS numArticulos
             FROM (
               SELECT
-                RTRIM(ISNULL(s.[Codigo], '')) AS articulo,
+                {$articuloSql} AS articulo,
                 RTRIM(ISNULL(a.[Descripcion], '')) AS descripcion,
                 RTRIM(ISNULL(a.[Familia], '')) AS familiaCodigo,
                 RTRIM(ISNULL(f.[Descripcion], '')) AS familiaNombre,
                 RTRIM(ISNULL(a.[Subfamilia], '')) AS subfamiliaCodigo,
-                RTRIM(ISNULL(sf.[Descripcion], '')) AS subfamiliaNombre,
+                RTRIM(ISNULL(sf.[Descripción], '')) AS subfamiliaNombre,
                 RTRIM(ISNULL(f.[MacroFamilia], '')) AS macrofamiliaCodigo,
                 RTRIM(ISNULL(mf.[Descripcion], '')) AS macrofamiliaNombre,
                 RTRIM(ISNULL(a.[Agrupacion], '')) AS agrupacionCodigo,
@@ -75,21 +141,15 @@ final class StockListadoService
                   ISNULL(s.[Entradas], 0) - ISNULL(s.[Salidas], 0) - ISNULL(s.[Ventas], 0)
                   + ISNULL(s.[TraspasosEntradas], 0) - ISNULL(s.[TraspasosSalidas], 0)
                 ) AS unidades
-              FROM [Stock] s
-              INNER JOIN [Articulos] a ON RTRIM(a.[Codigo]) = RTRIM(s.[Codigo])
-              LEFT JOIN [Familias] f ON RTRIM(f.[Codigo]) = RTRIM(a.[Familia])
-              LEFT JOIN [Subfamilias] sf ON RTRIM(sf.[Codigo]) = RTRIM(a.[Subfamilia])
-              LEFT JOIN [MacroFamilias] mf ON RTRIM(mf.[Codigo]) = RTRIM(f.[MacroFamilia])
-              LEFT JOIN [Agrupaciones] ag ON RTRIM(ag.[Codigo]) = RTRIM(a.[Agrupacion])
-              LEFT JOIN [Proveedores] p ON RTRIM(p.[Codigo]) = RTRIM(a.[UltProveedor])
-              WHERE (:almacen = 0 OR s.[Almacen] = :almacen)
+              {$fromJoin}
+              {$whereSql}
             ) det
             GROUP BY {$groupBySql}
             {$having}
             ORDER BY {$groupCod}";
 
     $stmt = $this->pdo->prepare($sql);
-    $stmt->execute(['almacen' => $almacen]);
+    $stmt->execute($params);
 
     $items = [];
     $totalUnidades = 0.0;
@@ -120,6 +180,41 @@ final class StockListadoService
       'truncado' => $truncado,
       'limite' => self::LIMITE_FILAS,
     ];
+  }
+
+  /** Valores legacy (positivo/cero/negativo) y etiquetas 1.0 (superior_0, …). */
+  private function normalizarStockFiltro(string $raw): string
+  {
+    $v = strtolower(trim($raw));
+    return match ($v) {
+      'positivo', 'superior_0' => 'superior_0',
+      'negativo', 'menor_0' => 'menor_0',
+      'cero', 'igual_0' => 'igual_0',
+      'diferente_0' => 'diferente_0',
+      'bloqueo_venta' => 'bloqueo_venta',
+      default => 'todos',
+    };
+  }
+
+  /** Filtros de maestro (fechas artículo): deben listarse aunque no haya filas [Stock] en el año pedido. */
+  private function filtroMaestroDeArticuloActivo(array $query): bool
+  {
+    foreach (
+      [
+        'ultimaVentaDesde',
+        'ultimaVentaHasta',
+        'fechaAltaDesde',
+        'fechaAltaHasta',
+        'ultCompraDesde',
+        'ultCompraHasta',
+      ] as $key
+    ) {
+      if (ListadosFiltrosSql::fechaDiaInput($query[$key] ?? null) !== null) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /** @return array{0: string, 1: string, 2: string} */

@@ -245,9 +245,10 @@ async function generar(filtros = {}) {
 
   const { whereSql, params, tipoKey } = buildWhere(filtros, fechaDesde, fechaHasta)
 
+  const pjeIvaImporte = 'ISNULL(l.[PjeIva], 0)'
   const factorIva = ivaIncluido
-    ? '1.0'
-    : '(1.0 / NULLIF(1.0 + ISNULL(l.[PjeIva], 0) / 100.0, 0))'
+    ? `(1.0 + (${pjeIvaImporte}) / 100.0)`
+    : '1.0'
 
   const costeBase = costeExpression(valor)
   const pjeIvaCoste = 'COALESCE(NULLIF(l.[PjeIva], 0), ISNULL(i.[PjeIVA], 0), 0)'

@@ -1,3 +1,5 @@
+import type { AbcVentasDimensionId } from '@/config/abc-ventas-dimensiones'
+
 export type VentaResumen = {
   empresa: string
   tipo: string
@@ -373,16 +375,24 @@ export type PedidoDetalle = PedidoResumen & {
 }
 
 export type AbcVentasFiltros = {
-  dimension: 'vendedores'
-  orden: 'margen' | 'importe' | 'cantidad'
-  idioma?: string
+  dimension: AbcVentasDimensionId
+  orden: 'margen' | 'importe' | 'cantidad' | 'coste' | 'vendedor' | 'horas'
   divisa?: string
-  iva: 'incluido' | 'excluido'
+  iva: 'incluido' | 'desglosado' | 'excluido'
   imArticulos: boolean
-  valor: 'precioMedio' | 'precioUltimo'
-  tipoVenta: string
+  valor: 'precioMedio' | 'precioMedioActual' | 'ultimoPrecio' | 'sinValorTarifa' | 'precioUltimo'
+  tipoVenta:
+    | 'todos'
+    | 'ticket'
+    | 'facturas'
+    | 'ticketFacturas'
+    | 'albaranes'
+    | 'ticketsFacturasContado'
+    | string
   fechaDesde: string
   fechaHasta: string
+  fechaFacturacionDesde?: string
+  fechaFacturacionHasta?: string
   macroFamiliaDesde?: string
   macroFamiliaHasta?: string
   familiaDesde?: string
@@ -405,6 +415,12 @@ export type AbcVentasFiltros = {
   clienteHasta?: string
   proveedorDesde?: string
   proveedorHasta?: string
+  puestoDesde?: string
+  puestoHasta?: string
+  sesionDesde?: string
+  sesionHasta?: string
+  perfilDesde?: string
+  perfilHasta?: string
   seccionDesde?: string
   seccionHasta?: string
   subSeccionDesde?: string
@@ -414,6 +430,63 @@ export type AbcVentasFiltros = {
   tipoDescuentoDesde?: string
   tipoDescuentoHasta?: string
   tarifa?: number | string
+  tarifaDesde?: string
+  tarifaHasta?: string
+  importeDesde?: string
+  importeHasta?: string
+  facturaDesde?: string
+  facturaHasta?: string
+  /** Solo ABC proveedores (legacy «Imprimir»). */
+  imprimir?: 'codigo' | 'descripcion'
+  /** Solo ABC clientes (VentasABCCli). */
+  agrupacionClientes?:
+    | 'normal'
+    | 'provincia'
+    | 'codigoPostal'
+    | 'normalSaltoCliente'
+    | 'codigoPostalSaltoCliente'
+  formato?: 'abcVentas'
+  /** Solo ABC artículos (VentasABC Art). */
+  agrupacionArticulos?:
+    | 'sinAgrupacion'
+    | 'familia'
+    | 'macrofamilia'
+    | 'subfamilia'
+    | 'agrupacionArticulo'
+  formatoArticulos?: 'normal' | 'comisiones' | 'detalleComision' | 'extendido'
+  /** VentasABC Semanal. */
+  diaSemanaAbc?:
+    | 'todos'
+    | 'lunes'
+    | 'martes'
+    | 'miercoles'
+    | 'jueves'
+    | 'viernes'
+    | 'sabado'
+    | 'domingo'
+  desgloseSemanal?: 'importe' | 'unidades' | 'coste'
+  semanaDesde?: string
+  semanaHasta?: string
+  /** VentasABC Horas. */
+  intervaloHoras?: 'hora' | 'mediaHora' | 'cuartoHora' | 'cincoMinutos'
+  graficoPor?: 'importe' | 'unidades'
+  tipoGestionHoras?: 'abcVentasHoras' | 'ventaHoraria'
+  agrupacionHoras?:
+    | 'familia'
+    | 'subfamilia'
+    | 'agrupaciones'
+    | 'macrofamilias'
+    | 'clientes'
+    | 'proveedores'
+    | 'vendedores'
+    | 'diaSemana'
+  /** Solo VentasABC Familias (combo Formato). */
+  formatoJerarquia?:
+    | 'normal'
+    | 'pesoKilogramos'
+    | 'mediaImporte'
+    | 'agrSinTotales'
+    | 'agrConTotales'
 }
 
 export type AbcVentasArticulo = {
@@ -427,6 +500,11 @@ export type AbcVentasArticulo = {
   pjeMargen: number
   pjeSobreTotal: number
   mAgr: number
+  comision?: number
+  familia?: string
+  familiaNombre?: string
+  proveedor?: string
+  proveedorNombre?: string
 }
 
 export type AbcVentasTotales = {
@@ -437,6 +515,9 @@ export type AbcVentasTotales = {
   margen: number
   pjeMargen?: number
   pjeSobreTotal?: number
+  comision?: number
+  /** VentasABC Horas plano: tickets / albaranes distintos. */
+  tickets?: number
 }
 
 export type AbcVentasGrupo = {
@@ -444,7 +525,33 @@ export type AbcVentasGrupo = {
   nombre: string
   totales: AbcVentasTotales
   articulos: AbcVentasArticulo[]
+  /** Salto de página antes del bloque cliente (impresión). */
+  saltoPagina?: boolean
+  provincia?: string
+  codigoPostal?: string
 }
+
+export type AbcVentasBloque = {
+  codigo: string
+  nombre: string
+  totales: AbcVentasTotales
+  grupos: AbcVentasGrupo[]
+}
+
+export type AbcVentasMatrizCrosstab = {
+  metrica: 'importe' | 'unidades' | 'coste'
+  columnas: { id: string; nombre: string }[]
+  filas: {
+    codigo: string
+    nombre: string
+    celdas: Record<string, number>
+    total: number
+  }[]
+  totalesColumna: Record<string, number>
+  totalGeneral: number
+}
+
+export type AbcVentasMatrizVentaHoraria = AbcVentasMatrizCrosstab
 
 export type AbcVentasResponse = {
   dimension: string
@@ -454,8 +561,29 @@ export type AbcVentasResponse = {
   imArticulos: boolean
   tipoVenta: string
   divisa?: string
+  imprimir?: string
+  agrupacionClientes?: string
+  formato?: string
+  agrupacionArticulos?: string
+  formatoArticulos?: string
+  formatoJerarquia?: string
+  /** Si false, no imprimir TOTAL FAMILIA / TOTAL MACROFAMILIA (formato agr. sin totales). */
+  mostrarTotalGrupo?: boolean
+  intervaloHoras?: string
+  graficoPor?: string
+  tipoGestionHoras?: string
+  agrupacionHoras?: string
   fechaDesde: string
   fechaHasta: string
   totales: AbcVentasTotales
   grupos: AbcVentasGrupo[]
+  bloques?: AbcVentasBloque[] | null
+  matrizVentaHoraria?: AbcVentasMatrizVentaHoraria
+  matrizSemanal?: AbcVentasMatrizCrosstab
+  diaSemanaAbc?: string
+  desgloseSemanal?: string
+  /** Listado plano legacy (franja + tickets + gráfico). */
+  informePlanoHorasAbc?: boolean
+  /** Días de la semana — tabla plana + gráfico. */
+  informePlanoDiasSemanaAbc?: boolean
 }

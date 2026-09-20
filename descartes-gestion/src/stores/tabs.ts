@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import { stockListadoPorAgrupar } from '@/config/stock-listado-config'
 
 export type AppTab = {
   /** fullPath de vue-router (incluye query) */
@@ -10,6 +11,15 @@ export type AppTab = {
 
 const MAX_TABS = 8
 
+function normalizarPathRuta(path: string): string {
+  return (path.split('?')[0] || '/').replace(/\/+$/, '') || '/'
+}
+
+function esRutaListadoStock(path: string): boolean {
+  const p = normalizarPathRuta(path)
+  return p === '/listados/stock' || /^\/listados\/stock\/[^/]+$/.test(p)
+}
+
 /**
  * Listado y ficha de venta (/ventas, /ventas/nuevo, /ventas/{emp}/{tipo}/{n})
  * comparten pestaña, igual que albaranes de compra.
@@ -17,7 +27,7 @@ const MAX_TABS = 8
  * Compras: listado y ficha de albarán / pedido / factura comparten pestaña.
  */
 function tabIdFromPath(fullPath: string): string {
-  const path = (fullPath.split('?')[0] || '/').replace(/\/+$/, '') || '/'
+  const path = normalizarPathRuta(fullPath)
   if (/^\/ventas\/pedidos\/[^/]+\/\d+$/.test(path)) {
     return '/ventas/pedidos/ficha'
   }
@@ -45,6 +55,10 @@ function tabIdFromPath(fullPath: string): string {
   }
   if (/^\/mantenimiento\/articulos$/.test(path)) {
     return '/mantenimiento/articulos'
+  }
+  /** Hub y variantes comparten pestaña; la ruta concreta va en fullPath. */
+  if (esRutaListadoStock(path)) {
+    return '/listados/stock'
   }
   return fullPath || '/'
 }
@@ -76,6 +90,13 @@ function tituloDesdeRuta(fullPathOrPath: string, metaTitulo?: string): string {
       return `Fact. proveedor ${partes[2]}`
     }
   }
+  if (partes[0] === 'listados' && partes[1] === 'stock') {
+    if (partes[2]) {
+      const d = stockListadoPorAgrupar(partes[2])
+      if (d) return d.titulo
+    }
+    return 'Listado de stock'
+  }
   if (partes[0] === 'mantenimiento' && partes[1] === 'articulos') {
     const q = fullPathOrPath.includes('?')
       ? new URLSearchParams(fullPathOrPath.split('?')[1] ?? '')
@@ -93,6 +114,13 @@ function tituloDesdeRuta(fullPathOrPath: string, metaTitulo?: string): string {
     if (partes[1] === 'pedidos') return 'Pedidos a proveedor'
     if (partes[1] === 'facturas') return 'Facturas de proveedor'
     return 'Compras'
+  }
+  if (partes[0] === 'listados' && partes[1] === 'abc-ventas') {
+    if (partes.length >= 3 && partes[2]) {
+      const dim = decodeURIComponent(partes[2])
+      return metaTitulo?.trim() || `ABC ${dim}`
+    }
+    return metaTitulo?.trim() || 'ABC de ventas'
   }
   if (partes[0] === 'ventas') {
     if (partes.length === 1) return 'Ventas'

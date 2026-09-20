@@ -1,3 +1,11 @@
+import type { NavPermisoNodo } from '@/config/mantenimiento-nav-permisos'
+import {
+  ABC_VENTAS_MODULOS_PERMISO,
+  STOCK_LISTADO_MODULOS_PERMISO,
+  puedeAccederHubAbc,
+  puedeAccederHubStock,
+} from '@/config/listados-permisos'
+
 /**
  * Catálogo declarativo de listados (spec 009). Informes nuevos viven bajo `/listados/...`;
  * accesos reutilizan rutas ya existentes en Ventas, Compras o Facturación.
@@ -35,7 +43,7 @@ export const LISTADOS_CATALOGO: ListadoCatalogoItem[] = [
     categoria: 'ventas',
     palabrasClave: ['abc', 'ventas', 'margen', 'familia', 'articulo', 'cliente', 'vendedor'],
     kind: 'informe',
-    ruta: '/ventas/abc',
+    ruta: '/listados/abc-ventas',
     modulo: 'ventas-abc',
     disponible: true,
   },
@@ -47,7 +55,7 @@ export const LISTADOS_CATALOGO: ListadoCatalogoItem[] = [
     palabrasClave: ['tickets', 'diario', 'ventas', 'mostrador', 'tpv'],
     kind: 'informe',
     ruta: '/listados/informe-tickets',
-    modulo: 'listados',
+    modulo: 'listados-informe-tickets',
     disponible: true,
   },
   {
@@ -58,7 +66,7 @@ export const LISTADOS_CATALOGO: ListadoCatalogoItem[] = [
     palabrasClave: ['extracto', 'clientes', 'cobros', 'saldo', 'deuda'],
     kind: 'informe',
     ruta: '/listados/extracto-clientes',
-    modulo: 'listados',
+    modulo: 'listados-extracto-clientes',
     disponible: true,
   },
   {
@@ -107,13 +115,24 @@ export const LISTADOS_CATALOGO: ListadoCatalogoItem[] = [
   },
   {
     id: 'stock',
-    titulo: 'Stock',
-    descripcion: 'Existencias por almacén; agrupe por artículo, familia, proveedor…',
+    titulo: 'Listado de stock',
+    descripcion:
+      'Existencias por almacén; macrofamilia, familia, artículo, agrupación, proveedor…',
     categoria: 'stock',
-    palabrasClave: ['stock', 'existencias', 'almacen', 'inventario'],
+    palabrasClave: [
+      'stock',
+      'existencias',
+      'almacen',
+      'inventario',
+      'macrofamilia',
+      'familia',
+      'articulo',
+      'agrupacion',
+      'proveedor',
+    ],
     kind: 'informe',
     ruta: '/listados/stock',
-    modulo: 'listados',
+    modulo: 'listados-stock',
     disponible: true,
   },
   {
@@ -124,7 +143,7 @@ export const LISTADOS_CATALOGO: ListadoCatalogoItem[] = [
     palabrasClave: ['minimos', 'minimo', 'stock', 'reposicion'],
     kind: 'informe',
     ruta: '/listados/stock-minimos',
-    modulo: 'listados',
+    modulo: 'listados-stock-minimos',
     disponible: true,
   },
   {
@@ -135,7 +154,7 @@ export const LISTADOS_CATALOGO: ListadoCatalogoItem[] = [
     palabrasClave: ['iva', 'impuesto', 'fiscal', 'bases'],
     kind: 'informe',
     ruta: '/listados/informe-iva',
-    modulo: 'listados',
+    modulo: 'listados-informe-iva',
     disponible: true,
   },
   {
@@ -196,10 +215,82 @@ export function normalizarTextoBusqueda(texto: string): string {
     .toLowerCase()
 }
 
+const INFORMES_SIN_SUBMENU = LISTADOS_CATALOGO.filter(
+  (i) => i.kind === 'informe' && i.id !== 'stock' && i.id !== 'abc-ventas',
+)
+
 /** Matriz de permisos en Mantenimiento → Roles (sección Listados). */
-export const listadosNavPermisos = [
-  { tipo: 'item' as const, id: 'listados-modulo', titulo: 'Listados (informes)', modulo: 'listados' },
+export const listadosNavPermisos: NavPermisoNodo[] = [
+  { tipo: 'item', id: 'listados-hub', titulo: 'Catálogo de listados (hub)', modulo: 'listados' },
+  {
+    tipo: 'grupo',
+    id: 'listados-informes',
+    titulo: 'Informes del catálogo',
+    children: INFORMES_SIN_SUBMENU.map((i) => ({
+      id: i.id,
+      titulo: i.titulo,
+      modulo: i.modulo,
+    })),
+  },
+  {
+    tipo: 'grupo',
+    id: 'listados-stock-submenu',
+    titulo: 'Listado de stock (agrupaciones)',
+    children: [
+      { id: 'listados-stock-padre', titulo: 'Acceso al submenú (general)', modulo: 'listados-stock' },
+      ...STOCK_LISTADO_MODULOS_PERMISO.map((s) => ({
+        id: s.id,
+        titulo: s.titulo,
+        modulo: s.modulo,
+      })),
+    ],
+  },
+  {
+    tipo: 'grupo',
+    id: 'listados-abc-submenu',
+    titulo: 'ABC de ventas (dimensiones)',
+    children: [
+      { id: 'ventas-abc-padre', titulo: 'Acceso al submenú (general)', modulo: 'ventas-abc' },
+      ...ABC_VENTAS_MODULOS_PERMISO.map((s) => ({
+        id: s.id,
+        titulo: s.titulo,
+        modulo: s.modulo,
+      })),
+    ],
+  },
 ]
+
+type PuedeFn = (modulo: string, accion: 'ver' | 'crear' | 'editar' | 'eliminar') => boolean
+
+export function puedeVerListadoCatalogo(
+  item: ListadoCatalogoItem,
+  puede: PuedeFn,
+): boolean {
+  if (!item.disponible) return false
+  return itemHabilitadoEnCatalogo(item, puede)
+}
+
+/** Si el usuario puede abrir la tarjeta / informe (submenús incluidos). */
+export function itemHabilitadoEnCatalogo(item: ListadoCatalogoItem, puede: PuedeFn): boolean {
+  if (!item.disponible) return false
+  if (item.id === 'stock') return puedeAccederHubStock(puede)
+  if (item.id === 'abc-ventas') return puedeAccederHubAbc(puede)
+  return puede(item.modulo, 'ver')
+}
+
+/** Informes visibles en el hub (se muestran aunque estén deshabilitados). */
+export function informesEnCatalogoHub(): ListadoCatalogoItem[] {
+  return LISTADOS_CATALOGO.filter((i) => i.kind === 'informe' && i.disponible)
+}
+
+/** Algún informe del hub visible (sin contar accesos a otros módulos). */
+export function algunInformeListadoVisible(puede: PuedeFn): boolean {
+  return informesEnCatalogoHub().some((i) => itemHabilitadoEnCatalogo(i, puede))
+}
+
+export function puedeAccederHubListados(puede: PuedeFn): boolean {
+  return puede('listados', 'ver') || algunInformeListadoVisible(puede)
+}
 
 export function itemCoincideBusqueda(item: ListadoCatalogoItem, consulta: string): boolean {
   const q = normalizarTextoBusqueda(consulta.trim())

@@ -6,11 +6,12 @@ namespace Descartes\Api\Services;
 
 use Descartes\Api\Repositories\RolPermisoRepository;
 use Descartes\Api\Repositories\RolRepository;
+use Descartes\Api\Services\Listados\ListadosPermisosModulo;
 
 final class RolService
 {
   /** @var list<string> */
-  public const MODULOS = [
+  private const MODULOS_BASE = [
     'mantenimiento',
     'empresas',
     'tiendas',
@@ -58,6 +59,11 @@ final class RolService
     'albaranes-periodicos',
     'inventario',
     'listados',
+    'listados-informe-tickets',
+    'listados-extracto-clientes',
+    'listados-stock',
+    'listados-stock-minimos',
+    'listados-informe-iva',
     'tpv',
   ];
 
@@ -66,7 +72,7 @@ final class RolService
    *
    * @var array<string, string>
    */
-  public const MODULO_PADRE = [
+  private const MODULO_PADRE_BASE = [
     'macrofamilias' => 'articulos',
     'familias' => 'articulos',
     'subfamilias' => 'articulos',
@@ -95,7 +101,24 @@ final class RolService
     'facturacion-albaranes-pendientes' => 'facturacion',
     'facturacion-retroceso' => 'facturacion',
     'albaranes-periodicos' => 'facturacion-manual',
+    'listados-informe-tickets' => 'listados',
+    'listados-extracto-clientes' => 'listados',
+    'listados-stock' => 'listados',
+    'listados-stock-minimos' => 'listados',
+    'listados-informe-iva' => 'listados',
   ];
+
+  /** @return list<string> */
+  public static function modulos(): array
+  {
+    return array_merge(self::MODULOS_BASE, ListadosPermisosModulo::todosSubmodulos());
+  }
+
+  /** @return array<string, string> */
+  public static function moduloPadre(): array
+  {
+    return array_merge(self::MODULO_PADRE_BASE, ListadosPermisosModulo::moduloPadreSubmodulos());
+  }
 
   private RolRepository $rolRepository;
   private RolPermisoRepository $rolPermisoRepository;
@@ -122,7 +145,7 @@ final class RolService
     }
 
     $result = [];
-    foreach (self::MODULOS as $modulo) {
+    foreach (self::modulos() as $modulo) {
       $result[] = $byModulo[$modulo] ?? $this->permisoPorDefecto($modulo, $byModulo);
     }
 
@@ -162,7 +185,7 @@ final class RolService
    */
   private function permisoPorDefecto(string $modulo, array $byModulo): array
   {
-    $padre = self::MODULO_PADRE[$modulo] ?? null;
+    $padre = self::moduloPadre()[$modulo] ?? null;
     if ($padre !== null && isset($byModulo[$padre])) {
       $base = $byModulo[$padre];
       return [
@@ -190,7 +213,7 @@ final class RolService
     }
 
     foreach ($permisos as $permiso) {
-      if (!isset($permiso['modulo']) || !in_array($permiso['modulo'], self::MODULOS, true)) {
+      if (!isset($permiso['modulo']) || !in_array($permiso['modulo'], self::modulos(), true)) {
         throw new \InvalidArgumentException('Modulo de permiso no valido');
       }
     }

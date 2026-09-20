@@ -588,6 +588,10 @@ final class VentaEscrituraService
       );
       $avisosFidelizacion = $resultadoFid['avisos'];
 
+      if (in_array($opcion, ['T', 'F', 'A'], true)) {
+        $this->actualizarFechaUltimaVentaArticulos($empresa, $tipoActual, $albaran, $actual);
+      }
+
       $this->pdo->commit();
     } catch (\Throwable $e) {
       $this->pdo->rollBack();
@@ -1956,5 +1960,40 @@ final class VentaEscrituraService
     }
     $ts = strtotime($raw);
     return $ts ? date('Y-m-d H:i:s', $ts) : date('Y-m-d H:i:s');
+  }
+
+  /** @param array<string, mixed> $cab */
+  private function actualizarFechaUltimaVentaArticulos(
+    string $empresa,
+    string $tipo,
+    int $albaran,
+    array $cab
+  ): void {
+    $fecha = $this->normalizeFecha($cab['fecha'] ?? null);
+    try {
+      $this->pdo->prepare(
+        'UPDATE a SET a.[FechaUltimaVenta] = CASE
+           WHEN a.[FechaUltimaVenta] IS NULL
+             OR CONVERT(date, a.[FechaUltimaVenta]) < CONVERT(date, :fecha, 120)
+           THEN CONVERT(datetime, :fecha, 120)
+           ELSE a.[FechaUltimaVenta]
+         END
+         FROM [Articulos] a
+         WHERE RTRIM(a.[Codigo]) IN (
+           SELECT DISTINCT RTRIM(l.[Articulo])
+           FROM [AlbaranesVentasLin] l
+           WHERE l.[Empresa] = :empresa AND l.[Tipo] = :tipo AND l.[Albaran] = :albaran
+             AND RTRIM(ISNULL(l.[Articulo], \'\')) <> \'\'
+             AND RTRIM(UPPER(l.[Articulo])) <> \'NO\'
+         )'
+      )->execute([
+        'fecha' => $fecha,
+        'empresa' => $empresa,
+        'tipo' => $tipo,
+        'albaran' => $albaran,
+      ]);
+    } catch (\Throwable $e) {
+      // No bloquear cierre de venta si falla el maestro.
+    }
   }
 }

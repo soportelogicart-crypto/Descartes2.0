@@ -33,7 +33,7 @@ final class InformeTicketsListadoService
       throw new InvalidArgumentException('La fecha desde no puede ser posterior a la fecha hasta');
     }
 
-    $empresa = $this->normalizarEmpresa((string) ($query['empresa'] ?? ''));
+    $empresa = ListadosFiltrosSql::normalizarEmpresaInput((string) ($query['empresa'] ?? ''));
     $puesto = trim((string) ($query['puesto'] ?? ''));
     $vendedor = trim((string) ($query['vendedor'] ?? ''));
 
@@ -52,10 +52,7 @@ final class InformeTicketsListadoService
       'fechaHasta' => $fechaHasta . ' 23:59:59',
     ];
 
-    if ($empresa !== '') {
-      $where[] = 'RTRIM(c.[Empresa]) = :empresa';
-      $params['empresa'] = $empresa;
-    }
+    ListadosFiltrosSql::filtroEmpresaTienda($where, $params, $empresa, 'c');
     if ($puesto !== '') {
       $where[] = 'RTRIM(c.[Puesto]) = :puesto';
       $params['puesto'] = $puesto;
@@ -144,16 +141,4 @@ final class InformeTicketsListadoService
     return $s;
   }
 
-  private function normalizarEmpresa(string $raw): string
-  {
-    $t = trim($raw);
-    if ($t === '') {
-      return '';
-    }
-    if (preg_match('/^\d+$/', $t)) {
-      return (string) (int) $t;
-    }
-
-    return strtoupper($t);
-  }
 }

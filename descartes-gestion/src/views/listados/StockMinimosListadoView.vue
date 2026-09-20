@@ -95,10 +95,10 @@ function exportarExcel() {
   mensaje.value = `Excel (CSV) de ${filas.length} fila(s)`
 }
 
-function imprimir() {
+async function imprimir() {
   const filas = resultado.value?.items ?? []
   if (!filas.length) return
-  const res = imprimirListadoHtml({
+  const res = await imprimirListadoHtml({
     titulo: 'Stock bajo mínimos',
     metaLineas: metaImpresion(),
     thead: ['Artículo', 'Descripción', 'Alm.', 'Stock', 'Mín.', 'Faltan'],

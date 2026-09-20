@@ -4,7 +4,7 @@ import { api } from '@/api/client'
 import ListadoInformeLayout from '@/components/listados/ListadoInformeLayout.vue'
 import { generarInformeTickets, type InformeTicketsResult } from '@/api/listados'
 import { extractApiError } from '@/composables/useMantenimiento'
-import { hoyIso, inicioMesIso, rangoAtajoFecha, type AtajoFechaId } from '@/composables/useAtajosFecha'
+import { hoyIso, inicioMesIso } from '@/composables/useAtajosFecha'
 import { useListadosRecientes } from '@/composables/useListadosRecientes'
 import { useAuthStore } from '@/stores/auth'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
@@ -44,12 +44,6 @@ const tieneDatos = computed(() => (resultado.value?.items.length ?? 0) > 0)
 function etiquetaTicket(row: { numeroTicket: number | null; albaran: number }): string {
   if (row.numeroTicket != null && row.numeroTicket > 0) return `T-${row.numeroTicket}`
   return `Alb. ${row.albaran}`
-}
-
-function aplicarAtajo(id: AtajoFechaId) {
-  const r = rangoAtajoFecha(id)
-  form.value.fechaDesde = r.desde
-  form.value.fechaHasta = r.hasta
 }
 
 function metaImpresion(): string[] {
@@ -172,11 +166,11 @@ function exportarExcel() {
   mensaje.value = `Excel (CSV) de ${filas.length} ticket(s)`
 }
 
-function imprimir() {
+async function imprimir() {
   const filas = resultado.value?.items ?? []
   if (!filas.length) return
   const t = resultado.value!.totales
-  const res = imprimirListadoHtml({
+  const res = await imprimirListadoHtml({
     titulo: 'Informe de tickets',
     metaLineas: metaImpresion(),
     thead: ['Fecha', 'Ticket', 'Puesto', 'Cliente', 'Importe', 'Fpago'],
@@ -219,12 +213,6 @@ onMounted(() => {
         <span>Hasta</span>
         <input v-model="form.fechaHasta" type="date" />
       </label>
-      <div class="atajos">
-        <span class="atajos-label">Atajos:</span>
-        <button type="button" @click="aplicarAtajo('hoy')">Hoy</button>
-        <button type="button" @click="aplicarAtajo('mes')">Mes</button>
-        <button type="button" @click="aplicarAtajo('anio')">Año</button>
-      </div>
       <label>
         <span>Tienda</span>
         <select v-model="form.empresa" :disabled="loadingOpts">
@@ -301,11 +289,6 @@ onMounted(() => {
 
 <style scoped>
 @import './listado-grid.css';
-
-.atajos-label {
-  font-size: 0.78rem;
-  color: #64748b;
-}
 
 .check {
   flex-direction: row !important;

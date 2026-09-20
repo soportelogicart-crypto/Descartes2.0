@@ -6,6 +6,7 @@ use Descartes\Api\Controllers\CodigoPostalController;
 use Descartes\Api\Controllers\VentasController;
 use Descartes\Api\Middleware\AuthMiddleware;
 use Descartes\Api\Middleware\PermissionMiddleware;
+use Descartes\Api\Services\Listados\ListadosPermisosModulo;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Slim\App;
@@ -22,7 +23,16 @@ return function (App $app): void {
     };
   };
 
-  $app->group('/api/ventas', function (RouteCollectorProxy $group) use ($setPermiso) {
+  $permisoAbcSubmenu = function (ServerRequestInterface $request, RequestHandlerInterface $handler) {
+    $q = $request->getQueryParams();
+    $modulo = ListadosPermisosModulo::abc($q['dimension'] ?? null);
+
+    return $handler->handle(
+      $request->withAttribute('permisoModulo', $modulo)->withAttribute('permisoAccion', 'ver')
+    );
+  };
+
+  $app->group('/api/ventas', function (RouteCollectorProxy $group) use ($setPermiso, $permisoAbcSubmenu) {
     $group->get('/codigos-postales/{codigo}', [CodigoPostalController::class, 'lookup'])
       ->add($setPermiso('ventas', 'ver'));
     $group->get('/albaranes', [VentasController::class, 'listVentas'])
@@ -100,7 +110,7 @@ return function (App $app): void {
       ->add($setPermiso('ventas-pedidos', 'editar'));
 
     $group->get('/abc', [VentasController::class, 'listAbcVentas'])
-      ->add($setPermiso('ventas-abc', 'ver'));
+      ->add($permisoAbcSubmenu);
   })
     ->add(PermissionMiddleware::class)
     ->add(AuthMiddleware::class);

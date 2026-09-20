@@ -49,6 +49,9 @@ const abiertos = reactive<Record<string, boolean>>({})
 for (const nodo of mantenimientoNavPermisos) {
   if (nodo.tipo === 'grupo') abiertos[nodo.id] = true
 }
+for (const nodo of listadosNavPermisos) {
+  if (nodo.tipo === 'grupo') abiertos[nodo.id] = true
+}
 
 const acciones = [
   { key: 'ver' as const, label: 'Ver' },
@@ -500,8 +503,8 @@ watch(() => props.rolCodigo, cargar)
         </div>
 
         <nav class="nav">
-          <div v-for="nodo in listadosNavPermisos" :key="nodo.id" class="nav-row">
-            <template v-if="filaDe(nodo.modulo)">
+          <template v-for="nodo in listadosNavPermisos" :key="nodo.id">
+            <div v-if="nodo.tipo === 'item' && filaDe(nodo.modulo)" class="nav-row">
               <span class="nav-title">{{ nodo.titulo }}</span>
               <div class="checks">
                 <label v-for="acc in acciones" :key="acc.key" :title="acc.label">
@@ -522,8 +525,60 @@ watch(() => props.rolCodigo, cargar)
                   />
                 </label>
               </div>
-            </template>
-          </div>
+            </div>
+
+            <div v-else-if="nodo.tipo === 'grupo'" class="nav-group">
+              <div class="nav-row parent" :class="{ open: abiertos[nodo.id] }">
+                <button type="button" class="nav-toggle" @click="toggleGrupo(nodo.id)">
+                  <span class="nav-title">{{ nodo.titulo }}</span>
+                  <span class="chevron">{{ abiertos[nodo.id] ? '▾' : '▸' }}</span>
+                </button>
+                <div class="checks">
+                  <span v-for="acc in acciones" :key="acc.key" class="acc-placeholder"></span>
+                  <label title="Marcar / desmarcar todo el grupo">
+                    <span class="sr-only">Todos del grupo</span>
+                    <input
+                      type="checkbox"
+                      :checked="grupoTodosMarcados(nodo)"
+                      :disabled="!puedeEditar"
+                      @change="
+                        toggleGrupoTodos(nodo, ($event.target as HTMLInputElement).checked)
+                      "
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div v-show="abiertos[nodo.id]" class="nav-children">
+                <div v-for="hijo in nodo.children" :key="hijo.id" class="nav-row child">
+                  <template v-if="filaDe(hijo.modulo)">
+                    <span class="nav-title">{{ hijo.titulo }}</span>
+                    <div class="checks">
+                      <label v-for="acc in acciones" :key="acc.key" :title="acc.label">
+                        <span class="sr-only">{{ acc.label }}</span>
+                        <input
+                          v-model="filaDe(hijo.modulo)![acc.key]"
+                          type="checkbox"
+                          :disabled="!puedeEditar"
+                        />
+                      </label>
+                      <label title="Marcar / desmarcar todos">
+                        <span class="sr-only">Todos</span>
+                        <input
+                          type="checkbox"
+                          :checked="todosMarcados(hijo.modulo)"
+                          :disabled="!puedeEditar"
+                          @change="
+                            toggleTodos(hijo.modulo, ($event.target as HTMLInputElement).checked)
+                          "
+                        />
+                      </label>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </template>
         </nav>
       </div>
     </div>

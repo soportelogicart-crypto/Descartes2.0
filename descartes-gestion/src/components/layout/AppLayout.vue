@@ -9,9 +9,13 @@ import { proveedoresMenuItems, esRutaProveedores } from '@/config/proveedores-me
 import { ventasMenuItems } from '@/config/ventas-nav'
 import { facturacionMenuItems } from '@/config/facturacion-nav'
 import { comprasMenuItems } from '@/config/compras-nav'
+import { inventarioMenuItems } from '@/config/inventario-nav'
 import { etiquetasMenuItems } from '@/config/etiquetas-nav'
 import { moduloDeEntradaMenu } from '@/config/mantenimiento-nav-permisos'
 import { menuPrincipalSecciones } from '@/config/menu-principal'
+import { puedeAccederHubListados } from '@/config/listados-nav'
+import { abcVentasListadoPorDimension } from '@/config/abc-ventas-dimensiones'
+import { stockListadoPorAgrupar } from '@/config/stock-listado-config'
 import { entidades } from '@/config/entidades'
 import { usePermisos } from '@/composables/usePermisos'
 import PuestoEquipoModal from '@/components/puestos/PuestoEquipoModal.vue'
@@ -80,6 +84,15 @@ const facturacionSeccionVisible = computed(() =>
   facturacionItems.value.some((i) => i.habilitado) || puede('facturacion', 'ver')
 )
 
+const inventarioItems = computed(() =>
+  inventarioMenuItems.map((item) => ({
+    ...item,
+    habilitado: puede('inventario', 'ver') && puede(item.modulo, 'ver'),
+  }))
+)
+
+const inventarioSeccionVisible = computed(() => inventarioItems.value.some((i) => i.habilitado))
+
 const secciones = computed(() =>
   menuPrincipalSecciones.map((seccion) => ({
     ...seccion,
@@ -96,14 +109,16 @@ const secciones = computed(() =>
               : seccion.id === 'tpv'
                 ? puede('tpv', 'ver')
                 : seccion.id === 'listados'
-                  ? puede('listados', 'ver')
+                  ? puedeAccederHubListados(puede)
                   : seccion.id === 'inventario'
-                    ? puede('inventario', 'ver')
+                    ? inventarioSeccionVisible.value
                     : true,
     activa:
       seccion.id === 'mantenimiento'
         ? route.path.startsWith('/mantenimiento')
-        : route.path === seccion.ruta || route.path.startsWith(`${seccion.ruta}/`),
+        : seccion.id === 'inventario'
+          ? route.path.startsWith('/inventario') || route.path.startsWith('/listados/stock')
+          : route.path === seccion.ruta || route.path.startsWith(`${seccion.ruta}/`),
   }))
 )
 
@@ -156,11 +171,23 @@ const proveedoresActivo = computed(() => esRutaProveedores(route.path))
 const mantenimientoActivo = computed(() => route.path.startsWith('/mantenimiento'))
 
 /** Cabecera legacy: nombre de la pantalla actual, como la barra del TPV. */
-const tituloPantalla = computed(() =>
-  typeof route.meta.titulo === 'string' && route.meta.titulo.trim() !== ''
+const tituloPantalla = computed(() => {
+  if (route.name === 'listados-stock' || route.path.startsWith('/listados/stock')) {
+    const d = stockListadoPorAgrupar(String(route.params.agruparPor ?? ''))
+    if (d) return d.titulo
+    const p = route.path.replace(/\/+$/, '') || '/'
+    if (p === '/listados/stock') return 'Listado de stock'
+  }
+  if (route.name === 'listados-abc-ventas' || route.path.startsWith('/listados/abc-ventas')) {
+    const d = abcVentasListadoPorDimension(String(route.params.dimension ?? ''))
+    if (d) return d.titulo
+    const p = route.path.replace(/\/+$/, '') || '/'
+    if (p === '/listados/abc-ventas') return 'ABC de ventas'
+  }
+  return typeof route.meta.titulo === 'string' && route.meta.titulo.trim() !== ''
     ? route.meta.titulo
     : 'Descartes Gestion'
-)
+})
 
 watch(
   () => route.fullPath,
@@ -484,6 +511,26 @@ async function logout() {
             Venta táctil
           </RouterLink>
           <span v-else class="nav-link nav-child disabled" title="Sin permiso">Venta táctil</span>
+        </nav>
+
+        <!-- Inventario: listados de stock (legacy) -->
+        <nav v-else-if="seccion.id === 'inventario'" v-show="seccionesAbiertas.inventario">
+          <template v-for="item in inventarioItems" :key="item.id">
+            <RouterLink
+              v-if="item.habilitado"
+              :to="item.ruta"
+              class="nav-link nav-child"
+              :class="{
+                active:
+                  route.path === item.ruta ||
+                  (item.ruta === '/listados/stock' && route.path.startsWith('/listados/stock/')),
+              }"
+              @click="cerrarMenu"
+            >
+              {{ item.titulo }}
+            </RouterLink>
+            <span v-else class="nav-link nav-child disabled" title="Sin permiso">{{ item.titulo }}</span>
+          </template>
         </nav>
 
         <!-- Listados: hub de informes -->

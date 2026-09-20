@@ -41,7 +41,7 @@ import CobrosPagosView from '@/views/ventas/CobrosPagosView.vue'
 import ValesView from '@/views/ventas/ValesView.vue'
 import PedidosClientesView from '@/views/ventas/PedidosClientesView.vue'
 import PedidoDetalleView from '@/views/ventas/PedidoDetalleView.vue'
-import AbcVentasView from '@/views/ventas/AbcVentasView.vue'
+import AbcVentasListadoShell from '@/views/listados/AbcVentasListadoShell.vue'
 import GeneracionFacturasManualView from '@/views/facturacion/GeneracionFacturasManualView.vue'
 import GeneracionFacturasView from '@/views/facturacion/GeneracionFacturasView.vue'
 import ImpresionFacturasView from '@/views/facturacion/ImpresionFacturasView.vue'
@@ -54,12 +54,19 @@ import ConfiguracionHubView from '@/views/configuracion/ConfiguracionHubView.vue
 import DocumentosPlantillasView from '@/views/configuracion/DocumentosPlantillasView.vue'
 import TpvVentaView from '@/views/tpv/TpvVentaView.vue'
 import ListadosHubView from '@/views/listados/ListadosHubView.vue'
-import StockListadoView from '@/views/listados/StockListadoView.vue'
+import StockListadoShell from '@/views/listados/StockListadoShell.vue'
 import StockMinimosListadoView from '@/views/listados/StockMinimosListadoView.vue'
 import InformeIvaListadoView from '@/views/listados/InformeIvaListadoView.vue'
 import InformeTicketsListadoView from '@/views/listados/InformeTicketsListadoView.vue'
 import ExtractoClientesListadoView from '@/views/listados/ExtractoClientesListadoView.vue'
 import { getInstalacionEstado } from '@/api/instalacion'
+import { puedeAccederHubListados } from '@/config/listados-nav'
+import {
+  abcVentasModuloPermiso,
+  puedeAccederHubAbc,
+  puedeAccederHubStock,
+  stockListadoModuloPermiso,
+} from '@/config/listados-permisos'
 
 const articulosSeccionesPendientes = [
   { path: 'mantenimiento/secciones', name: 'secciones', titulo: 'Secciones' },
@@ -126,34 +133,40 @@ const router = createRouter({
           meta: { titulo: 'Listados', modulo: 'listados', accion: 'ver' },
         },
         {
-          path: 'listados/stock',
+          path: 'listados/stock/:agruparPor?',
           name: 'listados-stock',
-          component: StockListadoView,
-          meta: { titulo: 'Stock', modulo: 'listados', accion: 'ver' },
+          component: StockListadoShell,
+          meta: { titulo: 'Listado de stock', modulo: 'listados-stock', accion: 'ver' },
         },
         {
           path: 'listados/stock-minimos',
           name: 'listados-stock-minimos',
           component: StockMinimosListadoView,
-          meta: { titulo: 'Stock bajo mínimos', modulo: 'listados', accion: 'ver' },
+          meta: { titulo: 'Stock bajo mínimos', modulo: 'listados-stock-minimos', accion: 'ver' },
         },
         {
           path: 'listados/informe-iva',
           name: 'listados-informe-iva',
           component: InformeIvaListadoView,
-          meta: { titulo: 'Informe de IVA', modulo: 'listados', accion: 'ver' },
+          meta: { titulo: 'Informe de IVA', modulo: 'listados-informe-iva', accion: 'ver' },
         },
         {
           path: 'listados/informe-tickets',
           name: 'listados-informe-tickets',
           component: InformeTicketsListadoView,
-          meta: { titulo: 'Informe de tickets', modulo: 'listados', accion: 'ver' },
+          meta: { titulo: 'Informe de tickets', modulo: 'listados-informe-tickets', accion: 'ver' },
         },
         {
           path: 'listados/extracto-clientes',
           name: 'listados-extracto-clientes',
           component: ExtractoClientesListadoView,
-          meta: { titulo: 'Extracto de clientes', modulo: 'listados', accion: 'ver' },
+          meta: { titulo: 'Extracto de clientes', modulo: 'listados-extracto-clientes', accion: 'ver' },
+        },
+        {
+          path: 'listados/abc-ventas/:dimension?',
+          name: 'listados-abc-ventas',
+          component: AbcVentasListadoShell,
+          meta: { titulo: 'ABC de ventas', modulo: 'ventas-abc', accion: 'ver' },
         },
         {
           path: 'tpv',
@@ -294,10 +307,12 @@ const router = createRouter({
           meta: { titulo: 'Pedido', modulo: 'ventas-pedidos', accion: 'ver' },
         },
         {
-          path: 'ventas/abc',
-          name: 'ventas-abc',
-          component: AbcVentasView,
-          meta: { titulo: 'Listado ABC Ventas', modulo: 'ventas-abc', accion: 'ver' },
+          path: 'ventas/abc/:dimension?',
+          redirect: (to) => ({
+            path: to.params.dimension
+              ? `/listados/abc-ventas/${String(to.params.dimension)}`
+              : '/listados/abc-ventas',
+          }),
         },
         {
           path: 'facturacion',
@@ -472,11 +487,36 @@ router.beforeEach(async (to) => {
     }
   }
 
-  const modulo = to.meta.modulo as string | undefined
-  const accion = (to.meta.accion as string | undefined) ?? 'ver'
-  if (modulo) {
-    const { puede } = usePermisos()
-    if (!puede(modulo, accion)) {
+  const { puede } = usePermisos()
+  if (to.name === 'listados') {
+    if (!puedeAccederHubListados(puede)) {
+      return { name: 'home', query: { sinPermiso: 'listados' } }
+    }
+  } else if (to.name === 'listados-stock') {
+    const agrupar = String(to.params.agruparPor ?? '').trim()
+    if (agrupar) {
+      if (!puede(stockListadoModuloPermiso(agrupar), 'ver')) {
+        return { path: '/listados/stock', query: { sinPermiso: stockListadoModuloPermiso(agrupar) } }
+      }
+    } else if (!puedeAccederHubStock(puede)) {
+      return { name: 'home', query: { sinPermiso: 'listados-stock' } }
+    }
+  } else if (to.name === 'listados-abc-ventas') {
+    const dimension = String(to.params.dimension ?? '').trim()
+    if (dimension) {
+      if (!puede(abcVentasModuloPermiso(dimension), 'ver')) {
+        return {
+          path: '/listados/abc-ventas',
+          query: { sinPermiso: abcVentasModuloPermiso(dimension) },
+        }
+      }
+    } else if (!puedeAccederHubAbc(puede)) {
+      return { name: 'home', query: { sinPermiso: 'ventas-abc' } }
+    }
+  } else {
+    const modulo = to.meta.modulo as string | undefined
+    const accion = (to.meta.accion as string | undefined) ?? 'ver'
+    if (modulo && !puede(modulo, accion)) {
       return { name: 'home', query: { sinPermiso: modulo } }
     }
   }

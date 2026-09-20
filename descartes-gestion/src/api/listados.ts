@@ -24,11 +24,50 @@ export type StockListadoResult = {
   limite: number
 }
 
-export async function generarListadoStock(params: {
+export type StockListadoParams = {
   agruparPor: StockAgruparPor
   almacen?: number
   ocultarCero?: boolean
-}): Promise<StockListadoResult> {
+  stockFiltro?:
+    | 'todos'
+    | 'superior_0'
+    | 'menor_0'
+    | 'diferente_0'
+    | 'igual_0'
+    | 'bloqueo_venta'
+  anoDesde?: number
+  anoHasta?: number
+  mesDesde?: number
+  mesHasta?: number
+  almacenDesde?: number
+  almacenHasta?: number
+  macrofamiliaDesde?: string
+  macrofamiliaHasta?: string
+  familiaDesde?: string
+  familiaHasta?: string
+  subfamiliaDesde?: string
+  subfamiliaHasta?: string
+  agrupacionDesde?: string
+  agrupacionHasta?: string
+  articuloDesde?: string
+  articuloHasta?: string
+  proveedorDesde?: string
+  proveedorHasta?: string
+  seccionDesde?: string
+  seccionHasta?: string
+  subseccionDesde?: string
+  subseccionHasta?: string
+  ultimaVentaDesde?: string
+  ultimaVentaHasta?: string
+  fechaAltaDesde?: string
+  fechaAltaHasta?: string
+  ultCompraDesde?: string
+  ultCompraHasta?: string
+  ubicacionDesde?: string
+  ubicacionHasta?: string
+}
+
+export async function generarListadoStock(params: StockListadoParams): Promise<StockListadoResult> {
   const { data } = await api.get<StockListadoResult>('/api/listados/stock', { params })
   return data
 }
@@ -60,38 +99,87 @@ export async function generarListadoStockMinimos(params: {
   return data
 }
 
-export type InformeIvaFila = {
-  impuestoCodigo: string
-  impuestoNombre: string
+export type InformeIvaDesgloseFila = {
   pjeIva: number
   baseImponible: number
   cuotaIva: number
+}
+
+export type InformeIvaFila = {
+  empresa: string
+  albaran: number
+  fecha: string
+  numeroTicket: number | null
+  facturaTipo: string
+  cliente: string
+  razonSocial: string
+  trasCtb?: boolean
+  trasModem?: boolean
+  desgloseIva: InformeIvaDesgloseFila[]
+  baseImponible: number
+  cuotaIva: number
   importeTotal: number
-  numLineas: number
+}
+
+export type InformeIvaResumenFila = {
+  pjeIva: number
+  baseImponible: number
+  cuotaIva: number
 }
 
 export type InformeIvaResult = {
   fechaDesde: string
   fechaHasta: string
   empresa: string
+  tipoDocumento: 'facturas' | 'tickets'
+  estado?: string
+  formato?: string
+  divisa?: string
+  facturaDesde: number | null
+  facturaHasta: number | null
+  soloNumerados: boolean
   items: InformeIvaFila[]
+  resumenPorIva: InformeIvaResumenFila[]
   totales: {
+    tickets: number
     baseImponible: number
     cuotaIva: number
     importeTotal: number
-    filas: number
   }
   truncado: boolean
   limite: number
 }
 
-export async function generarInformeIva(params: {
+export type InformeIvaParams = {
   fechaDesde: string
   fechaHasta: string
-  empresa?: string
-}): Promise<InformeIvaResult> {
+  estado?: string
+  formato?: string
+  empresaDesde?: string
+  empresaHasta?: string
+  clienteDesde?: string
+  clienteHasta?: string
+  origenDesde?: string
+  origenHasta?: string
+  cierreSesionDesde?: number
+  cierreSesionHasta?: number
+  puestoDesde?: string
+  puestoHasta?: string
+  sesionDesde?: number
+  sesionHasta?: number
+  facturaDesde?: number
+  facturaHasta?: number
+  tipoDocumento?: 'facturas' | 'tickets'
+}
+
+export async function generarInformeIva(params: InformeIvaParams): Promise<InformeIvaResult> {
   const { data } = await api.get<InformeIvaResult>('/api/listados/informe-iva', { params })
   return data
+}
+
+export async function descargarInformeIvaPdf(body: InformeIvaParams): Promise<Blob> {
+  const { data } = await api.post('/api/listados/informe-iva/pdf', body, { responseType: 'blob' })
+  return data as Blob
 }
 
 export type InformeTicketsFila = {

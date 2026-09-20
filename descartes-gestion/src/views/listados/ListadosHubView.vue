@@ -5,6 +5,8 @@ import {
   LISTADOS_CATALOGO,
   LISTADOS_CATEGORIAS,
   itemCoincideBusqueda,
+  itemHabilitadoEnCatalogo,
+  informesEnCatalogoHub,
   type ListadoCatalogoItem,
   type ListadosCategoriaId,
 } from '@/config/listados-nav'
@@ -17,24 +19,32 @@ const { idsRecientes, registrarReciente } = useListadosRecientes()
 
 const busqueda = ref('')
 
-function puedeVerItem(item: ListadoCatalogoItem): boolean {
-  return puede(item.modulo, 'ver')
+function itemHabilitado(item: ListadoCatalogoItem): boolean {
+  return itemHabilitadoEnCatalogo(item, puede)
 }
 
-const catalogoVisible = computed(() =>
-  LISTADOS_CATALOGO.filter((item) => puedeVerItem(item))
-)
+/** Informes siempre listados; accesos solo si tienen permiso (o se ocultan). */
+const catalogoEnHub = computed(() => {
+  const informes = informesEnCatalogoHub()
+  const accesos = LISTADOS_CATALOGO.filter(
+    (i) => i.kind === 'acceso' && i.disponible && itemHabilitado(i),
+  )
+  return [...informes, ...accesos]
+})
 
 const catalogoFiltrado = computed(() => {
   const q = busqueda.value
-  return catalogoVisible.value.filter((item) => itemCoincideBusqueda(item, q))
+  return catalogoEnHub.value.filter((item) => itemCoincideBusqueda(item, q))
 })
 
 const recientes = computed(() => {
-  const map = new Map(catalogoVisible.value.map((i) => [i.id, i]))
+  const map = new Map(catalogoEnHub.value.map((i) => [i.id, i]))
   return idsRecientes.value
     .map((id) => map.get(id))
-    .filter((i): i is ListadoCatalogoItem => !!i && itemCoincideBusqueda(i, busqueda.value))
+    .filter(
+      (i): i is ListadoCatalogoItem =>
+        !!i && itemHabilitado(i) && itemCoincideBusqueda(i, busqueda.value),
+    )
 })
 
 function itemsPorCategoria(cat: ListadosCategoriaId) {
@@ -46,7 +56,7 @@ const categoriasConItems = computed(() =>
 )
 
 function abrir(item: ListadoCatalogoItem) {
-  if (!item.disponible) return
+  if (!item.disponible || !itemHabilitado(item)) return
   registrarReciente(item.id)
   void router.push(item.ruta)
 }
@@ -103,14 +113,15 @@ function etiquetaKind(item: ListadoCatalogoItem) {
     >
       <h3>{{ cat.titulo }}</h3>
       <div class="tarjetas">
-        <component
-          :is="item.disponible ? 'button' : 'div'"
+        <button
           v-for="item in itemsPorCategoria(cat.id)"
           :key="item.id"
           type="button"
           class="tarjeta"
-          :class="{ disabled: !item.disponible }"
-          @click="item.disponible ? abrir(item) : undefined"
+          :class="{ disabled: !item.disponible || !itemHabilitado(item) }"
+          :disabled="!item.disponible || !itemHabilitado(item)"
+          :title="itemHabilitado(item) ? undefined : 'Sin permiso para este listado'"
+          @click="abrir(item)"
         >
           <div class="tarjeta-top">
             <h4>{{ item.titulo }}</h4>
@@ -118,8 +129,9 @@ function etiquetaKind(item: ListadoCatalogoItem) {
           </div>
           <p>{{ item.descripcion }}</p>
           <span v-if="!item.disponible" class="estado">Próximamente</span>
+          <span v-else-if="!itemHabilitado(item)" class="estado">Sin permiso</span>
           <span v-else class="estado open">Abrir</span>
-        </component>
+        </button>
       </div>
     </section>
 

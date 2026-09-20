@@ -65,16 +65,16 @@ export function exportarGridExcel(opciones: {
   descargarCsv(opciones.nombreArchivo, lines)
 }
 
-export function exportarGridImprimir(opciones: {
+export async function exportarGridImprimir(opciones: {
   titulo: string
   columnas: ListadoGridColumnDef[]
   filas: Record<string, unknown>[]
   optionsMap?: GridOptionsMap
   metaLineas?: string[]
   slugArchivo?: string
-}): string {
+}): Promise<string> {
   const filas = filasVisiblesGrid(opciones.filas)
-  const res = imprimirListadoHtml({
+  const res = await imprimirListadoHtml({
     titulo: opciones.titulo,
     metaLineas: opciones.metaLineas,
     thead: opciones.columnas.map((c) => c.label),

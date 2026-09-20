@@ -509,6 +509,13 @@ const esConsultaRecuperada = computed(
   () => Boolean(ficha.value) && !esNuevo.value && !esPlantillaConsulta.value && !esPlantillaAlta.value
 )
 
+/** Cabecera plegada: alta en líneas o documento recuperado (p. ej. desde buscar venta). */
+const cabeceraRecogida = computed(
+  () =>
+    (esNuevo.value && pasoAlta.value === 'listo') ||
+    (esConsultaRecuperada.value && !modoEdicion.value),
+)
+
 const docKind = computed<DocKind | null>(() => {
   const f = ficha.value
   if (!f || esNuevo.value) return null
@@ -2240,7 +2247,7 @@ onMounted(() => {
         :es-nuevo="esNuevo"
         :paso-alta="pasoAlta"
         :compacto="modoEdicion && !esPlantillaConsulta"
-        :modo-lineas="esNuevo && pasoAlta === 'listo'"
+        :modo-lineas="cabeceraRecogida"
         :vendedor-nombre="vendedorNombre"
         :totales="totales"
         @buscar-vendedor="abrirBuscarVendedor"

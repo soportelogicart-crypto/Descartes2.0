@@ -81,17 +81,29 @@ const textoResumenCabecera = computed(() => {
   const razon = String(f.razonSocial ?? '').trim()
   const vend = String(f.vendedor ?? '').trim()
   const vendNom = String(props.vendedorNombre ?? '').trim()
-  const parts = [tiendaLbl, `Cliente ${cliTxt}`]
+  const parts: string[] = []
+  const alb = Number(f.albaran) || 0
+  if (!props.esNuevo && alb > 0) {
+    const fecha = f.fecha ? String(f.fecha).slice(0, 10) : ''
+    parts.push(fecha ? `Albarán ${alb} · ${fecha}` : `Albarán ${alb}`)
+  }
+  parts.push(tiendaLbl, `Cliente ${cliTxt}`)
   if (razon) parts.push(razon)
   if (vend) parts.push(vendNom ? `Vend. ${vend} · ${vendNom}` : `Vend. ${vend}`)
   return parts.join(' · ')
 })
 
 watch(
-  () => props.modoLineas,
-  (activo) => {
+  () =>
+    [
+      props.modoLineas,
+      props.modelValue.empresa,
+      props.modelValue.tipo,
+      props.modelValue.albaran,
+    ] as const,
+  ([activo]) => {
     if (activo) cabeceraExpandida.value = false
-  }
+  },
 )
 
 function patch<K extends keyof VentaDetalle>(key: K, value: VentaDetalle[K]) {

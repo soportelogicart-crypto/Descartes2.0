@@ -1,3 +1,16 @@
+import {
+  ABC_VENTAS_MODULOS_PERMISO,
+  STOCK_LISTADO_MODULOS_PERMISO,
+} from '@/config/listados-permisos'
+
+const padreStockSubmodulos = Object.fromEntries(
+  STOCK_LISTADO_MODULOS_PERMISO.map((s) => [s.modulo, 'listados-stock']),
+) as Record<string, string>
+
+const padreAbcSubmodulos = Object.fromEntries(
+  ABC_VENTAS_MODULOS_PERMISO.map((s) => [s.modulo, 'ventas-abc']),
+) as Record<string, string>
+
 /**
  * Si un modulo hijo no viene en la sesion, puede heredar del padre
  * (misma regla que RolService::MODULO_PADRE en la API).
@@ -24,10 +37,17 @@ export const MODULO_PADRE: Record<string, string> = {
   'ventas-vales': 'ventas',
   'ventas-pedidos': 'ventas',
   'ventas-abc': 'ventas',
+  'listados-informe-tickets': 'listados',
+  'listados-extracto-clientes': 'listados',
+  'listados-stock': 'listados',
+  'listados-stock-minimos': 'listados',
+  'listados-informe-iva': 'listados',
   'facturacion-manual': 'facturacion',
   'facturacion-generacion': 'facturacion',
   'facturacion-impresion': 'facturacion',
   'facturacion-diario': 'facturacion',
   'facturacion-albaranes-pendientes': 'facturacion',
   'facturacion-retroceso': 'facturacion',
+  ...padreStockSubmodulos,
+  ...padreAbcSubmodulos,
 }

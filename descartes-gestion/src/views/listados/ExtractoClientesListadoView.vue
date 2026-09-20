@@ -5,7 +5,7 @@ import ListadoInformeLayout from '@/components/listados/ListadoInformeLayout.vue
 import EntidadLookupField from '@/components/common/EntidadLookupField.vue'
 import { generarExtractoClientes, type ExtractoClientesResult } from '@/api/listados'
 import { extractApiError } from '@/composables/useMantenimiento'
-import { hoyIso, inicioAnioIso, rangoAtajoFecha, type AtajoFechaId } from '@/composables/useAtajosFecha'
+import { hoyIso, inicioAnioIso } from '@/composables/useAtajosFecha'
 import { useListadosRecientes } from '@/composables/useListadosRecientes'
 import { useAuthStore } from '@/stores/auth'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
@@ -39,12 +39,6 @@ const form = ref({
 })
 
 const tieneDatos = computed(() => (resultado.value?.items.length ?? 0) > 0)
-
-function aplicarAtajo(id: AtajoFechaId) {
-  const r = rangoAtajoFecha(id)
-  form.value.fechaDesde = r.desde
-  form.value.fechaHasta = r.hasta
-}
 
 function metaImpresion(): string[] {
   const r = resultado.value
@@ -162,12 +156,12 @@ function exportarExcel() {
   mensaje.value = 'Excel (CSV) exportado'
 }
 
-function imprimir() {
+async function imprimir() {
   const filas = resultado.value?.items ?? []
   if (!filas.length) return
   const r = resultado.value!
   const t = r.totales
-  const res = imprimirListadoHtml({
+  const res = await imprimirListadoHtml({
     titulo: 'Extracto de clientes',
     metaLineas: metaImpresion(),
     thead: ['Fecha', 'Documento', 'Concepto', 'Debe', 'Haber', 'Saldo'],
@@ -219,12 +213,6 @@ onMounted(() => {
         <span>Hasta</span>
         <input v-model="form.fechaHasta" type="date" />
       </label>
-      <div class="atajos">
-        <span class="atajos-label">Atajos:</span>
-        <button type="button" @click="aplicarAtajo('hoy')">Hoy</button>
-        <button type="button" @click="aplicarAtajo('mes')">Mes</button>
-        <button type="button" @click="aplicarAtajo('anio')">Año</button>
-      </div>
       <label>
         <span>Tienda</span>
         <select v-model="form.empresa" :disabled="loadingOpts">
@@ -305,8 +293,4 @@ onMounted(() => {
   color: #334155;
 }
 
-.atajos-label {
-  font-size: 0.78rem;
-  color: #64748b;
-}
 </style>
