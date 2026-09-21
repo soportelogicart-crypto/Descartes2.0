@@ -291,6 +291,11 @@ export type AbcComprasFiltros = {
     | 'macrofamilias'
     | 'subfamilias'
     | 'familias'
+    | 'articulos'
+    | 'agrupaciones'
+    | 'proveedores'
+    | 'secciones'
+    | 'subsecciones'
   imArticulos: AbcComprasImArticulosModo
   divisa?: 'EU' | 'PES'
   valor: 'precioMedio' | 'precioMedioActual' | 'ultimoPrecio' | 'sinValorTarifa'

@@ -438,7 +438,19 @@ async function imprimir() {
                 <tbody>
                   <tr v-for="g in data.grupos" :key="g.codigo">
                     <td>{{ g.codigo }}</td>
-                    <td>{{ g.nombre }}</td>
+                    <td>
+                      {{ g.nombre }}
+                      <template
+                        v-if="formatoExtendidoSubfamilias && data.dimension === 'articulos'"
+                      >
+                        <div class="abc-meta-line">
+                          Fam. {{ g.metaFamiliaCodigo || '-' }} {{ g.metaFamiliaNombre || '' }}
+                        </div>
+                        <div class="abc-meta-line">
+                          Macro {{ g.metaMacroCodigo || '-' }} {{ g.metaMacroNombre || '' }}
+                        </div>
+                      </template>
+                    </td>
                     <td class="col-num">{{ rowTotales(g.totales).unidades }}</td>
                     <td class="col-num">{{ rowTotales(g.totales).dto }}</td>
                     <td class="col-num">{{ rowTotales(g.totales).importe }}</td>
@@ -467,10 +479,12 @@ async function imprimir() {
                 <span class="grupo-dim">{{ etiquetaBloqueGrupo }}</span>
                 <span class="grupo-det">{{ g.codigo || '-' }} {{ g.nombre || '' }}</span>
                 <template v-if="formatoExtendidoSubfamilias">
-                  <span class="grupo-dim">Familia</span>
-                  <span class="grupo-det">
-                    {{ g.metaFamiliaCodigo || '-' }} {{ g.metaFamiliaNombre || '' }}
-                  </span>
+                  <template v-if="data.dimension === 'subfamilias'">
+                    <span class="grupo-dim">Familia</span>
+                    <span class="grupo-det">
+                      {{ g.metaFamiliaCodigo || '-' }} {{ g.metaFamiliaNombre || '' }}
+                    </span>
+                  </template>
                   <span class="grupo-dim">MacroFamilia</span>
                   <span class="grupo-det">
                     {{ g.metaMacroCodigo || '-' }} {{ g.metaMacroNombre || '' }}
@@ -558,4 +572,10 @@ async function imprimir() {
 <style scoped>
 @import '../listados/listado-informe-layout.css';
 @import '../listados/abc-form-view.css';
+
+.abc-meta-line {
+  font-size: 0.72rem;
+  color: #64748b;
+  line-height: 1.25;
+}
 </style>

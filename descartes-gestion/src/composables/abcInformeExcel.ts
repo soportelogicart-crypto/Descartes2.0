@@ -387,7 +387,7 @@ export function exportarAbcComprasExcel(d: AbcComprasResponse, nombreArchivo: st
   const plano = d.dimension === 'articulos'
   const ocultaMAgr = plano
   const extendido =
-    d.dimension === 'subfamilias' &&
+    (d.dimension === 'subfamilias' || d.dimension === 'familias') &&
     (d.formatoJerarquia ?? 'normal').trim().toLowerCase() === 'extendido'
 
   if (plano) {
@@ -399,12 +399,16 @@ export function exportarAbcComprasExcel(d: AbcComprasResponse, nombreArchivo: st
     const dim = etiquetaBloqueGrupoAbcCompras(d.dimension)
     for (const g of d.grupos) {
       if (extendido && (g.metaFamiliaCodigo || g.metaMacroCodigo)) {
-        lines.push(
-          line([
-            `${dim} ${g.codigo} ${g.nombre}`,
-            `Familia ${g.metaFamiliaCodigo ?? ''} ${g.metaFamiliaNombre ?? ''}`.trim(),
-          ]),
-        )
+        if (d.dimension === 'subfamilias') {
+          lines.push(
+            line([
+              `${dim} ${g.codigo} ${g.nombre}`,
+              `Familia ${g.metaFamiliaCodigo ?? ''} ${g.metaFamiliaNombre ?? ''}`.trim(),
+            ]),
+          )
+        } else {
+          lines.push(line([`${dim} ${g.codigo} ${g.nombre}`]))
+        }
         lines.push(
           line([
             '',

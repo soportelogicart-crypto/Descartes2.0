@@ -30,13 +30,31 @@ final class AbcComprasService
   private const ORDENES = ['margen', 'importe', 'cantidad', 'coste'];
 
   /** @var list<string> */
-  private const DIMENSIONES_ORDEN_MARGEN = [
+  private const DIMENSIONES_ORDEN_MARGEN = [];
+
+  /** Importe, Cantidad + orden por código dimensión (ComprasABC legacy). */
+  /** @var list<string> */
+  private const DIMENSIONES_ORDEN_LEGACY = [
+    'macrofamilias',
+    'subfamilias',
+    'familias',
+    'articulos',
+    'agrupaciones',
+    'proveedores',
     'secciones',
     'subsecciones',
-    'proveedores',
-    'agrupaciones',
+  ];
+
+  /** @var list<string> */
+  private const ORDENES_POR_CODIGO = [
+    'macrofamilias',
+    'subfamilias',
+    'familias',
     'articulos',
-    'almacenes',
+    'agrupaciones',
+    'proveedores',
+    'secciones',
+    'subsecciones',
   ];
 
   /** @var list<string> */
@@ -71,15 +89,10 @@ final class AbcComprasService
     $valor = $this->normalizarValorCoste($query['valor'] ?? 'precioMedio');
 
     $imArticulos = $this->normalizarImArticulos($query['imArticulos'] ?? 'si');
-    if ($dimension === 'articulos') {
-      $imArticulos = 'si';
-    }
     $imprimeLineasArticulo = $imArticulos !== 'no';
 
     $formatoJerarquia = null;
-    if ($dimension === 'familias') {
-      $formatoJerarquia = $this->normalizarFormatoJerarquia($query['formatoJerarquia'] ?? 'normal');
-    } elseif ($dimension === 'subfamilias') {
+    if ($dimension === 'familias' || $dimension === 'subfamilias' || $dimension === 'articulos') {
       $formatoJerarquia = $this->normalizarFormatoSubfamilias($query['formatoJerarquia'] ?? 'normal');
     }
 
@@ -114,13 +127,24 @@ final class AbcComprasService
     }
     $groupBy = implode(', ', $groupByParts);
 
-    $metaSubfamiliaSelect = $dimension === 'subfamilias'
-      ? ",
+    $ordenProveedorAlmacenSelect = $dimension === 'almacenes'
+      ? ", MAX(RTRIM(ISNULL(c.[Proveedor], ''))) AS ordenProveedor"
+      : '';
+    $metaJerarquiaSql = ",
               MAX(RTRIM(ISNULL(a.[Familia], ''))) AS metaFamiliaCodigo,
               MAX(RTRIM(ISNULL(f.[Descripcion], ''))) AS metaFamiliaNombre,
               MAX(RTRIM(ISNULL(f.[MacroFamilia], ''))) AS metaMacroCodigo,
+              MAX(RTRIM(ISNULL(mf.[Descripcion], ''))) AS metaMacroNombre";
+    $metaSubfamiliaSelect = match ($dimension) {
+      'subfamilias' => $metaJerarquiaSql,
+      'articulos' => $formatoJerarquia === 'extendido' ? $metaJerarquiaSql : '',
+      'familias' => $formatoJerarquia === 'extendido'
+        ? ",
+              MAX(RTRIM(ISNULL(f.[MacroFamilia], ''))) AS metaMacroCodigo,
               MAX(RTRIM(ISNULL(mf.[Descripcion], ''))) AS metaMacroNombre"
-      : '';
+        : '',
+      default => '',
+    };
 
     $sql = "SELECT
               {$dim['selectCodigo']} AS grupoCodigo,
@@ -131,7 +155,7 @@ final class AbcComprasService
               SUM({$dtoExpr}) AS dto,
               SUM({$importeExpr}) AS importe,
               SUM({$costeExpr}) AS coste,
-              COUNT(DISTINCT {$albaranKey}) AS numAlbaranes{$metaSubfamiliaSelect}
+              COUNT(DISTINCT {$albaranKey}) AS numAlbaranes{$metaSubfamiliaSelect}{$ordenProveedorAlmacenSelect}
             FROM [AlbaranesCompraCab] c
             INNER JOIN [AlbaranesComprasLin] l
               ON c.[Empresa] = l.[Empresa] AND c.[Albaran] = l.[Albaran]
@@ -158,7 +182,18 @@ final class AbcComprasService
           'nombre' => (string) ($row['grupoNombre'] ?? ''),
           'articulos' => [],
         ];
+        if ($dimension === 'almacenes') {
+          $grupoInit['ordenProveedor'] = (string) ($row['ordenProveedor'] ?? '');
+        }
         if ($dimension === 'subfamilias') {
+          $grupoInit['metaFamiliaCodigo'] = (string) ($row['metaFamiliaCodigo'] ?? '');
+          $grupoInit['metaFamiliaNombre'] = (string) ($row['metaFamiliaNombre'] ?? '');
+          $grupoInit['metaMacroCodigo'] = (string) ($row['metaMacroCodigo'] ?? '');
+          $grupoInit['metaMacroNombre'] = (string) ($row['metaMacroNombre'] ?? '');
+        } elseif ($dimension === 'familias' && $formatoJerarquia === 'extendido') {
+          $grupoInit['metaMacroCodigo'] = (string) ($row['metaMacroCodigo'] ?? '');
+          $grupoInit['metaMacroNombre'] = (string) ($row['metaMacroNombre'] ?? '');
+        } elseif ($dimension === 'articulos' && $formatoJerarquia === 'extendido') {
           $grupoInit['metaFamiliaCodigo'] = (string) ($row['metaFamiliaCodigo'] ?? '');
           $grupoInit['metaFamiliaNombre'] = (string) ($row['metaFamiliaNombre'] ?? '');
           $grupoInit['metaMacroCodigo'] = (string) ($row['metaMacroCodigo'] ?? '');
@@ -242,12 +277,21 @@ final class AbcComprasService
           'cantidad' => $totGrupo['unidades'],
           'importe' => $totGrupo['importe'],
           'coste' => $totGrupo['coste'],
-          'macrofamilias', 'subfamilias', 'familias' => 0.0,
+          'macrofamilias', 'subfamilias', 'familias', 'articulos', 'agrupaciones', 'proveedores', 'secciones', 'subsecciones' => 0.0,
           default => $totGrupo['margen'],
         },
         '_ordenCodigo' => $grupo['codigo'],
+        '_ordenProveedor' => (string) ($grupo['ordenProveedor'] ?? ''),
       ];
       if ($dimension === 'subfamilias') {
+        $grupoOut['metaFamiliaCodigo'] = (string) ($grupo['metaFamiliaCodigo'] ?? '');
+        $grupoOut['metaFamiliaNombre'] = (string) ($grupo['metaFamiliaNombre'] ?? '');
+        $grupoOut['metaMacroCodigo'] = (string) ($grupo['metaMacroCodigo'] ?? '');
+        $grupoOut['metaMacroNombre'] = (string) ($grupo['metaMacroNombre'] ?? '');
+      } elseif ($dimension === 'familias' && $formatoJerarquia === 'extendido') {
+        $grupoOut['metaMacroCodigo'] = (string) ($grupo['metaMacroCodigo'] ?? '');
+        $grupoOut['metaMacroNombre'] = (string) ($grupo['metaMacroNombre'] ?? '');
+      } elseif ($dimension === 'articulos' && $formatoJerarquia === 'extendido') {
         $grupoOut['metaFamiliaCodigo'] = (string) ($grupo['metaFamiliaCodigo'] ?? '');
         $grupoOut['metaFamiliaNombre'] = (string) ($grupo['metaFamiliaNombre'] ?? '');
         $grupoOut['metaMacroCodigo'] = (string) ($grupo['metaMacroCodigo'] ?? '');
@@ -262,8 +306,15 @@ final class AbcComprasService
       $totGeneral['margen'] += $totGrupo['margen'];
     }
 
-    usort($grupos, function (array $a, array $b) use ($orden): int {
-      if ($orden === 'macrofamilias' || $orden === 'subfamilias' || $orden === 'familias') {
+    usort($grupos, function (array $a, array $b) use ($orden, $dimension): int {
+      if ($dimension === 'almacenes' && $orden === 'proveedores') {
+        $cmp = strcmp((string) ($a['_ordenProveedor'] ?? ''), (string) ($b['_ordenProveedor'] ?? ''));
+        if ($cmp !== 0) {
+          return $cmp;
+        }
+        return strcmp((string) $a['codigo'], (string) $b['codigo']);
+      }
+      if (in_array($orden, self::ORDENES_POR_CODIGO, true)) {
         return strcmp((string) $a['codigo'], (string) $b['codigo']);
       }
       $cmp = ((float) $b['_ordenValor']) <=> ((float) $a['_ordenValor']);
@@ -274,7 +325,7 @@ final class AbcComprasService
     });
 
     foreach ($grupos as &$g) {
-      unset($g['_ordenValor'], $g['_ordenCodigo']);
+      unset($g['_ordenValor'], $g['_ordenCodigo'], $g['_ordenProveedor']);
     }
     unset($g);
 
@@ -390,7 +441,10 @@ final class AbcComprasService
   /** @return list<string> */
   private function ordenesValidasParaDimension(string $dimension): array
   {
-    if (in_array($dimension, self::DIMENSIONES_JERARQUIA, true)) {
+    if ($dimension === 'almacenes') {
+      return ['cantidad', 'proveedores'];
+    }
+    if (in_array($dimension, self::DIMENSIONES_ORDEN_LEGACY, true)) {
       return ['importe', 'cantidad', $dimension];
     }
     if (in_array($dimension, self::DIMENSIONES_ORDEN_MARGEN, true)) {
@@ -402,7 +456,10 @@ final class AbcComprasService
 
   private function ordenDefectoParaDimension(string $dimension): string
   {
-    if (in_array($dimension, self::DIMENSIONES_JERARQUIA, true)) {
+    if ($dimension === 'almacenes') {
+      return 'cantidad';
+    }
+    if (in_array($dimension, self::DIMENSIONES_ORDEN_LEGACY, true)) {
       return 'importe';
     }
     if (in_array($dimension, self::DIMENSIONES_ORDEN_MARGEN, true)) {
@@ -574,7 +631,7 @@ final class AbcComprasService
       'cantidad' => $unidades,
       'importe' => $importe,
       'coste' => $coste,
-      'macrofamilias', 'subfamilias', 'familias' => $importe,
+      'macrofamilias', 'subfamilias', 'familias', 'articulos', 'agrupaciones', 'proveedores', 'secciones', 'subsecciones' => $importe,
       default => $margen,
     };
   }
@@ -631,7 +688,7 @@ final class AbcComprasService
       'cantidad' => (float) ($totales['unidades'] ?? 0),
       'importe' => (float) ($totales['importe'] ?? 0),
       'coste' => (float) ($totales['coste'] ?? 0),
-      'macrofamilias', 'subfamilias', 'familias' => (float) ($totales['importe'] ?? 0),
+      'macrofamilias', 'subfamilias', 'familias', 'articulos', 'agrupaciones', 'proveedores', 'secciones', 'subsecciones' => (float) ($totales['importe'] ?? 0),
       default => (float) ($totales['margen'] ?? 0),
     };
 

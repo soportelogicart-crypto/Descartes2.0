@@ -1,5 +1,9 @@
 import type { EntidadLookupId } from '@/config/entidad-lookup'
 import type { AbcComprasDimensionId } from '@/config/abc-compras-dimensiones'
+import {
+  ABC_COMPRAS_DIMENSIONES_INTERVALOS_ALMACEN,
+  ABC_COMPRAS_DIMENSIONES_INTERVALOS_SUBFAM,
+} from '@/config/abc-compras-opciones'
 
 export type AbcComprasFiltroRango = {
   label: string
@@ -154,7 +158,7 @@ export const ABC_COMPRAS_INTERVALOS_BASE: AbcComprasFiltroRango[] = [
   RANGO_LOTE,
 ]
 
-/** ComprasABC SubFam — orden intervalos legacy. */
+/** ComprasABC SubFam / Fam — orden intervalos legacy. */
 export const ABC_COMPRAS_INTERVALOS_SUBFAMILIAS: AbcComprasFiltroRango[] = [
   RANGO_MACRO_FAMILIA,
   RANGO_FAMILIA,
@@ -171,8 +175,29 @@ export const ABC_COMPRAS_INTERVALOS_SUBFAMILIAS: AbcComprasFiltroRango[] = [
   RANGO_ALMACEN,
 ]
 
+/** ComprasABC Almacén — Almacén primero, sin repetir al final. */
+export const ABC_COMPRAS_INTERVALOS_ALMACENES: AbcComprasFiltroRango[] = [
+  RANGO_ALMACEN,
+  RANGO_MACRO_FAMILIA,
+  RANGO_FAMILIA,
+  RANGO_SUBFAMILIA,
+  RANGO_AGRUPACION,
+  RANGO_ARTICULO,
+  RANGO_TIENDA,
+  RANGO_PROVEEDOR,
+  RANGO_SECCION,
+  RANGO_SUBSECCION,
+  RANGO_ULTIMA_VENTA,
+  RANGO_LOTE,
+  RANGO_CENTRAL,
+]
+
 export function abcComprasIntervalosPorDimension(dimension: string): AbcComprasFiltroRango[] {
-  if (dimension.trim().toLowerCase() === 'subfamilias') {
+  const k = dimension.trim().toLowerCase()
+  if ((ABC_COMPRAS_DIMENSIONES_INTERVALOS_ALMACEN as readonly string[]).includes(k)) {
+    return ABC_COMPRAS_INTERVALOS_ALMACENES
+  }
+  if ((ABC_COMPRAS_DIMENSIONES_INTERVALOS_SUBFAM as readonly string[]).includes(k)) {
     return ABC_COMPRAS_INTERVALOS_SUBFAMILIAS
   }
   return ABC_COMPRAS_INTERVALOS_BASE

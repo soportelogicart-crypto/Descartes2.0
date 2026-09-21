@@ -60,12 +60,15 @@ function tablaGrupo(g: AbcComprasGrupo, d: AbcComprasResponse, ocultaMAgr: boole
   const dim = etiquetaBloqueGrupoAbcCompras(d.dimension)
   const headMAgr = ocultaMAgr ? '' : '<th>M.Agr.</th>'
   const extendido =
-    d.dimension === 'subfamilias' &&
+    (d.dimension === 'subfamilias' || d.dimension === 'familias') &&
     (d.formatoJerarquia ?? 'normal').trim().toLowerCase() === 'extendido'
-  const extraJerarquia = extendido
-    ? `<p class="abc-meta">Familia ${esc(g.metaFamiliaCodigo ?? '')} ${esc(g.metaFamiliaNombre ?? '')}</p>
-<p class="abc-meta">MacroFamilia ${esc(g.metaMacroCodigo ?? '')} ${esc(g.metaMacroNombre ?? '')}</p>`
-    : ''
+  let extraJerarquia = ''
+  if (extendido) {
+    if (d.dimension === 'subfamilias') {
+      extraJerarquia += `<p class="abc-meta">Familia ${esc(g.metaFamiliaCodigo ?? '')} ${esc(g.metaFamiliaNombre ?? '')}</p>`
+    }
+    extraJerarquia += `<p class="abc-meta">MacroFamilia ${esc(g.metaMacroCodigo ?? '')} ${esc(g.metaMacroNombre ?? '')}</p>`
+  }
   let body = `<h3>${esc(dim)} ${esc(g.codigo)} ${esc(g.nombre)}</h3>${extraJerarquia}
 <table class="abc-table"><thead><tr>
 <th>Código</th><th>Artículo</th><th>Unidades</th><th>Dto</th><th>Importe</th><th>Coste</th><th>Margen</th><th>% Marg</th><th>% Sob.Tot</th>${headMAgr}
@@ -83,11 +86,17 @@ function tablaPlana(d: AbcComprasResponse): string {
     <th>Código</th><th>Artículo</th><th>Unidades</th><th>Dto</th><th>Importe</th><th>Coste</th><th>Margen</th><th>% Marg</th><th>% Sob.Tot</th>
   </tr></thead>`
   let rows = ''
+  const extendidoArt =
+    d.dimension === 'articulos' &&
+    (d.formatoJerarquia ?? 'normal').trim().toLowerCase() === 'extendido'
   for (const g of d.grupos) {
     const t = g.totales
     const pje = abcComprasPjeSobreTotalGrupo(g)
+    const nombreCell = extendidoArt
+      ? `${esc(g.nombre)}<br/><small>Fam. ${esc(g.metaFamiliaCodigo ?? '')} ${esc(g.metaFamiliaNombre ?? '')}</small><br/><small>Macro ${esc(g.metaMacroCodigo ?? '')} ${esc(g.metaMacroNombre ?? '')}</small>`
+      : esc(g.nombre)
     rows += `<tr>
-      <td>${esc(g.codigo)}</td><td>${esc(g.nombre)}</td>
+      <td>${esc(g.codigo)}</td><td>${nombreCell}</td>
       <td class="num">${esc(fmtQty(t.unidades))}</td>
       <td class="num">${esc(fmt(t.dto))}</td>
       <td class="num">${esc(fmt(t.importe))}</td>

@@ -11,15 +11,40 @@ export const ABC_COMPRAS_ORDEN_MARGEN = [
   ...ABC_COMPRAS_ORDEN,
 ] as const
 
-export const ABC_COMPRAS_DIMENSIONES_ORDEN_MARGEN = [
+export const ABC_COMPRAS_DIMENSIONES_ORDEN_MARGEN = [] as const
+
+/** Importe, Cantidad + orden por código dimensión (ComprasABC legacy). */
+export const ABC_COMPRAS_DIMENSIONES_ORDEN_LEGACY = [
+  'macrofamilias',
+  'subfamilias',
+  'familias',
+  'articulos',
+  'agrupaciones',
+  'proveedores',
   'secciones',
   'subsecciones',
-  'proveedores',
-  'agrupaciones',
-  'articulos',
-  'almacenes',
 ] as const
 
+/** ComprasABC Almacén — solo Cantidad y Proveedor. */
+export const ABC_COMPRAS_ORDEN_ALMACENES = [
+  { value: 'cantidad', label: 'Cantidad' },
+  { value: 'proveedores', label: 'Proveedor' },
+] as const
+
+/** Intervalos legacy (SubFam, Fam, Art, Agr, Prov, Sec, SubSec). */
+export const ABC_COMPRAS_DIMENSIONES_INTERVALOS_SUBFAM = [
+  'subfamilias',
+  'familias',
+  'articulos',
+  'agrupaciones',
+  'proveedores',
+  'secciones',
+  'subsecciones',
+] as const
+
+export const ABC_COMPRAS_DIMENSIONES_INTERVALOS_ALMACEN = ['almacenes'] as const
+
+/** @deprecated alias */
 export const ABC_COMPRAS_DIMENSIONES_JERARQUIA = [
   'macrofamilias',
   'subfamilias',
@@ -55,9 +80,8 @@ const ORDEN_IMPORTE_CANTIDAD = [
   { value: 'cantidad', label: 'Cantidad' },
 ] as const
 
-/** Macro / SubFam / Fam — Orden legacy (sin Margen). */
-export const ABC_COMPRAS_ORDEN_JERARQUIA: Record<
-  (typeof ABC_COMPRAS_DIMENSIONES_JERARQUIA)[number],
+export const ABC_COMPRAS_ORDEN_LEGACY: Record<
+  (typeof ABC_COMPRAS_DIMENSIONES_ORDEN_LEGACY)[number],
   readonly { value: string; label: string }[]
 > = {
   macrofamilias: [
@@ -66,7 +90,15 @@ export const ABC_COMPRAS_ORDEN_JERARQUIA: Record<
   ],
   subfamilias: [...ORDEN_IMPORTE_CANTIDAD, { value: 'subfamilias', label: 'SubFamilias' }],
   familias: [...ORDEN_IMPORTE_CANTIDAD, { value: 'familias', label: 'Familias' }],
+  articulos: [...ORDEN_IMPORTE_CANTIDAD, { value: 'articulos', label: 'Articulos' }],
+  agrupaciones: [...ORDEN_IMPORTE_CANTIDAD, { value: 'agrupaciones', label: 'Agrupacion' }],
+  proveedores: [...ORDEN_IMPORTE_CANTIDAD, { value: 'proveedores', label: 'Proveedor' }],
+  secciones: [...ORDEN_IMPORTE_CANTIDAD, { value: 'secciones', label: 'Seccion' }],
+  subsecciones: [...ORDEN_IMPORTE_CANTIDAD, { value: 'subsecciones', label: 'SubSeccion' }],
 }
+
+/** @deprecated alias */
+export const ABC_COMPRAS_ORDEN_JERARQUIA = ABC_COMPRAS_ORDEN_LEGACY
 
 export const ABC_COMPRAS_VALOR = [
   { value: 'precioMedio', label: 'Precio medio' },
@@ -81,11 +113,19 @@ export type AbcComprasOrden =
   | 'macrofamilias'
   | 'subfamilias'
   | 'familias'
+  | 'articulos'
+  | 'agrupaciones'
+  | 'proveedores'
+  | 'secciones'
+  | 'subsecciones'
 
 export function abcComprasOrdenPorDimension(dimension: string) {
   const key = dimension.trim().toLowerCase()
-  if ((ABC_COMPRAS_DIMENSIONES_JERARQUIA as readonly string[]).includes(key)) {
-    return ABC_COMPRAS_ORDEN_JERARQUIA[key as keyof typeof ABC_COMPRAS_ORDEN_JERARQUIA]
+  if (key === 'almacenes') {
+    return ABC_COMPRAS_ORDEN_ALMACENES
+  }
+  if ((ABC_COMPRAS_DIMENSIONES_ORDEN_LEGACY as readonly string[]).includes(key)) {
+    return ABC_COMPRAS_ORDEN_LEGACY[key as keyof typeof ABC_COMPRAS_ORDEN_LEGACY]
   }
   if ((ABC_COMPRAS_DIMENSIONES_ORDEN_MARGEN as readonly string[]).includes(key)) {
     return ABC_COMPRAS_ORDEN_MARGEN
@@ -95,7 +135,10 @@ export function abcComprasOrdenPorDimension(dimension: string) {
 
 export function abcComprasOrdenDefectoPorDimension(dimension: string): AbcComprasOrden {
   const key = dimension.trim().toLowerCase()
-  if ((ABC_COMPRAS_DIMENSIONES_JERARQUIA as readonly string[]).includes(key)) {
+  if (key === 'almacenes') {
+    return 'cantidad'
+  }
+  if ((ABC_COMPRAS_DIMENSIONES_ORDEN_LEGACY as readonly string[]).includes(key)) {
     return 'importe'
   }
   if ((ABC_COMPRAS_DIMENSIONES_ORDEN_MARGEN as readonly string[]).includes(key)) {
@@ -121,7 +164,7 @@ export type AbcComprasFormatoSubfamilias =
 
 export function abcComprasMuestraComboFormato(dimension: string): boolean {
   const k = dimension.trim().toLowerCase()
-  return k === 'familias' || k === 'subfamilias'
+  return k === 'familias' || k === 'subfamilias' || k === 'articulos'
 }
 
 /** @deprecated use abcComprasMuestraComboFormato */
@@ -131,22 +174,31 @@ export function abcComprasMuestraFormatoFamilias(dimension: string): boolean {
 
 export function abcComprasFormatoOpcionesPorDimension(dimension: string) {
   const k = dimension.trim().toLowerCase()
-  if (k === 'familias') return ABC_COMPRAS_FORMATO_JERARQUIA
-  if (k === 'subfamilias') return ABC_COMPRAS_FORMATO_SUBFAMILIAS
+  if (k === 'familias' || k === 'subfamilias' || k === 'articulos') {
+    return ABC_COMPRAS_FORMATO_SUBFAMILIAS
+  }
   return [] as const
 }
 
-/** SubFam — formulario legacy sin Valor ni «Solo actualizado stock». */
+/** Legacy ComprasABC — sin Valor ni «Solo actualizado stock» (salvo dimensiones con margen). */
 export function abcComprasOcultaValorYSoloActualizado(dimension: string): boolean {
-  return dimension.trim().toLowerCase() === 'subfamilias'
+  const k = dimension.trim().toLowerCase()
+  if ((ABC_COMPRAS_DIMENSIONES_INTERVALOS_SUBFAM as readonly string[]).includes(k)) {
+    return true
+  }
+  if ((ABC_COMPRAS_DIMENSIONES_INTERVALOS_ALMACEN as readonly string[]).includes(k)) {
+    return true
+  }
+  return (ABC_COMPRAS_DIMENSIONES_ORDEN_LEGACY as readonly string[]).includes(k)
 }
 
 export function abcComprasUsaFormatoExtendidoSubfamilias(
   dimension: string,
   formatoJerarquia: string | undefined,
 ): boolean {
+  const k = dimension.trim().toLowerCase()
   return (
-    dimension.trim().toLowerCase() === 'subfamilias' &&
+    (k === 'subfamilias' || k === 'familias' || k === 'articulos') &&
     (formatoJerarquia ?? 'normal').trim().toLowerCase() === 'extendido'
   )
 }
