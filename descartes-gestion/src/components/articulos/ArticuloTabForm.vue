@@ -258,7 +258,7 @@ function sectionZoneClass(section: ArticuloSection) {
 
 .tab-form-tarifas {
   display: grid;
-  grid-template-columns: minmax(150px, 0.85fr) minmax(200px, 1.15fr);
+  grid-template-columns: minmax(150px, 0.85fr) minmax(280px, 1.15fr);
   grid-template-areas:
     'especiales precios'
     'especiales costes';

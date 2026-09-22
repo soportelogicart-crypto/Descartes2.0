@@ -62,13 +62,14 @@ final class AlbaranesPeriodicosService
     $desde = new \DateTimeImmutable($fechaDesde);
     $hasta = new \DateTimeImmutable($fechaHasta);
 
+    $colActivo = AlbaranesPeriodicosEsquema::selectActivo($this->pdo);
     $stmt = $this->pdo->prepare(
-      'SELECT p.Empresa, p.Tipo, p.Albaran, p.UltimaGeneracion, p.Periodicidad,
+      "SELECT p.Empresa, p.Tipo, p.Albaran, p.UltimaGeneracion, p.Periodicidad, {$colActivo},
               c.Cliente, c.RazonSocial
        FROM AlbaranesPeriodicos p
        LEFT JOIN AlbaranesVentasCab c
          ON c.Empresa = p.Empresa AND c.Tipo = p.Tipo AND c.Albaran = p.Albaran
-       WHERE p.Empresa = :e'
+       WHERE p.Empresa = :e"
     );
     $stmt->execute(['e' => $empresa]);
     $periodicos = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -95,6 +96,12 @@ final class AlbaranesPeriodicosService
             'motivo' => $motivo,
           ];
         };
+
+        if (array_key_exists('Activo', $per) && !(bool) $per['Activo']) {
+          $omitidos++;
+          $anotar('Base pausada', null);
+          continue;
+        }
 
         $periodicidad = (int) ($per['Periodicidad'] ?? 0);
         if ($periodicidad <= 0) {
@@ -209,15 +216,24 @@ final class AlbaranesPeriodicosService
       throw new \InvalidArgumentException('fechaReferencia debe ser YYYY-MM-DD');
     }
 
+    $colActivo = AlbaranesPeriodicosEsquema::selectActivo($this->pdo, '');
     $stmt = $this->pdo->prepare(
-      'SELECT Empresa, Tipo, Albaran, UltimaGeneracion, Periodicidad
+      "SELECT Empresa, Tipo, Albaran, UltimaGeneracion, Periodicidad, {$colActivo}
        FROM AlbaranesPeriodicos
-       WHERE RTRIM(Empresa) = :e AND RTRIM(Tipo) = :t AND Albaran = :a'
+       WHERE RTRIM(Empresa) = :e AND RTRIM(Tipo) = :t AND Albaran = :a"
     );
     $stmt->execute(['e' => $empresa, 't' => $tipo, 'a' => $albaran]);
     $per = $stmt->fetch(PDO::FETCH_ASSOC);
     if ($per === false) {
       throw new \RuntimeException('Base periódica no encontrada', 404);
+    }
+
+    if (array_key_exists('Activo', $per) && !(bool) $per['Activo']) {
+      return [
+        'generado' => false,
+        'motivoOmision' => 'Base pausada: márquela como activa para generar',
+        'albaranGenerado' => null,
+      ];
     }
 
     $periodicidad = (int) ($per['Periodicidad'] ?? 0);

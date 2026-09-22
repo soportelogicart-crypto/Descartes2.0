@@ -108,7 +108,9 @@ const puedeMostrarEliminar = computed(
 
 const tabSeleccionada = computed(() => proveedorTabs.find((t) => t.id === tabActiva.value) ?? proveedorTabs[0])
 const soloLecturaFicha = computed(() => !modoEdicion.value && !esNuevo.value)
-const totalFicha = computed(() => filasTodas.value.filter((f) => !f._nuevo).length)
+/** La ficha recorre lo que se ve en la rejilla: si la busqueda deja 3 filas, el contador es x/3. */
+const filasNavegacion = computed(() => filas.value.filter((f) => !f._nuevo))
+const totalFicha = computed(() => filasNavegacion.value.length)
 const hayProveedor = computed(() => Boolean(ficha.value.codigo) || esNuevo.value)
 const codigoReadOnlyFicha = computed(() => !esNuevo.value || codigoAutomatico.value)
 
@@ -203,7 +205,7 @@ function normalizarFichaProveedor(data: Record<string, unknown>): Record<string,
 async function abrirFichaPorCodigo(codigo: string) {
   try {
     ficha.value = normalizarFichaProveedor((await obtener(codigo)) as Record<string, unknown>)
-    indiceFicha.value = filasTodas.value.findIndex((f) => String(f.codigo) === codigo)
+    indiceFicha.value = filasNavegacion.value.findIndex((f) => String(f.codigo) === codigo)
     modoEdicion.value = false
     esNuevo.value = false
     codigoAutomatico.value = false
@@ -392,24 +394,24 @@ async function onInteresesUpdate(value: string) {
 
 async function onPrimero() {
   if (totalFicha.value === 0) return
-  const fila = filasTodas.value[0]
+  const fila = filasNavegacion.value[0]
   if (fila?.codigo != null) await abrirFichaPorCodigo(String(fila.codigo))
 }
 async function onAnterior() {
   if (indiceFicha.value <= 0) return
-  const fila = filasTodas.value[indiceFicha.value - 1]
+  const fila = filasNavegacion.value[indiceFicha.value - 1]
   if (fila?.codigo != null) await abrirFichaPorCodigo(String(fila.codigo))
 }
 async function onSiguiente() {
   const max = totalFicha.value - 1
   if (indiceFicha.value < 0 || indiceFicha.value >= max) return
-  const fila = filasTodas.value[indiceFicha.value + 1]
+  const fila = filasNavegacion.value[indiceFicha.value + 1]
   if (fila?.codigo != null) await abrirFichaPorCodigo(String(fila.codigo))
 }
 async function onUltimo() {
   const max = totalFicha.value - 1
   if (max < 0) return
-  const fila = filasTodas.value[max]
+  const fila = filasNavegacion.value[max]
   if (fila?.codigo != null) await abrirFichaPorCodigo(String(fila.codigo))
 }
 </script>

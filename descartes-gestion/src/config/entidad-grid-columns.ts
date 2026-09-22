@@ -136,6 +136,7 @@ export const entidadGridColumns: Record<string, GridColumn[]> = {
     { key: 'cliente', label: 'Cliente', type: 'text', width: '8.5rem', readOnly: true },
     { key: 'razonSocial', label: 'Razón social', type: 'text', width: '16rem', readOnly: true },
     { key: 'albaran', label: 'Albarán', type: 'text', width: '8.5rem', readOnly: true },
+    { key: 'estadoActivo', label: 'Estado', type: 'text', width: '6.5rem', readOnly: true },
     { key: 'periodicidadLabel', label: 'Periodicidad', type: 'text', width: '8.5rem', readOnly: true },
     { key: 'ultimaGeneracionFmt', label: 'Ult.gen.', type: 'text', width: '8.5rem', readOnly: true },
     { key: 'proximaGeneracionFmt', label: 'Próxima', type: 'text', width: '8.5rem', readOnly: true },

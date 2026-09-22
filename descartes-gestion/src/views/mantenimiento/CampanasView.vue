@@ -174,7 +174,9 @@ const puedeMostrarEliminar = computed(
     !filaSeleccionada.value._nuevo &&
     Boolean(filaSeleccionada.value.campana)
 )
-const totalFicha = computed(() => filasTodas.value.filter((f) => !f._nuevo).length)
+/** La ficha recorre lo que se ve en la rejilla: si la busqueda deja 3 filas, el contador es x/3. */
+const filasNavegacion = computed(() => filas.value.filter((f) => !f._nuevo))
+const totalFicha = computed(() => filasNavegacion.value.length)
 
 const esCampanaVales = computed(() => Number(form.tipoCampana) === TIPO_CAMPANA_VALES)
 
@@ -398,7 +400,7 @@ async function abrirFichaPorCampana(campana: string | number) {
       (f) => !f._nuevo && String(f.campana ?? '').trim() === campanaNorm
     )
     if (idx >= 0) indiceSeleccionado.value = idx
-    indiceFicha.value = filasTodas.value.findIndex(
+    indiceFicha.value = filasNavegacion.value.findIndex(
       (f) => String(f.campana ?? '').trim() === campanaNorm
     )
     esNuevo.value = false
@@ -530,24 +532,24 @@ async function onGuardar() {
 
 async function onPrimero() {
   if (totalFicha.value === 0) return
-  const fila = filasTodas.value[0]
+  const fila = filasNavegacion.value[0]
   if (fila?.campana != null && fila.campana !== '') await abrirFichaPorCampana(String(fila.campana))
 }
 async function onAnterior() {
   if (indiceFicha.value <= 0) return
-  const fila = filasTodas.value[indiceFicha.value - 1]
+  const fila = filasNavegacion.value[indiceFicha.value - 1]
   if (fila?.campana != null && fila.campana !== '') await abrirFichaPorCampana(String(fila.campana))
 }
 async function onSiguiente() {
   const max = totalFicha.value - 1
   if (indiceFicha.value < 0 || indiceFicha.value >= max) return
-  const fila = filasTodas.value[indiceFicha.value + 1]
+  const fila = filasNavegacion.value[indiceFicha.value + 1]
   if (fila?.campana != null && fila.campana !== '') await abrirFichaPorCampana(String(fila.campana))
 }
 async function onUltimo() {
   const max = totalFicha.value - 1
   if (max < 0) return
-  const fila = filasTodas.value[max]
+  const fila = filasNavegacion.value[max]
   if (fila?.campana != null && fila.campana !== '') await abrirFichaPorCampana(String(fila.campana))
 }
 

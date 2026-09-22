@@ -2,6 +2,7 @@ import { api } from '@/api/client'
 import type { VentaDetalle, VentaResumen } from '@/types/ventas'
 import type {
   AlbaranPeriodicoListItem,
+  AlbaranPeriodicoUpdate,
   AlbaranPeriodicoWrite,
   AlbaranesPeriodicosListResponse,
   GenerarAlbaranPeriodicoResponse,
@@ -299,7 +300,7 @@ export async function actualizarAlbaranPeriodico(
   empresa: string,
   tipo: string,
   albaran: number,
-  body: Pick<AlbaranPeriodicoWrite, 'periodicidad' | 'ultimaGeneracion'>
+  body: AlbaranPeriodicoUpdate
 ): Promise<AlbaranPeriodicoListItem> {
   const { data } = await api.put<AlbaranPeriodicoListItem>(
     `/api/mantenimiento/albaranes-periodicos/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}`,

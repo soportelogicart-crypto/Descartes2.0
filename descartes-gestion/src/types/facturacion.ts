@@ -377,6 +377,8 @@ export type AlbaranPeriodicoListItem = {
   empresa: string
   tipo: string
   albaran: number
+  /** false = pausada: conserva periodicidad y fecha base, pero Gen.Alb la omite. */
+  activo: boolean
   periodicidad: number
   periodicidadLabel: string
   ultimaGeneracion: string | null
@@ -402,6 +404,12 @@ export type AlbaranPeriodicoWrite = {
   periodicidad: number
   ultimaGeneracion: string
   marcarReferenciaPeriodico?: boolean
+}
+
+export type AlbaranPeriodicoUpdate = {
+  periodicidad?: number
+  ultimaGeneracion?: string
+  activo?: boolean
 }
 
 export type GenerarAlbaranPeriodicoResponse = {

@@ -121,6 +121,19 @@ final class AlbaranesPeriodicosEscrituraService
       $params['p'] = $periodicidad;
     }
 
+    // Pausar no toca la configuracion: solo cambia Activo.
+    if (array_key_exists('activo', $body)) {
+      if (!AlbaranesPeriodicosEsquema::tieneActivo($this->pdo)) {
+        throw new \RuntimeException(
+          'No se pudo crear la columna AlbaranesPeriodicos.Activo: revise los permisos '
+            . 'del usuario de base de datos',
+          409
+        );
+      }
+      $sets[] = 'Activo = :act';
+      $params['act'] = filter_var($body['activo'], FILTER_VALIDATE_BOOL) ? 1 : 0;
+    }
+
     if (array_key_exists('ultimaGeneracion', $body)) {
       $ultima = $this->parseDateTime($body['ultimaGeneracion']);
       if ($ultima === null) {
@@ -131,7 +144,7 @@ final class AlbaranesPeriodicosEscrituraService
     }
 
     if ($sets === []) {
-      throw new \InvalidArgumentException('Debe indicar periodicidad o ultimaGeneracion');
+      throw new \InvalidArgumentException('Debe indicar periodicidad, ultimaGeneracion o activo');
     }
 
     $sql = 'UPDATE AlbaranesPeriodicos SET ' . implode(', ', $sets)

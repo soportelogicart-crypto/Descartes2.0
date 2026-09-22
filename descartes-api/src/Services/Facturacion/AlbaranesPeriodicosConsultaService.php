@@ -59,7 +59,8 @@ final class AlbaranesPeriodicosConsultaService
     $countStmt->execute($params);
     $total = (int) $countStmt->fetchColumn();
 
-    $innerSql = "SELECT p.Empresa, p.Tipo, p.Albaran, p.Periodicidad, p.UltimaGeneracion,
+    $colActivo = AlbaranesPeriodicosEsquema::selectActivo($this->pdo);
+    $innerSql = "SELECT p.Empresa, p.Tipo, p.Albaran, p.Periodicidad, p.UltimaGeneracion, {$colActivo},
         a.Cliente, a.RazonSocial, a.Importe, a.Referencia1,
         CASE WHEN a.Albaran IS NULL THEN 0 ELSE 1 END AS PlantillaEncontrada
       {$fromJoin}
@@ -89,14 +90,15 @@ final class AlbaranesPeriodicosConsultaService
 
   public function obtener(string $empresa, string $tipo, int $albaran): ?array
   {
+    $colActivo = AlbaranesPeriodicosEsquema::selectActivo($this->pdo);
     $stmt = $this->pdo->prepare(
-      'SELECT p.Empresa, p.Tipo, p.Albaran, p.Periodicidad, p.UltimaGeneracion,
+      "SELECT p.Empresa, p.Tipo, p.Albaran, p.Periodicidad, p.UltimaGeneracion, {$colActivo},
         a.Cliente, a.RazonSocial, a.Importe, a.Referencia1,
         CASE WHEN a.Albaran IS NULL THEN 0 ELSE 1 END AS PlantillaEncontrada
        FROM AlbaranesPeriodicos p
        LEFT JOIN AlbaranesVentasCab a
          ON a.Empresa = p.Empresa AND a.Tipo = p.Tipo AND a.Albaran = p.Albaran
-       WHERE RTRIM(p.Empresa) = :e AND RTRIM(p.Tipo) = :t AND p.Albaran = :a'
+       WHERE RTRIM(p.Empresa) = :e AND RTRIM(p.Tipo) = :t AND p.Albaran = :a"
     );
     $stmt->execute([
       'e' => trim($empresa),
@@ -120,15 +122,20 @@ final class AlbaranesPeriodicosConsultaService
     $periodicidad = (int) ($row['Periodicidad'] ?? 0);
     $ultimaRaw = $row['UltimaGeneracion'] ?? null;
     $ultimaIso = $this->formatDateTime($ultimaRaw);
+    // Sin columna Activo (migracion 015 pendiente) todas las bases son activas.
+    $activo = !array_key_exists('Activo', $row) || (bool) $row['Activo'];
 
     return [
       'empresa' => trim((string) ($row['Empresa'] ?? '')),
       'tipo' => trim((string) ($row['Tipo'] ?? '')),
       'albaran' => (int) ($row['Albaran'] ?? 0),
+      'activo' => $activo,
       'periodicidad' => $periodicidad,
       'periodicidadLabel' => self::periodicidadLabel($periodicidad),
       'ultimaGeneracion' => $ultimaIso,
-      'proximaGeneracion' => self::calcularProximaGeneracion($ultimaIso, $periodicidad),
+      'proximaGeneracion' => $activo
+        ? self::calcularProximaGeneracion($ultimaIso, $periodicidad)
+        : null,
       'plantillaEncontrada' => ((int) ($row['PlantillaEncontrada'] ?? 0)) === 1,
       'cliente' => trim((string) ($row['Cliente'] ?? '')),
       'razonSocial' => trim((string) ($row['RazonSocial'] ?? '')),

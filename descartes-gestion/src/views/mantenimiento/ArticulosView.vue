@@ -1,15 +1,12 @@
 <script setup lang="ts">
 import MantenimientoListadoButton from '@/components/mantenimiento/MantenimientoListadoButton.vue'
 import { computed, nextTick, onActivated, onMounted, onUnmounted, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import { extractApiError, useMantenimiento } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
-import {
-  aplicarFiltrosColumnas,
-  filtrosIniciales,
-  type ColumnFilter,
-} from '@/composables/useGridColumnFilters'
+import { filtrosIniciales, type ColumnFilter } from '@/composables/useGridColumnFilters'
 import { articuloColumns, 
   articuloFilaVacia,
   clonarArticuloFila,
@@ -32,6 +29,7 @@ import ArticuloEscandalloModal from '@/components/articulos/ArticuloEscandalloMo
 import ArticuloEtiquetasRapidaModal from '@/components/articulos/ArticuloEtiquetasRapidaModal.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
+import { useArticulosBusquedaStore } from '@/stores/articulosBusqueda'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { resolverArticulo } from '@/api/articulos'
 import { createBarcodeScanWatcher } from '@/composables/useBarcodeScanWatcher'
@@ -54,9 +52,22 @@ let filtroServidorTimer: ReturnType<typeof setTimeout> | null = null
 const route = useRoute()
 const router = useRouter()
 const { puede } = usePermisos()
-const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } =
-  useMantenimiento(() => ENTIDAD)
+const {
+  items,
+  total,
+  page,
+  pageSize,
+  loading,
+  error,
+  listar,
+  cancelarListado,
+  obtener,
+  crear,
+  actualizar,
+  eliminar,
+} = useMantenimiento(() => ENTIDAD)
 const puestoContexto = usePuestoContextoStore()
+const busqueda = useArticulosBusquedaStore()
 
 const puedeCrear = computed(() => puede(MODULO, 'crear'))
 const puedeEditar = computed(() => puede(MODULO, 'editar'))
@@ -66,7 +77,8 @@ const puedeEtiquetasVer = computed(() => puede('etiquetas', 'ver'))
 const puedeEtiquetasImprimir = computed(() => puede('etiquetas', 'editar'))
 const puedeVer = computed(() => puede(MODULO, 'ver'))
 
-const vista = ref<'grid' | 'ficha'>('grid')
+/** Al recargar sobre una ficha, arrancar ya en ficha: evita el salto a la rejilla. */
+const vista = ref<'grid' | 'ficha'>(queryFichaActiva() ? 'ficha' : 'grid')
 const filasTodas = ref<ArticuloFila[]>([])
 const filaNuevaDraft = ref<ArticuloFila>(articuloFilaVacia())
 const filtros = ref<Record<string, ColumnFilter>>(filtrosIniciales(FILTER_KEYS))
@@ -96,14 +108,66 @@ function etiquetaOpcion(
   return sep >= 0 ? hit.label.slice(sep + 3) : hit.label
 }
 
+/** Mismo criterio que VentasListView: «contiene» sobre el texto visible de cada columna. */
+function normalizarBusqueda(texto: string): string {
+  return texto
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+function textoFiltroColumnaArticulo(key: string, fila: ArticuloFila): string {
+  switch (key) {
+    case 'codigo':
+      return String(fila.codigo ?? '')
+    case 'descripcion':
+      return String(fila.descripcion ?? '')
+    case 'familia':
+      return `${String(fila.familia ?? '')} ${etiquetaOpcion(familiaOpciones.value, fila.familia)}`
+    case 'impuestoCodigo':
+      return `${String(fila.impuestoCodigo ?? '')} ${etiquetaOpcion(impuestoOpciones.value, fila.impuestoCodigo)}`
+    case 'proveedorHabitual':
+      return `${String(fila.proveedorHabitual ?? '')} ${etiquetaOpcion(proveedorOpciones.value, fila.proveedorHabitual)}`
+    case 'precioVen1': {
+      const n = Number(fila.precioVen1 ?? fila.precioVenta ?? 0)
+      return Number.isFinite(n) ? n.toFixed(2) : ''
+    }
+    default:
+      return String((fila as Record<string, unknown>)[key] ?? '')
+  }
+}
+
+function filtrosColumnaActivosArticulos(): { key: string; valor: string }[] {
+  const activos: { key: string; valor: string }[] = []
+  for (const key of FILTER_KEYS) {
+    const f = filtros.value[key]
+    if (!f || f.operador === 'sin_filtro') continue
+    const v = String(f.valor ?? '').trim()
+    if (!v) continue
+    activos.push({ key, valor: normalizarBusqueda(v) })
+  }
+  return activos
+}
+
+/** Filas visibles del grid (sin fila *): base de la navegación en ficha, como itemsFiltrados en ventas. */
+const filasFiltradasGrid = computed(() => {
+  const base = filasTodas.value.filter((f) => !f._nuevo)
+  const activos = filtrosColumnaActivosArticulos()
+  if (activos.length === 0) return base
+  return base.filter((fila) =>
+    activos.every(({ key, valor }) =>
+      normalizarBusqueda(textoFiltroColumnaArticulo(key, fila)).includes(valor)
+    )
+  )
+})
+
+watch(filasFiltradasGrid, (lista) => {
+  if (!estaInstanciaEsElGrid()) return
+  busqueda.setNavegacion(lista.map((f) => clonarArticuloFila(f)))
+})
+
 const filas = computed<ArticuloFila[]>(() => {
-  const filtradas = aplicarFiltrosColumnas(filasTodas.value, filtros.value, {
-    extraTexto: {
-      familia: (f) => etiquetaOpcion(familiaOpciones.value, f.familia),
-      impuestoCodigo: (f) => etiquetaOpcion(impuestoOpciones.value, f.impuestoCodigo),
-      proveedorHabitual: (f) => etiquetaOpcion(proveedorOpciones.value, f.proveedorHabitual),
-    },
-  }) as ArticuloFila[]
+  const filtradas = filasFiltradasGrid.value
   if (!puedeCrear.value) return filtradas
   return [...filtradas, filaNuevaDraft.value]
 })
@@ -124,7 +188,13 @@ const modoEdicion = ref(false)
 const esNuevo = ref(false)
 const codigoAutomatico = ref(false)
 const ficha = ref<Record<string, unknown>>({})
-const indiceFicha = ref(-1)
+
+const { items: navItems } = storeToRefs(busqueda)
+const indiceNav = computed(() => {
+  if (esNuevo.value || !ficha.value.codigo) return -1
+  return busqueda.indiceDe(ficha.value)
+})
+
 const mostrarFichaPlanta = ref(false)
 const mostrarConsulta = ref(false)
 const mostrarEans = ref(false)
@@ -221,7 +291,11 @@ function quitarFilaNueva() {
 onMounted(async () => {
   if (!puedeVer.value) return
   await cargarOpciones()
-  await cargar()
+  // El layout cachea por fullPath: abrir la ficha crea otra instancia con los filtros
+  // vacios. Sin listado no se pisa la navegacion que dejo el grid (store) con 200 filas.
+  if (!queryFichaActiva() || navItems.value.length === 0) {
+    await cargar()
+  }
   await restaurarDesdeRuta()
 })
 
@@ -320,11 +394,27 @@ function qBusquedaServidor(): string {
   return ''
 }
 
+/** Solo la instancia que muestra la rejilla manda sobre la lista que recorre la ficha. */
+function estaInstanciaEsElGrid(): boolean {
+  return vista.value === 'grid' && !queryFichaActiva()
+}
+
+function publicarNavegacionDesdeGrid() {
+  busqueda.setNavegacion(filasFiltradasGrid.value.map((f) => clonarArticuloFila(f)))
+}
+
 async function recargarListadoGrid() {
   mensaje.value = null
   const q = qBusquedaServidor()
   await listar(q ? { q } : {})
   mapFilasDesdeApi()
+  busqueda.setResultado({
+    items: filasTodas.value.map((f) => clonarArticuloFila(f)),
+    total: total.value,
+  })
+  if (estaInstanciaEsElGrid() || navItems.value.length === 0) {
+    publicarNavegacionDesdeGrid()
+  }
   filaNuevaDraft.value = articuloFilaVacia()
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
 }
@@ -442,12 +532,21 @@ function seleccionar(index: number) {
 
 
 async function abrirFichaPorCodigo(codigo: string, opts?: { sincronizarRuta?: boolean }) {
+  if (filtroServidorTimer !== null) {
+    clearTimeout(filtroServidorTimer)
+    filtroServidorTimer = null
+  }
+  // Al abrir desde la rejilla, la lista visible (p. ej. 3 filas) pasa a ser la navegacion.
+  if (estaInstanciaEsElGrid()) {
+    cancelarListado()
+    publicarNavegacionDesdeGrid()
+  }
+
   try {
     ficha.value = await obtener(codigo)
     if (ficha.value.precioVen1 == null && ficha.value.precioVenta != null) {
       ficha.value.precioVen1 = ficha.value.precioVenta
     }
-    indiceFicha.value = filas.value.findIndex((f) => String(f.codigo) === codigo)
     modoEdicion.value = false
     esNuevo.value = false
     codigoAutomatico.value = false
@@ -460,6 +559,7 @@ async function abrirFichaPorCodigo(codigo: string, opts?: { sincronizarRuta?: bo
     }
   } catch (e: unknown) {
     mensaje.value = extractApiError(e, 'No se pudo cargar la ficha')
+    if (!ficha.value.codigo) volverAlGrid()
   }
 }
 
@@ -503,7 +603,6 @@ async function onNuevoFicha() {
   ficha.value = vacio
   esNuevo.value = true
   modoEdicion.value = true
-  indiceFicha.value = -1
   tabActiva.value = 'general'
   vista.value = 'ficha'
   await sincronizarRutaFicha()
@@ -540,13 +639,13 @@ async function onGuardarFicha() {
       if (emp) payload.empresaCodigo = emp
       const creado = await crear(payload)
       mensaje.value = 'Articulo creado correctamente'
+      busqueda.upsertArticulo(clonarArticuloFila(creado))
       await cargar()
-      const idx = filas.value.findIndex((a) => String(a.codigo) === String(creado.codigo))
-      if (idx >= 0) await abrirFicha(idx)
-      else volverAlGrid()
+      await abrirFichaPorCodigo(String(creado.codigo))
     } else {
       await actualizar(String(ficha.value.codigo), ficha.value)
       mensaje.value = 'Articulo actualizado'
+      busqueda.upsertArticulo(clonarArticuloFila(ficha.value))
       await cargar()
       await abrirFichaPorCodigo(String(ficha.value.codigo))
     }
@@ -572,7 +671,9 @@ async function onBorrarFicha() {
   if (!puedeEliminar.value || esNuevo.value || !ficha.value.codigo) return
   if (!confirm('Dar de baja este articulo?')) return
   try {
-    await eliminar(String(ficha.value.codigo))
+    const codigo = String(ficha.value.codigo)
+    await eliminar(codigo)
+    busqueda.quitar(codigo)
     mensaje.value = 'Articulo dado de baja'
     await cargar()
     volverAlGrid()
@@ -654,28 +755,18 @@ function onBloqueo() {
   mensaje.value = 'Bloqueos de compra/venta estan en la pestana Parametros'
 }
 
-async function onPrimero() {
-  const primera = filas.value.find((f) => !f._nuevo)
-  if (primera?.codigo) await abrirFichaPorCodigo(String(primera.codigo))
+function navArticulos(dir: 'primero' | 'anterior' | 'siguiente' | 'ultimo') {
+  const lista = navItems.value
+  if (!lista.length) return
+  let i = indiceNav.value
+  if (i < 0) i = 0
+  if (dir === 'primero') i = 0
+  else if (dir === 'ultimo') i = lista.length - 1
+  else if (dir === 'anterior') i = Math.max(0, i - 1)
+  else i = Math.min(lista.length - 1, i + 1)
+  const fila = lista[i]
+  if (fila?.codigo) void abrirFichaPorCodigo(String(fila.codigo))
 }
-async function onAnterior() {
-  if (indiceFicha.value <= 0) return
-  const fila = filas.value[indiceFicha.value - 1]
-  if (fila?.codigo && !fila._nuevo) await abrirFichaPorCodigo(String(fila.codigo))
-}
-async function onSiguiente() {
-  const max = totalFicha.value - 1
-  if (indiceFicha.value < 0 || indiceFicha.value >= max) return
-  const fila = filas.value[indiceFicha.value + 1]
-  if (fila?.codigo && !fila._nuevo) await abrirFichaPorCodigo(String(fila.codigo))
-}
-async function onUltimo() {
-  const visibles = filas.value.filter((f) => !f._nuevo)
-  const ultima = visibles[visibles.length - 1]
-  if (ultima?.codigo) await abrirFichaPorCodigo(String(ultima.codigo))
-}
-
-const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
 </script>
 
 <template>
@@ -784,8 +875,8 @@ const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
             :puede-guardar="puedeCrear || puedeEditar"
             :puede-etiquetas="puedeEtiquetasVer || puedeEtiquetasImprimir"
             :modo-edicion="modoEdicion || esNuevo"
-            :indice="indiceFicha < 0 ? undefined : indiceFicha"
-            :total="totalFicha"
+            :indice="indiceNav < 0 ? undefined : indiceNav"
+            :total="navItems.length"
             :loading="loading"
             @nuevo="onNuevoFicha"
             @modificar="onModificarFicha"
@@ -793,10 +884,10 @@ const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
             @buscar="volverAlGrid"
             @guardar="onGuardarFicha"
             @cancelar="onCancelarFicha"
-            @primero="onPrimero"
-            @anterior="onAnterior"
-            @siguiente="onSiguiente"
-            @ultimo="onUltimo"
+            @primero="navArticulos('primero')"
+            @anterior="navArticulos('anterior')"
+            @siguiente="navArticulos('siguiente')"
+            @ultimo="navArticulos('ultimo')"
             @escandallo="onEscandallo"
             @eans="onEans"
             @etiquetas="onEtiquetas"

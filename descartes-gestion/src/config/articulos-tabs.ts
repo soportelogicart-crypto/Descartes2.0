@@ -136,7 +136,9 @@ export const articuloTabs: ArticuloTab[] = [
       },
       {
         title: 'Resumen stock',
-        columns: 4,
+        columns: 2,
+        labelWidth: '6.75rem',
+        inputWidth: '100%',
         fields: [
           inline('pendienteRecibir', 'Pend. recibir', { type: 'number', readOnly: true }),
           inline('pendienteEntrega', 'Reservado / ped.', { type: 'number', readOnly: true }),
@@ -177,6 +179,8 @@ export const articuloTabs: ArticuloTab[] = [
       {
         title: 'Precios',
         columns: 1,
+        labelWidth: '10.25rem',
+        inputWidth: '100%',
         fields: [
           inline('precioVen1', 'PVP 1', { type: 'number' }),
           inline('precioVen2', 'PVP 2', { type: 'number' }),
@@ -192,6 +196,8 @@ export const articuloTabs: ArticuloTab[] = [
       {
         title: 'Costes',
         columns: 1,
+        labelWidth: '10.25rem',
+        inputWidth: '100%',
         fields: [
           inline('precioBase', 'Base', { type: 'number' }),
           inline('precioUltimo', 'Ultimo CT', { type: 'number' }),

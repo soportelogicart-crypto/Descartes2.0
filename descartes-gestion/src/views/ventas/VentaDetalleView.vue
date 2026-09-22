@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   actualizarVenta,
@@ -896,7 +896,12 @@ async function cargar() {
 
   const esRutaNuevo = route.name === 'ventas-nuevo'
   if (esRutaNuevo) {
-    iniciarNuevaVenta()
+    // KeepAlive: al volver de otra pestaña no borrar borrador (cliente, líneas…).
+    if (!esNuevo.value) {
+      iniciarNuevaVenta()
+    } else {
+      error.value = null
+    }
     return
   }
 
@@ -911,13 +916,27 @@ async function cargar() {
     return
   }
 
+  const empresaRuta = String(route.params.empresa ?? '').trim()
+  const tipoRuta = String(route.params.tipo ?? '').trim()
+  const albaranRuta = Number(route.params.albaran)
+  if (
+    ficha.value &&
+    (modoEdicion.value || esNuevo.value) &&
+    String(ficha.value.empresa ?? '').trim() === empresaRuta &&
+    String(ficha.value.tipo ?? '').trim() === tipoRuta &&
+    Number(ficha.value.albaran) === albaranRuta
+  ) {
+    error.value = null
+    return
+  }
+
   loading.value = true
   error.value = null
   try {
     const data = await obtenerVenta(
-      String(route.params.empresa),
-      String(route.params.tipo),
-      Number(route.params.albaran)
+      empresaRuta,
+      tipoRuta,
+      albaranRuta
     )
     if (!esEstaInstanciaActiva()) return
     aplicarDetalle(data)
@@ -2435,6 +2454,11 @@ watch(
 )
 
 onMounted(() => {
+  void cargar()
+})
+
+onActivated(() => {
+  if (!esEstaInstanciaActiva()) return
   void cargar()
 })
 </script>

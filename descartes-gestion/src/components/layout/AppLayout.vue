@@ -165,6 +165,15 @@ const puestosItems = computed(() =>
   }))
 )
 
+/**
+ * Clave de KeepAlive. En mantenimiento la rejilla y la ficha son la misma vista con
+ * distinta query: incluirla crearia una instancia por articulo y la pantalla parpadea
+ * (vuelve a la rejilla) al pasar de ficha con las flechas.
+ */
+function claveVistaCacheada(r: { path: string; fullPath: string }): string {
+  return r.path.startsWith('/mantenimiento/') ? r.path : r.fullPath
+}
+
 const articulosActivo = computed(() => esRutaArticulos(route.path))
 const clientesActivo = computed(() => esRutaClientes(route.path))
 const puestosActivo = computed(() => esRutaPuestos(route.path))
@@ -590,7 +599,7 @@ async function logout() {
       <main class="content" :class="{ 'content--flush': route.meta.contentFlush }">
         <RouterView v-slot="{ Component, route: r }">
           <KeepAlive :max="8">
-            <component :is="Component" :key="r.fullPath" />
+            <component :is="Component" :key="claveVistaCacheada(r)" />
           </KeepAlive>
         </RouterView>
       </main>

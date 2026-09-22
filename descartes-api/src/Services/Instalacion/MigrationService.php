@@ -27,6 +27,7 @@ final class MigrationService
     '008-puestos-formato-etiquetas.sql',
     '009-tipos-calculo-fidelizacion.sql',
     '010-permisos-albaranes-periodicos.sql',
+    '015-albaranes-periodicos-activo.sql',
   ];
 
   /**

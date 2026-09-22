@@ -41,6 +41,15 @@ const modalOpen = ref(false)
 const busquedaInicial = ref('')
 
 const maxLen = computed(() => maxLengthLookup(props.entidad, props.maxLength))
+
+/**
+ * Ancho de la caja del codigo segun su longitud maxima: cuentas contables (10)
+ * no caben en el ancho por defecto. Un `--lookup-codigo-w` del padre sigue mandando.
+ */
+const anchoCodigo = computed(() => {
+  const chars = Math.min(Math.max(maxLen.value ?? 6, 3), 12)
+  return `calc(${chars} * 0.62em + 1rem)`
+})
 const codigo = computed(() => {
   const v = props.modelValue
   if (v == null || v === '') return ''
@@ -118,7 +127,11 @@ const tituloBuscar = computed(() => props.tituloModal ?? `Buscar ${props.entidad
 </script>
 
 <template>
-  <div class="lookup-row" :class="{ compact, 'variant-combo': variant === 'combo' }">
+  <div
+    class="lookup-row"
+    :class="{ compact, 'variant-combo': variant === 'combo' }"
+    :style="{ '--lookup-codigo-auto': anchoCodigo }"
+  >
     <div
       v-if="variant === 'combo'"
       class="lookup-combo"
@@ -195,7 +208,7 @@ const tituloBuscar = computed(() => props.tituloModal ?? `Buscar ${props.entidad
   flex: 1;
   min-width: 0;
   display: grid;
-  grid-template-columns: var(--lookup-codigo-w, 3.35rem) minmax(0, 1fr);
+  grid-template-columns: var(--lookup-codigo-w, max(3.35rem, var(--lookup-codigo-auto, 3.35rem))) minmax(0, 1fr);
   align-items: center;
   min-height: 1.625rem;
   border: 1px solid #94a3b8;
@@ -207,7 +220,7 @@ const tituloBuscar = computed(() => props.tituloModal ?? `Buscar ${props.entidad
 
 .lookup-row.compact .lookup-combo {
   min-height: 1.45rem;
-  grid-template-columns: var(--lookup-codigo-w, 2.75rem) minmax(0, 1fr);
+  grid-template-columns: var(--lookup-codigo-w, max(2.75rem, var(--lookup-codigo-auto, 2.75rem))) minmax(0, 1fr);
 }
 
 .lookup-combo-readonly {
@@ -233,7 +246,7 @@ const tituloBuscar = computed(() => props.tituloModal ?? `Buscar ${props.entidad
 }
 
 .lookup-row:not(.variant-combo) .lookup-combo-inline {
-  grid-template-columns: var(--lookup-codigo-w, 4rem) minmax(0, 1fr);
+  grid-template-columns: var(--lookup-codigo-w, max(4rem, var(--lookup-codigo-auto, 4rem))) minmax(0, 1fr);
 }
 
 .lookup-row:not(.variant-combo) .lookup-combo .lookup-codigo {

@@ -83,7 +83,9 @@ const puedeMostrarEliminar = computed(
 )
 
 const soloLecturaFicha = computed(() => !modoEdicion.value && !esNuevo.value)
-const totalFicha = computed(() => filasTodas.value.filter((f) => !f._nuevo).length)
+/** La ficha recorre lo que se ve en la rejilla: si la busqueda deja 3 filas, el contador es x/3. */
+const filasNavegacion = computed(() => filas.value.filter((f) => !f._nuevo))
+const totalFicha = computed(() => filasNavegacion.value.length)
 const puedeGuardarFicha = computed(
   () => (puedeCrear.value || puedeEditar.value) && (modoEdicion.value || esNuevo.value)
 )
@@ -167,7 +169,7 @@ async function onGuardarGrid() {
 async function abrirFichaPorCodigo(codigo: string) {
   try {
     ficha.value = await obtener(codigo)
-    indiceFicha.value = filasTodas.value.findIndex((f) => String(f.codigo) === codigo)
+    indiceFicha.value = filasNavegacion.value.findIndex((f) => String(f.codigo) === codigo)
     modoEdicion.value = false
     esNuevo.value = false
     vista.value = 'ficha'
@@ -268,24 +270,24 @@ function volverAlGrid() {
 
 async function onPrimero() {
   if (totalFicha.value === 0) return
-  const fila = filasTodas.value[0]
+  const fila = filasNavegacion.value[0]
   if (fila?.codigo != null) await abrirFichaPorCodigo(String(fila.codigo))
 }
 async function onAnterior() {
   if (indiceFicha.value <= 0) return
-  const fila = filasTodas.value[indiceFicha.value - 1]
+  const fila = filasNavegacion.value[indiceFicha.value - 1]
   if (fila?.codigo != null) await abrirFichaPorCodigo(String(fila.codigo))
 }
 async function onSiguiente() {
   const max = totalFicha.value - 1
   if (indiceFicha.value < 0 || indiceFicha.value >= max) return
-  const fila = filasTodas.value[indiceFicha.value + 1]
+  const fila = filasNavegacion.value[indiceFicha.value + 1]
   if (fila?.codigo != null) await abrirFichaPorCodigo(String(fila.codigo))
 }
 async function onUltimo() {
   const max = totalFicha.value - 1
   if (max < 0) return
-  const fila = filasTodas.value[max]
+  const fila = filasNavegacion.value[max]
   if (fila?.codigo != null) await abrirFichaPorCodigo(String(fila.codigo))
 }
 </script>

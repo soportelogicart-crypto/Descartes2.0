@@ -34,6 +34,7 @@ const FILTER_KEYS = [
   'cliente',
   'razonSocial',
   'albaran',
+  'estadoActivo',
   'periodicidadLabel',
   'ultimaGeneracionFmt',
   'proximaGeneracionFmt',
@@ -129,6 +130,7 @@ const editForm = reactive({
   presetPeriodicidad: 30,
   periodicidadCustom: 30,
   ultimaGeneracion: '',
+  activo: true,
 })
 
 function normalizarTexto(texto: string) {
@@ -171,6 +173,7 @@ const periodicidadAdd = computed(() =>
 const periodicidadEdit = computed(() =>
   editForm.presetPeriodicidad === 0 ? editForm.periodicidadCustom : editForm.presetPeriodicidad
 )
+const filaPausada = computed(() => filaSeleccionada.value?.activo === false)
 
 function fmtFecha(iso: string | null | undefined): string {
   if (!iso) return ''
@@ -213,6 +216,8 @@ function aFilaGrid(item: AlbaranPeriodicoListItem): GridFila {
     albaran: item.albaran,
     cliente: item.cliente,
     razonSocial: item.razonSocial,
+    activo: item.activo,
+    estadoActivo: item.activo ? 'Activa' : 'Pausada',
     periodicidad: item.periodicidad,
     periodicidadLabel: item.periodicidadLabel,
     ultimaGeneracion: item.ultimaGeneracion,
@@ -407,6 +412,7 @@ function onEditar(index?: number) {
   const dias = Number(fila.periodicidad ?? 30)
   editForm.presetPeriodicidad = presetDePeriodicidad(dias)
   editForm.periodicidadCustom = dias > 0 ? dias : 30
+  editForm.activo = fila.activo !== false
   editForm.ultimaGeneracion = String(fila.ultimaGeneracion ?? '').slice(0, 10)
     || new Date().toISOString().slice(0, 10)
   editOpen.value = true
@@ -425,12 +431,38 @@ async function guardarEdicion() {
     await actualizarAlbaranPeriodico(editForm.empresa, editForm.tipo, editForm.albaran, {
       periodicidad: periodicidadEdit.value,
       ultimaGeneracion: editForm.ultimaGeneracion,
+      activo: editForm.activo,
     })
     editOpen.value = false
-    mensaje.value = 'Base periódica actualizada'
+    mensaje.value = editForm.activo
+      ? 'Base periódica actualizada'
+      : 'Base periódica pausada: conserva su configuración, pero no generará'
     await cargar()
   } catch (e: unknown) {
     mensaje.value = extractApiError(e, 'No se pudo actualizar')
+  } finally {
+    saving.value = false
+  }
+}
+
+/** Solo cambia Activo: la periodicidad y la fecha base se quedan como están. */
+async function onPausarReanudar() {
+  if (!puedeEditar.value) return
+  const f = filaSeleccionada.value
+  if (!f) return
+  const activar = filaPausada.value
+  saving.value = true
+  mensaje.value = null
+  try {
+    await actualizarAlbaranPeriodico(String(f.empresa), String(f.tipo), Number(f.albaran), {
+      activo: activar,
+    })
+    mensaje.value = activar
+      ? `Base ${f.tipo}/${f.albaran} reanudada con su periodicidad de siempre.`
+      : `Base ${f.tipo}/${f.albaran} pausada: Gen.Alb la omitirá hasta que la reactive.`
+    await cargar()
+  } catch (e: unknown) {
+    mensaje.value = extractApiError(e, activar ? 'No se pudo reanudar' : 'No se pudo pausar')
   } finally {
     saving.value = false
   }
@@ -576,6 +608,20 @@ async function generarAhora() {
             @click="onEditar()"
           >
             Editar
+          </button>
+          <button
+            v-if="puedeEditar"
+            type="button"
+            class="tool-btn"
+            :disabled="!filaSeleccionada || saving || loading"
+            :title="
+              filaPausada
+                ? 'Volver a generar esta base periódica'
+                : 'Dejar de generar sin borrar la base periódica'
+            "
+            @click="onPausarReanudar()"
+          >
+            {{ filaPausada ? 'Reanudar' : 'Pausar' }}
           </button>
           <button
             type="button"
@@ -761,6 +807,15 @@ async function generarAhora() {
               {{ editForm.razonSocial }}
             </p>
 
+            <label class="check-activo">
+              <input v-model="editForm.activo" type="checkbox" />
+              <span>Activo</span>
+              <small class="ayuda">
+                Desmarcado, la base queda pausada: mantiene periodicidad y fecha base, pero
+                Gen.Alb no genera nada hasta que la vuelva a marcar.
+              </small>
+            </label>
+
             <label>
               Preset periodicidad
               <select v-model.number="editForm.presetPeriodicidad">
@@ -778,6 +833,7 @@ async function generarAhora() {
               <input v-model="editForm.ultimaGeneracion" type="date" />
               <small class="ayuda">
                 Próxima generación: <strong>{{ proximaEdit || '—' }}</strong>
+                <template v-if="!editForm.activo"> (no se generará mientras esté pausada)</template>
               </small>
             </label>
 
@@ -992,6 +1048,32 @@ async function generarAhora() {
   border: 1px solid #94a3b8;
   border-radius: 4px;
   font-size: 0.85rem;
+}
+
+.check-activo {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.15rem 0.45rem;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.check-activo input[type='checkbox'] {
+  width: 0.95rem;
+  height: 0.95rem;
+  margin: 0;
+  padding: 0;
+}
+
+.check-activo > span {
+  font-weight: 600;
+}
+
+.check-activo .ayuda {
+  grid-column: 2;
+  margin-top: 0;
 }
 
 .bloque {
