@@ -114,7 +114,7 @@ final class VentaConsultaService
       'SELECT Empresa, Tipo, Albaran, Fecha, Cliente, RazonSocial, RazonSocial2, NIF, Puesto, Vendedor,
               Representante, Transporte, DireccionEnvio, PoblacionEnvio, CodigoPostalEnvio,
               ProvinciaEnvio, PaisEnvio, Telefono, Telefono2, Fax, Email, Almacen, Pedido,
-              Referencia1, Referencia2, NumeroDeSerie, SujetoPasivo, Portes, Estado, Impreso,
+              Referencia1, Referencia2, NumeroDeSerie, Observaciones, SujetoPasivo, Portes, Estado, Impreso,
               Importe, Factura, FacturaTipo, Sesion, FechaEntrega, ImporteDtos, PjeDto,
               Fpago1, Fpago2, Fpago3, ImpFpago1, ImpFpago2,
               ImporteBase1, ImporteBase2, ImporteBase3, ImporteBase4, ImporteBase5, ImporteBase6,
@@ -173,6 +173,7 @@ final class VentaConsultaService
     $detalle['referencia1'] = $cab['Referencia1'] ?? null;
     $detalle['referencia2'] = $cab['Referencia2'] ?? null;
     $detalle['numeroDeSerie'] = $cab['NumeroDeSerie'] !== null ? trim((string) $cab['NumeroDeSerie']) : null;
+    $detalle['observaciones'] = isset($cab['Observaciones']) ? trim((string) $cab['Observaciones']) : null;
     $detalle['sujetoPasivo'] = !empty($cab['SujetoPasivo']);
     $detalle['portes'] = $cab['Portes'] ?? null;
     $detalle['fechaEntrega'] = $this->fmtDate($cab['FechaEntrega'] ?? null);
@@ -187,6 +188,7 @@ final class VentaConsultaService
     $detalle['lineas'] = $lineas;
     $this->enriquecerDatosImpresion($detalle);
     $this->enriquecerFacturaAbono($detalle);
+    $this->enriquecerAlbaranesFactura($detalle);
 
     return $detalle;
   }
@@ -677,6 +679,62 @@ final class VentaConsultaService
     }
 
     return $empresa;
+  }
+
+  /**
+   * Albaranes de venta agrupados en la misma factura o ticket (copia «Otra venta»).
+   *
+   * @param array<string, mixed> $detalle
+   */
+  private function enriquecerAlbaranesFactura(array &$detalle): void
+  {
+    $detalle['albaranesFactura'] = [];
+    $factura = (int) ($detalle['factura'] ?? 0);
+    $ft = strtoupper(trim((string) ($detalle['facturaTipo'] ?? '')));
+    if ($factura <= 0 || !in_array($ft, ['F', 'T'], true)) {
+      return;
+    }
+    $empresa = trim((string) ($detalle['empresa'] ?? ''));
+    if ($empresa === '') {
+      return;
+    }
+    $detalle['albaranesFactura'] = $this->listarAlbaranesMismaFactura($empresa, $ft, $factura);
+  }
+
+  /**
+   * @return list<array{empresa: string, tipo: string, albaran: int, fecha: string|null, cliente: string, importe: float}>
+   */
+  private function listarAlbaranesMismaFactura(string $empresa, string $facturaTipo, int $factura): array
+  {
+    try {
+      $sql = "SELECT a.Empresa, a.Tipo, a.Albaran, a.Fecha, a.Cliente, a.Importe
+              FROM AlbaranesVentasCab a
+              WHERE a.FacturaTipo = :ft AND a.Factura = :f
+                AND (a.EmpresaFacturacion = :e OR (ISNULL(a.EmpresaFacturacion, '') = '' AND a.Empresa = :e2))
+              ORDER BY a.Albaran";
+      $st = $this->pdo->prepare($sql);
+      $st->execute(['ft' => $facturaTipo, 'f' => $factura, 'e' => $empresa, 'e2' => $empresa]);
+    } catch (\Throwable $e) {
+      $sql = "SELECT a.Empresa, a.Tipo, a.Albaran, a.Fecha, a.Cliente, a.Importe
+              FROM AlbaranesVentasCab a
+              WHERE a.Empresa = :e AND a.FacturaTipo = :ft AND a.Factura = :f
+              ORDER BY a.Albaran";
+      $st = $this->pdo->prepare($sql);
+      $st->execute(['e' => $empresa, 'ft' => $facturaTipo, 'f' => $factura]);
+    }
+    $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $out = [];
+    foreach ($rows as $r) {
+      $out[] = [
+        'empresa' => trim((string) ($r['Empresa'] ?? '')),
+        'tipo' => trim((string) ($r['Tipo'] ?? '')),
+        'albaran' => (int) ($r['Albaran'] ?? 0),
+        'fecha' => $this->fmtDate($r['Fecha'] ?? null),
+        'cliente' => trim((string) ($r['Cliente'] ?? '')),
+        'importe' => round((float) ($r['Importe'] ?? 0), 2),
+      ];
+    }
+    return $out;
   }
 
   /**

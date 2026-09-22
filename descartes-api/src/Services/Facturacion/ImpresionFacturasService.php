@@ -495,7 +495,6 @@ final class ImpresionFacturasService
           ON l.Empresa = a.Empresa AND l.Tipo = a.Tipo AND l.Albaran = a.Albaran
         WHERE a.FacturaTipo = :ft AND a.Factura = :f
           AND (a.EmpresaFacturacion = :e OR (ISNULL(a.EmpresaFacturacion, '') = '' AND a.Empresa = :e2))
-          AND (l.Articulo IS NULL OR l.Articulo <> 'NO')
         ORDER BY a.Albaran, l.NroLin";
       $stmt = $this->pdo->prepare($sql);
       $stmt->execute(['ft' => $facturaTipo, 'f' => $factura, 'e' => $empresa, 'e2' => $empresa]);
@@ -510,7 +509,6 @@ final class ImpresionFacturasService
           INNER JOIN AlbaranesVentasLin l
             ON l.Empresa = a.Empresa AND l.Tipo = a.Tipo AND l.Albaran = a.Albaran
           WHERE a.Empresa = :e AND a.FacturaTipo = :ft AND a.Factura = :f
-            AND (l.Articulo IS NULL OR l.Articulo <> 'NO')
           ORDER BY a.Albaran, l.NroLin";
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute(['e' => $empresa, 'ft' => $facturaTipo, 'f' => $factura]);
@@ -617,9 +615,25 @@ final class ImpresionFacturasService
     if ($lineas !== []) {
       $rows = [];
       foreach ($lineas as $l) {
+        $art = trim((string) ($l['Articulo'] ?? ''));
+        if (strtoupper($art) === 'NO') {
+          $nota = trim((string) ($l['Descripcion'] ?? ''));
+          if ($nota === '') {
+            continue;
+          }
+          $rows[] = [
+            (string) ($l['Albaran'] ?? ''),
+            '',
+            $this->trunc($nota, 80),
+            '',
+            '',
+            '',
+          ];
+          continue;
+        }
         $rows[] = [
           (string) ($l['Albaran'] ?? ''),
-          trim((string) ($l['Articulo'] ?? '')),
+          $art,
           $this->trunc(trim((string) ($l['Descripcion'] ?? '')), 28),
           $this->num((float) ($l['Cantidad'] ?? 0)),
           $this->num((float) ($l['Precio'] ?? 0)),

@@ -13,6 +13,9 @@ contextBridge.exposeInMainWorld('descartes', {
   clearEquipoConfig: () => ipcRenderer.invoke('equipo:clear'),
   getHostname: () => ipcRenderer.invoke('equipo:hostname'),
   logoEmpresa: (codigo) => ipcRenderer.invoke('logos:empresa', codigo),
+  guardarLogoEmpresa: (codigo) => ipcRenderer.invoke('logos:guardar', codigo),
+  abrirCarpetaLogos: () => ipcRenderer.invoke('logos:abrirCarpeta'),
+  getLogosDir: () => ipcRenderer.invoke('logos:directorio'),
 
   listPrinters: () => ipcRenderer.invoke('peripheral:listPrinters'),
   printTicket: (payload) => ipcRenderer.invoke('peripheral:printTicket', payload),

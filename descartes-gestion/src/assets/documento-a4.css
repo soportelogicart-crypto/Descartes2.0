@@ -78,20 +78,28 @@
 .titulo {
   display: flex;
   flex-direction: column;
-  gap: 0.1rem;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  justify-content: flex-start;
+  gap: 0.15rem;
+  height: 100%;
+  text-align: right;
 }
 
 .titulo strong {
   color: var(--block-accent, #14509b);
   font-size: 1.05rem;
   letter-spacing: 0.01em;
+  line-height: 1.15;
+  white-space: nowrap;
 }
 
 .titulo em {
   font-style: normal;
   font-weight: 700;
   color: var(--block-accent, #14509b);
-  font-size: 0.68rem;
+  font-size: 0.85em;
+  line-height: 1.15;
 }
 
 /* Etiquetas azules del formato legacy: FACTURA, Cliente, Observaciones… */

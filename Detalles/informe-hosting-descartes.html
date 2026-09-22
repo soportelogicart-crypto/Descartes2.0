@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Informe de hosting y base de datos — Descartes 2.0</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 18mm 16mm 20mm 16mm;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", Calibri, Arial, sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.45;
+      color: #1e293b;
+      margin: 0;
+    }
+    h1 {
+      font-size: 20pt;
+      font-weight: 650;
+      margin: 0 0 6px;
+      color: #0f172a;
+      letter-spacing: -0.02em;
+    }
+    h2 {
+      font-size: 13pt;
+      color: #0f172a;
+      border-bottom: 2px solid #0f172a;
+      padding-bottom: 4px;
+      margin: 22px 0 10px;
+      page-break-after: avoid;
+    }
+    h3 {
+      font-size: 11pt;
+      color: #1e3a5f;
+      margin: 14px 0 6px;
+      page-break-after: avoid;
+    }
+    p { margin: 0 0 8px; }
+    .cover {
+      border-bottom: 4px solid #0f172a;
+      padding-bottom: 14px;
+      margin-bottom: 18px;
+    }
+    .kicker {
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-size: 8.5pt;
+      color: #64748b;
+      font-weight: 600;
+      margin: 0 0 8px;
+    }
+    .meta {
+      color: #475569;
+      font-size: 10pt;
+    }
+    .lead {
+      font-size: 11pt;
+      color: #334155;
+      margin: 12px 0 0;
+    }
+    .box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-left: 4px solid #0f172a;
+      padding: 10px 12px;
+      margin: 10px 0 14px;
+      page-break-inside: avoid;
+    }
+    .box.ok { border-left-color: #166534; background: #f0fdf4; }
+    .box.warn { border-left-color: #b45309; background: #fffbeb; }
+    .flow {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 9pt;
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 12px 14px;
+      white-space: pre;
+      line-height: 1.55;
+      margin: 8px 0 14px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 8px 0 14px;
+      font-size: 9.5pt;
+      page-break-inside: avoid;
+    }
+    th, td {
+      border: 1px solid #cbd5e1;
+      padding: 6px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #0f172a;
+      color: #fff;
+      font-weight: 600;
+    }
+    tr:nth-child(even) td { background: #f8fafc; }
+    ul, ol { margin: 4px 0 10px; padding-left: 20px; }
+    li { margin-bottom: 4px; }
+    code {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 9pt;
+      background: #e2e8f0;
+      padding: 1px 4px;
+    }
+    .muted { color: #64748b; font-size: 9pt; }
+    .footer-note {
+      margin-top: 22px;
+      padding-top: 10px;
+      border-top: 1px solid #cbd5e1;
+      color: #64748b;
+      font-size: 8.5pt;
+    }
+  </style>
+</head>
+<body>
+  <header class="cover">
+    <p class="kicker">Descartes 2.0 · Documento interno</p>
+    <h1>Informe de hosting, API y base de datos</h1>
+    <p class="meta">Fecha: 15 de septiembre de 2026 · Destinatarios: equipo Descartes · Alcance: producción y migración a la nube</p>
+    <p class="lead">
+      Este informe resume cómo funciona hoy la producción, dónde se configura cada URL,
+      qué hay que cambiar si la base y la API pasan a un servidor en la nube, y qué tipo
+      de hosting conviene con unos 200 clientes, manteniendo SQL Server o pasando a MySQL.
+    </p>
+  </header>
+
+  <h2>1. Conclusión recomendada</h2>
+  <div class="box ok">
+    <strong>Seguir con SQL Server</strong> y alojar la API y la base en un <strong>VPS o servidor cloud</strong>
+    (Windows o Linux con SQL Server), no en un hosting web compartido tipo cPanel.
+    La web (Vue) puede seguir en el hosting actual. Pasar a MySQL implicaría reescribir
+    gran parte de la API y migrar los datos de los clientes: más caro y más riesgo que
+    pagar un servidor SQL adecuado.
+  </div>
+
+  <h2>2. Arquitectura actual de producción</h2>
+  <p>
+    El otro PC no se conecta al SQL ni a la IP de casa. Solo abre la web por HTTPS.
+    El hosting reenvía las llamadas de API al XAMPP de casa, y ese PHP es quien habla con SQL Server.
+  </p>
+  <div class="flow">PC con Electron
+  →  https://soportetopay.com/descartes/     (interfaz Vue)
+       →  /descartes/api/*                    (mismo dominio, HTTPS)
+            →  proxy.php en el hosting
+                 →  http://213.96.60.240:9080/descartes-api/public
+                      →  Apache / PHP en XAMPP de casa
+                           →  SQL Server local de esa máquina</div>
+  <p>
+    El router de casa tiene abierto el puerto <strong>9080</strong> (HTTP de la API).
+    El puerto de SQL (1433) no hace falta abrirlo a internet: el SQL solo lo usa PHP en esa misma máquina.
+  </p>
+
+  <h2>3. Dónde se configura cada cosa</h2>
+  <p>Hay tres sitios distintos. Mezclarlos es el error más habitual.</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Qué se apunta</th>
+        <th>Dónde se cambia</th>
+        <th>Valor actual</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>URL de la <strong>aplicación</strong> (pantalla)</td>
+        <td><code>descartes-electron/config.json</code> → <code>appUrl</code> (y el mismo fichero dentro del instalador)</td>
+        <td><code>https://soportetopay.com/descartes/</code></td>
+      </tr>
+      <tr>
+        <td>Ruta de API que usa el navegador</td>
+        <td>Compilado en el <code>dist</code> (<code>VITE_API_BASE_URL=/descartes</code>)</td>
+        <td><code>https://soportetopay.com/descartes/api/...</code></td>
+      </tr>
+      <tr>
+        <td>URL/IP real de la <strong>API PHP</strong></td>
+        <td><code>descartes-gestion/public/proxy.php</code> (línea <code>$backend</code>). El de <code>dist/</code> es una copia del build que se sube al hosting.</td>
+        <td><code>http://213.96.60.240:9080/descartes-api/public</code></td>
+      </tr>
+      <tr>
+        <td>Servidor <strong>SQL</strong> (host, base, usuario)</td>
+        <td>Formulario <strong>Instalación</strong> de Descartes. Se guarda en la API (<code>var/instalacion.json</code> del XAMPP que atiende).</td>
+        <td>Máquina local / red de casa (no es una URL web)</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="box warn">
+    Si se edita solo <code>dist/proxy.php</code> y luego se hace <code>npm run build</code>, el cambio se pierde:
+    hay que modificar <code>public/proxy.php</code>, generar el build y volver a subir <code>proxy.php</code> al hosting.
+  </div>
+
+  <h2>4. Formulario de instalación: no es la URL de la API</h2>
+  <p>
+    La opción <strong>«Base de datos en la nube»</strong> sirve para el <strong>host de SQL Server</strong>
+    (por ejemplo <code>mi-servidor.database.windows.net</code>), más nombre de base, usuario y contraseña.
+    Activa cifrado típico de Azure/SQL en la nube. <strong>No</strong> es el sitio para poner
+    <code>soportetopay.com</code> ni la IP del <code>proxy.php</code>.
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>Escenario</th>
+        <th>proxy.php ($backend)</th>
+        <th>Formulario Instalación</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Hoy: API y SQL en casa</td>
+        <td>IP pública de casa, puerto 9080</td>
+        <td>Servidor local / red (nombre de esa máquina)</td>
+      </tr>
+      <tr>
+        <td>SQL en la nube, API sigue en casa</td>
+        <td>No se toca</td>
+        <td>«Base de datos en la nube» + host SQL</td>
+      </tr>
+      <tr>
+        <td>API y SQL en el mismo servidor cloud</td>
+        <td>URL de esa API PHP</td>
+        <td>Local / red → <code>localhost</code> o nombre de esa máquina</td>
+      </tr>
+      <tr>
+        <td>API en un hosting y SQL en otro (p. ej. Azure SQL)</td>
+        <td>URL de la API PHP</td>
+        <td>«Base de datos en la nube» + host SQL</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Si API y SQL van en la <strong>misma máquina en la nube</strong>, es el esquema más simple:
+    PHP se conecta a <code>localhost</code>. Eso no equivale al hosting actual de la web
+    (<code>soportetopay.com</code>), que hoy solo sirve el frontend y el proxy.
+  </p>
+
+  <h2>5. Por qué un hosting web «normal» no sirve para API + SQL</h2>
+  <p>
+    Descartes usa <strong>SQL Server</strong> y el driver PHP <code>sqlsrv</code>. Un hosting compartido
+    típico (cPanel, Linux, MySQL/MariaDB, 5–15 €/mes) ofrece:
+  </p>
+  <ul>
+    <li>Un sitio web y <strong>pocas bases MySQL</strong> (a menudo 1–20, según tarifa).</li>
+    <li>Casi nunca SQL Server ni extensión <code>sqlsrv</code>.</li>
+    <li>Límites de CPU, procesos PHP y conexiones insuficientes para un TPV/ERP.</li>
+  </ul>
+  <p>
+    Ese tipo de hosting <strong>sí</strong> puede seguir sirviendo la interfaz (como ahora).
+    La API y la base deben ir en un servidor donde se instale PHP con sqlsrv y SQL Server.
+  </p>
+
+  <h2>6. SQL Server o MySQL</h2>
+  <p>
+    Toda la API está escrita en T-SQL de SQL Server: <code>TOP</code>, <code>GETDATE()</code>,
+    <code>IDENTITY_INSERT</code>, <code>ISNULL</code>, esquema <code>dbo</code>, driver <code>sqlsrv</code>,
+    y las bases de los clientes actuales ya son SQL Server (legado Abacus/Descartes).
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th></th>
+        <th>Seguir con SQL Server</th>
+        <th>Pasar a MySQL</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Trabajo de software</td>
+        <td>Ninguno de reescritura. Solo desplegar en el servidor nuevo.</td>
+        <td>Reescribir consultas, migraciones e instalación; meses de trabajo.</td>
+      </tr>
+      <tr>
+        <td>Datos de clientes</td>
+        <td>Se copian o se apuntan al mismo motor.</td>
+        <td>Migración de esquema y datos; riesgo de decimales, fechas y collations.</td>
+      </tr>
+      <tr>
+        <td>Coste de hosting</td>
+        <td>VPS / cloud algo más caro que MySQL compartido.</td>
+        <td>Hosting más barato, pero el desarrollo sale mucho más caro.</td>
+      </tr>
+      <tr>
+        <td>Recomendación</td>
+        <td><strong>Sí, para Descartes 2.0</strong></td>
+        <td>Solo tendría sentido en un producto nuevo, partido de cero.</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="box">
+    Con ~200 clientes, el coste de reescribir y migrar supera con claridad el sobrecoste
+    de un VPS o Azure SQL. <strong>No cambiar de motor ahora.</strong>
+  </div>
+
+  <h2>7. Cómo plantear los ~200 clientes</h2>
+  <p>
+    Doscientos clientes <strong>no</strong> son 200 hostings ni 200 bases en un plan compartido.
+  </p>
+  <ul>
+    <li>
+      <strong>Un Descartes (SaaS, lo más razonable):</strong> una API + <strong>un SQL Server</strong>.
+      Los clientes se separan por empresa dentro de la misma aplicación, como ya hace el producto.
+      Es lo más barato de operar y de copiar.
+    </li>
+    <li>
+      <strong>Una base por cliente:</strong> solo si hace falta aislamiento fuerte (contratos, copias independientes).
+      Entonces: <strong>una instancia SQL con muchas bases</strong> en el mismo VPS, no 200 paneles de hosting.
+    </li>
+  </ul>
+  <p>
+    SQL Server <strong>Express</strong> es gratuito, pero limita a unos 10 GB por base y poca RAM para el motor
+    (~1,4 GB). Vale para empezar o para tiendas pequeñas. Con 200 establecimientos activos y varios TPV
+    a la vez se quedará corto: hará falta Standard, Azure SQL o un servidor bien dimensionado.
+  </p>
+
+  <h2>8. Opciones de hosting y coste orientativo</h2>
+  <p class="muted">Precios de mercado UE, 2026, sin IVA; varían según proveedor (Hetzner, OVH, Azure, AWS, etc.).</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Opción</th>
+        <th>Encaje</th>
+        <th>Coste mensual orientativo</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Hosting compartido (cPanel + MySQL)</td>
+        <td>Solo la web Vue. No para API + SQL Server.</td>
+        <td>5–15 €</td>
+      </tr>
+      <tr>
+        <td>VPS con SQL Server Express</td>
+        <td>Arranque, bases &lt; 10 GB, pocos TPV simultáneos.</td>
+        <td>30–80 €</td>
+      </tr>
+      <tr>
+        <td>VPS / dedicado con SQL Standard o Azure SQL</td>
+        <td>Objetivo para ~200 clientes reales.</td>
+        <td>100–300 € o más, según CPU/RAM y licencia</td>
+      </tr>
+      <tr>
+        <td>Web en soportetopay.com + API/SQL en VPS</td>
+        <td>Misma arquitectura de hoy, cambiando solo <code>$backend</code>.</td>
+        <td>Hosting web barato + coste del VPS</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Un VPS Windows o Linux con SQL Server (8 o más vCPU, 16–32 GB RAM, disco SSD) es el
+    punto de partida serio. Azure SQL o un elastic pool encajan si se prefiere que Microsoft
+    gestione copias, parches y alta disponibilidad.
+  </p>
+
+  <h2>9. Arquitectura objetivo (cuando la base esté en la nube)</h2>
+  <p>Lo más simple y coherente con el producto:</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Pieza</th>
+        <th>Dónde</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Interfaz (Vue / Electron)</td>
+        <td>Puede seguir en <code>soportetopay.com/descartes/</code></td>
+      </tr>
+      <tr>
+        <td>API (PHP + sqlsrv)</td>
+        <td>El mismo servidor cloud que el SQL</td>
+      </tr>
+      <tr>
+        <td>SQL Server</td>
+        <td>Ese mismo servidor → en Instalación: local / red, <code>localhost</code></td>
+      </tr>
+      <tr>
+        <td><code>proxy.php</code> → <code>$backend</code></td>
+        <td>URL HTTP/HTTPS de <strong>esa API</strong> (no el nombre del SQL ni la URL de la web)</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Si más adelante la API se publica en el mismo dominio que la web, se podría dejar de usar el proxy.
+    Hasta entonces, <code>proxy.php</code> sigue siendo el puente HTTPS → API.
+  </p>
+
+  <h2>10. Pasos cuando exista el servidor nuevo</h2>
+  <ol>
+    <li>Instalar PHP (con sqlsrv), Apache o equivalente, y SQL Server en el VPS/cloud.</li>
+    <li>Copiar la API (<code>descartes-api</code>) y configurar Instalación con el SQL de esa máquina.</li>
+    <li>Abrir solo el puerto de la API (HTTPS preferible); no exponer 1433 a internet.</li>
+    <li>Cambiar <code>$backend</code> en <code>public/proxy.php</code>, hacer build y subir <code>proxy.php</code> al hosting de la web.</li>
+    <li>Probar login, un TPV y un documento de venta/compra antes de cortar el XAMPP de casa.</li>
+    <li>Plan de copias: SQL diario + retención; el hosting de la web no sustituye el backup de la base.</li>
+  </ol>
+
+  <h2>11. Resumen para decisión de equipo</h2>
+  <ul>
+    <li><strong>Motor de datos:</strong> SQL Server. No migrar a MySQL en Descartes 2.0.</li>
+    <li><strong>Hosting de la web:</strong> compartido actual, válido.</li>
+    <li><strong>Hosting de API + SQL:</strong> VPS o cloud con SQL Server, no hosting “normal”.</li>
+    <li><strong>200 clientes:</strong> una API y un SQL (separación por empresa), salvo requisito legal de bases aisladas.</li>
+    <li><strong>URL de la API:</strong> <code>proxy.php</code>. <strong>Host SQL:</strong> formulario Instalación.</li>
+  </ul>
+
+  <p class="footer-note">
+    Documento interno Descartes 2.0. Costes orientativos de mercado, no presupuesto de proveedor.
+    No incluye contraseñas ni datos de conexión sensibles. La IP pública actual de casa figura porque
+    ya está en el proxy de producción y es el dato operativo que el equipo debe sustituir al migrar.
+  </p>
+</body>
+</html>

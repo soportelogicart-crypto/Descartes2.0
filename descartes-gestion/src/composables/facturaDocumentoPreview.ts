@@ -83,12 +83,30 @@ export function facturaAPreviewDatos(
         albaranCabecera: `Albarán ${doc.empresa}-${l.albaran} de Fecha ${l.albaranFecha}`,
       })
     }
+    const art = String(l.articulo ?? '').trim()
+    if (art.toUpperCase() === 'NO') {
+      const nota = String(l.descripcion ?? '').trim()
+      if (nota) {
+        lineas.push({
+          articulo: '',
+          descripcion: '',
+          unidades: 0,
+          precio: 0,
+          precioSinIva: 0,
+          dto: 0,
+          pjeIva: 0,
+          importe: 0,
+          pvp: 0,
+          nota,
+        })
+      }
+      continue
+    }
     const pje = Number(l.pjeIva) || 0
     const factor = 1 + pje / 100
-    // Como en ventas: el precio de línea lleva IVA o no según Empresas.SW_IVA.
     const conIva = extras.preciosIvaIncluido || pje <= 0
     lineas.push({
-      articulo: l.articulo,
+      articulo: art,
       descripcion: l.descripcion,
       unidades: Number(l.unidades) || 0,
       precio: Number(l.precio) || 0,

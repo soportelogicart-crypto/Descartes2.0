@@ -72,7 +72,23 @@ export type DescartesBridge = {
   clearEquipoConfig: () => Promise<DescartesEquipoConfig>
   getHostname: () => Promise<string>
   /** Logo de la tienda desde la carpeta local `logos`. Vacío si no hay fichero. */
-  logoEmpresa: (codigo: string) => Promise<{ ok: boolean; dataUrl?: string; message?: string }>
+  logoEmpresa: (codigo: string) => Promise<{
+    ok: boolean
+    dataUrl?: string
+    ruta?: string
+    message?: string
+  }>
+  /** Elige imagen en disco y la guarda como `{codigo}.png|jpg…` en la carpeta logos. */
+  guardarLogoEmpresa: (codigo: string) => Promise<{
+    ok: boolean
+    cancelado?: boolean
+    dataUrl?: string
+    ruta?: string
+    carpeta?: string
+    message?: string
+  }>
+  abrirCarpetaLogos: () => Promise<{ ok: boolean; carpeta?: string; message?: string }>
+  getLogosDir: () => Promise<{ ok: boolean; carpeta?: string; message?: string }>
   listPrinters: () => Promise<{
     ok: boolean
     stub?: boolean

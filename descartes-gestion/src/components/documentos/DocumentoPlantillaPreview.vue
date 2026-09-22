@@ -4,11 +4,14 @@ import type { DocumentoPlantilla, PlantillaBloque } from '@/config/documentos-pl
 import { esPlantillaEtiqueta, pageSizeMm } from '@/config/documentos-plantillas'
 import {
   datosPreviewPorTipo,
+  EMBLEMA_PLACEHOLDER,
   formatImporte,
   getByPath,
   type DocumentoPreviewDatos,
 } from '@/config/documentos-plantillas/preview-datos'
 import { svgCodigoBarrasBloque } from '@/config/documentos-plantillas/etiqueta-html'
+import { cargarEmblemaEmpresa } from '@/composables/cargarEmblemaEmpresa'
+import { usePuestoContextoStore } from '@/stores/puestoContexto'
 
 const props = defineProps<{
   plantilla: DocumentoPlantilla
@@ -26,9 +29,42 @@ const pageDims = computed(() => pageSizeMm(props.plantilla))
 const PAGE_W = computed(() => pageDims.value.widthMm)
 const PAGE_H = computed(() => pageDims.value.heightMm)
 
-const datos = computed<DocumentoPreviewDatos>(
-  () => props.datos ?? datosPreviewPorTipo(props.plantilla.tipo)
+const puestoContexto = usePuestoContextoStore()
+/** Logo real desde carpeta `logos` (vista previa del diseñador). Sin placeholder. */
+const emblemaVistaPrevia = ref('')
+
+const esVistaPreviaDiseno = computed(() => !props.datos)
+const tieneBloqueEmblema = computed(() =>
+  props.plantilla.blocks.some((b) => b.type === 'emblema')
 )
+
+watch(
+  () => [props.datos, puestoContexto.empresaCodigo] as const,
+  ([datosReales, empresa]) => {
+    if (datosReales) {
+      emblemaVistaPrevia.value = ''
+      return
+    }
+    const codigo = String(empresa ?? '').trim()
+    if (!codigo) {
+      emblemaVistaPrevia.value = ''
+      return
+    }
+    void (async () => {
+      emblemaVistaPrevia.value = (await cargarEmblemaEmpresa(codigo)) || ''
+    })()
+  },
+  { immediate: true }
+)
+
+const datos = computed<DocumentoPreviewDatos>(() => {
+  if (props.datos) return props.datos
+  const base = datosPreviewPorTipo(props.plantilla.tipo)
+  return {
+    ...base,
+    empresa: { ...base.empresa, emblemaUrl: emblemaVistaPrevia.value },
+  }
+})
 
 const pageStyle = computed(() => ({
   width: `${PAGE_W.value * pxPerMm.value}px`,
@@ -85,6 +121,20 @@ function str(path: string): string {
   const v = getByPath(datos.value, path)
   if (v == null) return ''
   return String(v)
+}
+
+/** Imagen del bloque Emblema: logo real o, solo en diseñador, marcador gris «LOGO». */
+function srcEmblemaDedicado(): string {
+  const real = str('empresa.emblemaUrl')
+  if (real) return real
+  if (esVistaPreviaDiseno.value) return EMBLEMA_PLACEHOLDER
+  return ''
+}
+
+/** Logo junto a datos de empresa: solo si la plantilla no tiene bloque Emblema aparte. */
+function srcEmblemaEnCabecera(): string {
+  if (tieneBloqueEmblema.value) return ''
+  return srcEmblemaDedicado()
 }
 
 function plantillaTexto(tpl: string): string {
@@ -173,7 +223,11 @@ function etiquetaTotal(b: PlantillaBloque): string {
 }
 
 function etiquetaModo(b: PlantillaBloque): string {
-  return String(b.props?.etiquetaModo ?? '')
+  const modo = String(b.props?.etiquetaModo ?? '').trim()
+  if (!modo) return ''
+  const titulo = String(b.label ?? '').trim()
+  if (titulo && titulo.toLowerCase().includes(modo.toLowerCase())) return ''
+  return modo
 }
 
 function barcodeHtml(b: PlantillaBloque): string {
@@ -267,9 +321,9 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
           <!-- Emblema -->
           <template v-if="b.type === 'emblema'">
             <img
-              v-if="str('empresa.emblemaUrl')"
+              v-if="srcEmblemaDedicado()"
               class="emblema"
-              :src="str('empresa.emblemaUrl')"
+              :src="srcEmblemaDedicado()"
               alt=""
               @error="ocultarImgRota"
             />
@@ -279,9 +333,9 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
           <template v-else-if="b.type === 'empresa-cabecera'">
             <div class="empresa">
               <img
-                v-if="str('empresa.emblemaUrl')"
+                v-if="srcEmblemaEnCabecera()"
                 class="empresa-logo"
-                :src="str('empresa.emblemaUrl')"
+                :src="srcEmblemaEnCabecera()"
                 alt=""
                 @error="ocultarImgRota"
               />
@@ -386,7 +440,14 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
                   <tr v-if="lin.albaranCabecera" class="cab-alb">
                     <td :colspan="columnasLineas.length">{{ lin.albaranCabecera }}</td>
                   </tr>
-                  <tr v-else>
+                  <tr
+                    v-else-if="
+                      lin.articulo ||
+                      lin.descripcion ||
+                      Number(lin.unidades) ||
+                      Number(lin.importe)
+                    "
+                  >
                     <td v-for="c in columnasLineas" :key="c.key" :style="colStyle(c)">
                       <!-- Unidades, dto e IVA: dos decimales como el formato legacy y en blanco si son 0. -->
                       <template v-if="c.key === 'unidades' || c.key === 'dto' || c.key === 'pjeIva'">

@@ -12,15 +12,22 @@ import {
   obtenerVendedorPuesto,
 } from '@/api/ventas'
 import { crearAlbaranPeriodico, eliminarAlbaranPeriodico } from '@/api/facturacion'
-import { resolverArticulo } from '@/api/articulos'
+import { buscarArticulos, resolverArticulo } from '@/api/articulos'
 import { createBarcodeScanWatcher } from '@/composables/useBarcodeScanWatcher'
 import { api } from '@/api/client'
-import type { VentaDetalle, VentaLinea, VentaPayload, VentaResumen } from '@/types/ventas'
+import type {
+  VentaAlbaranFacturaResumen,
+  VentaDetalle,
+  VentaLinea,
+  VentaPayload,
+  VentaResumen,
+} from '@/types/ventas'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { useVentasBusquedaStore } from '@/stores/ventasBusqueda'
 import { usePlantillaPeriodicaStore } from '@/stores/plantillaPeriodica'
+import { useVentasCopiaOtraVentaStore } from '@/stores/ventasCopiaOtraVenta'
 import {
   imprimirA4Preparado,
   prepararOImprimirVenta,
@@ -43,6 +50,7 @@ const { puede } = usePermisos()
 const puesto = usePuestoContextoStore()
 const busqueda = useVentasBusquedaStore()
 const plantillaPeriodica = usePlantillaPeriodicaStore()
+const copiaOtraVenta = useVentasCopiaOtraVentaStore()
 /** Ventana aparte con la previsualización A4 (sustituye al modal). */
 const preview = useVentanaPreviewDocumento({ imprimir: () => onImprimirA4Confirmado() })
 
@@ -93,6 +101,9 @@ const ficha = ref<VentaDetalle | null>(null)
 const lineas = ref<VentaLinea[]>([])
 const confirmBorrar = ref(false)
 const confirmCancelarAlta = ref(false)
+const otraVentaOpen = ref(false)
+const otraVentaElegirAlbaranOpen = ref(false)
+const otraVentaAlbaranSeleccionado = ref<VentaAlbaranFacturaResumen | null>(null)
 const finalizarOpen = ref(false)
 const abonoOpen = ref(false)
 const abonoNroLins = ref<number[]>([])
@@ -435,6 +446,7 @@ function vacia(): VentaDetalle {
     referencia1: '',
     referencia2: '',
     numeroDeSerie: '',
+    observaciones: '',
     sujetoPasivo: false,
     portes: '',
     fechaEntrega: null,
@@ -629,6 +641,50 @@ const enTrabajo = computed(() => esNuevo.value || modoEdicion.value)
 const puedeBuscar = computed(() => !enTrabajo.value)
 const puedeNavegar = computed(() => !enTrabajo.value)
 
+/** Albaranes de la factura/ticket abierto (API o el documento actual). */
+const albaranesFacturaOtraVenta = computed((): VentaAlbaranFacturaResumen[] => {
+  const lista = ficha.value?.albaranesFactura ?? []
+  if (lista.length > 0) return lista
+  const f = ficha.value
+  if (!f || (docKind.value !== 'factura' && docKind.value !== 'ticket')) return []
+  if (!(Number(f.factura) > 0)) return []
+  return [
+    {
+      empresa: f.empresa,
+      tipo: f.tipo,
+      albaran: f.albaran,
+      fecha: f.fecha,
+      cliente: f.cliente,
+      importe: f.importe,
+    },
+  ]
+})
+
+/** Copiar albarán/presupuesto/ticket/factura recuperada a venta nueva. */
+/** Albarán (no factura/presupuesto bloqueado): fecha editable en alta o modificación. */
+const puedeEditarFechaCabecera = computed(() => {
+  if (bloqueado.value || esTicketCerrado.value) return false
+  if (docKind.value === 'factura' || docKind.value === 'presupuesto') return false
+  if (esNuevo.value || modoEdicion.value) return true
+  return false
+})
+
+const puedeOtraVenta = computed(() => {
+  const kind = docKind.value
+  const docCopiable =
+    kind === 'albaran' || kind === 'presupuesto' || kind === 'ticket' || kind === 'factura'
+  return (
+    !esPlantillaConsulta.value &&
+    !esPlantillaAlta.value &&
+    esConsultaRecuperada.value &&
+    !modoEdicion.value &&
+    puedeCrear.value &&
+    docCopiable &&
+    (tieneLineas.value || albaranesFacturaOtraVenta.value.length > 0) &&
+    !esAbono.value
+  )
+})
+
 function importeLinea(l: VentaLinea): number {
   const lineaBruto = Number(l.cantidad || 0) * Number(l.precio || 0)
   const lineaDto = lineaBruto * (Number(l.pjeDto || 0) / 100)
@@ -802,6 +858,7 @@ function payloadDesdeFicha(): VentaPayload {
     referencia1: f.referencia1,
     referencia2: f.referencia2,
     numeroDeSerie: f.numeroDeSerie,
+    observaciones: f.observaciones,
     sujetoPasivo: !!f.sujetoPasivo,
     portes: f.portes,
     pjeIva1: Number(f.pjeIva1) > 0 ? Number(f.pjeIva1) : 21,
@@ -916,17 +973,173 @@ function irA(v: VentaResumen) {
   router.replace(`/ventas/${encodeURIComponent(v.empresa)}/${encodeURIComponent(v.tipo)}/${v.albaran}`)
 }
 
+function claveAlbaranVenta(a: {
+  empresa: string
+  tipo: string
+  albaran: number
+}): string {
+  return `${a.empresa}|${a.tipo}|${a.albaran}`
+}
+
+function clonarDetalleParaOtraVenta(
+  orig: VentaDetalle,
+  lineasOrigen: VentaLinea[]
+): { ficha: VentaDetalle; lineas: VentaLinea[] } | null {
+  const hoy = new Date().toISOString()
+  const lineasCopia = lineasOrigen
+    .filter((l) => {
+      const art = String(l.articulo ?? '').trim()
+      if (art.toUpperCase() === 'NO') {
+        return String(l.descripcion ?? '').trim() !== ''
+      }
+      return art !== ''
+    })
+    .map((l) => {
+      if (String(l.articulo ?? '').trim().toUpperCase() === 'NO') {
+        return {
+          articulo: 'NO',
+          descripcion: l.descripcion,
+          loteVenta: '',
+          cantidad: 0,
+          precio: 0,
+          pjeDto: 0,
+          pjeIva: 0,
+          importe: 0,
+        }
+      }
+      return {
+        articulo: l.articulo,
+        descripcion: l.descripcion,
+        loteVenta: l.loteVenta ?? '',
+        cantidad: l.cantidad,
+        precio: l.precio,
+        pjeDto: l.pjeDto,
+        pjeIva: l.pjeIva,
+        importe: importeLinea(l),
+      }
+    })
+  if (!lineasCopia.length) return null
+
+  const base = vacia()
+  const fichaCopia: VentaDetalle = {
+    ...base,
+    empresa: orig.empresa,
+    tipo: 'A',
+    albaran: 0,
+    fecha: hoy,
+    cliente: orig.cliente,
+    razonSocial: orig.razonSocial,
+    razonSocial2: orig.razonSocial2,
+    nif: orig.nif,
+    puesto: orig.puesto,
+    vendedor: orig.vendedor,
+    representante: orig.representante,
+    transporte: orig.transporte,
+    direccionEnvio: orig.direccionEnvio,
+    poblacionEnvio: orig.poblacionEnvio,
+    codigoPostalEnvio: orig.codigoPostalEnvio,
+    provinciaEnvio: orig.provinciaEnvio,
+    paisEnvio: orig.paisEnvio,
+    telefono: orig.telefono,
+    telefono2: orig.telefono2,
+    fax: orig.fax,
+    email: orig.email,
+    almacen: orig.almacen,
+    referencia1: orig.referencia1,
+    referencia2: orig.referencia2,
+    numeroDeSerie: orig.numeroDeSerie,
+    observaciones: orig.observaciones,
+    sujetoPasivo: orig.sujetoPasivo,
+    portes: orig.portes,
+    fechaEntrega: orig.fechaEntrega,
+    tarifa: orig.tarifa ?? null,
+    pjeIva1: orig.pjeIva1,
+    pjeDto: orig.pjeDto,
+    formasPago: orig.formasPago?.map((fp) => ({ ...fp })) ?? base.formasPago,
+    lineas: [],
+  }
+  return { ficha: fichaCopia, lineas: lineasCopia }
+}
+
+function limpiarClienteEnFichaCopia() {
+  if (!ficha.value) return
+  ficha.value = {
+    ...ficha.value,
+    cliente: '',
+    razonSocial: '',
+    razonSocial2: '',
+    nif: '',
+    telefono: '',
+    telefono2: '',
+    fax: '',
+    email: '',
+    representante: '',
+    transporte: '',
+    portes: '',
+    pjeDto: 0,
+    tarifa: null,
+    formasPago: [
+      { codigo: '', importe: 0 },
+      { codigo: '', importe: 0 },
+    ],
+  }
+  clienteContado.value = false
+  formaPagoCliente.value = ''
+  agenteCliente.value = ''
+}
+
+async function aplicarAltaDesdeCopiaOtraVenta(copiaPendiente: {
+  ficha: VentaDetalle
+  lineas: VentaLinea[]
+  elegirCliente: boolean
+}) {
+  pasoAlta.value = copiaPendiente.elegirCliente ? 'cliente' : 'listo'
+  ficha.value = copiaPendiente.ficha
+  lineas.value = copiaPendiente.lineas.map((l) => ({ ...l }))
+  if (!lineas.value.length) lineas.value = [lineaVacia()]
+  vendedorNombre.value = puesto.vendedorNombre || ''
+  await puesto.cargarVendedorPuesto()
+  await cargarPreciosIvaIncluido(ficha.value.empresa)
+  await precargarVendedorDelPuesto()
+  void resolverNombreVendedor(String(ficha.value.vendedor ?? ''))
+  if (copiaPendiente.elegirCliente) {
+    limpiarClienteEnFichaCopia()
+    mensaje.value = 'Copia del albarán: elija otro cliente (Intro, F4 o … para buscar).'
+    await nextTick()
+    buscarClienteOpen.value = true
+    await cabeceraForm.value?.focusCliente()
+    return
+  }
+  const fp = String(ficha.value.formasPago?.[0]?.codigo ?? '').trim()
+  if (fp) await resolverFormaPagoContado(fp)
+  mensaje.value = 'Nueva venta copiada del albarán. Revise líneas y use Guardar y finalizar.'
+  await focusArticuloLinea(0)
+}
+
 function iniciarNuevaVenta() {
+  const copiaPendiente = copiaOtraVenta.consumir()
   iniciandoAltaVenta.value = true
   error.value = null
   mensaje.value = null
   esNuevo.value = true
   modoEdicion.value = true
   omitirProximaCarga.value = false
-  pasoAlta.value = 'tienda'
   buscarClienteOpen.value = false
   buscarArticuloOpen.value = false
   buscarVendedorOpen.value = false
+
+  if (copiaPendiente) {
+    void (async () => {
+      try {
+        await aplicarAltaDesdeCopiaOtraVenta(copiaPendiente)
+      } finally {
+        iniciandoAltaVenta.value = false
+      }
+    })()
+    return
+  }
+
+  pasoAlta.value = 'tienda'
   clienteContado.value = false
   formaPagoCliente.value = ''
   agenteCliente.value = ''
@@ -954,6 +1167,78 @@ function onNuevo() {
     return
   }
   router.push({ name: 'ventas-nuevo' })
+}
+
+function abrirOtraVenta() {
+  if (!puedeOtraVenta.value || !ficha.value) return
+  const lista = albaranesFacturaOtraVenta.value
+  const necesitaElegirAlbaran =
+    (docKind.value === 'factura' || docKind.value === 'ticket') && lista.length > 1
+  if (necesitaElegirAlbaran) {
+    const actual = lista.find(
+      (a) =>
+        a.empresa === ficha.value!.empresa &&
+        a.tipo === ficha.value!.tipo &&
+        a.albaran === ficha.value!.albaran
+    )
+    otraVentaAlbaranSeleccionado.value = actual ?? lista[0] ?? null
+    otraVentaElegirAlbaranOpen.value = true
+    return
+  }
+  otraVentaOpen.value = true
+}
+
+function continuarOtraVentaTrasElegirAlbaran() {
+  if (!otraVentaAlbaranSeleccionado.value) return
+  otraVentaElegirAlbaranOpen.value = false
+  otraVentaOpen.value = true
+}
+
+async function resolverDetalleParaOtraVenta(): Promise<{
+  orig: VentaDetalle
+  lineasOrigen: VentaLinea[]
+} | null> {
+  const f = ficha.value
+  if (!f) return null
+  const sel = otraVentaAlbaranSeleccionado.value
+  if (sel && claveAlbaranVenta(sel) !== claveAlbaranVenta(f)) {
+    try {
+      const data = await obtenerVenta(sel.empresa, sel.tipo, sel.albaran)
+      return { orig: data, lineasOrigen: data.lineas ?? [] }
+    } catch (e: unknown) {
+      error.value = extractApiError(e, 'No se pudo cargar el albarán seleccionado')
+      return null
+    }
+  }
+  return { orig: f, lineasOrigen: lineas.value }
+}
+
+async function confirmarOtraVenta(elegirCliente: boolean) {
+  otraVentaOpen.value = false
+  loading.value = true
+  error.value = null
+  try {
+    const det = await resolverDetalleParaOtraVenta()
+    if (!det) return
+    const copia = clonarDetalleParaOtraVenta(det.orig, det.lineasOrigen)
+    if (!copia) {
+      error.value = 'No hay líneas de artículo para copiar'
+      return
+    }
+    copiaOtraVenta.preparar({
+      ficha: copia.ficha,
+      lineas: copia.lineas,
+      elegirCliente,
+    })
+    otraVentaAlbaranSeleccionado.value = null
+    if (route.name === 'ventas-nuevo') {
+      iniciarNuevaVenta()
+      return
+    }
+    router.push({ name: 'ventas-nuevo' })
+  } finally {
+    loading.value = false
+  }
 }
 
 /** Paso tienda → cliente (sin reservar número; solo prepara empresa/puesto/vendedor). */
@@ -1169,9 +1454,28 @@ async function resolverArticuloEnLinea(index: number, codigo: string) {
     await aplicarArticuloEnLinea(index, art, art.codigo, {
       unidadesPaquete: art.unidadesPaquete,
     })
+    return
   } catch {
-    abrirBuscarArticulo(index)
+    /* búsqueda parcial */
   }
+  try {
+    const candidatos = await buscarArticulos(q, 50)
+    if (candidatos.length === 1) {
+      const cod = candidatos[0].codigo
+      const { data: art } = await api.get<Record<string, unknown>>(
+        `/api/mantenimiento/articulos/${encodeURIComponent(cod)}`,
+      )
+      await aplicarArticuloEnLinea(index, art, cod)
+      return
+    }
+    if (candidatos.length > 1) {
+      abrirBuscarArticulo(index)
+      return
+    }
+  } catch {
+    /* abrir modal */
+  }
+  abrirBuscarArticulo(index)
 }
 
 function onArticuloInput(index: number) {
@@ -1358,6 +1662,13 @@ async function onArticuloKeydown(e: KeyboardEvent, index: number) {
     e.stopPropagation()
     barcodeWatcher.cancel()
     abrirBuscarArticulo(index)
+    return
+  }
+  if (esTeclaIntroLinea(e)) {
+    e.preventDefault()
+    e.stopPropagation()
+    barcodeWatcher.cancel()
+    void onArticuloIntroVenta(index)
   }
 }
 
@@ -2152,7 +2463,9 @@ onMounted(() => {
       :loading="loading"
       :indice="indiceNav"
       :total="navItems.length"
+      :puede-otra-venta="puedeOtraVenta"
       @nuevo="onNuevo"
+      @otra-venta="abrirOtraVenta"
       @modificar="onModificar"
       @borrar="onBorrar"
       @buscar="onBuscarListado"
@@ -2248,6 +2561,7 @@ onMounted(() => {
         :paso-alta="pasoAlta"
         :compacto="modoEdicion && !esPlantillaConsulta"
         :modo-lineas="cabeceraRecogida"
+        :puede-editar-fecha="puedeEditarFechaCabecera"
         :vendedor-nombre="vendedorNombre"
         :totales="totales"
         @buscar-vendedor="abrirBuscarVendedor"
@@ -2403,6 +2717,100 @@ onMounted(() => {
       @confirm="confirmarCancelarVentaNueva"
       @cancel="confirmCancelarAlta = false"
     />
+
+    <Teleport to="body">
+      <div
+        v-if="otraVentaElegirAlbaranOpen"
+        class="overlay"
+        @click.self="otraVentaElegirAlbaranOpen = false"
+      >
+        <div class="modal-abono modal-otra-venta">
+          <h3>Albarán a copiar</h3>
+          <p>
+            Esta factura incluye <strong>{{ albaranesFacturaOtraVenta.length }}</strong> albaranes.
+            Elija cuál desea replicar en la nueva venta.
+          </p>
+          <div class="otra-venta-alb-tabla-wrap">
+            <table class="abono-tabla otra-venta-alb-tabla">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Albarán</th>
+                  <th>Fecha</th>
+                  <th>Cliente</th>
+                  <th class="num">Importe</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="a in albaranesFacturaOtraVenta"
+                  :key="claveAlbaranVenta(a)"
+                  :class="{
+                    'fila-alb-seleccionada':
+                      otraVentaAlbaranSeleccionado &&
+                      claveAlbaranVenta(otraVentaAlbaranSeleccionado) === claveAlbaranVenta(a),
+                  }"
+                >
+                  <td>
+                    <input
+                      type="radio"
+                      name="otra-venta-alb"
+                      :checked="
+                        !!otraVentaAlbaranSeleccionado &&
+                        claveAlbaranVenta(otraVentaAlbaranSeleccionado) === claveAlbaranVenta(a)
+                      "
+                      @change="otraVentaAlbaranSeleccionado = a"
+                    />
+                  </td>
+                  <td>{{ a.albaran }}</td>
+                  <td>{{ a.fecha ? a.fecha.slice(0, 10) : '' }}</td>
+                  <td>{{ a.cliente }}</td>
+                  <td class="num">{{ (a.importe ?? 0).toFixed(2) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <footer class="modal-otra-venta-footer">
+            <button type="button" @click="otraVentaElegirAlbaranOpen = false">Cancelar</button>
+            <button
+              type="button"
+              class="primary"
+              :disabled="!otraVentaAlbaranSeleccionado"
+              @click="continuarOtraVentaTrasElegirAlbaran"
+            >
+              Continuar
+            </button>
+          </footer>
+        </div>
+      </div>
+
+      <div v-if="otraVentaOpen" class="overlay" @click.self="otraVentaOpen = false">
+        <div class="modal-abono modal-otra-venta">
+          <h3>Otra venta</h3>
+          <p>
+            Se creará un <strong>albarán nuevo</strong> con la misma tienda, cabecera (referencias, envío…)
+            y las mismas líneas de artículo.
+          </p>
+          <p v-if="otraVentaAlbaranSeleccionado" class="hint">
+            Albarán origen: <strong>{{ otraVentaAlbaranSeleccionado.albaran }}</strong>
+          </p>
+          <p v-if="ficha?.cliente" class="hint">
+            Cliente actual:
+            <strong>{{ ficha.cliente }}</strong>
+            <span v-if="ficha.razonSocial"> — {{ ficha.razonSocial }}</span>
+          </p>
+          <footer class="modal-otra-venta-footer">
+            <button type="button" @click="otraVentaOpen = false">Cancelar</button>
+            <button type="button" class="primary" @click="confirmarOtraVenta(false)">
+              Mismo cliente
+            </button>
+            <button type="button" class="primary" @click="confirmarOtraVenta(true)">
+              Cambiar cliente
+            </button>
+          </footer>
+        </div>
+      </div>
+    </Teleport>
 
     <EntidadBuscarModal
       :open="buscarClienteOpen"
@@ -3055,10 +3463,25 @@ tr.comentario td input {
   font-size: 0.85rem;
 }
 .modal-tipo footer,
-.modal-abono footer {
+.modal-abono footer,
+.modal-otra-venta-footer {
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 0.5rem;
+  margin-top: 1rem;
+}
+.otra-venta-alb-tabla-wrap {
+  max-height: 16rem;
+  overflow: auto;
+  margin: 0.75rem 0;
+}
+.otra-venta-alb-tabla td.num,
+.otra-venta-alb-tabla th.num {
+  text-align: right;
+}
+.fila-alb-seleccionada {
+  background: #eff6ff;
 }
 .modal-tipo button,
 .modal-abono button:not(.linkish) {

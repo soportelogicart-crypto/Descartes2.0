@@ -31,6 +31,7 @@ import EntidadGrid from '@/components/mantenimiento/EntidadGrid.vue'
 import TiendaToolbar from '@/components/tiendas/TiendaToolbar.vue'
 import TiendaTabForm from '@/components/tiendas/TiendaTabForm.vue'
 import TiendaContadoresModal from '@/components/tiendas/TiendaContadoresModal.vue'
+import TiendaLogoLocalPanel from '@/components/tiendas/TiendaLogoLocalPanel.vue'
 
 const MODULO = 'tiendas'
 const FILTER_KEYS = ['codigo', 'nombre', 'nif', 'poblacion', 'telefono1']
@@ -669,6 +670,12 @@ function tabTieneErrores(tabId: string): boolean {
             </button>
           </div>
         </div>
+
+        <TiendaLogoLocalPanel
+          :codigo-tienda="String(ficha.codigo ?? '')"
+          :deshabilitado="esNuevo"
+          @mensaje="(t, tipo) => mostrarAviso(t, tipo ?? 'ok')"
+        />
 
         <TiendaTabForm
           :sections="tabSeleccionada.sections"

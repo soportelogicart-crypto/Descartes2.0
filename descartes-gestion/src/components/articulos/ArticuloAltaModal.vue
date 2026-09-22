@@ -6,6 +6,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import { crearArticulo } from '@/api/articulos'
+import { onEnterSiguienteCampo } from '@/composables/useEnterFieldNav'
 import { extractApiError } from '@/composables/extractApiError'
 import {
   ARTICULO_CAMPOS_OBLIGATORIOS,
@@ -45,6 +46,15 @@ const avisoMensaje = ref('')
 const campoAvisoActual = ref<string | null>(null)
 const codigoInput = ref<HTMLInputElement | null>(null)
 const descripcionInput = ref<HTMLInputElement | null>(null)
+const fichaCamposRoot = ref<HTMLElement | null>(null)
+
+function onFichaCamposEnterNav(e: KeyboardEvent) {
+  onEnterSiguienteCampo(e, fichaCamposRoot.value, {
+    onUltimo: () => {
+      if (!saving.value) void onGuardar()
+    },
+  })
+}
 
 const tabSeleccionada = computed(() => modalTabs.value.find((t) => t.id === tabActiva.value) ?? modalTabs.value[0])
 
@@ -109,6 +119,8 @@ async function initFicha() {
     if (data.automatico && data.codigo) {
       vacio.codigo = String(data.codigo)
       codigoAutomatico.value = true
+    } else if (data.mensaje) {
+      error.value = String(data.mensaje)
     }
   } catch {
     /* código manual */
@@ -138,8 +150,10 @@ async function onGuardar() {
   saving.value = true
   error.value = null
   try {
-    const payload = { ...ficha.value }
+    const payload = { ...ficha.value } as Record<string, unknown>
     if (payload.precioVen1 != null) payload.precioVenta = payload.precioVen1
+    const emp = String(props.empresa ?? '').trim()
+    if (emp) payload.empresaCodigo = emp
     const creado = await crearArticulo(payload)
     emit('creado', creado)
   } catch (e: unknown) {
@@ -171,6 +185,7 @@ function onCancelar() {
 
       <p v-if="error" class="error">{{ error }}</p>
 
+      <div ref="fichaCamposRoot" class="ficha-campos" @keydown="onFichaCamposEnterNav">
       <div class="ficha-header">
         <label :class="{ 'campo-invalido': esCampoInvalido('codigo') }">
           Código *
@@ -218,6 +233,7 @@ function onCancelar() {
           @update:model-value="onFichaUpdate"
         />
         <ArticuloSidePanels :ficha="ficha" />
+      </div>
       </div>
     </div>
 

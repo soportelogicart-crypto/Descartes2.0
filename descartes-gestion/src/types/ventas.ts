@@ -40,6 +40,16 @@ export type VentaResumen = {
   nroLinsAbonados?: number[]
 }
 
+/** Albaranes de venta incluidos en la misma factura/ticket (consulta «Otra venta»). */
+export type VentaAlbaranFacturaResumen = {
+  empresa: string
+  tipo: string
+  albaran: number
+  fecha: string | null
+  cliente?: string | null
+  importe?: number
+}
+
 export type VentaLinea = {
   nroLin?: number
   articulo: string | null
@@ -71,6 +81,7 @@ export type VentaDetalle = VentaResumen & {
   referencia1?: string | null
   referencia2?: string | null
   numeroDeSerie?: string | null
+  observaciones?: string | null
   sujetoPasivo?: boolean
   portes?: string | null
   fechaEntrega?: string | null
@@ -89,6 +100,8 @@ export type VentaDetalle = VentaResumen & {
   formasPago: { codigo: string; importe: number }[]
   importesIva: { pjeIva: number; base: number; iva: number }[]
   lineas: VentaLinea[]
+  /** Si el documento está facturado: resto de albaranes de la misma factura. */
+  albaranesFactura?: VentaAlbaranFacturaResumen[]
 }
 
 export type VentaPayload = {
@@ -120,6 +133,7 @@ export type VentaPayload = {
   referencia1?: string | null
   referencia2?: string | null
   numeroDeSerie?: string | null
+  observaciones?: string | null
   sujetoPasivo?: boolean
   portes?: string | null
   fpago1?: string | null

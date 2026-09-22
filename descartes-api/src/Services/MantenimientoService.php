@@ -6,6 +6,7 @@ namespace Descartes\Api\Services;
 
 use Descartes\Api\Config\EntityConfig;
 use Descartes\Api\Database\SqlPagination;
+use Descartes\Api\Repositories\ArtBarrasRepository;
 use Descartes\Api\Repositories\ClientesRiesgoRepository;
 use PDO;
 use PDOException;
@@ -17,6 +18,7 @@ final class MantenimientoService
   private TiendaAlmacenService $tiendaAlmacenService;
   private ArticuloService $articuloService;
   private ClientesRiesgoRepository $clientesRiesgoRepository;
+  private ?ArticuloGeneracionCodigosService $articuloGeneracionCodigos = null;
 
   public function __construct(
     PDO $pdo,
@@ -267,7 +269,9 @@ final class MantenimientoService
       $this->validarTienda($data, null);
     }
     if ($entidad === 'articulos') {
-      $this->asignarCodigoArticuloSiCorresponde($data);
+      $empresaCodigo = trim((string) ($data['empresaCodigo'] ?? ''));
+      unset($data['empresaCodigo']);
+      $this->articuloGeneracionCodigos()->aplicarEnAlta($data, $empresaCodigo);
       $this->validarArticulo($data, null);
     }
     if ($entidad === 'clientes') {
@@ -364,10 +368,26 @@ final class MantenimientoService
       throw $e;
     }
     if ($entidad === 'articulos') {
+      $eanGenerado = trim((string) ($data['_eanGenerado'] ?? ''));
+      unset($data['_eanGenerado']);
       $this->articuloService->saveExtras($codigo, $data);
+      if ($eanGenerado !== '') {
+        $this->articuloGeneracionCodigos()->insertarEanGenerado($codigo, $eanGenerado);
+      }
     }
 
     return $this->get($entidad, $codigo) ?? $data;
+  }
+
+  private function articuloGeneracionCodigos(): ArticuloGeneracionCodigosService
+  {
+    if ($this->articuloGeneracionCodigos === null) {
+      $this->articuloGeneracionCodigos = new ArticuloGeneracionCodigosService(
+        $this->pdo,
+        new ArtBarrasRepository($this->pdo)
+      );
+    }
+    return $this->articuloGeneracionCodigos;
   }
 
   public function update(string $entidad, string $codigo, array $data): ?array
@@ -2550,190 +2570,7 @@ final class MantenimientoService
    */
   public function siguienteCodigoArticulo(string $empresaCodigo = ''): array
   {
-    $empresa = $this->resolverEmpresaNumeracionArticulo($empresaCodigo);
-    if ($empresa === null) {
-      return [
-        'automatico' => false,
-        'codigo' => null,
-        'empresaCodigo' => null,
-        'ancho' => null,
-      ];
-    }
-
-    if (!$empresa['genArticulos']) {
-      return [
-        'automatico' => false,
-        'codigo' => null,
-        'empresaCodigo' => $empresa['codigo'],
-        'ancho' => null,
-      ];
-    }
-
-    $info = $this->leerMaxCodigoArticuloNumerico();
-    $candidato = $info['maxNum'] + 1;
-    $ancho = $info['ancho'];
-    for ($i = 0; $i < 100; $i++) {
-      $codigo = $this->formatearCodigoArticulo($candidato, $ancho);
-      if (!$this->existeCodigoArticulo($codigo)) {
-        return [
-          'automatico' => true,
-          'codigo' => $codigo,
-          'empresaCodigo' => $empresa['codigo'],
-          'ancho' => $ancho,
-        ];
-      }
-      $candidato++;
-    }
-
-    return [
-      'automatico' => true,
-      'codigo' => $this->formatearCodigoArticulo($info['maxNum'] + 1, $ancho),
-      'empresaCodigo' => $empresa['codigo'],
-      'ancho' => $ancho,
-    ];
-  }
-
-  /** @param array<string, mixed> $data */
-  private function asignarCodigoArticuloSiCorresponde(array &$data): void
-  {
-    $empresa = $this->resolverEmpresaNumeracionArticulo('');
-    if ($empresa === null || !$empresa['genArticulos']) {
-      return;
-    }
-
-    // Con GenArticulos activo, legacy asigna el codigo (como GenProveedores).
-    $info = $this->leerMaxCodigoArticuloNumerico();
-    $candidato = $info['maxNum'] + 1;
-    $ancho = $info['ancho'];
-    for ($i = 0; $i < 100; $i++) {
-      $codigo = $this->formatearCodigoArticulo($candidato, $ancho);
-      if (!$this->existeCodigoArticulo($codigo)) {
-        $data['codigo'] = $codigo;
-        return;
-      }
-      $candidato++;
-    }
-
-    throw new \InvalidArgumentException(
-      'No se pudo generar un codigo de articulo libre (revise GenArticulos / codigos existentes)'
-    );
-  }
-
-  private function existeCodigoArticulo(string $codigo): bool
-  {
-    $stmt = $this->pdo->prepare(
-      'SELECT 1 FROM [Articulos] WHERE RTRIM([Codigo]) = :codigo'
-    );
-    $stmt->execute(['codigo' => trim($codigo)]);
-    return (bool) $stmt->fetchColumn();
-  }
-
-  /**
-   * @return array{codigo: string, genArticulos: bool}|null
-   */
-  private function resolverEmpresaNumeracionArticulo(string $empresaCodigo): ?array
-  {
-    $codigo = trim($empresaCodigo);
-    if ($codigo !== '') {
-      $row = $this->leerEmpresaNumeracionArticulo($codigo);
-      if ($row !== null) {
-        return $row;
-      }
-    }
-
-    $stmt = $this->pdo->query(
-      "SELECT TOP 1 RTRIM([Codigo]) AS Codigo
-       FROM [Empresas_Ges]
-       WHERE ISNULL([Central], 0) = 1
-       ORDER BY [Codigo]"
-    );
-    $central = $stmt ? $stmt->fetchColumn() : false;
-    if ($central) {
-      $row = $this->leerEmpresaNumeracionArticulo((string) $central);
-      if ($row !== null) {
-        return $row;
-      }
-    }
-
-    $stmt = $this->pdo->query(
-      "SELECT TOP 1 RTRIM([Codigo]) AS Codigo
-       FROM [Empresas_Ges]
-       WHERE ISNULL([GenArticulos], 0) = 1
-       ORDER BY [Codigo]"
-    );
-    $any = $stmt ? $stmt->fetchColumn() : false;
-    return $any ? $this->leerEmpresaNumeracionArticulo((string) $any) : null;
-  }
-
-  /**
-   * @return array{codigo: string, genArticulos: bool}|null
-   */
-  private function leerEmpresaNumeracionArticulo(string $codigo): ?array
-  {
-    $stmt = $this->pdo->prepare(
-      'SELECT RTRIM([Codigo]) AS Codigo,
-              CAST(ISNULL([GenArticulos], 0) AS int) AS GenArticulos
-       FROM [Empresas_Ges]
-       WHERE RTRIM([Codigo]) = :codigo'
-    );
-    $stmt->execute(['codigo' => trim($codigo)]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$row) {
-      return null;
-    }
-
-    return [
-      'codigo' => (string) $row['Codigo'],
-      'genArticulos' => ((int) $row['GenArticulos']) === 1,
-    ];
-  }
-
-  /**
-   * @return array{maxNum: int, ancho: int}
-   */
-  private function leerMaxCodigoArticuloNumerico(): array
-  {
-    $stmt = $this->pdo->query(
-      "SELECT
-         MAX(CONVERT(decimal(18,0), RTRIM([Codigo]))) AS MaxNum,
-         MAX(LEN(RTRIM([Codigo]))) AS MaxLen
-       FROM [Articulos]
-       WHERE RTRIM([Codigo]) NOT LIKE '%[^0-9]%'
-         AND LEN(RTRIM([Codigo])) BETWEEN 1 AND 18
-         AND ISNUMERIC(RTRIM([Codigo])) = 1"
-    );
-    $row = $stmt ? $stmt->fetch(PDO::FETCH_ASSOC) : false;
-    $maxNum = $row && $row['MaxNum'] !== null ? (int) $row['MaxNum'] : 0;
-    $ancho = $row && $row['MaxLen'] !== null ? (int) $row['MaxLen'] : 10;
-    if ($ancho < 1) {
-      $ancho = 10;
-    }
-    if ($ancho > 18) {
-      $ancho = 18;
-    }
-    // Si el siguiente numero supera el ancho actual, ampliar (sin pasar de 18).
-    $siguienteLen = strlen((string) ($maxNum + 1));
-    if ($siguienteLen > $ancho) {
-      $ancho = min(18, $siguienteLen);
-    }
-
-    return ['maxNum' => $maxNum, 'ancho' => $ancho];
-  }
-
-  private function formatearCodigoArticulo(int $numero, int $ancho): string
-  {
-    if ($numero < 0) {
-      throw new \InvalidArgumentException('Codigo de articulo invalido');
-    }
-    $s = (string) $numero;
-    if (strlen($s) > 18) {
-      throw new \InvalidArgumentException('Codigo de articulo fuera de rango');
-    }
-    $pad = max($ancho, strlen($s));
-    if ($pad > 18) {
-      $pad = 18;
-    }
-    return str_pad($s, $pad, '0', STR_PAD_LEFT);
+    return $this->articuloGeneracionCodigos()->previewSiguiente($empresaCodigo);
   }
 }
 

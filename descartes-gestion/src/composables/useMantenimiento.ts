@@ -68,7 +68,7 @@ export function useMantenimiento(entidad: MaybeRefOrGetter<string>) {
       if (esCancelado(e)) return
       error.value = extractApiError(e, 'Error al cargar listado')
     } finally {
-      if (!silent && !signal.aborted) loading.value = false
+      if (!silent) loading.value = false
     }
   }
 

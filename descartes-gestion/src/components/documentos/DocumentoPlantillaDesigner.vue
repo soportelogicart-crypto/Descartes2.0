@@ -29,7 +29,9 @@ const emit = defineEmits<{
 }>()
 
 const canvasRef = ref<HTMLElement | null>(null)
-const textoLibreRef = ref<HTMLTextAreaElement | null>(null)
+const contenidoTextoRef = ref<HTMLTextAreaElement | null>(null)
+/** Texto del bloque seleccionado (evita perder el foco al sincronizar con el padre). */
+const labelEditLocal = ref('')
 /** ~1 mm en pantalla a 96 dpi (proporción real). */
 const FOLIO_PX_PER_MM = 96 / 25.4
 const pxPerMm = ref(FOLIO_PX_PER_MM)
@@ -109,13 +111,20 @@ const bindText = computed({
   },
 })
 
-const labelBloque = computed({
-  get: () => selected.value?.label ?? '',
-  set: (v: string) => {
-    if (!selected.value || props.readonly) return
-    patchBlockContent(selected.value.id, { label: v })
+function commitLabelEdit(raw: string) {
+  labelEditLocal.value = raw
+  if (!selected.value || props.readonly) return
+  if ((selected.value.label ?? '') === raw) return
+  patchBlockContent(selected.value.id, { label: raw })
+}
+
+watch(
+  () => `${selected.value?.id ?? ''}\0${selected.value?.label ?? ''}`,
+  () => {
+    labelEditLocal.value = selected.value?.label ?? ''
   },
-})
+  { immediate: true }
+)
 
 const piePlantilla = computed({
   get: () => String(selected.value?.props?.plantilla ?? ''),
@@ -232,6 +241,13 @@ function etiquetaBloque(type: PlantillaBloqueTipo, label?: string) {
   return label?.trim() || etiquetaTipoBloque(type)
 }
 
+function etiquetaBloqueCanvas(b: PlantillaBloque): string {
+  if (b.type === 'titulo-documento') {
+    return b.label?.trim() || 'DOCUMENTO'
+  }
+  return etiquetaBloque(b.type, b.label)
+}
+
 function tieneBloque(type: PlantillaBloqueTipo) {
   return plantilla.value.blocks.some((b) => b.type === type)
 }
@@ -275,7 +291,7 @@ function anadirBloque(type: PlantillaBloqueTipo) {
   plantilla.value = { ...plantilla.value, blocks: [...plantilla.value.blocks, colocado] }
   selectedId.value = colocado.id
   markDirty()
-  if (type === 'texto') void enfocarTextoLibre()
+  if (type === 'texto' || type === 'titulo-documento') void enfocarEditorContenido(true)
 }
 
 function rectsSolapan(
@@ -434,17 +450,19 @@ function blockFontStyle(b: PlantillaBloque): Record<string, string> {
 
 function esCampoFormulario(el: EventTarget | null): boolean {
   if (!(el instanceof HTMLElement)) return false
-  if (el.closest('input, textarea, select, option, .inspector, .palette, [contenteditable="true"]')) {
+  if (el.closest('input, textarea, select, option, [contenteditable="true"]')) {
     return true
   }
   const tag = el.tagName
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable
 }
 
-async function enfocarTextoLibre() {
+async function enfocarEditorContenido(seleccionarTodo = false) {
   await nextTick()
-  textoLibreRef.value?.focus()
-  textoLibreRef.value?.select()
+  const el = contenidoTextoRef.value
+  if (!el) return
+  el.focus()
+  if (seleccionarTodo) el.select()
 }
 
 function selectBlock(id: string, e: MouseEvent) {
@@ -515,7 +533,7 @@ function onGeomInput(field: 'x' | 'y' | 'w' | 'h', raw: string) {
 
 function onKeydown(e: KeyboardEvent) {
   if (props.readonly) return
-  if (esCampoFormulario(e.target)) return
+  if (esCampoFormulario(document.activeElement)) return
   if (e.key === 'Delete' && selectedId.value) {
     e.preventDefault()
     quitarBloque(selectedId.value)
@@ -623,10 +641,10 @@ watch(
   }
 )
 
-watch(selectedId, (id) => {
-  if (!id) return
+watch(selectedId, (id, prev) => {
+  if (!id || id === prev) return
   const b = plantilla.value.blocks.find((x) => x.id === id)
-  if (b?.type === 'texto') void enfocarTextoLibre()
+  if (b?.type === 'texto' || b?.type === 'titulo-documento') void enfocarEditorContenido(false)
 })
 
 defineExpose({
@@ -751,9 +769,11 @@ defineExpose({
             :style="blockStyle(b)"
             @mousedown="startMove(b, $event)"
             @click="selectBlock(b.id, $event)"
-            @dblclick="b.type === 'texto' && enfocarTextoLibre()"
+            @dblclick="
+              (b.type === 'texto' || b.type === 'titulo-documento') && enfocarEditorContenido(true)
+            "
           >
-            <span class="block-label" :style="blockFontStyle(b)">{{ etiquetaBloque(b.type, b.label) }}</span>
+            <span class="block-label" :style="blockFontStyle(b)">{{ etiquetaBloqueCanvas(b) }}</span>
             <span v-if="selectedId === b.id" class="block-size">{{ b.w }}×{{ b.h }} mm</span>
             <span v-if="b.bind?.length && esEtiqueta" class="block-bind" :style="blockFontStyle(b)">
               {{ b.bind.join(' · ') }}
@@ -791,26 +811,42 @@ defineExpose({
           </div>
 
           <label class="field" for="bloque-texto-libre">
-            {{ selected.type === 'texto' ? 'Texto a imprimir' : 'Nombre del recuadro' }}
+            {{
+              selected.type === 'texto'
+                ? 'Texto a imprimir'
+                : selected.type === 'titulo-documento'
+                  ? 'Texto del título (impresión)'
+                  : 'Nombre del recuadro'
+            }}
             <textarea
-              v-if="selected.type === 'texto'"
+              v-if="selected.type === 'texto' || selected.type === 'titulo-documento'"
               id="bloque-texto-libre"
-              ref="textoLibreRef"
-              v-model="labelBloque"
-              rows="4"
+              ref="contenidoTextoRef"
+              :value="labelEditLocal"
+              :rows="selected.type === 'titulo-documento' ? 2 : 4"
               :disabled="readonly"
-              placeholder="Escriba aquí el texto (p. ej. Oferta, IVA incl.)"
+              spellcheck="false"
+              :placeholder="
+                selected.type === 'titulo-documento'
+                  ? 'Ej. FACTURA DE CRÉDITO (una línea; ensanche el recuadro si no cabe)'
+                  : 'Escriba aquí el texto (p. ej. Oferta, IVA incl.)'
+              "
+              @input="commitLabelEdit(($event.target as HTMLTextAreaElement).value)"
+              @keydown.stop
             />
             <input
               v-else
               id="bloque-texto-libre"
               type="text"
-              v-model="labelBloque"
+              :value="labelEditLocal"
               :disabled="readonly"
               placeholder="Nombre interno del recuadro"
+              @input="commitLabelEdit(($event.target as HTMLInputElement).value)"
+              @keydown.stop
             />
-            <span v-if="selected.type === 'texto'" class="help">
-              Pulse el recuadro y escriba aquí. Retroceso borra letras, no el recuadro.
+            <span v-if="selected.type === 'texto' || selected.type === 'titulo-documento'" class="help">
+              Escriba en el panel derecho (doble clic en el recuadro). Las flechas mueven el recuadro
+              solo si el cursor no está aquí.
             </span>
           </label>
 
@@ -918,7 +954,7 @@ defineExpose({
             v-if="selected.type === 'titulo-documento' || selected.type === 'totales-iva'"
             class="field"
           >
-            {{ selected.type === 'totales-iva' ? 'Etiqueta total' : 'Modo (CREDITO…)' }}
+            {{ selected.type === 'totales-iva' ? 'Etiqueta total' : 'Subtítulo opcional (2ª línea)' }}
             <input
               v-if="selected.type === 'totales-iva'"
               v-model="etiquetaTotal"
@@ -931,8 +967,13 @@ defineExpose({
               v-model="etiquetaModo"
               type="text"
               :readonly="readonly"
-              placeholder="CREDITO"
+              placeholder="Vacío = solo el título de arriba"
+              @keydown.stop
             />
+            <span v-if="selected.type === 'titulo-documento'" class="help">
+              Si rellena esto, en la factura saldrá debajo del título principal. Déjelo vacío para una
+              sola línea.
+            </span>
           </label>
 
           <label v-if="selected.type === 'pie'" class="field">
@@ -1064,6 +1105,7 @@ defineExpose({
 
 .palette,
 .inspector {
+  user-select: text;
   border: 1px solid #c5cdd8;
   border-radius: 6px;
   background: #f8fafc;
@@ -1363,6 +1405,12 @@ defineExpose({
   font-weight: 700;
   color: #0f172a;
   line-height: 1.2;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.type-titulo-documento .block-label {
+  font-size: 0.72rem;
 }
 
 .block-size {

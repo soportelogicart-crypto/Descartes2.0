@@ -119,6 +119,9 @@ watch(
     error.value = null
     await buscar()
     await posicionarEnActual()
+    await nextTick()
+    inputBusqueda.value?.focus()
+    inputBusqueda.value?.select()
   }
 )
 
@@ -199,6 +202,37 @@ function aceptar(i?: number) {
   emit('seleccionar', { codigo: fila.codigo, etiqueta: fila.etiqueta })
   emit('cerrar')
 }
+
+function scrollFilaSeleccionada() {
+  void nextTick(() => {
+    gridWrap.value?.querySelector('tr.selected')?.scrollIntoView({ block: 'nearest' })
+  })
+}
+
+function onBusquedaKeydown(e: KeyboardEvent) {
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    const max = itemsMostrados.value.length - 1
+    if (max >= 0) indice.value = Math.min(indice.value + 1, max)
+    scrollFilaSeleccionada()
+    return
+  }
+  if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    indice.value = Math.max(0, indice.value - 1)
+    scrollFilaSeleccionada()
+    return
+  }
+  if (e.key !== 'Enter' && e.key !== 'NumpadEnter') return
+  e.preventDefault()
+  if (loading.value) return
+  const list = itemsMostrados.value
+  if (list.length === 1) {
+    aceptar(0)
+    return
+  }
+  if (list.length > 0) aceptar()
+}
 </script>
 
 <template>
@@ -226,7 +260,7 @@ function aceptar(i?: number) {
                       : 'Codigo o descripcion...'
               "
               autofocus
-              @keyup.enter="aceptar()"
+              @keydown="onBusquedaKeydown"
             />
             <button
               v-if="q.trim()"

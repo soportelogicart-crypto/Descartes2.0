@@ -150,6 +150,12 @@ function registerIpc() {
   ipcMain.handle('equipo:set', (_event, payload) => localConfig.writeEquipo(payload || {}))
   ipcMain.handle('equipo:clear', () => localConfig.clearEquipo())
   ipcMain.handle('logos:empresa', (_event, codigo) => logos.resolveEmpresa(codigo))
+  ipcMain.handle('logos:guardar', (event, codigo) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    return logos.saveEmpresaFromDialog(codigo, win)
+  })
+  ipcMain.handle('logos:abrirCarpeta', () => logos.openLogosFolder())
+  ipcMain.handle('logos:directorio', () => logos.getLogosDirectory())
 
   ipcMain.handle('peripheral:listPrinters', () => peripherals.listPrinters())
   ipcMain.handle('peripheral:printTicket', (_event, payload) => peripherals.printTicket(payload))
@@ -164,6 +170,7 @@ function registerIpc() {
 app.whenReady().then(async () => {
   // Quitar el menu por defecto de Electron cuanto antes.
   clearMenu()
+  logos.getLogosDirectory()
   registerIpc()
   dispositivoAgente.start()
   try {

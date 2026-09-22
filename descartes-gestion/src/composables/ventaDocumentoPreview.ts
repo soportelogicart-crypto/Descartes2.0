@@ -61,30 +61,44 @@ export function ventaAPreviewDatos(
 
   const nLit = Math.max(0, Math.min(9, Number(extras.literalTicket ?? 3) || 0))
   const lits = (extras.literalesPuesto ?? []).slice(0, nLit)
-  const lineas: DocumentoPreviewLinea[] = (venta.lineas ?? [])
-    .filter((l) => {
-      const art = String(l.articulo ?? '').trim()
-      return art !== '' && art.toUpperCase() !== 'NO'
-    })
-    .map((l) => {
-      const precio = Number(l.precio) || 0
-      const pje = Number(l.pjeIva) || 0
-      const factor = 1 + pje / 100
-      // P.V.P. es la tarifa con IVA y "precio sin IVA" la base, como en el
-      // formato legacy; según SW_IVA hay que quitar o añadir la cuota.
-      const conIva = extras.preciosIvaIncluido || pje <= 0
-      return {
-        articulo: String(l.articulo ?? ''),
-        descripcion: String(l.descripcion ?? ''),
-        unidades: Number(l.cantidad) || 0,
-        precio,
-        precioSinIva: conIva ? redondear2(precio / factor) : precio,
-        dto: Number(l.pjeDto) || 0,
-        pjeIva: pje,
-        importe: Number(l.importe) || 0,
-        pvp: conIva ? precio : redondear2(precio * factor),
+  const lineas: DocumentoPreviewLinea[] = []
+  for (const l of venta.lineas ?? []) {
+    const art = String(l.articulo ?? '').trim()
+    if (art === '') continue
+    if (art.toUpperCase() === 'NO') {
+      const nota = String(l.descripcion ?? '').trim()
+      if (nota) {
+        lineas.push({
+          articulo: '',
+          descripcion: '',
+          unidades: 0,
+          precio: 0,
+          precioSinIva: 0,
+          dto: 0,
+          pjeIva: 0,
+          importe: 0,
+          pvp: 0,
+          nota,
+        })
       }
+      continue
+    }
+    const precio = Number(l.precio) || 0
+    const pje = Number(l.pjeIva) || 0
+    const factor = 1 + pje / 100
+    const conIva = extras.preciosIvaIncluido || pje <= 0
+    lineas.push({
+      articulo: art,
+      descripcion: String(l.descripcion ?? ''),
+      unidades: Number(l.cantidad) || 0,
+      precio,
+      precioSinIva: conIva ? redondear2(precio / factor) : precio,
+      dto: Number(l.pjeDto) || 0,
+      pjeIva: pje,
+      importe: Number(l.importe) || 0,
+      pvp: conIva ? precio : redondear2(precio * factor),
     })
+  }
 
   if (Number(venta.factura) > 0 && Number(venta.albaran) > 0 && lineas.length > 0) {
     lineas.unshift({
@@ -143,7 +157,7 @@ export function ventaAPreviewDatos(
       fechaEntrega: fmtFecha(venta.fechaEntrega),
       transportista: String(venta.transporte ?? ''),
       portes: String(venta.portes ?? ''),
-      observaciones: '',
+      observaciones: String(venta.observaciones ?? '').trim(),
       formaPago: String(venta.formaPagoDescripcion ?? venta.formasPago?.[0]?.codigo ?? ''),
       codigoBarras: `*${venta.empresa || ''}${venta.albaran || ''}*`,
       pagina: '1/1',

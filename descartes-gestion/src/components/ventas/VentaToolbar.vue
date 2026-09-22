@@ -44,6 +44,8 @@ withDefaults(
     mostrarFinalizar?: boolean
     /** Sustituye la etiqueta de Finalizar / A factura / Tipificar. */
     etiquetaFinalizar?: string
+    /** Copiar documento recuperado a venta nueva (mismo contenido, otro albarán). */
+    puedeOtraVenta?: boolean
   }>(),
   {
     buscarLabel: 'Buscar',
@@ -69,6 +71,7 @@ defineEmits<{
   recuperar: []
   actualizarStock: []
   generarAlbaran: []
+  otraVenta: []
   primero: []
   anterior: []
   siguiente: []
@@ -219,6 +222,17 @@ defineEmits<{
       >
         <ToolIcon name="buscar" />
         <span>{{ buscarLabel }}</span>
+      </button>
+      <button
+        v-if="puedeOtraVenta"
+        type="button"
+        class="tool-btn"
+        :disabled="loading || puedeCrear === false"
+        title="Copiar cabecera y líneas a un albarán nuevo (puede cambiar el cliente)"
+        @click="$emit('otraVenta')"
+      >
+        <ToolIcon name="nuevo" />
+        <span>Otra venta</span>
       </button>
     </div>
 

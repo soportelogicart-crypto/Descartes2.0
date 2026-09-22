@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import MantenimientoListadoButton from '@/components/mantenimiento/MantenimientoListadoButton.vue'
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onDeactivated, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { api } from '@/api/client'
 import {
@@ -31,6 +31,7 @@ import { extractApiError, useMantenimiento } from '@/composables/useMantenimient
 import { usePermisos } from '@/composables/usePermisos'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import EsperaModal from '@/components/common/EsperaModal.vue'
 import EntidadGrid, { type GridOptionsMap } from '@/components/mantenimiento/EntidadGrid.vue'
 import ClienteToolbar from '@/components/clientes/ClienteToolbar.vue'
 import ClienteTabForm from '@/components/clientes/ClienteTabForm.vue'
@@ -41,6 +42,7 @@ import ClienteEstadisticaModal from '@/components/clientes/ClienteEstadisticaMod
 import ClienteConsumoModal from '@/components/clientes/ClienteConsumoModal.vue'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { useClienteFichaStore } from '@/stores/clienteFicha'
+import { onEnterSiguienteCampo } from '@/composables/useEnterFieldNav'
 
 const MODULO = 'clientes'
 const FILTER_KEYS = ['codigo', 'tiendaCodigo', 'nombre', 'nif', 'telefono1']
@@ -98,6 +100,17 @@ const avisoModalTitulo = ref('Campo obligatorio')
 const avisoModalMensaje = ref('')
 const campoAvisoActual = ref<string | null>(null)
 const codigoInput = ref<HTMLInputElement | null>(null)
+const fichaCamposRoot = ref<HTMLElement | null>(null)
+
+function onFichaCamposEnterNav(e: KeyboardEvent) {
+  onEnterSiguienteCampo(e, fichaCamposRoot.value, {
+    onUltimo: () => {
+      if (!soloLecturaFicha.value && (puedeCrear.value || puedeEditar.value)) {
+        void onGuardarFicha()
+      }
+    },
+  })
+}
 const guardando = ref(false)
 
 function mostrarAvisoModal(titulo: string, message: string, campo?: string | null) {
@@ -282,6 +295,15 @@ onMounted(async () => {
   if (vista.value === 'grid') {
     void cargar()
   }
+})
+
+/** KeepAlive deja la vista viva al ir a Ventas; cancelar listados colgados al salir/entrar. */
+onDeactivated(() => {
+  cancelarListado()
+})
+
+onActivated(() => {
+  cancelarListado()
 })
 
 watch(vista, (v) => {
@@ -789,6 +811,7 @@ async function onUltimo() {
             @direccion="onDireccion"
           />
 
+          <div ref="fichaCamposRoot" class="ficha-campos" @keydown="onFichaCamposEnterNav">
           <div class="ficha-header">
             <label :class="{ 'campo-invalido': camposInvalidos.includes('codigo') }">
               Codigo *
@@ -850,7 +873,6 @@ async function onUltimo() {
               {{ tab.label }}
             </button>
           </div>
-        </div>
 
         <ClienteTabForm
           :sections="tabSeleccionada.sections"
@@ -863,6 +885,8 @@ async function onUltimo() {
           @update:model-value="actualizarFicha"
           @blur-field="onBlurCampo"
         />
+          </div>
+        </div>
       </template>
 
       <ClienteInteresesModal
@@ -918,6 +942,12 @@ async function onUltimo() {
         hide-cancel
         @confirm="cerrarAvisoModal"
         @cancel="cerrarAvisoModal"
+      />
+
+      <EsperaModal
+        :open="guardando"
+        titulo="Guardando cliente"
+        mensaje="Enviando datos al servidor…"
       />
     </template>
   </section>

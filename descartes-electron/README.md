@@ -85,6 +85,8 @@ Contiene `equipoId` (hostname del PC), `empresaCodigo` y `puestoCodigo`.
 |--------|-----|
 | `getEquipoConfig` / `setEquipoConfig` | Leer/guardar puesto del PC |
 | `getHostname` | Nombre Windows del equipo |
+| `logoEmpresa` / `guardarLogoEmpresa` | Leer o elegir logo de tienda (albarán/factura A4) |
+| `abrirCarpetaLogos` / `getLogosDir` | Carpeta `%APPDATA%/…/logos` |
 | `listPrinters` | Impresoras del sistema (Windows/macOS) |
 | `printTicket` | Ticket ESC/POS RAW (Windows) |
 | `printHtml` | Documento A4 (HTML → cola Windows) |
@@ -102,6 +104,12 @@ Contiene `equipoId` (hostname del PC), `empresaCodigo` y `puestoCodigo`.
 El flujo es: Gestión/API → agente Electron → bytes ESC/POS → cola Windows (RAW).
 
 Los stubs restantes (cajón, balanza, visor) estan en `electron/peripherals.js`.
+
+### Logo en albarán / factura
+
+En **Mantenimiento → Tiendas → ficha de la tienda** (solo en Electron): **Elegir imagen…** guarda
+`{codigoTienda}.png` (o jpg, etc.) en la carpeta local de logos. También puede copiar ficheros a mano;
+al arrancar la app se crea la carpeta con un `LEEME.txt`.
 
 ### Impresión de etiquetas
 

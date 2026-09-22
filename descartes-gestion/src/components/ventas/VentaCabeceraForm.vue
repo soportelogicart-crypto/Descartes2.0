@@ -31,6 +31,8 @@ const props = defineProps<{
   modoLineas?: boolean
   /** Ticket cerrado: solo cliente / NIF / razón / contacto. */
   soloDatosFiscales?: boolean
+  /** Albarán en alta/edición: permitir cambiar la fecha de cabecera. */
+  puedeEditarFecha?: boolean
   vendedorNombre?: string
   totales: { bruto: number; descuento: number; iva: number; importe: number }
 }>()
@@ -59,7 +61,7 @@ const ficha = computed({
 })
 
 const fechaBloqueada = computed(() =>
-  Boolean(props.readonly || props.esNuevo || props.soloDatosFiscales)
+  Boolean(props.readonly || props.soloDatosFiscales || props.puedeEditarFecha === false)
 )
 const docBloqueado = computed(() => Boolean(props.readonly || props.soloDatosFiscales))
 const extraBloqueado = computed(() => Boolean(props.readonly || props.soloDatosFiscales))
@@ -101,8 +103,19 @@ watch(
       props.modelValue.tipo,
       props.modelValue.albaran,
     ] as const,
-  ([activo]) => {
-    if (activo) cabeceraExpandida.value = false
+  (next, prev) => {
+    if (!next[0]) return
+    if (!prev) {
+      cabeceraExpandida.value = false
+      return
+    }
+    // No plegar al editar fecha u otros campos: solo al pasar a modo líneas o cambiar documento.
+    const entroModoLineas = !prev[0] && next[0]
+    const cambioDocumento =
+      next[1] !== prev[1] || next[2] !== prev[2] || next[3] !== prev[3]
+    if (entroModoLineas || cambioDocumento) {
+      cabeceraExpandida.value = false
+    }
   },
 )
 
@@ -371,7 +384,7 @@ onUnmounted(() => {
               :value="fechaInput()"
               type="date"
               :readonly="fechaBloqueada"
-              :title="esNuevo ? 'La fecha de una venta nueva es siempre la de hoy' : undefined"
+              :title="fechaBloqueada ? undefined : 'Fecha del albarán'"
               @input="setFecha(($event.target as HTMLInputElement).value)"
             />
           </label>
@@ -710,6 +723,16 @@ onUnmounted(() => {
             @input="patch('representante', ($event.target as HTMLInputElement).value)"
           />
         </label>
+        <label class="field span-6">
+          <span class="label">Observaciones / notas</span>
+          <textarea
+            :value="ficha.observaciones ?? ''"
+            rows="2"
+            maxlength="500"
+            :readonly="extraBloqueado"
+            @input="patch('observaciones', ($event.target as HTMLTextAreaElement).value)"
+          />
+        </label>
       </div>
     </section>
 
@@ -905,6 +928,20 @@ onUnmounted(() => {
 
 .span-2 {
   grid-column: span 2;
+}
+
+.span-6 {
+  grid-column: span 6;
+}
+
+textarea {
+  width: 100%;
+  min-height: 2.5rem;
+  resize: vertical;
+  font: inherit;
+  padding: 0.25rem 0.35rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
 }
 
 .label {

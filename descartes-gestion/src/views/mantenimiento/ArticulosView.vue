@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import MantenimientoListadoButton from '@/components/mantenimiento/MantenimientoListadoButton.vue'
-import { computed, nextTick, onActivated, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import { extractApiError, useMantenimiento } from '@/composables/useMantenimiento'
@@ -35,10 +35,21 @@ import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { resolverArticulo } from '@/api/articulos'
 import { createBarcodeScanWatcher } from '@/composables/useBarcodeScanWatcher'
+import { onEnterSiguienteCampo } from '@/composables/useEnterFieldNav'
 
 const MODULO = 'articulos'
 const ENTIDAD = 'articulos'
 const FILTER_KEYS = ['codigo', 'descripcion', 'familia', 'impuestoCodigo', 'proveedorHabitual', 'precioVen1']
+/** Texto enviado a GET …/articulos?q= (busqueda en servidor, no solo en los ~200 cargados). */
+const FILTRO_SERVidor_KEYS = [
+  'codigo',
+  'descripcion',
+  'familia',
+  'impuestoCodigo',
+  'proveedorHabitual',
+] as const
+const FILTRO_SERVidor_MS = 350
+let filtroServidorTimer: ReturnType<typeof setTimeout> | null = null
 
 const route = useRoute()
 const router = useRouter()
@@ -127,6 +138,17 @@ const avisoMensaje = ref('')
 const campoAvisoActual = ref<string | null>(null)
 const codigoInput = ref<HTMLInputElement | null>(null)
 const descripcionInput = ref<HTMLInputElement | null>(null)
+const fichaCamposRoot = ref<HTMLElement | null>(null)
+
+function onFichaCamposEnterNav(e: KeyboardEvent) {
+  onEnterSiguienteCampo(e, fichaCamposRoot.value, {
+    onUltimo: () => {
+      if (!soloLecturaFicha.value && (puedeCrear.value || puedeEditar.value)) {
+        void onGuardarFicha()
+      }
+    },
+  })
+}
 
 const codigoReadOnlyFicha = computed(() => !esNuevo.value || codigoAutomatico.value)
 
@@ -288,17 +310,52 @@ function mapFilasDesdeApi() {
   filasTodas.value = items.value.map((item) => clonarArticuloFila(item))
 }
 
-async function cargar() {
+function qBusquedaServidor(): string {
+  for (const key of FILTRO_SERVidor_KEYS) {
+    const f = filtros.value[key]
+    if (!f || f.operador === 'sin_filtro') continue
+    const v = String(f.valor ?? '').trim()
+    if (v) return v
+  }
+  return ''
+}
+
+async function recargarListadoGrid() {
   mensaje.value = null
-  await listar()
+  const q = qBusquedaServidor()
+  await listar(q ? { q } : {})
   mapFilasDesdeApi()
   filaNuevaDraft.value = articuloFilaVacia()
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
 }
 
+async function cargar() {
+  await recargarListadoGrid()
+}
+
+function programarRecargaPorFiltros() {
+  if (vista.value !== 'grid') return
+  if (filtroServidorTimer !== null) clearTimeout(filtroServidorTimer)
+  filtroServidorTimer = setTimeout(() => {
+    filtroServidorTimer = null
+    void recargarListadoGrid()
+  }, FILTRO_SERVidor_MS)
+}
+
+watch(filtros, () => programarRecargaPorFiltros(), { deep: true })
+
+onUnmounted(() => {
+  if (filtroServidorTimer !== null) clearTimeout(filtroServidorTimer)
+})
+
 function onFiltroSearch() {
-  const q = String(filtros.value.codigo?.valor ?? '').trim()
-  if (q) void intentarAbrirFichaPorReferencia(q)
+  if (filtroServidorTimer !== null) {
+    clearTimeout(filtroServidorTimer)
+    filtroServidorTimer = null
+  }
+  void recargarListadoGrid()
+  const qCod = String(filtros.value.codigo?.valor ?? '').trim()
+  if (qCod) void intentarAbrirFichaPorReferencia(qCod)
 }
 
 /** Abre ficha si `q` es código, alternativo o EAN (escáner / Intro). */
@@ -423,12 +480,22 @@ async function onNuevoFicha() {
   mensaje.value = null
   camposInvalidos.value = []
   try {
+    const empresaPuesto = String(puestoContexto.empresaCodigo ?? '').trim()
     const { data } = await api.get('/api/mantenimiento/articulos/siguiente-codigo', {
-      params: { empresa: puestoContexto.empresaCodigo || undefined },
+      params: { empresa: empresaPuesto || undefined },
     })
     if (data.automatico && data.codigo) {
       vacio.codigo = String(data.codigo)
       codigoAutomatico.value = true
+      mensaje.value = data.ean
+        ? `Codigo propuesto (tienda ${data.empresaCodigo ?? empresaPuesto}). EAN previsto: ${data.ean}`
+        : null
+    } else {
+      mensaje.value =
+        String(data.mensaje ?? '').trim() ||
+        (empresaPuesto
+          ? `No hay codigo automatico para la tienda ${data.empresaCodigo ?? empresaPuesto}. Revise «Generar articulos» y Prefijo en la ficha de tienda.`
+          : 'Configure la tienda del puesto (equipo) antes de dar de alta articulos.')
     }
   } catch (e: unknown) {
     mensaje.value = extractApiError(e, 'No se pudo obtener el siguiente codigo')
@@ -468,7 +535,10 @@ async function onGuardarFicha() {
   try {
     if (ficha.value.precioVen1 != null) ficha.value.precioVenta = ficha.value.precioVen1
     if (esNuevo.value) {
-      const creado = await crear(ficha.value)
+      const payload = { ...ficha.value } as Record<string, unknown>
+      const emp = String(puestoContexto.empresaCodigo ?? '').trim()
+      if (emp) payload.empresaCodigo = emp
+      const creado = await crear(payload)
       mensaje.value = 'Articulo creado correctamente'
       await cargar()
       const idx = filas.value.findIndex((a) => String(a.codigo) === String(creado.codigo))
@@ -615,7 +685,9 @@ const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
     <p v-if="!puedeVer" class="error">No tiene permiso para ver articulos.</p>
 
     <template v-else>
-      <p v-if="mensaje" class="msg">{{ mensaje }}</p>
+      <p v-if="mensaje" :class="codigoAutomatico || /creado|actualizado/i.test(mensaje) ? 'msg' : 'error'">
+        {{ mensaje }}
+      </p>
       <p v-if="error" class="error">{{ error }}</p>
 
       <!-- GRID (mismo patron Familias) -->
@@ -692,13 +764,16 @@ const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
         />
 
         <p class="hint">
-          <strong>Escanear</strong> código o EAN abre la ficha. Escriba bajo cada columna para filtrar. Doble clic en una fila o en <strong>*</strong> para crear.
+          <strong>Escanear</strong> código o EAN abre la ficha. Al escribir en código, descripción, familia, etc. se busca en
+          <strong>toda la base</strong> (hasta 200 coincidencias; Intro recarga). Precio se filtra en pantalla. Doble clic o
+          <strong>*</strong> para crear.
         </p>
         </div>
       </template>
 
       <!-- FICHA detallada (legacy) -->
       <template v-else>
+        <div ref="fichaCamposRoot" class="ficha-campos" @keydown="onFichaCamposEnterNav">
         <div class="sticky-chrome">
           <button type="button" class="btn-volver" @click="volverAlGrid">← Volver a la rejilla</button>
 
@@ -783,6 +858,7 @@ const totalFicha = computed(() => filas.value.filter((f) => !f._nuevo).length)
             @update:model-value="onFichaUpdate"
           />
           <ArticuloSidePanels :ficha="ficha" />
+        </div>
         </div>
       </template>
 

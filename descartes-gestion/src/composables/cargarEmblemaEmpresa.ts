@@ -16,6 +16,11 @@ export function cargarEmblemaEmpresa(empresaCodigo: string): Promise<string> {
   return pending
 }
 
+export function invalidarEmblemaEmpresa(empresaCodigo: string) {
+  const codigo = String(empresaCodigo ?? '').trim()
+  if (codigo) cache.delete(codigo)
+}
+
 async function resolver(codigo: string): Promise<string> {
   const bridge = getDescartesBridge()
   if (bridge?.logoEmpresa) {

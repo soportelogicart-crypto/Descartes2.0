@@ -190,7 +190,7 @@ export const tiendaTabs: TiendaTab[] = [
           cb('solicitarPerfil', 'Solicitar vendedor'),
           inline('tarifa', 'Tarifa', { type: 'number', required: true }),
           inline('datos', 'Datos', { type: 'number' }),
-          inline('prefijo', 'Prefijo tienda', { type: 'number' }),
+          inline('prefijo', 'Prefijo tienda', { type: 'text', maxLength: 3, inputWidth: '4rem' }),
           inline('serieFacturas', 'Serie facturas', { span: 2 }),
           cb('facturasRectificativas', 'Fact. rectificativas'),
           inline('serieAbonos', 'Serie fact. rectif.', { span: 2 }),
@@ -258,7 +258,7 @@ export const tiendaTabs: TiendaTab[] = [
         columns: 4,
         fields: [
           cb('genBarras', 'Generar codigo de barras'),
-          inline('aecoc', 'A.E.C.O.C.', { type: 'number' }),
+          inline('aecoc', 'A.E.C.O.C.', { type: 'text', maxLength: 4, inputWidth: '5rem' }),
           cb('genDesdeCodigo', '+ Codigo'),
           cb('genClientes', 'Generar clientes'),
           cb('genArticulos', 'Generar articulos'),

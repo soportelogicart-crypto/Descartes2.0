@@ -15,6 +15,28 @@ export type ArticuloResuelto = Record<string, unknown> & {
  * Busca artículo por código, Alternativo o EAN (escáner / Intro).
  * GET /api/mantenimiento/articulos/resolver?q=
  */
+export type ArticuloListadoItem = {
+  codigo: string
+  descripcion?: string | null
+}
+
+/** Búsqueda parcial (listado mantenimiento). */
+export async function buscarArticulos(
+  query: string,
+  pageSize = 50,
+): Promise<ArticuloListadoItem[]> {
+  const q = String(query ?? '').trim()
+  if (!q) return []
+  const { data } = await api.get<{ items?: Record<string, unknown>[] }>(
+    '/api/mantenimiento/articulos',
+    { params: { q, page: 1, pageSize } },
+  )
+  return (data.items ?? []).map((item) => ({
+    codigo: String(item.codigo ?? '').trim(),
+    descripcion: item.descripcion != null ? String(item.descripcion) : null,
+  }))
+}
+
 export async function resolverArticulo(query: string): Promise<ArticuloResuelto> {
   const q = String(query ?? '').trim()
   const { data } = await api.get<ArticuloResuelto>('/api/mantenimiento/articulos/resolver', {
