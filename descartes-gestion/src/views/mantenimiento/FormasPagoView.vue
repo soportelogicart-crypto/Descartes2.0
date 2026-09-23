@@ -23,6 +23,7 @@ import {
   validarFormaPagoObligatorios,
 } from '@/config/formas-pago-tabs'
 import { extractApiError, useMantenimiento } from '@/composables/useMantenimiento'
+import { useMantenimientoServerSearch } from '@/composables/useMantenimientoServerSearch'
 import { usePermisos } from '@/composables/usePermisos'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -33,10 +34,11 @@ import ToolIcon from '@/components/common/ToolIcon.vue'
 const ENTIDAD = 'formas-pago'
 const MODULO = 'formas-pago'
 const FILTER_KEYS = ['codigo', 'descripcion']
+const SERVER_FILTER_KEYS = ['codigo', 'descripcion'] as const
 const columns = getGridColumns(ENTIDAD)
 
 const { puede } = usePermisos()
-const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(
+const { items, total, page, pageSize, loading, error, listar, cancelarListado, obtener, crear, actualizar, eliminar } = useMantenimiento(
   () => ENTIDAD
 )
 
@@ -49,6 +51,12 @@ const soloLecturaGrid = computed(() => !puedeCrear.value && !puedeEditar.value)
 const vista = ref<'grid' | 'ficha'>('grid')
 const filasTodas = ref<GridFila[]>([])
 const filtros = ref<Record<string, ColumnFilter>>(filtrosIniciales(FILTER_KEYS))
+const { serverQuery, onServerSearch } = useMantenimientoServerSearch({
+  filters: filtros,
+  serverKeys: SERVER_FILTER_KEYS,
+  reload: cargar,
+  cancel: cancelarListado,
+})
 const indiceSeleccionado = ref(0)
 const filtroActivo = ref<'activos' | 'todos' | 'inactivos'>('activos')
 const mensaje = ref<string | null>(null)
@@ -166,9 +174,10 @@ onMounted(async () => {
   await cargar()
 })
 
-async function cargar() {
+async function cargar(q = serverQuery.value) {
   mensaje.value = null
   const params: Record<string, string | number | boolean> = { page: page.value, pageSize: pageSize.value }
+  if (q) params.q = q
   if (filtroActivo.value === 'activos') params.activo = true
   if (filtroActivo.value === 'inactivos') params.activo = false
   const seqFiltro = filtroActivo.value
@@ -439,6 +448,7 @@ async function onUltimo() {
           @actualizar="actualizarFila"
           @abrir="abrirFicha"
           @nuevo="onNuevo"
+          @search="onServerSearch"
         />
 
         <p class="hint">

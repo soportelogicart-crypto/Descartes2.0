@@ -4,6 +4,9 @@ import {
   anularVentaTpv,
   obtenerContextoTpv,
   obtenerPrecioArticuloTpv,
+  obtenerTicketsEsperaTpv,
+  ponerTicketEnEsperaTpv,
+  recuperarTicketEsperaTpv,
   resolverArticuloTpv,
 } from '@/api/tpv'
 import {
@@ -21,6 +24,7 @@ import {
   type TpvLineaBorrador,
   type TpvPrecioPendiente,
   type TpvReservaTicket,
+  type TpvTicketEspera,
 } from '@/types/tpv'
 import type { VentaDetalle, VentaLinea, VentaPayload } from '@/types/ventas'
 
@@ -47,9 +51,11 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
   const lineas = ref<TpvLineaBorrador[]>([])
   const loading = ref(false)
   const guardando = ref(false)
+  const cargandoTicketsEspera = ref(false)
   const error = ref<string | null>(null)
   const aviso = ref<string | null>(null)
   const pendientePrecio = ref<TpvPrecioPendiente | null>(null)
+  const ticketsEspera = ref<TpvTicketEspera[]>([])
 
   const total = computed(() => lineas.value.reduce((sum, l) => sum + l.importe, 0))
 
@@ -247,6 +253,113 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
     reserva.value = null
     cliente.value = null
     pendientePrecio.value = null
+  }
+
+  function cargarVentaRecuperada(detalle: VentaDetalle) {
+    venta.value = detalle
+    reserva.value = {
+      albaran: detalle.albaran,
+      vendedor: detalle.vendedor,
+      almacen: detalle.almacen ?? null,
+    }
+    lineas.value = (detalle.lineas ?? []).map((l) => ({
+      articulo: String(l.articulo ?? '').trim(),
+      descripcion: String(l.descripcion ?? '').trim(),
+      cantidad: Number(l.cantidad) || 0,
+      precio: Number(l.precio) || 0,
+      pjeDto: Number(l.pjeDto) || 0,
+      importe: Number(l.importe) || 0,
+      pjeIva: Number(l.pjeIva) || 0,
+    }))
+
+    const codigo = String(detalle.cliente ?? '').trim()
+    cliente.value =
+      !codigo || codigo === codigoRapido(contexto.value)
+        ? null
+        : {
+            codigo,
+            razonSocial: String(detalle.razonSocial ?? ''),
+            razonSocial2: String(detalle.razonSocial2 ?? ''),
+            nif: String(detalle.nif ?? ''),
+            direccion: String(detalle.direccionEnvio ?? ''),
+            poblacion: String(detalle.poblacionEnvio ?? ''),
+            codigoPostal: String(detalle.codigoPostalEnvio ?? ''),
+            provincia: String(detalle.provinciaEnvio ?? ''),
+            pais: String(detalle.paisEnvio ?? ''),
+            telefono: String(detalle.telefono ?? ''),
+            email: String(detalle.email ?? ''),
+            formaPago: String(detalle.formasPago?.[0]?.codigo ?? ''),
+            tarifa: Number(detalle.tarifa ?? contexto.value?.tarifa ?? 0),
+          }
+    pendientePrecio.value = null
+  }
+
+  async function cargarTicketsEspera(): Promise<boolean> {
+    const c = contexto.value
+    if (!c) return false
+    cargandoTicketsEspera.value = true
+    limpiarAvisos()
+    try {
+      ticketsEspera.value = await obtenerTicketsEsperaTpv(c.empresa, c.puesto)
+      return true
+    } catch (e: unknown) {
+      error.value = extractApiError(e, 'No se pudieron cargar los tickets en espera')
+      return false
+    } finally {
+      cargandoTicketsEspera.value = false
+    }
+  }
+
+  async function ponerEnEspera(): Promise<boolean> {
+    const c = contexto.value
+    const v = venta.value
+    if (!c || !v || lineas.value.length === 0) {
+      error.value = 'El ticket no tiene líneas para poner en espera'
+      return false
+    }
+    guardando.value = true
+    limpiarAvisos()
+    try {
+      await ponerTicketEnEsperaTpv(v.empresa, v.tipo, v.albaran, c.puesto)
+      cerrarTicket()
+      aviso.value = `Ticket ${v.albaran} guardado en espera`
+      return true
+    } catch (e: unknown) {
+      error.value = extractApiError(e, 'No se pudo poner el ticket en espera')
+      return false
+    } finally {
+      guardando.value = false
+    }
+  }
+
+  async function recuperarEnEspera(ticket: TpvTicketEspera): Promise<boolean> {
+    const c = contexto.value
+    if (!c) return false
+    if (venta.value && lineas.value.length > 0) {
+      error.value = 'Ponga primero el ticket actual en espera o anúlelo'
+      return false
+    }
+    guardando.value = true
+    limpiarAvisos()
+    try {
+      const detalle = await recuperarTicketEsperaTpv(
+        ticket.empresa,
+        ticket.tipo,
+        ticket.albaran,
+        c.puesto
+      )
+      cargarVentaRecuperada(detalle)
+      ticketsEspera.value = ticketsEspera.value.filter(
+        (t) => !(t.empresa === ticket.empresa && t.tipo === ticket.tipo && t.albaran === ticket.albaran)
+      )
+      aviso.value = `Ticket ${ticket.albaran} recuperado`
+      return true
+    } catch (e: unknown) {
+      error.value = extractApiError(e, 'No se pudo recuperar el ticket')
+      return false
+    } finally {
+      guardando.value = false
+    }
   }
 
   /** Alta de línea a partir de un artículo ya resuelto (botón táctil, tecleo o pistola). */
@@ -594,9 +707,11 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
     lineas,
     loading,
     guardando,
+    cargandoTicketsEspera,
     error,
     aviso,
     pendientePrecio,
+    ticketsEspera,
     total,
     totalFormateado,
     cajaAbierta,
@@ -606,6 +721,9 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
     abrirCaja,
     abrirTicket,
     cerrarTicket,
+    cargarTicketsEspera,
+    ponerEnEspera,
+    recuperarEnEspera,
     anadirArticulo,
     anadirPorCodigo,
     confirmarPrecioPendiente,

@@ -7,6 +7,7 @@ import type { VentaResumen } from '@/types/ventas'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
 import { GRID_LIMITE_INICIAL } from '@/composables/useGridPageSize'
+import { useGridServerFilters } from '@/composables/useGridServerFilters'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { useVentasBusquedaStore } from '@/stores/ventasBusqueda'
 import FiltroLupaField from '@/components/common/FiltroLupaField.vue'
@@ -108,15 +109,18 @@ async function cargar() {
   loading.value = true
   error.value = null
   try {
+    const servidor = filtrosServidorColumna.value
     const data = await listarVentas({
       empresa: filtros.value.empresa ? normalizarEmpresaCodigo(filtros.value.empresa) : undefined,
       fechaDesde: filtros.value.fechaDesde || undefined,
       fechaHasta: filtros.value.fechaHasta || undefined,
       puesto: filtros.value.puesto || undefined,
       vendedor: filtros.value.vendedor || undefined,
-      cliente: filtros.value.cliente || undefined,
+      cliente: filtros.value.cliente || servidor.cliente || undefined,
       estado: filtros.value.estado || undefined,
       claseDocumento: filtros.value.claseDocumento || undefined,
+      albaranTexto: servidor.albaranTexto || undefined,
+      facturaTexto: servidor.facturaTexto || undefined,
       page: 1,
       pageSize: BLOQUE_CARGA,
     })
@@ -135,6 +139,7 @@ async function cargar() {
 }
 
 function buscar() {
+  cancelarRecargaPorColumnas()
   return cargar()
 }
 
@@ -208,6 +213,26 @@ const filtrosColumnaActivos = computed(() =>
 )
 
 const hayFiltroColumna = computed(() => filtrosColumnaActivos.value.length > 0)
+
+/**
+ * Columnas que la API sabe filtrar: al escribir en ellas se relanza la consulta
+ * para buscar en toda la tabla, no solo en el bloque ya cargado.
+ */
+const filtrosServidorColumna = computed(() => ({
+  albaranTexto: filtrosColumna.value.albaran.replace(/\D+/g, ''),
+  facturaTexto: filtrosColumna.value.factura.replace(/\D+/g, ''),
+  cliente: filtrosColumna.value.cliente.trim(),
+}))
+
+const hayFiltroServidorColumna = computed(() =>
+  Object.values(filtrosServidorColumna.value).some((v) => v !== '')
+)
+
+const { cancelarPendiente: cancelarRecargaPorColumnas } = useGridServerFilters(
+  () => JSON.stringify(filtrosServidorColumna.value),
+  () => cargar()
+)
+
 const { orden, clicarColumna, ordenarFilas } = useOrdenLista()
 
 const itemsFiltrados = computed(() => {
@@ -355,7 +380,8 @@ onActivated(() => {
         <h2>Ventas</h2>
         <p class="hint">
           Tienda: <strong class="tienda-activa">{{ tiendaLabel }}</strong>
-          — Escriba bajo cada columna para filtrar el listado.
+          — Escriba bajo cada columna para filtrar. Albarán, Cliente y Factura buscan en toda la
+          base de datos; el resto filtra lo ya cargado.
         </p>
       </div>
       <button type="button" class="btn-nuevo" @click="nueva">Nueva venta</button>
@@ -495,7 +521,12 @@ onActivated(() => {
           <span>
             {{ itemsFiltrados.length }}
             {{ itemsFiltrados.length === 1 ? 'venta' : 'ventas' }}
-            <template v-if="hayFiltroColumna">de {{ items.length }} cargadas</template>
+            <template v-if="hayFiltroServidorColumna">
+              de {{ total }} encontradas en la base de datos<template v-if="total > items.length">
+                (mostrando {{ GRID_LIMITE_INICIAL }})</template
+              >
+            </template>
+            <template v-else-if="hayFiltroColumna">de {{ items.length }} cargadas</template>
             <template v-else-if="total > items.length">
               (de {{ total }}; mostrando {{ GRID_LIMITE_INICIAL }})
             </template>

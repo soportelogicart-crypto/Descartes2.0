@@ -18,6 +18,7 @@ export type VentaResumen = {
   factura: number | null
   facturaTipo: string | null
   sesion: number | null
+  mesa?: number | null
   impreso?: boolean
   /** Si > 0, este albarán es abono del albarán indicado. */
   albaranOrigenAbono?: number | null
@@ -91,6 +92,11 @@ export type VentaDetalle = VentaResumen & {
   iva?: number
   pjeIva1?: number
   pjeDto?: number
+  pjeRetIrpf?: number
+  basRetIrpf?: number
+  impRetIrpf?: number
+  importeFactura?: number | null
+  importeLiquido?: number | null
   /** Datos de impresión de factura diferida. */
   clienteCuentaBancaria?: string | null
   clienteIban?: string | null

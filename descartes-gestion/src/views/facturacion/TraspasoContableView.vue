@@ -4,7 +4,7 @@ import { ejecutarTraspasoContable, listarTraspasoContable } from '@/api/facturac
 import { api } from '@/api/client'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
-import { GRID_LIMITE_INICIAL } from '@/composables/useGridPageSize'
+import { useGridRenderLimit } from '@/composables/useGridRenderLimit'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import type { FacturaTraspasoContable } from '@/types/facturacion'
@@ -115,6 +115,8 @@ const itemsFiltrados = computed(() => {
   return ordenarFilas(base, (row, key) => textoColumna[key as ColumnaKey](row), ['fecha'])
 })
 
+const { gridEl, visibles, onScrollGrid } = useGridRenderLimit(itemsFiltrados)
+
 function limpiarFiltrosColumna() {
   filtrosColumna.value = filtrosColumnaVacios()
 }
@@ -167,7 +169,7 @@ async function cargar() {
       fechaDesde: filtros.value.fechaDesde || undefined,
       fechaHasta: filtros.value.fechaHasta || undefined,
     })
-    items.value = (data.items ?? []).slice(0, GRID_LIMITE_INICIAL)
+    items.value = data.items ?? []
     seleccion.value = new Set()
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudieron consultar las facturas pendientes')
@@ -334,7 +336,7 @@ onMounted(async () => {
         <p v-if="mensaje && !error" class="ok">{{ mensaje }}</p>
         <p v-if="loading" class="hint">Cargando…</p>
 
-        <div v-if="items.length" class="grid-wrap">
+        <div v-if="items.length" ref="gridEl" class="grid-wrap" @scroll.passive="onScrollGrid">
           <table>
             <thead>
               <tr>
@@ -365,7 +367,7 @@ onMounted(async () => {
             </thead>
             <tbody>
               <tr
-                v-for="f in itemsFiltrados"
+                v-for="f in visibles"
                 :key="clave(f)"
                 :class="{ checked: seleccion.has(clave(f)) }"
                 @click="toggle(f)"

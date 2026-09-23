@@ -15,11 +15,17 @@ final class GeneracionFacturasManualService
 {
   private PDO $pdo;
   private RecibosFacturaService $recibos;
+  private FacturacionRetencionIrpfService $retencionIrpf;
 
-  public function __construct(PDO $pdo, RecibosFacturaService $recibos)
+  public function __construct(
+    PDO $pdo,
+    RecibosFacturaService $recibos,
+    ?FacturacionRetencionIrpfService $retencionIrpf = null
+  )
   {
     $this->pdo = $pdo;
     $this->recibos = $recibos;
+    $this->retencionIrpf = $retencionIrpf ?? new FacturacionRetencionIrpfService($pdo);
   }
 
   /**
@@ -35,7 +41,8 @@ final class GeneracionFacturasManualService
 
     [$where, $params] = $this->buildPendientesWhere($query);
 
-    $sql = "SELECT TOP 2000
+    // El grid filtra por columna sobre lo devuelto: conviene no recortar de más.
+    $sql = "SELECT TOP 5000
         a.Empresa, a.Tipo, a.Albaran, a.Fecha, a.Puesto, a.Cliente, a.RazonSocial, a.NIF,
         a.Importe, a.PagoaCuenta AS PagoACuenta, a.SujetoPasivo, a.PjeDto,
         ISNULL(a.PreFactura, 0) AS PreFactura,
@@ -708,6 +715,16 @@ final class GeneracionFacturasManualService
       }
     }
 
+    $irpf = $this->retencionIrpf->calcular(
+      $empresaFacturacion,
+      $cliente,
+      array_map(static fn (array $alb): array => [
+        'empresa' => trim((string) ($alb['Empresa'] ?? '')),
+        'tipo' => trim((string) ($alb['Tipo'] ?? 'A')) ?: 'A',
+        'albaran' => (int) ($alb['Albaran'] ?? 0),
+      ], $grupo)
+    );
+
     $fpagoCodigo = $formaPagoForzada;
     if ($fpagoCodigo === '') {
       $fpagoCodigo = trim((string) ($primero['FormaPagoCliente'] ?? ''));
@@ -767,7 +784,7 @@ final class GeneracionFacturasManualService
         :ir1, :ir2, :ir3, :ir4, :ir5, :ir6,
         :pjeDto, :importeDtos, :importe, :fpago, :estado,
         0, 0, 0, :importeLiquidado, :contadoDiferida,
-        0, 0, 0, :pagoACuenta, 0, :sujetoPasivo,
+        :pjeIrpf, :basIrpf, :impIrpf, :pagoACuenta, 0, :sujetoPasivo,
         0, 0
       )";
 
@@ -814,6 +831,9 @@ final class GeneracionFacturasManualService
       'estado' => $estado,
       'importeLiquidado' => 0.0,
       'contadoDiferida' => $facturaContadoDiferida ? 1 : 0,
+      'pjeIrpf' => $irpf['pjeRetIrpf'],
+      'basIrpf' => $irpf['basRetIrpf'],
+      'impIrpf' => $irpf['impRetIrpf'],
       'pagoACuenta' => round($pagoACuenta, 2),
       'sujetoPasivo' => $sujetoPasivo,
     ]);

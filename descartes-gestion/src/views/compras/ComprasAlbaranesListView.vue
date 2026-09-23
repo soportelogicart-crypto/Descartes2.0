@@ -6,6 +6,7 @@ import { actualizarStockAlbaranCompra, listarAlbaranesCompra } from '@/api/compr
 import type { AlbaranCompraResumen } from '@/types/compras'
 import { extractApiError } from '@/composables/extractApiError'
 import { GRID_LIMITE_INICIAL } from '@/composables/useGridPageSize'
+import { useGridServerFilters } from '@/composables/useGridServerFilters'
 import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
@@ -139,6 +140,26 @@ const filtrosColumnaActivos = computed(() =>
 )
 
 const hayFiltroColumna = computed(() => filtrosColumnaActivos.value.length > 0)
+
+/**
+ * Columnas que la API sabe filtrar: al escribir en ellas se relanza la consulta
+ * para buscar en toda la tabla, no solo en el bloque ya cargado.
+ */
+const filtrosServidorColumna = computed(() => ({
+  albaranTexto: filtrosColumna.value.albaran.replace(/\D+/g, ''),
+  suAlbaran: filtrosColumna.value.suAlbaran.trim(),
+  proveedor: filtrosColumna.value.proveedor.trim(),
+}))
+
+const hayFiltroServidorColumna = computed(() =>
+  Object.values(filtrosServidorColumna.value).some((v) => v !== '')
+)
+
+const { cancelarPendiente: cancelarRecargaPorColumnas } = useGridServerFilters(
+  () => JSON.stringify(filtrosServidorColumna.value),
+  () => cargar()
+)
+
 const { orden, clicarColumna, ordenarFilas } = useOrdenLista()
 
 const itemsFiltrados = computed(() => {
@@ -219,16 +240,18 @@ async function cargar() {
   try {
     const albaranNum = filtros.value.albaran.trim() ? Number(filtros.value.albaran) : undefined
     const almacenNum = filtros.value.almacen.trim() ? Number(filtros.value.almacen) : undefined
+    const servidor = filtrosServidorColumna.value
     const data = await listarAlbaranesCompra({
       empresa: filtros.value.empresa
         ? normalizarEmpresaCodigo(filtros.value.empresa)
         : undefined,
       fechaDesde: filtros.value.fechaDesde || undefined,
       fechaHasta: filtros.value.fechaHasta || undefined,
-      proveedor: filtros.value.proveedor || undefined,
+      proveedor: filtros.value.proveedor || servidor.proveedor || undefined,
       almacen: Number.isFinite(almacenNum) ? almacenNum : undefined,
       albaran: Number.isFinite(albaranNum) ? albaranNum : undefined,
-      suAlbaran: filtros.value.suAlbaran || undefined,
+      suAlbaran: filtros.value.suAlbaran || servidor.suAlbaran || undefined,
+      albaranTexto: Number.isFinite(albaranNum) ? undefined : servidor.albaranTexto || undefined,
       actualizado: props.soloPendientesStock ? 0 : undefined,
       page: 1,
       pageSize: BLOQUE_CARGA,
@@ -243,6 +266,7 @@ async function cargar() {
 }
 
 function buscar() {
+  cancelarRecargaPorColumnas()
   return cargar()
 }
 
@@ -340,7 +364,10 @@ onActivated(() => {
           <template v-if="soloPendientesStock">
             Albaranes sin stock aplicado. El botón Actualizar lo aplica; el número abre la ficha.
           </template>
-          <template v-else>Escriba bajo cada columna para filtrar el listado.</template>
+          <template v-else>
+            Escriba bajo cada columna para filtrar. Albarán, Su alb. y Proveedor buscan en toda la
+            base de datos; el resto filtra lo ya cargado.
+          </template>
         </p>
       </div>
       <button v-if="puedeCrear" type="button" class="btn-nuevo" @click="nuevo">
@@ -480,7 +507,12 @@ onActivated(() => {
           <span>
             {{ itemsFiltrados.length }}
             {{ itemsFiltrados.length === 1 ? 'albarán' : 'albaranes' }}
-            <template v-if="hayFiltroColumna">de {{ items.length }} cargados</template>
+            <template v-if="hayFiltroServidorColumna">
+              de {{ total }} encontrados en la base de datos<template v-if="total > items.length">
+                (mostrando {{ GRID_LIMITE_INICIAL }})</template
+              >
+            </template>
+            <template v-else-if="hayFiltroColumna">de {{ items.length }} cargados</template>
             <template v-else-if="total > items.length">
               (de {{ total }}; mostrando {{ GRID_LIMITE_INICIAL }})
             </template>

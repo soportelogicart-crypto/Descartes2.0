@@ -99,6 +99,13 @@ function textStyle(b: PlantillaBloque): Record<string, string> {
     b.type !== 'campo' &&
     b.type !== 'texto' &&
     b.type !== 'titulo-documento' &&
+    b.type !== 'bloque-cliente' &&
+    b.type !== 'bloque-meta' &&
+    b.type !== 'empresa-cabecera' &&
+    b.type !== 'tabla-lineas' &&
+    b.type !== 'totales-iva' &&
+    b.type !== 'datos-bancarios' &&
+    b.type !== 'vencimientos' &&
     b.type !== 'pie'
   ) {
     return {}
@@ -283,6 +290,10 @@ function tieneBind(b: PlantillaBloque, path: string): boolean {
   return (b.bind ?? []).includes(path)
 }
 
+function muestraDatoCliente(b: PlantillaBloque, path: string): boolean {
+  return tieneBind(b, path)
+}
+
 function rotuloQr(b: PlantillaBloque): string {
   return String(b.props?.rotulo ?? 'VERI*FACTU')
 }
@@ -331,7 +342,11 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
 
           <!-- Empresa -->
           <template v-else-if="b.type === 'empresa-cabecera'">
-            <div class="empresa">
+            <div
+              class="empresa"
+              :class="{ 'fs-mm': !!textStyle(b).fontSize }"
+              :style="textStyle(b)"
+            >
               <img
                 v-if="srcEmblemaEnCabecera()"
                 class="empresa-logo"
@@ -362,7 +377,7 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
 
           <!-- Meta -->
           <template v-else-if="b.type === 'bloque-meta'">
-            <div class="meta">
+            <div class="meta" :class="{ 'fs-mm': !!textStyle(b).fontSize }" :style="textStyle(b)">
               <div v-for="(fila, i) in metaFilas(b)" :key="i">
                 <span>{{ fila.label }}</span> {{ fila.valor }}
               </div>
@@ -371,17 +386,44 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
 
           <!-- Cliente -->
           <template v-else-if="b.type === 'bloque-cliente'">
-            <div class="cliente">
-              <div class="cli-cod">
+            <div
+              class="cliente"
+              :class="{ 'fs-mm': !!textStyle(b).fontSize }"
+              :style="textStyle(b)"
+            >
+              <div v-if="muestraDatoCliente(b, 'cliente.codigo')" class="cli-cod">
                 <span class="chip">Cliente</span> {{ str('cliente.codigo') }}
               </div>
-              <strong>{{ str('cliente.nombre') }}</strong>
-              <span>{{ str('cliente.direccion') }}</span>
-              <span>{{ str('cliente.cp') }} {{ str('cliente.poblacion') }}</span>
-              <span>{{ str('cliente.provincia') }}</span>
-              <span v-if="str('cliente.pais')">{{ str('cliente.pais') }}</span>
-              <span v-if="tieneBind(b, 'cliente.telefono')">Tel. {{ str('cliente.telefono') }}</span>
-              <span>CIF {{ str('cliente.cif') }}</span>
+              <strong v-if="muestraDatoCliente(b, 'cliente.nombre')">{{
+                str('cliente.nombre')
+              }}</strong>
+              <span v-if="muestraDatoCliente(b, 'cliente.direccion')">{{
+                str('cliente.direccion')
+              }}</span>
+              <span
+                v-if="
+                  muestraDatoCliente(b, 'cliente.cp') ||
+                  muestraDatoCliente(b, 'cliente.poblacion')
+                "
+              >
+                {{ muestraDatoCliente(b, 'cliente.cp') ? str('cliente.cp') : '' }}
+                {{
+                  muestraDatoCliente(b, 'cliente.poblacion') ? str('cliente.poblacion') : ''
+                }}
+              </span>
+              <span v-if="muestraDatoCliente(b, 'cliente.provincia')">{{
+                str('cliente.provincia')
+              }}</span>
+              <span
+                v-if="muestraDatoCliente(b, 'cliente.pais') && str('cliente.pais')"
+                >{{ str('cliente.pais') }}</span
+              >
+              <span v-if="muestraDatoCliente(b, 'cliente.telefono')"
+                >Tel. {{ str('cliente.telefono') }}</span
+              >
+              <span v-if="muestraDatoCliente(b, 'cliente.cif')"
+                >CIF {{ str('cliente.cif') }}</span
+              >
             </div>
           </template>
 
@@ -427,7 +469,11 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
 
           <!-- Tabla líneas -->
           <template v-else-if="b.type === 'tabla-lineas'">
-            <table class="lineas">
+            <table
+              class="lineas"
+              :class="{ 'fs-mm': !!textStyle(b).fontSize }"
+              :style="textStyle(b)"
+            >
               <thead>
                 <tr>
                   <th v-for="c in columnasLineas" :key="c.key" :style="colStyle(c)">
@@ -475,7 +521,11 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
 
           <!-- Totales -->
           <template v-else-if="b.type === 'totales-iva'">
-            <div class="totales">
+            <div
+              class="totales"
+              :class="{ 'fs-mm': !!textStyle(b).fontSize }"
+              :style="textStyle(b)"
+            >
               <div class="tot-row">
                 <span>Base Imponible</span>
                 <strong>{{ formatImporte(datos.totales.base) }}</strong>
@@ -489,12 +539,28 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
                 <span>{{ etiquetaTotal(b) }}</span>
                 <strong>{{ formatImporte(datos.totales.importe) }}</strong>
               </div>
+              <template v-if="Number(datos.totales.impRetIrpf || 0) !== 0">
+                <div class="tot-row">
+                  <span>Base ret. IRPF</span>
+                  <strong>{{ formatImporte(Number(datos.totales.basRetIrpf || 0)) }}</strong>
+                </div>
+                <div class="tot-row">
+                  <span>Ret. IRPF {{ formatImporte(Number(datos.totales.pjeRetIrpf || 0)) }}%</span>
+                  <strong>{{ formatImporte(-Number(datos.totales.impRetIrpf || 0)) }}</strong>
+                </div>
+                <div class="tot-row total">
+                  <span>LÍQUIDO A PAGAR</span>
+                  <strong>
+                    {{ formatImporte(Number(datos.totales.liquido ?? datos.totales.importe)) }}
+                  </strong>
+                </div>
+              </template>
             </div>
           </template>
 
           <!-- Banco -->
           <template v-else-if="b.type === 'datos-bancarios'">
-            <div class="banco">
+            <div class="banco" :class="{ 'fs-mm': !!textStyle(b).fontSize }" :style="textStyle(b)">
               <span>{{ str('empresa.banco') }}</span>
               <span>IBAN {{ str('empresa.iban') }}</span>
               <span>SWIFT {{ str('empresa.swift') }}</span>
@@ -503,7 +569,7 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
 
           <!-- Vencimientos -->
           <template v-else-if="b.type === 'vencimientos'">
-            <div class="venc">
+            <div class="venc" :class="{ 'fs-mm': !!textStyle(b).fontSize }" :style="textStyle(b)">
               <div class="venc-h"><span>Vencimiento</span><span>Importe</span></div>
               <div v-for="(v, i) in datos.vencimientos" :key="i" class="tot-row">
                 <span>{{ v.fecha }}</span>

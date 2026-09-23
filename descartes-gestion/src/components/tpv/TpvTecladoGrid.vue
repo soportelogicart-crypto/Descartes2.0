@@ -128,24 +128,27 @@ function pulsar(b: TpvBoton) {
   flex-direction: column;
   min-height: 0;
   overflow: auto;
-  padding: 3px;
-  background: #d4d0c8;
-  border: 2px inset #f0f0f0;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
 }
 
 .teclado-msg {
   margin: 0;
   padding: 0.75rem;
-  color: #4b4b4b;
+  color: #64748b;
   font-size: 0.85rem;
 }
 
-/* Todas las teclas miden lo mismo y reparten el alto de la columna. */
+/* Todas las teclas miden lo mismo y reparten el alto de la columna: con 10
+   por fila el ancho y el alto salen parejos y la tecla queda cuadrada. */
 .teclado-grid {
   display: grid;
   flex: 1;
-  grid-auto-rows: minmax(3.4rem, 1fr);
-  gap: 4px;
+  grid-auto-rows: minmax(3rem, 1fr);
+  gap: 6px;
   min-height: 0;
 }
 
@@ -155,42 +158,59 @@ function pulsar(b: TpvBoton) {
   align-items: center;
   justify-content: center;
   gap: 0;
-  padding: 0.15rem 0.25rem;
-  background: #d4d0c8;
-  color: #000;
-  border: 2px outset #f5f5f5;
-  font-family: 'Segoe UI', Tahoma, sans-serif;
-  font-weight: 400;
+  padding: 0.15rem 0.2rem;
+  background: #f8fafc;
+  color: #1e293b;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-weight: 500;
   cursor: pointer;
   touch-action: manipulation;
   overflow: hidden;
+  transition: background-color 0.12s ease, border-color 0.12s ease, transform 0.06s ease;
+}
+
+.tecla:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
 }
 
 .tecla:active:not(:disabled) {
-  border-style: inset;
+  transform: translateY(1px);
+}
+
+/* Los grupos llevan tinte propio: se distinguen de los artículos de un vistazo. */
+.tecla.nivel {
+  background: #eef2ff;
+  border-color: #c7d2fe;
+  color: #3730a3;
 }
 
 .tecla.vacio {
-  background: #c8c8c8;
-  color: #606060;
+  background: #fff;
+  color: #94a3b8;
   border-style: dashed;
+  border-color: #cbd5e1;
   font-weight: 400;
 }
 
+/* Tecla cuadrada y estrecha: la etiqueta legacy (12 caracteres) parte en dos
+   líneas antes que desbordar. */
 .l1 {
-  font-size: 0.95rem;
-  line-height: 1.1;
+  font-size: 0.74rem;
+  line-height: 1.15;
   text-align: center;
   word-break: break-word;
 }
 
 .l2,
 .l3 {
-  font-size: 0.75rem;
+  font-size: 0.64rem;
   font-weight: 400;
   line-height: 1;
   text-align: center;
-  color: #303030;
+  color: #64748b;
 }
 
 .sin {

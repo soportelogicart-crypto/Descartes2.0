@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import MantenimientoListadoButton from '@/components/mantenimiento/MantenimientoListadoButton.vue'
-import { computed, nextTick, onActivated, onDeactivated, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { api } from '@/api/client'
 import {
@@ -47,6 +47,10 @@ import { onEnterSiguienteCampo } from '@/composables/useEnterFieldNav'
 const MODULO = 'clientes'
 const FILTER_KEYS = ['codigo', 'tiendaCodigo', 'nombre', 'nif', 'telefono1']
 const columns = getGridColumns('clientes')
+/** Texto enviado a GET …/clientes?q= : busca en toda la tabla, no solo en los 200 cargados. */
+const FILTRO_SERVIDOR_KEYS = ['codigo', 'nombre', 'nif', 'telefono1'] as const
+const FILTRO_SERVIDOR_MS = 350
+let filtroServidorTimer: ReturnType<typeof setTimeout> | null = null
 
 const { puede } = usePermisos()
 const puestoContexto = usePuestoContextoStore()
@@ -259,6 +263,40 @@ const filasNavegacion = computed(() => filas.value.filter((f) => !f._nuevo))
 const totalFicha = computed(() => filasNavegacion.value.length)
 const hayCliente = computed(() => Boolean(ficha.value.codigo) || esNuevo.value)
 
+/** Cuenta contable: la API crea la 430xxxxxx y la enlaza en CuentaCtb2. */
+const creandoCuentaCtb = ref(false)
+const tieneCuentaCtb = computed(() => {
+  const valor = ficha.value.cuentaCtb2
+  if (valor == null || String(valor).trim() === '') return false
+  return Number(valor) !== 0
+})
+const mostrarCrearCuentaCtb = computed(
+  () => !esNuevo.value && Boolean(String(ficha.value.codigo ?? '').trim()) && puedeEditar.value
+)
+const puedeCrearCuentaCtb = computed(
+  () => mostrarCrearCuentaCtb.value && !tieneCuentaCtb.value && !creandoCuentaCtb.value
+)
+
+async function onCrearCuentaCtb() {
+  const codigo = String(ficha.value.codigo ?? '').trim()
+  if (!codigo || !puedeCrearCuentaCtb.value) return
+  creandoCuentaCtb.value = true
+  mensaje.value = 'Creando cuenta contable...'
+  try {
+    const { data } = await api.post(
+      `/api/mantenimiento/clientes/${encodeURIComponent(codigo)}/cuenta-contable`
+    )
+    ficha.value = { ...ficha.value, cuentaCtb2: String(data.cuenta) }
+    mensaje.value = data.creada
+      ? `Cuenta contable ${data.cuenta} creada`
+      : `Cuenta contable ${data.cuenta} enlazada (ya existia en el plan)`
+  } catch (e: unknown) {
+    mensaje.value = extractApiError(e, 'No se pudo crear la cuenta contable')
+  } finally {
+    creandoCuentaCtb.value = false
+  }
+}
+
 function quitarFilaNueva() {
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
 }
@@ -343,11 +381,46 @@ async function cargarFormasPago() {
   }
 }
 
+function qBusquedaServidor(): string {
+  for (const key of FILTRO_SERVIDOR_KEYS) {
+    const f = filtros.value[key]
+    if (!f || f.operador === 'sin_filtro') continue
+    const v = String(f.valor ?? '').trim()
+    if (v) return v
+  }
+  return ''
+}
+
 async function cargar() {
   mensaje.value = null
-  await listar()
+  const q = qBusquedaServidor()
+  await listar(q ? { q } : {})
   filasTodas.value = items.value.map((item) => clonarFilaGrid(item, columns))
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
+}
+
+function programarRecargaPorFiltros() {
+  if (vista.value !== 'grid') return
+  if (filtroServidorTimer !== null) clearTimeout(filtroServidorTimer)
+  filtroServidorTimer = setTimeout(() => {
+    filtroServidorTimer = null
+    void cargar()
+  }, FILTRO_SERVIDOR_MS)
+}
+
+function cancelarRecargaPorFiltros() {
+  if (filtroServidorTimer === null) return
+  clearTimeout(filtroServidorTimer)
+  filtroServidorTimer = null
+}
+
+watch(filtros, () => programarRecargaPorFiltros(), { deep: true })
+
+onUnmounted(() => cancelarRecargaPorFiltros())
+
+function onFiltroSearch() {
+  cancelarRecargaPorFiltros()
+  void cargar()
 }
 
 function seleccionar(index: number) {
@@ -771,12 +844,13 @@ async function onUltimo() {
           @actualizar="actualizarFila"
           @abrir="abrirFicha"
           @nuevo="onNuevo"
+          @search="onFiltroSearch"
         />
 
         <p class="hint">
-          Filtra por <strong>Codigo</strong>, <strong>Tienda</strong>, <strong>Razon social</strong>,
-          <strong>NIF</strong> y <strong>Telefono</strong> escribiendo bajo cada columna. Doble clic o <strong>Ficha</strong> abre el
-          detalle.
+          Al escribir en <strong>Codigo</strong>, <strong>Razon social</strong>, <strong>NIF</strong> o
+          <strong>Telefono</strong> se busca en <strong>toda la base</strong> (hasta 200 coincidencias; Intro recarga).
+          <strong>Tienda</strong> filtra en pantalla. Doble clic o <strong>Ficha</strong> abre el detalle.
         </p>
         </div>
       </template>
@@ -884,8 +958,12 @@ async function onUltimo() {
           :codigo-read-only="codigoReadOnlyFicha"
           :ocultar-cabecera="true"
           :campos-invalidos="camposInvalidos"
+          :mostrar-crear-cuenta-ctb="mostrarCrearCuentaCtb"
+          :puede-crear-cuenta-ctb="puedeCrearCuentaCtb"
+          :creando-cuenta-ctb="creandoCuentaCtb"
           @update:model-value="actualizarFicha"
           @blur-field="onBlurCampo"
+          @crear-cuenta-ctb="onCrearCuentaCtb"
         />
           </div>
         </div>

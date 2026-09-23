@@ -16,6 +16,7 @@ import {
   type ColumnFilter,
 } from '@/composables/useGridColumnFilters'
 import { extractApiError, useMantenimiento } from '@/composables/useMantenimiento'
+import { useMantenimientoServerSearch } from '@/composables/useMantenimientoServerSearch'
 import { usePermisos } from '@/composables/usePermisos'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -32,10 +33,29 @@ const ENTITY_FILTER_KEYS: Record<string, string[]> = {
   'formas-pago': ['codigo', 'descripcion'],
 }
 
+const ENTITY_SERVER_FILTER_KEYS: Record<string, readonly string[]> = {
+  tiendas: ['codigo', 'nombre', 'nif', 'poblacion', 'telefono1'],
+  almacenes: ['descripcion'],
+  trabajadores: ['codigo', 'nombre'],
+  'puestos-trabajo': ['codigo', 'descripcion'],
+  impuestos: ['codigo', 'descripcion'],
+  'formas-pago': ['codigo', 'descripcion'],
+  'tipos-calculo-fidelizacion': ['codigo', 'nombre', 'motor'],
+}
+
 const { puede } = usePermisos()
-const { items, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(
-  () => props.entidad
-)
+const {
+  items,
+  total,
+  loading,
+  error,
+  listar,
+  cancelarListado,
+  obtener,
+  crear,
+  actualizar,
+  eliminar,
+} = useMantenimiento(() => props.entidad)
 
 const columns = computed(() => getGridColumns(props.entidad))
 const filterKeys = computed(
@@ -52,6 +72,14 @@ const seleccionado = ref<Record<string, unknown>>({})
 const mensaje = ref<string | null>(null)
 const filasTodas = ref<GridFila[]>([])
 const filtros = ref<Record<string, ColumnFilter>>({})
+const serverFilterKeys = computed(() => ENTITY_SERVER_FILTER_KEYS[props.entidad] ?? [])
+const { serverQuery, onServerSearch } = useMantenimientoServerSearch({
+  filters: filtros,
+  serverKeys: serverFilterKeys,
+  reload: cargar,
+  cancel: cancelarListado,
+  enabled: tieneFiltrosColumnas,
+})
 const indiceSeleccionado = ref(0)
 const optionsMap = ref<GridOptionsMap>({})
 
@@ -172,11 +200,13 @@ async function cargarOpciones() {
   optionsMap.value = next
 }
 
-async function cargar() {
+async function cargar(q = serverQuery.value) {
   mensaje.value = null
   const params: Record<string, unknown> = { page: 1, pageSize: 500 }
   if (!tieneFiltrosColumnas.value) {
     params.q = busqueda.value
+  } else if (q) {
+    params.q = q
   }
   if (filtroActivo.value === 'activos') params.activo = true
   if (filtroActivo.value === 'inactivos') params.activo = false
@@ -372,6 +402,7 @@ function cancelarFormulario() {
           @actualizar="actualizarFila"
           @abrir="abrirFormulario"
           @nuevo="onNuevo"
+          @search="onServerSearch"
         />
 
         <p v-else class="error">No hay columnas de rejilla configuradas para esta entidad.</p>

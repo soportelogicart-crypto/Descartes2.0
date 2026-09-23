@@ -48,15 +48,16 @@ const FILAS: string[][] = [
 .pad {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 4px;
-  background: #c8c4bc;
-  border: 2px inset #f0f0f0;
+  gap: 5px;
+  padding: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
 }
 
 .fila {
   display: flex;
-  gap: 4px;
+  gap: 5px;
 }
 
 .tecla {
@@ -64,19 +65,25 @@ const FILAS: string[][] = [
   min-width: 0;
   min-height: 2.6rem;
   padding: 0.2rem;
-  background: #d4d0c8;
-  border: 2px outset #f5f5f5;
-  border-radius: 0;
-  color: #000;
-  font-family: 'Segoe UI', Tahoma, sans-serif;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #1e293b;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   font-size: 1.05rem;
-  font-weight: 700;
+  font-weight: 500;
   cursor: pointer;
   touch-action: manipulation;
+  transition: background-color 0.12s ease, border-color 0.12s ease, transform 0.06s ease;
+}
+
+.tecla:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
 }
 
 .tecla:active {
-  border-style: inset;
+  transform: translateY(1px);
 }
 
 .tecla.espacio {
@@ -86,7 +93,8 @@ const FILAS: string[][] = [
 
 .tecla.aux {
   flex: 2 1 0;
-  background: #c8ccd4;
+  background: #f1f5f9;
+  color: #475569;
   font-size: 0.8rem;
 }
 </style>

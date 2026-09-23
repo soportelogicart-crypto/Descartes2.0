@@ -21,7 +21,8 @@ final class ImpresionRecibosService
   {
     [$where, $params] = $this->buildWhere($query);
     $stmt = $this->pdo->prepare(
-      "SELECT TOP 500
+      // El grid filtra por columna sobre lo devuelto: conviene no recortar de más.
+      "SELECT TOP 5000
           r.Empresa, r.FacturaTipo, r.Factura, r.Recibo, r.Vencimiento, r.Importe,
           ISNULL(r.Liquidado, 0) AS Liquidado, ISNULL(r.Remesado, 0) AS Remesado,
           f.Fecha, f.Cliente, f.Fpago,

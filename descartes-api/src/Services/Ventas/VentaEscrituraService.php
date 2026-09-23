@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Descartes\Api\Services\Ventas;
 
+use Descartes\Api\Services\Facturacion\FacturacionRetencionIrpfService;
 use Descartes\Api\Services\Facturacion\RecibosFacturaService;
 use PDO;
 
@@ -18,19 +19,22 @@ final class VentaEscrituraService
   private ArqueoService $arqueo;
   private FidelizacionService $fidelizacion;
   private RecibosFacturaService $recibos;
+  private FacturacionRetencionIrpfService $retencionIrpf;
 
   public function __construct(
     PDO $pdo,
     VentaConsultaService $consulta,
     ?ArqueoService $arqueo = null,
     ?FidelizacionService $fidelizacion = null,
-    ?RecibosFacturaService $recibos = null
+    ?RecibosFacturaService $recibos = null,
+    ?FacturacionRetencionIrpfService $retencionIrpf = null
   ) {
     $this->pdo = $pdo;
     $this->consulta = $consulta;
     $this->arqueo = $arqueo ?? new ArqueoService($pdo);
     $this->fidelizacion = $fidelizacion ?? new FidelizacionService($pdo);
     $this->recibos = $recibos ?? new RecibosFacturaService($pdo);
+    $this->retencionIrpf = $retencionIrpf ?? new FacturacionRetencionIrpfService($pdo);
   }
 
   public function estaBloqueado(?array $cab): bool
@@ -1582,6 +1586,11 @@ final class VentaEscrituraService
 
     $pagoACuenta = (float) ($cab['PagoaCuenta'] ?? 0);
     $sujetoPasivo = !empty($cab['SujetoPasivo']) || !empty($actual['sujetoPasivo']) ? 1 : 0;
+    $irpf = $this->retencionIrpf->calcular($empresa, $cliente, [[
+      'empresa' => $empresa,
+      'tipo' => $tipo,
+      'albaran' => $albaran,
+    ]]);
 
     $sql = 'INSERT INTO Facturas (
         Empresa, FacturaTipo, Factura, Cliente, Fecha,
@@ -1603,7 +1612,7 @@ final class VentaEscrituraService
         :ir1, :ir2, :ir3, :ir4, :ir5, :ir6,
         :pjeDto, :importeDtos, :importe, :fpago, :estado,
         0, 0, 0, :importeLiquidado, :contadoDiferida,
-        0, 0, 0, :pagoACuenta, 0, :sujetoPasivo,
+        :pjeIrpf, :basIrpf, :impIrpf, :pagoACuenta, 0, :sujetoPasivo,
         :trasformacionTicket, :albaranTicket
       )';
 
@@ -1651,6 +1660,9 @@ final class VentaEscrituraService
       'estado' => $estado,
       'importeLiquidado' => $contadoDiferida ? $pagoACuenta : 0.0,
       'contadoDiferida' => $contadoDiferida ? 1 : 0,
+      'pjeIrpf' => $irpf['pjeRetIrpf'],
+      'basIrpf' => $irpf['basRetIrpf'],
+      'impIrpf' => $irpf['impRetIrpf'],
       'pagoACuenta' => $pagoACuenta,
       'sujetoPasivo' => $sujetoPasivo,
       'trasformacionTicket' => $albaranTicketTransformado > 0 ? 1 : 0,

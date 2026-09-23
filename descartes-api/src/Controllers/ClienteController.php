@@ -8,6 +8,7 @@ use Descartes\Api\Http\ErrorResponse;
 use Descartes\Api\Repositories\ClientesContactosRepository;
 use Descartes\Api\Repositories\ClientesDireccionesRepository;
 use Descartes\Api\Repositories\ClientesEstadisticaRepository;
+use Descartes\Api\Services\ClienteCuentaContableService;
 use Descartes\Api\Services\MantenimientoService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -19,17 +20,20 @@ final class ClienteController
   private ClientesContactosRepository $contactosRepository;
   private ClientesEstadisticaRepository $estadisticaRepository;
   private MantenimientoService $mantenimientoService;
+  private ClienteCuentaContableService $cuentaContableService;
 
   public function __construct(
     ClientesDireccionesRepository $direccionesRepository,
     ClientesContactosRepository $contactosRepository,
     ClientesEstadisticaRepository $estadisticaRepository,
-    MantenimientoService $mantenimientoService
+    MantenimientoService $mantenimientoService,
+    ClienteCuentaContableService $cuentaContableService
   ) {
     $this->direccionesRepository = $direccionesRepository;
     $this->contactosRepository = $contactosRepository;
     $this->estadisticaRepository = $estadisticaRepository;
     $this->mantenimientoService = $mantenimientoService;
+    $this->cuentaContableService = $cuentaContableService;
   }
 
   public function siguienteCodigo(Request $request, Response $response): Response
@@ -58,6 +62,33 @@ final class ClienteController
         'codigo' => $encontrado['codigo'] ?? null,
       ]);
     } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function cuentaContable(Request $request, Response $response, array $args): Response
+  {
+    $codigo = trim((string) ($args['codigo'] ?? ''));
+    try {
+      return $this->json($response, 200, $this->cuentaContableService->estado($codigo));
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function crearCuentaContable(Request $request, Response $response, array $args): Response
+  {
+    $codigo = trim((string) ($args['codigo'] ?? ''));
+    try {
+      return $this->json($response, 201, $this->cuentaContableService->crear($codigo));
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      if ((int) $e->getCode() === 409) {
+        return ErrorResponse::json($response, 409, $e->getMessage(), 'CONFLICTO');
+      }
       return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
     }
   }

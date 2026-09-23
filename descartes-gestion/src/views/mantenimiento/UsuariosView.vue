@@ -16,6 +16,7 @@ import {
   type ColumnFilter,
 } from '@/composables/useGridColumnFilters'
 import { extractApiError, useMantenimiento } from '@/composables/useMantenimiento'
+import { useMantenimientoServerSearch } from '@/composables/useMantenimientoServerSearch'
 import { usePermisos } from '@/composables/usePermisos'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -25,6 +26,7 @@ import ToolIcon from '@/components/common/ToolIcon.vue'
 const ENTIDAD = 'usuarios'
 const MODULO = 'usuarios'
 const FILTER_KEYS = ['codigo', 'nombre', 'rolCodigo']
+const SERVER_FILTER_KEYS = ['codigo', 'nombre'] as const
 const columns = getGridColumns(ENTIDAD)
 
 const USUARIO_CAMPOS_OBLIGATORIOS: { key: string; label: string }[] = [
@@ -55,7 +57,7 @@ function validarUsuario(ficha: Record<string, unknown>): string | null {
 }
 
 const { puede } = usePermisos()
-const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(() => ENTIDAD)
+const { items, total, page, pageSize, loading, error, listar, cancelarListado, obtener, crear, actualizar, eliminar } = useMantenimiento(() => ENTIDAD)
 
 const puedeCrear = computed(() => puede(MODULO, 'crear'))
 const puedeEditar = computed(() => puede(MODULO, 'editar'))
@@ -66,6 +68,12 @@ const soloLecturaGrid = computed(() => !puedeCrear.value && !puedeEditar.value)
 const vista = ref<'grid' | 'ficha'>('grid')
 const filasTodas = ref<GridFila[]>([])
 const filtros = ref<Record<string, ColumnFilter>>(filtrosIniciales(FILTER_KEYS))
+const { serverQuery, onServerSearch } = useMantenimientoServerSearch({
+  filters: filtros,
+  serverKeys: SERVER_FILTER_KEYS,
+  reload: cargar,
+  cancel: cancelarListado,
+})
 const indiceSeleccionado = ref(0)
 const mensaje = ref<string | null>(null)
 const confirmBorrarFichaOpen = ref(false)
@@ -190,9 +198,11 @@ async function cargarRoles() {
   }
 }
 
-async function cargar() {
+async function cargar(q = serverQuery.value) {
   mensaje.value = null
-  await listar({ page: page.value, pageSize: pageSize.value })
+  const params: Record<string, string | number | boolean> = { page: page.value, pageSize: pageSize.value }
+  if (q) params.q = q
+  await listar(params)
   filasTodas.value = items.value.map((item) => clonarFilaGrid(item, columns))
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
 }
@@ -450,6 +460,7 @@ async function onUltimo() {
           @actualizar="actualizarFila"
           @abrir="abrirFicha"
           @nuevo="onNuevo"
+          @search="onServerSearch"
         />
 
         <p class="hint">

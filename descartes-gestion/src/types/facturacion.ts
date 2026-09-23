@@ -234,6 +234,10 @@ export type FacturaDocumento = {
     descuento: number
     pjeDto: number
     importe: number
+    pjeRetIrpf: number
+    basRetIrpf: number
+    impRetIrpf: number
+    liquido: number
   }
 }
 

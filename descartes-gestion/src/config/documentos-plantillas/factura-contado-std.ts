@@ -189,7 +189,15 @@ export const plantillaFacturaContado: DocumentoPlantilla = {
       y: 248,
       w: 82,
       h: 28,
-      bind: ['totales.base', 'totales.ivas', 'totales.importe'],
+      bind: [
+        'totales.base',
+        'totales.ivas',
+        'totales.importe',
+        'totales.pjeRetIrpf',
+        'totales.basRetIrpf',
+        'totales.impRetIrpf',
+        'totales.liquido',
+      ],
       props: { etiquetaTotal: 'IMPORTE EU' },
     },
     {

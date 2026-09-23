@@ -209,11 +209,12 @@ function etiqueta(c: TpvCliente): string {
   max-height: 90vh;
   /* Con el teclado en pantalla hacen falta 10 teclas legibles por fila. */
   transition: width 0.1s linear;
-  background: #d4d0c8;
-  border: 2px outset #f5f5f5;
-  box-shadow: 3px 3px 10px rgba(0, 0, 0, 0.5);
-  font-family: 'Segoe UI', Tahoma, sans-serif;
-  color: #000;
+  background: #fff;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.35);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  color: #0f172a;
 }
 
 .ventana.ancha {
@@ -221,11 +222,11 @@ function etiqueta(c: TpvCliente): string {
 }
 
 .barra {
-  padding: 0.35rem 0.6rem;
-  background: linear-gradient(#00309c, #000060);
-  color: #fff;
-  font-size: 0.88rem;
-  font-weight: 700;
+  padding: 0.6rem 0.85rem;
+  background: linear-gradient(90deg, #0f172a, #1e293b);
+  color: #f8fafc;
+  font-size: 0.85rem;
+  font-weight: 600;
 }
 
 .cuerpo {
@@ -233,14 +234,16 @@ function etiqueta(c: TpvCliente): string {
   flex-direction: column;
   gap: 0.5rem;
   min-height: 0;
-  padding: 0.6rem;
+  padding: 0.75rem;
 }
 
 .actual {
   margin: 0;
-  padding: 0.3rem 0.5rem;
-  background: #e0e8f8;
-  border: 1px solid #8090b0;
+  padding: 0.4rem 0.6rem;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  color: #1d4ed8;
   font-size: 0.82rem;
 }
 
@@ -251,34 +254,44 @@ function etiqueta(c: TpvCliente): string {
 }
 
 .teclado-btn.activo {
-  background: #ffd36a;
-  border-style: inset;
+  background: #4338ca;
+  border-color: #4338ca;
+  color: #fff;
 }
 
 .buscador input {
   min-width: 0;
-  padding: 0.45rem 0.5rem;
+  padding: 0.5rem 0.6rem;
   background: #fff;
-  border: 2px inset #f0f0f0;
-  font-family: Consolas, monospace;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  font-family: 'Cascadia Mono', Consolas, monospace;
   font-size: 1.05rem;
-  color: #000;
+  color: #0f172a;
+}
+
+.buscador input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
 }
 
 .error {
   margin: 0;
-  padding: 0.35rem 0.5rem;
-  background: #ffd0cc;
-  border: 1px solid #a00000;
+  padding: 0.45rem 0.6rem;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-radius: 10px;
+  color: #be123c;
   font-size: 0.8rem;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .vacio {
   margin: 0;
   padding: 0.5rem;
   font-size: 0.82rem;
-  color: #4b4b4b;
+  color: #64748b;
 }
 
 .lista {
@@ -287,7 +300,8 @@ function etiqueta(c: TpvCliente): string {
   overflow: auto;
   min-height: 0;
   background: #fff;
-  border: 2px inset #f0f0f0;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
   list-style: none;
 }
 
@@ -296,10 +310,10 @@ function etiqueta(c: TpvCliente): string {
   grid-template-columns: 1fr auto;
   gap: 0 0.5rem;
   width: 100%;
-  padding: 0.45rem 0.6rem;
+  padding: 0.5rem 0.65rem;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid #d0d0d0;
+  border-bottom: 1px solid #f1f5f9;
   font-family: inherit;
   text-align: left;
   cursor: pointer;
@@ -307,63 +321,73 @@ function etiqueta(c: TpvCliente): string {
 
 .fila:hover,
 .fila:focus-visible {
-  background: #cfe0ff;
+  background: #f1f5f9;
 }
 
 .nombre {
   font-size: 0.92rem;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .datos {
   grid-column: 1;
   font-size: 0.75rem;
-  color: #505050;
+  color: #64748b;
 }
 
 .cod {
   grid-row: 1 / span 2;
   align-self: center;
-  font-family: Consolas, monospace;
+  font-family: 'Cascadia Mono', Consolas, monospace;
   font-size: 0.8rem;
-  color: #303030;
+  color: #94a3b8;
 }
 
 .btn-legacy {
   min-height: 2.8rem;
   padding: 0.3rem 0.7rem;
-  background: #d4d0c8;
-  border: 2px outset #f5f5f5;
-  color: #000;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  color: #1e293b;
   font-family: inherit;
   font-size: 0.82rem;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
   touch-action: manipulation;
+  transition: background-color 0.12s ease, border-color 0.12s ease, transform 0.06s ease;
+}
+
+.btn-legacy:hover:not(:disabled) {
+  background: #f1f5f9;
+  border-color: #94a3b8;
 }
 
 .btn-legacy:active:not(:disabled) {
-  border-style: inset;
+  transform: translateY(1px);
 }
 
 .btn-legacy:disabled {
-  color: #8a8a8a;
-  text-shadow: 1px 1px 0 #fff;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
 .pie {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 5px;
-  padding: 0 0.6rem 0.6rem;
+  gap: 6px;
+  padding: 0.75rem;
+  border-top: 1px solid #e2e8f0;
 }
 
 .quitar {
-  background: #e8e0d0;
+  background: #f1f5f9;
+  color: #475569;
 }
 
 .cancelar {
-  background: #e0c8c8;
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+  color: #334155;
 }
 </style>

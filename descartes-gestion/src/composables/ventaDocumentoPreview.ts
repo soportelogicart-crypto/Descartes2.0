@@ -166,7 +166,17 @@ export function ventaAPreviewDatos(
     totales: {
       base: redondear2(base),
       ivas,
-      importe: redondear2(Number(venta.importe) || 0),
+      importe: redondear2(Number(venta.importeFactura ?? venta.importe) || 0),
+      pjeRetIrpf: Number(venta.pjeRetIrpf) || 0,
+      basRetIrpf: redondear2(Number(venta.basRetIrpf) || 0),
+      impRetIrpf: redondear2(Number(venta.impRetIrpf) || 0),
+      liquido: redondear2(
+        Number(
+          venta.importeLiquido
+          ?? venta.importeFactura
+          ?? venta.importe
+        ) || 0
+      ),
     },
     vencimientos: (venta.vencimientos ?? []).map((v) => ({
       fecha: fmtFecha(v.fecha),

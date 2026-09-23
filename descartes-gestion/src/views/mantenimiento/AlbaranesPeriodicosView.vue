@@ -11,6 +11,7 @@ import {
 } from '@/api/facturacion'
 import { getGridColumns, type GridFila } from '@/config/entidad-grid-columns'
 import { extractApiError, listarEntidadCompleta } from '@/composables/useMantenimiento'
+import { useMantenimientoServerSearch } from '@/composables/useMantenimientoServerSearch'
 import { usePermisos } from '@/composables/usePermisos'
 import {
   aplicarFiltrosColumnas,
@@ -79,6 +80,21 @@ const empresaCodigo = computed(() => String(puestoContexto.empresaCodigo ?? '').
 
 const filasTodas = ref<GridFila[]>([])
 const filtros = ref<Record<string, ColumnFilter>>(filtrosIniciales(FILTER_KEYS))
+const busqueda = ref('')
+const filtrosBusquedaServidor = computed<Record<string, ColumnFilter>>(() => ({
+  ...filtros.value,
+  __toolbar: {
+    operador: busqueda.value.trim() ? 'contiene' : 'sin_filtro',
+    valor: busqueda.value,
+    valor2: '',
+  },
+}))
+const { serverQuery, onServerSearch } = useMantenimientoServerSearch({
+  filters: filtrosBusquedaServidor,
+  serverKeys: ['__toolbar', ...SERVER_SEARCH_KEYS],
+  reload: cargar,
+  cancel: cancelarListado,
+})
 const total = ref(0)
 const loading = ref(false)
 const saving = ref(false)
@@ -94,7 +110,7 @@ type GenerarFeedback = {
 }
 const generarFeedback = ref<GenerarFeedback | null>(null)
 const indiceSeleccionado = ref(0)
-const busqueda = ref('')
+let listadoController: AbortController | null = null
 
 const addOpen = ref(false)
 const editOpen = ref(false)
@@ -133,22 +149,10 @@ const editForm = reactive({
   activo: true,
 })
 
-function normalizarTexto(texto: string) {
-  return texto
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-}
-
 const filas = computed(() => {
-  const porColumna = aplicarFiltrosColumnas(filasTodas.value, filtros.value, {
+  return aplicarFiltrosColumnas(filasTodas.value, filtros.value, {
     dateKeys: DATE_KEYS,
   }) as GridFila[]
-  const q = normalizarTexto(busqueda.value.trim())
-  if (!q) return porColumna
-  return porColumna.filter((f) =>
-    SERVER_SEARCH_KEYS.some((k) => normalizarTexto(String(f[k] ?? '')).includes(q))
-  )
 })
 
 watch(filas, (lista) => {
@@ -257,26 +261,51 @@ watch(empresaCodigo, () => {
   void cargar()
 })
 
-async function cargar() {
+function cancelarListado() {
+  listadoController?.abort()
+  listadoController = null
+  loading.value = false
+}
+
+async function cargar(q = serverQuery.value) {
   const emp = exigirEmpresa()
   if (!emp) {
+    cancelarListado()
     filasTodas.value = []
     total.value = 0
     return
   }
+  cancelarListado()
+  const controller = new AbortController()
+  listadoController = controller
   loading.value = true
   error.value = null
   try {
-    const { items, total: t } = await listarEntidadCompleta('albaranes-periodicos', { empresa: emp })
-    filasTodas.value = items.map(aFilaGrid)
+    const params: Record<string, string | number | boolean> = { empresa: emp }
+    const toolbarQuery = busqueda.value.trim()
+    const clienteQuery = String(filtros.value.cliente?.valor ?? '').trim()
+    if (toolbarQuery) params.q = toolbarQuery
+    else if (clienteQuery && q === clienteQuery) params.cliente = clienteQuery
+    else if (q) params.q = q
+    const { items, total: t } = await listarEntidadCompleta(
+      'albaranes-periodicos',
+      params,
+      controller.signal
+    )
+    if (controller.signal.aborted) return
+    filasTodas.value = (items as unknown as AlbaranPeriodicoListItem[]).map(aFilaGrid)
     total.value = t
     indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
   } catch (e: unknown) {
+    if (controller.signal.aborted) return
     error.value = extractApiError(e, 'Error al cargar albaranes periódicos')
     filasTodas.value = []
     total.value = 0
   } finally {
-    loading.value = false
+    if (listadoController === controller) {
+      listadoController = null
+      loading.value = false
+    }
   }
 }
 
@@ -647,6 +676,7 @@ async function generarAhora() {
               v-model="busqueda"
               type="search"
               placeholder="Cliente, razón social o nº"
+              @keydown.enter.prevent="onServerSearch"
             />
           </label>
           <button type="button" class="tool-btn" :disabled="loading" @click="cargar()">
@@ -672,9 +702,11 @@ async function generarAhora() {
           :loading="loading"
           :total-servidor="total"
           :filterable-keys="FILTER_KEYS"
+          :date-keys="DATE_KEYS"
           v-model:filters="filtros"
           @seleccionar="seleccionar"
           @abrir="onEditar"
+          @search="onServerSearch"
         />
 
         <p class="hint">

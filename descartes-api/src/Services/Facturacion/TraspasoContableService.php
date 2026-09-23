@@ -42,7 +42,8 @@ final class TraspasoContableService
       }
     }
 
-    $sql = "SELECT TOP 1000 f.Empresa, f.FacturaTipo, f.Factura, f.Fecha, f.Cliente,
+    // El grid filtra por columna sobre lo devuelto: conviene no recortar de más.
+    $sql = "SELECT TOP 5000 f.Empresa, f.FacturaTipo, f.Factura, f.Fecha, f.Cliente,
                    c.RazonSocial, c.NIF, f.Importe, f.Fpago, f.Estado,
                    (SELECT COUNT(*) FROM Recibos r
                     WHERE r.Empresa=f.Empresa AND r.FacturaTipo=f.FacturaTipo

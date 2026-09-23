@@ -97,6 +97,10 @@ return function (App $app): void {
       ->add($setPermisoModulo('clientes', 'crear'));
     $group->get('/clientes/check-nif', [ClienteController::class, 'checkNif'])
       ->add($setPermisoModulo('clientes', 'ver'));
+    $group->get('/clientes/{codigo}/cuenta-contable', [ClienteController::class, 'cuentaContable'])
+      ->add($setPermisoModulo('clientes', 'ver'));
+    $group->post('/clientes/{codigo}/cuenta-contable', [ClienteController::class, 'crearCuentaContable'])
+      ->add($setPermisoModulo('clientes', 'editar'));
     $group->get('/clientes/{codigo}/direcciones', [ClienteController::class, 'listDirecciones'])
       ->add($setPermisoModulo('clientes', 'ver'));
     $group->post('/clientes/{codigo}/direcciones', [ClienteController::class, 'createDireccion'])

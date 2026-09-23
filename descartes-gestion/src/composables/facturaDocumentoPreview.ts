@@ -174,6 +174,10 @@ export function facturaAPreviewDatos(
         cuota: redondear2(i.cuota),
       })),
       importe: redondear2(doc.totales.importe),
+      pjeRetIrpf: Number(doc.totales.pjeRetIrpf) || 0,
+      basRetIrpf: redondear2(doc.totales.basRetIrpf),
+      impRetIrpf: redondear2(doc.totales.impRetIrpf),
+      liquido: redondear2(doc.totales.liquido),
     },
     vencimientos: doc.vencimientos.map((v) => ({
       fecha: v.fecha,

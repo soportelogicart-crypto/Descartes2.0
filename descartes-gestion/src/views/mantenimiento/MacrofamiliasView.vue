@@ -2,6 +2,7 @@
 import MantenimientoListadoButton from '@/components/mantenimiento/MantenimientoListadoButton.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { extractApiError, useMantenimiento } from '@/composables/useMantenimiento'
+import { useMantenimientoServerSearch } from '@/composables/useMantenimientoServerSearch'
 import { usePermisos } from '@/composables/usePermisos'
 import { COLUMNAS_CODIGO_DESCRIPCION } from '@/composables/useMantenimientoGridListado'
 import {
@@ -26,9 +27,10 @@ import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 const MODULO = 'macrofamilias'
 const ENTIDAD = 'macrofamilias'
 const FILTER_KEYS = ['codigo', 'descripcion']
+const SERVER_FILTER_KEYS = ['codigo', 'descripcion'] as const
 
 const { puede } = usePermisos()
-const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } =
+const { items, total, page, pageSize, loading, error, listar, cancelarListado, obtener, crear, actualizar, eliminar } =
   useMantenimiento(() => ENTIDAD)
 
 const puedeCrear = computed(() => puede(MODULO, 'crear'))
@@ -39,6 +41,12 @@ const puedeVer = computed(() => puede(MODULO, 'ver'))
 const vista = ref<'grid' | 'ficha'>('grid')
 const filasTodas = ref<MacrofamiliaFila[]>([])
 const filtros = ref<Record<string, ColumnFilter>>(filtrosIniciales(FILTER_KEYS))
+const { serverQuery, onServerSearch } = useMantenimientoServerSearch({
+  filters: filtros,
+  serverKeys: SERVER_FILTER_KEYS,
+  reload: cargar,
+  cancel: cancelarListado,
+})
 const indiceSeleccionado = ref(0)
 const mensaje = ref<string | null>(null)
 const confirmBorrarFichaOpen = ref(false)
@@ -143,9 +151,11 @@ onMounted(async () => {
   await cargar()
 })
 
-async function cargar() {
+async function cargar(q = serverQuery.value) {
   mensaje.value = null
-  await listar({ page: page.value, pageSize: pageSize.value })
+  const params: Record<string, string | number | boolean> = { page: page.value, pageSize: pageSize.value }
+  if (q) params.q = q
+  await listar(params)
   if (!vistaMontada) return
   filasTodas.value = items.value.map(clonarMacrofamilia)
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
@@ -368,6 +378,7 @@ async function onUltimo() {
           @seleccionar="seleccionar"
           @abrir="abrirFicha"
           @nuevo="onNuevo"
+          @search="onServerSearch"
         />
 
         <p class="hint">

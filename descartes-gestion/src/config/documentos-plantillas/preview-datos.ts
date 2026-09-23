@@ -66,6 +66,10 @@ export type DocumentoPreviewDatos = {
     base: number
     ivas: { pje: number; base: number; cuota: number }[]
     importe: number
+    pjeRetIrpf?: number
+    basRetIrpf?: number
+    impRetIrpf?: number
+    liquido?: number
   }
   vencimientos: { fecha: string; importe: number }[]
   verifactu: {
@@ -345,6 +349,10 @@ export function datosPreviewPorTipo(tipo: DocumentoTipo): DocumentoPreviewDatos 
           { pje: 21, base: 18.1, cuota: 3.8 },
         ],
         importe: 61.85,
+        pjeRetIrpf: 15,
+        basRetIrpf: 36.32,
+        impRetIrpf: 5.45,
+        liquido: 56.4,
       },
       verifactu: {
         qrPayload: 'https://prewww2.aeat.es/wlpl/TIKE-CONT/ValidarQR?nif=B13983507&numserie=1-26000001&fecha=15-01-2026&importe=61.85',
@@ -470,6 +478,10 @@ export function datosPreviewPorTipo(tipo: DocumentoTipo): DocumentoPreviewDatos 
               { pje: 10, base: 52.09, cuota: 5.21 },
             ],
             importe: 165.65,
+            pjeRetIrpf: 15,
+            basRetIrpf: 89.54,
+            impRetIrpf: 13.43,
+            liquido: 152.22,
           },
       vencimientos: rect ? [] : [{ fecha: '04/09/2026', importe: 165.65 }],
       verifactu: {

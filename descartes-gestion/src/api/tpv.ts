@@ -7,7 +7,9 @@ import type {
   TpvContexto,
   TpvNivel,
   TpvNivelResumen,
+  TpvTicketEspera,
 } from '@/types/tpv'
+import type { VentaDetalle } from '@/types/ventas'
 
 export async function pingTpv(): Promise<{ ok: boolean; modulo: string }> {
   const { data } = await api.get<{ ok: boolean; modulo: string }>('/api/tpv/ping')
@@ -112,4 +114,40 @@ export async function anularVentaTpv(empresa: string, tipo: string, albaran: num
   await api.delete(
     `/api/tpv/ventas/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}`
   )
+}
+
+export async function obtenerTicketsEsperaTpv(
+  empresa: string,
+  puesto: string
+): Promise<TpvTicketEspera[]> {
+  const { data } = await api.get<{ items: TpvTicketEspera[] }>('/api/tpv/tickets-en-espera', {
+    params: { empresa, puesto },
+  })
+  return Array.isArray(data.items) ? data.items : []
+}
+
+export async function ponerTicketEnEsperaTpv(
+  empresa: string,
+  tipo: string,
+  albaran: number,
+  puesto: string
+): Promise<VentaDetalle> {
+  const { data } = await api.post<VentaDetalle>(
+    `/api/tpv/ventas/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}/en-espera`,
+    { puesto }
+  )
+  return data
+}
+
+export async function recuperarTicketEsperaTpv(
+  empresa: string,
+  tipo: string,
+  albaran: number,
+  puesto: string
+): Promise<VentaDetalle> {
+  const { data } = await api.post<VentaDetalle>(
+    `/api/tpv/ventas/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}/recuperar`,
+    { puesto }
+  )
+  return data
 }

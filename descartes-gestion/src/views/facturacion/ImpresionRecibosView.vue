@@ -4,7 +4,7 @@ import { descargarRecibosPdf, listarRecibosImpresion } from '@/api/facturacion'
 import { api } from '@/api/client'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
-import { GRID_LIMITE_INICIAL } from '@/composables/useGridPageSize'
+import { useGridRenderLimit } from '@/composables/useGridRenderLimit'
 import { usePdfPreview } from '@/composables/usePdfPreview'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import type { ReciboImpresionItem } from '@/types/facturacion'
@@ -111,6 +111,8 @@ const itemsFiltrados = computed(() => {
   return ordenarFilas(base, (row, key) => textoColumna[key as ColumnaKey](row), ['fecha'])
 })
 
+const { gridEl, visibles, onScrollGrid } = useGridRenderLimit(itemsFiltrados)
+
 function limpiarFiltrosColumna() {
   filtrosColumna.value = filtrosColumnaVacios()
 }
@@ -165,13 +167,9 @@ async function buscar() {
       cliente: form.value.cliente || undefined,
       factura: Number(form.value.factura) || undefined,
     })
-    const todos = data.items ?? []
-    items.value = todos.slice(0, GRID_LIMITE_INICIAL)
+    items.value = data.items ?? []
     selected.value = {}
     mensaje.value = `${data.totales.recibos} recibos · ${data.totales.importe.toFixed(2)} €`
-    if (todos.length > GRID_LIMITE_INICIAL) {
-      mensaje.value += ` · mostrando ${GRID_LIMITE_INICIAL}`
-    }
   } catch (e: unknown) {
     items.value = []
     error.value = extractApiError(e, 'No se pudieron cargar los recibos')
@@ -274,7 +272,7 @@ onMounted(async () => {
         <p v-if="error" class="error">{{ error }}</p>
         <p v-else-if="mensaje" class="ok">{{ mensaje }}</p>
         <p v-if="loading" class="hint">Cargando…</p>
-        <div v-if="items.length" class="grid">
+        <div v-if="items.length" ref="gridEl" class="grid" @scroll.passive="onScrollGrid">
           <table>
             <thead>
               <tr>
@@ -309,7 +307,7 @@ onMounted(async () => {
             </thead>
             <tbody>
               <tr
-                v-for="r in itemsFiltrados"
+                v-for="r in visibles"
                 :key="key(r)"
                 :class="{ checked: selected[key(r)] }"
                 @click="selected[key(r)] = !selected[key(r)]"

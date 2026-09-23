@@ -77,22 +77,24 @@ function confirmar() {
 
 .ventana {
   width: min(22rem, 94vw);
-  background: #d4d0c8;
-  border: 2px outset #f5f5f5;
-  color: #000;
-  font-family: 'Segoe UI', Tahoma, sans-serif;
+  background: #fff;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.35);
+  color: #0f172a;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
 }
 
 .barra {
-  padding: 0.35rem 0.6rem;
-  background: linear-gradient(#00309c, #000060);
-  color: #fff;
-  font-size: 0.88rem;
-  font-weight: 700;
+  padding: 0.6rem 0.85rem;
+  background: linear-gradient(90deg, #0f172a, #1e293b);
+  color: #f8fafc;
+  font-size: 0.85rem;
+  font-weight: 600;
 }
 
 .cuerpo {
-  padding: 0.6rem;
+  padding: 0.75rem;
 }
 
 .visor {
@@ -100,14 +102,16 @@ function confirmar() {
   align-items: baseline;
   gap: 0.5rem;
   margin-bottom: 0.6rem;
-  padding: 0.4rem 0.6rem;
-  background: #000;
-  border: 2px inset #808080;
-  color: #30ff30;
+  padding: 0.45rem 0.7rem;
+  background: #0f172a;
+  border-radius: 10px;
+  color: #34d399;
+  font-family: 'Cascadia Mono', Consolas, monospace;
 }
 
 .visor span {
-  font-size: 0.72rem;
+  font-size: 0.7rem;
+  color: #64748b;
 }
 
 .visor strong {
@@ -121,32 +125,42 @@ function confirmar() {
 
 .pie {
   display: flex;
-  gap: 4px;
-  padding: 0 0.6rem 0.6rem;
+  gap: 6px;
+  padding: 0.75rem;
+  border-top: 1px solid #e2e8f0;
 }
 
 .btn {
   flex: 1;
   min-height: 2.9rem;
-  background: #d4d0c8;
-  border: 2px outset #f5f5f5;
-  border-radius: 0;
+  background: #e2e8f0;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  color: #334155;
   font-family: inherit;
   font-size: 0.95rem;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, transform 0.06s ease;
 }
 
 .btn:active {
-  border-style: inset;
+  transform: translateY(1px);
 }
 
 .btn:disabled {
-  color: #777;
+  opacity: 0.45;
   cursor: default;
 }
 
 .aceptar {
-  background: #c8e0c8;
+  background: #059669;
+  border-color: #059669;
+  color: #fff;
+}
+
+.aceptar:hover:not(:disabled) {
+  background: #047857;
+  border-color: #047857;
 }
 </style>

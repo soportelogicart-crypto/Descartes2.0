@@ -16,6 +16,7 @@ import {
 } from '@/config/campanas-columns'
 import { getGridColumns, type GridFila } from '@/config/entidad-grid-columns'
 import { extractApiError, listarEntidadCompleta } from '@/composables/useMantenimiento'
+import { useMantenimientoServerSearch } from '@/composables/useMantenimientoServerSearch'
 import { usePermisos } from '@/composables/usePermisos'
 import {
   aplicarFiltrosColumnas,
@@ -35,6 +36,7 @@ const MODULO = 'campanas'
 const columns = getGridColumns('campanas')
 const FILTER_KEYS = ['campana', 'descripcion', 'fecha', 'fechaFinalizacion']
 const DATE_KEYS = ['fecha', 'fechaFinalizacion']
+const SERVER_SEARCH_KEYS = ['campana', 'descripcion'] as const
 
 const TIPO_CAMPANA_OPTS = [
   { value: 0, label: 'Informacion' },
@@ -118,6 +120,12 @@ const empresaCodigo = computed(() => String(puestoContexto.empresaCodigo ?? '').
 const vista = ref<'grid' | 'ficha'>('grid')
 const filasTodas = ref<CampanaFilaGrid[]>([])
 const filtros = ref<Record<string, ColumnFilter>>(filtrosIniciales(FILTER_KEYS))
+const { serverQuery, onServerSearch } = useMantenimientoServerSearch({
+  filters: filtros,
+  serverKeys: SERVER_SEARCH_KEYS,
+  reload: cargar,
+  cancel: cancelarListado,
+})
 const total = ref(0)
 const loading = ref(false)
 const saving = ref(false)
@@ -146,6 +154,7 @@ const avisoOpen = ref(false)
 const avisoTitulo = ref('Campo obligatorio')
 const avisoMensaje = ref('')
 const campoAviso = ref<string | null>(null)
+let listadoController: AbortController | null = null
 
 const filas = computed<GridFila[]>(() => {
   const filtradas = aplicarFiltrosColumnas(filasTodas.value as GridFila[], filtros.value, {
@@ -358,26 +367,47 @@ onMounted(async () => {
   await cargar()
 })
 
-async function cargar() {
+function cancelarListado() {
+  listadoController?.abort()
+  listadoController = null
+  loading.value = false
+}
+
+async function cargar(q = serverQuery.value) {
   const emp = exigirEmpresa()
   if (!emp) {
+    cancelarListado()
     filasTodas.value = []
     total.value = 0
     return
   }
+  cancelarListado()
+  const controller = new AbortController()
+  listadoController = controller
   loading.value = true
   error.value = null
   try {
-    const { items, total: t } = await listarEntidadCompleta('campanas', { empresa: emp })
+    const params: Record<string, string | number | boolean> = { empresa: emp }
+    if (q) params.q = q
+    const { items, total: t } = await listarEntidadCompleta(
+      'campanas',
+      params,
+      controller.signal
+    )
+    if (controller.signal.aborted) return
     total.value = t
     filasTodas.value = items.map(aFilaGrid)
     indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
   } catch (e: unknown) {
+    if (controller.signal.aborted) return
     error.value = extractApiError(e, 'Error al cargar campanas')
     filasTodas.value = []
     total.value = 0
   } finally {
-    loading.value = false
+    if (listadoController === controller) {
+      listadoController = null
+      loading.value = false
+    }
   }
 }
 
@@ -684,6 +714,7 @@ async function resolverClienteLinea(lin: CampanaLinea) {
             @seleccionar="seleccionar"
             @abrir="abrirFicha"
             @nuevo="onNuevo"
+            @search="onServerSearch"
           />
 
           <p class="hint">

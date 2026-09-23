@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import MantenimientoListadoButton from '@/components/mantenimiento/MantenimientoListadoButton.vue'
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   clonarFilaGrid,
   filaVaciaDesdeColumnas,
@@ -32,6 +32,10 @@ import { usePuestoContextoStore } from '@/stores/puestoContexto'
 const MODULO = 'proveedores'
 const FILTER_KEYS = ['codigo', 'nombre', 'nif']
 const columns = getGridColumns('proveedores')
+/** Texto enviado a GET …/proveedores?q= : busca en toda la tabla, no solo en los 200 cargados. */
+const FILTRO_SERVIDOR_KEYS = ['codigo', 'nombre', 'nif'] as const
+const FILTRO_SERVIDOR_MS = 350
+let filtroServidorTimer: ReturnType<typeof setTimeout> | null = null
 
 const { puede } = usePermisos()
 const puestoContexto = usePuestoContextoStore()
@@ -150,11 +154,46 @@ onMounted(async () => {
   await cargar()
 })
 
+function qBusquedaServidor(): string {
+  for (const key of FILTRO_SERVIDOR_KEYS) {
+    const f = filtros.value[key]
+    if (!f || f.operador === 'sin_filtro') continue
+    const v = String(f.valor ?? '').trim()
+    if (v) return v
+  }
+  return ''
+}
+
 async function cargar() {
   mensaje.value = null
-  await listar()
+  const q = qBusquedaServidor()
+  await listar(q ? { q } : {})
   filasTodas.value = items.value.map((item) => clonarFilaGrid(item, columns))
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
+}
+
+function programarRecargaPorFiltros() {
+  if (vista.value !== 'grid') return
+  if (filtroServidorTimer !== null) clearTimeout(filtroServidorTimer)
+  filtroServidorTimer = setTimeout(() => {
+    filtroServidorTimer = null
+    void cargar()
+  }, FILTRO_SERVIDOR_MS)
+}
+
+function cancelarRecargaPorFiltros() {
+  if (filtroServidorTimer === null) return
+  clearTimeout(filtroServidorTimer)
+  filtroServidorTimer = null
+}
+
+watch(filtros, () => programarRecargaPorFiltros(), { deep: true })
+
+onUnmounted(() => cancelarRecargaPorFiltros())
+
+function onFiltroSearch() {
+  cancelarRecargaPorFiltros()
+  void cargar()
 }
 
 function seleccionar(index: number) {
@@ -476,6 +515,7 @@ async function onUltimo() {
             :readonly="soloLecturaGrid"
             :loading="loading"
             :total-servidor="total"
+            @search="onFiltroSearch"
             @seleccionar="seleccionar"
             @actualizar="actualizarFila"
             @abrir="abrirFicha"
@@ -483,7 +523,8 @@ async function onUltimo() {
           />
 
           <p class="hint">
-            Filtra por <strong>Codigo</strong>, <strong>Razon social</strong> y <strong>NIF</strong> escribiendo bajo cada columna.
+            Al escribir en <strong>Codigo</strong>, <strong>Razon social</strong> o <strong>NIF</strong> se busca en
+            <strong>toda la base</strong> (hasta 200 coincidencias; Intro recarga).
             Doble clic o <strong>Ficha</strong> abre el detalle.
           </p>
         </div>

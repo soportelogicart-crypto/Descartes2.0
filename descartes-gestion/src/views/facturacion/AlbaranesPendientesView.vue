@@ -11,7 +11,7 @@ import type { FacturaManualPendiente } from '@/types/facturacion'
 import type { VentaDetalle } from '@/types/ventas'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
-import { GRID_LIMITE_INICIAL } from '@/composables/useGridPageSize'
+import { useGridRenderLimit } from '@/composables/useGridRenderLimit'
 import { abrirVentanaPreview, escribirVentanaPdf } from '@/composables/previewDocumentoVentana'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
@@ -123,6 +123,8 @@ const itemsFiltrados = computed(() => {
   return ordenarFilas(base, (row, key) => textoColumna[key as ColumnaKey](row), ['fecha'])
 })
 
+const { gridEl, visibles, onScrollGrid } = useGridRenderLimit(itemsFiltrados)
+
 function limpiarFiltrosColumna() {
   filtrosColumna.value = filtrosColumnaVacios()
 }
@@ -200,12 +202,8 @@ async function buscar() {
   mensaje.value = null
   try {
     const data = await listarAlbaranesPendientesFacturar(paramsConsulta())
-    const todos = data.items ?? []
-    items.value = todos.slice(0, GRID_LIMITE_INICIAL)
+    items.value = data.items ?? []
     mensaje.value = `${data.totales.albaranes} albaranes · ${data.totales.importe.toFixed(2)} €`
-    if (todos.length > GRID_LIMITE_INICIAL) {
-      mensaje.value += ` · mostrando ${GRID_LIMITE_INICIAL}`
-    }
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudieron cargar albaranes pendientes')
     items.value = []
@@ -433,7 +431,7 @@ onMounted(async () => {
         <p v-if="error" class="error">{{ error }}</p>
         <p v-if="mensaje && !error" class="ok">{{ mensaje }}</p>
         <p v-if="loading" class="hint">Cargando…</p>
-        <div v-if="items.length" class="grid-wrap">
+        <div v-if="items.length" ref="gridEl" class="grid-wrap" @scroll.passive="onScrollGrid">
           <table>
             <thead>
               <tr>
@@ -461,7 +459,7 @@ onMounted(async () => {
             </thead>
             <tbody>
               <tr
-                v-for="r in itemsFiltrados"
+                v-for="r in visibles"
                 :key="`${r.empresa}|${r.tipo}|${r.albaran}`"
                 class="fila"
                 title="Ver albarán"

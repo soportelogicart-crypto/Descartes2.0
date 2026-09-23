@@ -330,16 +330,19 @@ async function crearAbono() {
   flex-direction: column;
   width: min(58rem, 96vw);
   max-height: 92vh;
-  background: #d4d0c8;
-  border: 2px outset #f5f5f5;
-  color: #000;
+  background: #fff;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.35);
+  color: #0f172a;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
 }
 
 .barra {
-  padding: 0.4rem 0.65rem;
-  background: linear-gradient(#00309c, #000060);
-  color: #fff;
-  font-weight: 700;
+  padding: 0.6rem 0.85rem;
+  background: linear-gradient(90deg, #0f172a, #1e293b);
+  color: #f8fafc;
+  font-weight: 600;
 }
 
 .cuerpo {
@@ -358,21 +361,41 @@ async function crearAbono() {
 input,
 button {
   min-height: 2.65rem;
-  border: 2px inset #f5f5f5;
-  border-radius: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
   font: inherit;
+}
+
+input {
+  padding: 0.4rem 0.6rem;
+}
+
+input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
 }
 
 button {
   padding: 0.4rem 0.8rem;
-  background: #d4d0c8;
-  border-style: outset;
-  font-weight: 700;
+  background: #fff;
+  color: #1e293b;
+  font-weight: 600;
   cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, transform 0.06s ease;
+}
+
+button:hover:not(:disabled) {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 button:disabled {
-  color: #777;
+  opacity: 0.45;
   cursor: default;
 }
 
@@ -383,10 +406,11 @@ button:disabled {
 }
 
 .error {
-  padding: 0.5rem;
-  background: #ffd7d7;
-  border: 1px solid #a00000;
-  color: #800000;
+  padding: 0.5rem 0.65rem;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-radius: 10px;
+  color: #be123c;
 }
 
 .estado {
@@ -409,9 +433,10 @@ button:disabled {
   display: flex;
   gap: 1rem;
   margin-top: 0.75rem;
-  padding: 0.5rem;
-  background: #000080;
-  color: #fff;
+  padding: 0.55rem 0.7rem;
+  background: linear-gradient(90deg, #0f172a, #1e293b);
+  border-radius: 10px;
+  color: #f8fafc;
 }
 
 .atajos {
@@ -424,7 +449,8 @@ button:disabled {
   max-height: 43vh;
   overflow: auto;
   background: #fff;
-  border: 2px inset #f5f5f5;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
 }
 
 table {
@@ -434,29 +460,38 @@ table {
 
 th,
 td {
-  padding: 0.35rem;
-  border: 1px solid #aaa;
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid #f1f5f9;
   text-align: left;
 }
 
 th {
   position: sticky;
   top: 0;
-  background: #d4d0c8;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  color: #64748b;
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 tbody tr {
   cursor: pointer;
 }
 
+tbody tr:hover td {
+  background: #f8fafc;
+}
+
 tr.abonada {
-  color: #777;
+  color: #94a3b8;
   text-decoration: line-through;
 }
 
 td small {
   display: block;
-  color: #a00000;
+  color: #be123c;
   text-decoration: none;
 }
 
@@ -474,12 +509,19 @@ td small {
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
-  padding: 0.65rem;
-  border-top: 1px solid #888;
+  padding: 0.75rem;
+  border-top: 1px solid #e2e8f0;
 }
 
 .pie .aceptar {
-  background: #c8e0c8;
+  background: #059669;
+  border-color: #059669;
+  color: #fff;
+}
+
+.pie .aceptar:hover:not(:disabled) {
+  background: #047857;
+  border-color: #047857;
 }
 
 @media (max-width: 700px) {

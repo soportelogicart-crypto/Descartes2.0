@@ -257,7 +257,15 @@ export function crearBloquePorTipo(type: PlantillaBloqueTipo): PlantillaBloque {
         y: 230,
         w: 90,
         h: 32,
-        bind: ['totales.base', 'totales.ivas', 'totales.importe'],
+        bind: [
+          'totales.base',
+          'totales.ivas',
+          'totales.importe',
+          'totales.pjeRetIrpf',
+          'totales.basRetIrpf',
+          'totales.impRetIrpf',
+          'totales.liquido',
+        ],
         props: { etiquetaTotal: 'IMPORTE EU' },
       }
     case 'datos-bancarios':

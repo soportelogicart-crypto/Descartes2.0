@@ -733,8 +733,15 @@ const totales = computed(() => {
     bruto: Math.round(bruto * 100) / 100,
     descuento: Math.round(descuentoCabecera * 100) / 100,
     iva: Math.round(iva * 100) / 100,
-    importe: Math.round(importe * 100) / 100,
+    importe:
+      docKind.value === 'factura' && ficha.value?.importeFactura != null
+        ? Number(ficha.value.importeFactura)
+        : Math.round(importe * 100) / 100,
     base: Math.round(baseTotal * 100) / 100,
+    pjeRetIrpf: Number(ficha.value?.pjeRetIrpf ?? 0),
+    basRetIrpf: Number(ficha.value?.basRetIrpf ?? 0),
+    impRetIrpf: Number(ficha.value?.impRetIrpf ?? 0),
+    importeLiquido: ficha.value?.importeLiquido ?? null,
   }
 })
 

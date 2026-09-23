@@ -20,11 +20,16 @@ const props = defineProps<{
   ocultarCabecera?: boolean
   camposInvalidos?: string[]
   motorFidelizacion?: 'NINGUNO' | 'EUROS' | 'PUNTOS'
+  /** Ficha de un cliente ya grabado: junto a «Cuenta contable» se ofrece darla de alta. */
+  mostrarCrearCuentaCtb?: boolean
+  puedeCrearCuentaCtb?: boolean
+  creandoCuentaCtb?: boolean
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: Record<string, unknown>]
   'blur-field': [key: string, value: string]
+  'crear-cuenta-ctb': []
 }>()
 
 const seccionesVisibles = computed(() => {
@@ -59,6 +64,11 @@ const filasSecciones = computed(() => {
 
 function optionsFor(field: ClienteField) {
   return field.options ?? []
+}
+
+/** Solo «Cuenta contable» lleva boton para dar de alta la 430xxxxxx en el plan. */
+function conAltaCuentaCtb(field: ClienteField) {
+  return field.key === 'cuentaCtb2' && Boolean(props.mostrarCrearCuentaCtb)
 }
 
 function isReadOnly(field: ClienteField) {
@@ -210,8 +220,33 @@ function colsClass(section: ClienteSection) {
                 <span v-if="field.required" class="req">*</span>
               </span>
 
+              <div v-if="conAltaCuentaCtb(field)" class="campo-con-accion">
+                <EntidadLookupField
+                  :model-value="(modelValue[field.key] as string | number | null) ?? null"
+                  :entidad="entidadDesdeOptionsSource(field.optionsSource)!"
+                  :readonly="isReadOnly(field)"
+                  :max-length="field.maxLength"
+                  :field-key="field.key"
+                  empty-as-null
+                  @update:model-value="setValue(field, $event)"
+                />
+                <button
+                  type="button"
+                  class="btn-crear-cuenta"
+                  :disabled="!puedeCrearCuentaCtb || creandoCuentaCtb"
+                  :title="
+                    puedeCrearCuentaCtb
+                      ? 'Dar de alta la cuenta contable del cliente en el plan (430…)'
+                      : 'El cliente ya tiene cuenta contable'
+                  "
+                  @click="emit('crear-cuenta-ctb')"
+                >
+                  {{ creandoCuentaCtb ? 'Creando…' : 'Crear cuenta' }}
+                </button>
+              </div>
+
               <EntidadLookupField
-                v-if="entidadDesdeOptionsSource(field.optionsSource)"
+                v-else-if="entidadDesdeOptionsSource(field.optionsSource)"
                 :model-value="(modelValue[field.key] as string | number | null) ?? null"
                 :entidad="entidadDesdeOptionsSource(field.optionsSource)!"
                 :readonly="isReadOnly(field)"
@@ -420,6 +455,35 @@ textarea:read-only,
 select:disabled {
   background: #f1f5f9;
   color: #334155;
+}
+
+.campo-con-accion {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.btn-crear-cuenta {
+  padding: 0.2rem 0.55rem;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  background: #fff;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.btn-crear-cuenta:hover:not(:disabled) {
+  background: #e0f2fe;
+  border-color: #38bdf8;
+}
+
+.btn-crear-cuenta:disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+  cursor: default;
 }
 
 .lookup-row {

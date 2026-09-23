@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { nextTick, ref, watch } from 'vue'
 import type { TpvLineaBorrador } from '@/types/tpv'
 
-defineProps<{
+const props = defineProps<{
   lineas: TpvLineaBorrador[]
   total: string
   seleccion: number
@@ -10,12 +11,28 @@ defineProps<{
 
 const emit = defineEmits<{
   seleccionar: [number]
+  ver: []
 }>()
+
+const grid = ref<HTMLElement | null>(null)
+
+/**
+ * En una venta larga la última línea cae fuera del recuadro: el ticket sigue a
+ * la línea marcada para que el cajero vea siempre lo que acaba de vender.
+ */
+watch(
+  () => [props.seleccion, props.lineas.length],
+  async () => {
+    if (props.seleccion < 0) return
+    await nextTick()
+    grid.value?.querySelector('tr.sel')?.scrollIntoView({ block: 'nearest' })
+  }
+)
 </script>
 
 <template>
   <div class="ticket">
-    <table class="ticket-grid">
+    <table ref="grid" class="ticket-grid">
       <thead>
         <tr>
           <th class="c-cant">Cant.</th>
@@ -48,6 +65,15 @@ const emit = defineEmits<{
     </table>
 
     <div class="ticket-total">
+      <button
+        type="button"
+        class="ver-ticket"
+        :disabled="!lineas.length"
+        title="Ver el ticket completo"
+        @click="emit('ver')"
+      >
+        VER TICKET
+      </button>
       <span class="lbl">TOTAL</span>
       <span class="val">{{ total }}</span>
       <span v-if="guardando" class="grabando">grabando…</span>
@@ -60,7 +86,7 @@ const emit = defineEmits<{
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: #d4d0c8;
+  gap: 6px;
 }
 
 .ticket-grid {
@@ -71,8 +97,10 @@ const emit = defineEmits<{
   width: 100%;
   border-collapse: collapse;
   background: #fff;
-  border: 2px inset #f0f0f0;
-  font-family: 'Segoe UI', Tahoma, sans-serif;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   font-size: 0.85rem;
 }
 
@@ -91,19 +119,21 @@ const emit = defineEmits<{
 }
 
 .ticket-grid th {
-  background: #d4d0c8;
-  border: 1px solid #9a9a9a;
-  padding: 0.3rem 0.35rem;
-  font-size: 0.78rem;
-  font-weight: 700;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 0.4rem 0.45rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
   text-align: left;
-  color: #000;
+  color: #64748b;
 }
 
 .ticket-grid td {
-  border-bottom: 1px solid #dcdcdc;
-  padding: 0.3rem 0.35rem;
-  color: #000;
+  border-bottom: 1px solid #f1f5f9;
+  padding: 0.35rem 0.45rem;
+  color: #1e293b;
   vertical-align: top;
 }
 
@@ -111,24 +141,29 @@ const emit = defineEmits<{
   cursor: pointer;
 }
 
+.ticket-grid tbody tr:hover td {
+  background: #f8fafc;
+}
+
 .ticket-grid tbody tr.sel td {
-  background: #000080;
+  background: #2563eb;
   color: #fff;
 }
 
+/* Columna estrecha: los numéricos se aprietan para que la descripción respire. */
 .c-cant {
-  width: 3.5rem;
+  width: 2.8rem;
   text-align: right;
 }
 
 .c-num {
-  width: 5rem;
+  width: 4.2rem;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
 .c-dto {
-  width: 4.4rem;
+  width: 3.4rem;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -143,46 +178,72 @@ const emit = defineEmits<{
 .cod {
   display: block;
   font-size: 0.7rem;
-  color: #606060;
+  color: #94a3b8;
 }
 
 .sel .cod {
-  color: #c8c8dc;
+  color: #bfdbfe;
 }
 
 .vacia td {
   text-align: center;
-  color: #707070;
-  font-style: italic;
+  color: #94a3b8;
   cursor: default;
+}
+
+.vacia td:hover {
+  background: #fff;
 }
 
 .ticket-total {
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
-  margin-top: 4px;
-  padding: 0.4rem 0.6rem;
-  background: #000080;
-  border: 2px outset #f0f0f0;
-  color: #fff;
+  padding: 0.5rem 0.8rem;
+  background: linear-gradient(90deg, #0f172a, #1e293b);
+  border-radius: 12px;
+  color: #f8fafc;
+}
+
+.ver-ticket {
+  align-self: center;
+  padding: 0.3rem 0.55rem;
+  background: rgb(248 250 252 / 12%);
+  border: 1px solid rgb(148 163 184 / 45%);
+  border-radius: 8px;
+  color: #e2e8f0;
+  font: inherit;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.ver-ticket:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ver-ticket:not(:disabled):active {
+  transform: translateY(1px);
 }
 
 .lbl {
-  font-size: 0.85rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
 }
 
 .val {
   margin-left: auto;
   font-size: 1.9rem;
-  font-weight: 700;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
 .grabando {
   font-size: 0.7rem;
-  color: #b9c4e6;
+  color: #94a3b8;
 }
 </style>

@@ -57,6 +57,30 @@ export type TpvBotonAsignacion =
 export const CLIENTE_RAPIDO_TPV = 'ZZZZZZZZZ'
 
 /**
+ * Entrada del cajón OTRAS FUNCIONES. La botonera de caja solo tiene sitio para
+ * lo que se usa en cada venta; el resto se declara como datos para que sumar
+ * una función sea añadir un elemento a la lista, no rehacer la pantalla.
+ */
+export type TpvFuncionExtra = {
+  id: string
+  etiqueta: string
+  ayuda?: string
+  deshabilitada?: boolean
+  tono?: 'normal' | 'aviso' | 'peligro' | 'activo'
+}
+
+export type TpvTicketEspera = {
+  empresa: string
+  tipo: string
+  albaran: number
+  fecha: string | null
+  cliente: string
+  razonSocial: string
+  importe: number
+  lineas: number
+}
+
+/**
  * Geometría de la rejilla táctil de venta rápida.
  *
  * `DefPlus.H_TECLA` codifica la posición legacy como `fila * 20 + columna`, y
@@ -66,10 +90,15 @@ export const CLIENTE_RAPIDO_TPV = 'ZZZZZZZZZ'
  * posiciones dejarían de cuadrar con lo guardado.
  */
 export const TPV_COLUMNAS_LEGACY = 20
-export const TPV_COLUMNAS_VISIBLES = 4
+/**
+ * Divisor exacto de las 20 columnas legacy: cada tecla ocupa 2 de ellas.
+ * Con la columna de artículos a pantalla completa hacen falta unas 10 teclas
+ * por fila para que salgan cuadradas y no apaisadas.
+ */
+export const TPV_COLUMNAS_VISIBLES = 10
 export const TPV_ANCHO_TECLA = Math.floor(TPV_COLUMNAS_LEGACY / TPV_COLUMNAS_VISIBLES)
 /** Filas mínimas que se rellenan con huecos para ocupar la columna. */
-export const TPV_FILAS_MINIMAS = 8
+export const TPV_FILAS_MINIMAS = 7
 
 /** Forma de pago de contado (CobroDeArqueo) disponible en la caja. */
 export type TpvFormaPago = {

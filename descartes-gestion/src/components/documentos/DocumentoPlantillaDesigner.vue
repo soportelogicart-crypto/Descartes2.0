@@ -183,8 +183,40 @@ const muestraTipografia = computed(
     selected.value &&
     (selected.value.type === 'campo' ||
       selected.value.type === 'texto' ||
-      selected.value.type === 'titulo-documento')
+      selected.value.type === 'titulo-documento' ||
+      selected.value.type === 'bloque-cliente' ||
+      selected.value.type === 'bloque-meta' ||
+      selected.value.type === 'empresa-cabecera' ||
+      selected.value.type === 'tabla-lineas' ||
+      selected.value.type === 'totales-iva' ||
+      selected.value.type === 'datos-bancarios' ||
+      selected.value.type === 'vencimientos' ||
+      selected.value.type === 'pie')
 )
+
+const CAMPOS_CLIENTE = [
+  { path: 'cliente.codigo', label: 'Código' },
+  { path: 'cliente.nombre', label: 'Nombre / razón social' },
+  { path: 'cliente.direccion', label: 'Dirección' },
+  { path: 'cliente.cp', label: 'Código postal' },
+  { path: 'cliente.poblacion', label: 'Población' },
+  { path: 'cliente.provincia', label: 'Provincia' },
+  { path: 'cliente.pais', label: 'País' },
+  { path: 'cliente.telefono', label: 'Teléfono' },
+  { path: 'cliente.cif', label: 'NIF / CIF' },
+] as const
+
+function campoClienteActivo(path: string): boolean {
+  return selected.value?.bind?.includes(path) ?? false
+}
+
+function toggleCampoCliente(path: string, activo: boolean) {
+  if (!selected.value || selected.value.type !== 'bloque-cliente' || props.readonly) return
+  const bind = activo
+    ? [...new Set([...(selected.value.bind ?? []), path])]
+    : (selected.value.bind ?? []).filter((p) => p !== path)
+  patchBlockContent(selected.value.id, { bind })
+}
 
 const muestraBarras = computed(() => selected.value?.type === 'codigo-barras')
 
@@ -292,6 +324,31 @@ function anadirBloque(type: PlantillaBloqueTipo) {
   selectedId.value = colocado.id
   markDirty()
   if (type === 'texto' || type === 'titulo-documento') void enfocarEditorContenido(true)
+}
+
+const tieneCampoNumeroDocumento = computed(() =>
+  plantilla.value.blocks.some(
+    (b) => b.type === 'campo' && (b.bind ?? []).includes('documento.numero')
+  )
+)
+
+function anadirNumeroDocumento() {
+  if (props.readonly || tieneCampoNumeroDocumento.value) return
+  const block: PlantillaBloque = {
+    id: `numero-${Date.now().toString(36)}`,
+    type: 'campo',
+    x: 12,
+    y: 44,
+    w: 90,
+    h: 7,
+    label: plantilla.value.tipo === 'albaran' ? 'ALBARÁN' : 'FACTURA',
+    bind: ['documento.numero'],
+    props: { inline: true, fontSizeMm: 2.8, fontWeight: 'bold' },
+  }
+  const colocado = colocarSinSolape(block)
+  plantilla.value = { ...plantilla.value, blocks: [...plantilla.value.blocks, colocado] }
+  selectedId.value = colocado.id
+  markDirty()
 }
 
 function rectsSolapan(
@@ -434,9 +491,23 @@ function setProp(key: string, value: string | number | boolean) {
 }
 
 function blockFontStyle(b: PlantillaBloque): Record<string, string> {
-  if (!esEtiqueta.value) return {}
-  if (b.type !== 'campo' && b.type !== 'texto' && b.type !== 'titulo-documento') return {}
+  if (
+    b.type !== 'campo' &&
+    b.type !== 'texto' &&
+    b.type !== 'titulo-documento' &&
+    b.type !== 'bloque-cliente' &&
+    b.type !== 'bloque-meta' &&
+    b.type !== 'empresa-cabecera' &&
+    b.type !== 'tabla-lineas' &&
+    b.type !== 'totales-iva' &&
+    b.type !== 'datos-bancarios' &&
+    b.type !== 'vencimientos' &&
+    b.type !== 'pie'
+  ) {
+    return {}
+  }
   const mm = Number(b.props?.fontSizeMm)
+  if ((!Number.isFinite(mm) || mm <= 0) && !esEtiqueta.value) return {}
   const sizeMm = Number.isFinite(mm) && mm > 0 ? mm : 3
   const style: Record<string, string> = {
     fontSize: `${Math.max(9, sizeMm * pxPerMm.value)}px`,
@@ -741,6 +812,19 @@ defineExpose({
           </button>
         </template>
         <template v-else>
+          <button
+            type="button"
+            class="pal-btn pal-btn-important"
+            :disabled="readonly || tieneCampoNumeroDocumento"
+            :title="
+              tieneCampoNumeroDocumento
+                ? 'La plantilla ya contiene el número del documento'
+                : 'Añade FACTURA/ALBARÁN y su número alineados'
+            "
+            @click="anadirNumeroDocumento"
+          >
+            + Nº de documento
+          </button>
           <div v-for="grupo in catalogoAgrupado" :key="grupo.id" class="pal-grupo">
             <h5>{{ grupo.titulo }}</h5>
             <button
@@ -982,8 +1066,29 @@ defineExpose({
             <span class="help">Use variables como empresa.razonSocial entre dobles llaves.</span>
           </label>
 
+          <div v-if="selected.type === 'bloque-cliente'" class="campos-cliente">
+            <h5>Datos que se imprimen</h5>
+            <label v-for="campo in CAMPOS_CLIENTE" :key="campo.path" class="field check">
+              <input
+                type="checkbox"
+                :checked="campoClienteActivo(campo.path)"
+                :disabled="readonly"
+                @change="
+                  toggleCampoCliente(campo.path, ($event.target as HTMLInputElement).checked)
+                "
+              />
+              {{ campo.label }}
+            </label>
+            <span class="help">Desmarque los datos que no quiera mostrar.</span>
+          </div>
+
           <label
-            v-if="selected.type !== 'emblema' && selected.type !== 'texto' && selected.type !== 'qr-verifactu'"
+            v-if="
+              selected.type !== 'emblema' &&
+              selected.type !== 'texto' &&
+              selected.type !== 'qr-verifactu' &&
+              selected.type !== 'bloque-cliente'
+            "
             class="field"
           >
             Campos enlazados (uno por línea)
@@ -991,7 +1096,13 @@ defineExpose({
           </label>
 
           <div
-            v-if="selected.type !== 'emblema' && selected.type !== 'texto' && selected.type !== 'qr-verifactu' && !readonly"
+            v-if="
+              selected.type !== 'emblema' &&
+              selected.type !== 'texto' &&
+              selected.type !== 'qr-verifactu' &&
+              selected.type !== 'bloque-cliente' &&
+              !readonly
+            "
             class="sugeridos"
           >
             <span class="help">Añadir sugerido:</span>
@@ -1188,6 +1299,13 @@ defineExpose({
   color: #1d4ed8;
 }
 
+.pal-btn-important {
+  border-color: #60a5fa;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
 .btn-del {
   width: auto;
   text-align: center;
@@ -1285,6 +1403,24 @@ defineExpose({
   margin: 0 0 0.35rem;
   font-size: 0.72rem;
   color: #0f172a;
+}
+
+.campos-cliente {
+  margin: 0.35rem 0 0.55rem;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  background: #eff6ff;
+}
+
+.campos-cliente h5 {
+  margin: 0 0 0.35rem;
+  font-size: 0.72rem;
+  color: #1e3a8a;
+}
+
+.campos-cliente .field {
+  margin-bottom: 0.25rem;
 }
 
 .font-row {

@@ -9,6 +9,7 @@ import {
   type GridFila,
 } from '@/config/entidad-grid-columns'
 import { extractApiError, listarEntidadCompleta } from '@/composables/useMantenimiento'
+import { useMantenimientoServerSearch } from '@/composables/useMantenimientoServerSearch'
 import { usePermisos } from '@/composables/usePermisos'
 import {
   aplicarFiltrosColumnas,
@@ -28,6 +29,7 @@ const MODULO = 'oferta-proveedores'
 const columns = getGridColumns('oferta-proveedores')
 const FILTER_KEYS = ['articulo', 'proveedor', 'fechaInicio', 'fechaFin']
 const DATE_KEYS = ['fechaInicio', 'fechaFin']
+const SERVER_SEARCH_KEYS = ['articulo', 'proveedor'] as const
 
 type OfertaFila = {
   articulo: string
@@ -68,6 +70,12 @@ const puedeVer = computed(() => puede(MODULO, 'ver'))
 const vista = ref<'grid' | 'ficha'>('grid')
 const filasTodas = ref<GridFila[]>([])
 const filtros = ref<Record<string, ColumnFilter>>(filtrosIniciales(FILTER_KEYS))
+const { serverQuery, onServerSearch } = useMantenimientoServerSearch({
+  filters: filtros,
+  serverKeys: SERVER_SEARCH_KEYS,
+  reload: cargar,
+  cancel: cancelarListado,
+})
 const total = ref(0)
 const loading = ref(false)
 const saving = ref(false)
@@ -83,6 +91,7 @@ const form = reactive(ofertaVacia())
 
 const buscarArticuloOpen = ref(false)
 const buscarProveedorOpen = ref(false)
+let listadoController: AbortController | null = null
 
 const filas = computed<GridFila[]>(() => {
   const filtradas = aplicarFiltrosColumnas(filasTodas.value, filtros.value, {
@@ -184,20 +193,40 @@ onMounted(async () => {
   await cargar()
 })
 
-async function cargar() {
+function cancelarListado() {
+  listadoController?.abort()
+  listadoController = null
+  loading.value = false
+}
+
+async function cargar(q = serverQuery.value) {
+  cancelarListado()
+  const controller = new AbortController()
+  listadoController = controller
   loading.value = true
   error.value = null
   try {
-    const { items, total: t } = await listarEntidadCompleta('oferta-proveedores')
+    const params: Record<string, string | number | boolean> = {}
+    if (q) params.q = q
+    const { items, total: t } = await listarEntidadCompleta(
+      'oferta-proveedores',
+      params,
+      controller.signal
+    )
+    if (controller.signal.aborted) return
     total.value = t
     filasTodas.value = (items as OfertaFila[]).map(aFilaGrid)
     indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
   } catch (e: unknown) {
+    if (controller.signal.aborted) return
     error.value = extractApiError(e, 'Error al cargar ofertas')
     filasTodas.value = []
     total.value = 0
   } finally {
-    loading.value = false
+    if (listadoController === controller) {
+      listadoController = null
+      loading.value = false
+    }
   }
 }
 
@@ -421,6 +450,7 @@ function numModel(key: keyof typeof form): number {
             @seleccionar="seleccionar"
             @abrir="abrirFicha"
             @nuevo="onNuevo"
+            @search="onServerSearch"
           />
 
           <p class="hint">

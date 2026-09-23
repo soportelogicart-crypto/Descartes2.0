@@ -24,6 +24,7 @@ const emit = defineEmits<{
   abrir: [index: number]
   nuevo: []
   'update:filters': [filters: Record<string, ColumnFilter>]
+  search: []
 }>()
 
 const filterMenuOpen = ref(false)
@@ -82,6 +83,7 @@ function onRowDblClick(fila: FamiliaFila) {
           :filterable-keys="filterableKeys"
           :filters="filters ?? {}"
           @update:filters="emit('update:filters', $event)"
+          @search="emit('search')"
           @menu-open="filterMenuOpen = $event"
         />
       </thead>

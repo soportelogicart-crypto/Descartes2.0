@@ -100,6 +100,8 @@ export type AlbaranCompraListParams = {
   fechaHasta?: string
   almacen?: number
   albaran?: number
+  /** Nº de albarán parcial (filtro de columna del grid): "152" encuentra 1523. */
+  albaranTexto?: string
   suAlbaran?: string
   /** 0 = pendientes de stock; 1 = ya actualizados. */
   actualizado?: number | boolean
@@ -180,6 +182,8 @@ export type PedidoProveedorListParams = {
   fechaHasta?: string
   almacen?: number
   pedido?: number
+  /** Nº de pedido parcial (filtro de columna del grid): "152" encuentra 1523. */
+  pedidoTexto?: string
   situacion?: number
   page?: number
   pageSize?: number

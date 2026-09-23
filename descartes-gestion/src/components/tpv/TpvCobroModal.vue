@@ -214,41 +214,43 @@ function confirmar() {
 
 .ventana {
   width: min(28rem, 94vw);
-  background: #d4d0c8;
-  border: 2px outset #f5f5f5;
-  box-shadow: 3px 3px 10px rgba(0, 0, 0, 0.5);
-  font-family: 'Segoe UI', Tahoma, sans-serif;
-  color: #000;
+  background: #fff;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.35);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  color: #0f172a;
 }
 
 .barra {
-  padding: 0.35rem 0.6rem;
-  background: linear-gradient(#00309c, #000060);
-  color: #fff;
-  font-size: 0.88rem;
-  font-weight: 700;
+  padding: 0.6rem 0.85rem;
+  background: linear-gradient(90deg, #0f172a, #1e293b);
+  color: #f8fafc;
+  font-size: 0.85rem;
+  font-weight: 600;
 }
 
 .cuerpo {
-  padding: 0.6rem;
+  padding: 0.75rem;
 }
 
 .rotulo {
-  margin: 0.55rem 0 0.25rem;
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: #404040;
+  margin: 0.6rem 0 0.3rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: #64748b;
 }
 
 .visor {
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
-  padding: 0.3rem 0.6rem;
-  background: #000;
-  border: 2px inset #808080;
-  color: #4ade80;
-  font-family: Consolas, monospace;
+  padding: 0.4rem 0.7rem;
+  background: #0f172a;
+  border-radius: 10px;
+  color: #34d399;
+  font-family: 'Cascadia Mono', Consolas, monospace;
 }
 
 .visor.total .visor-val {
@@ -256,14 +258,14 @@ function confirmar() {
 }
 
 .visor-lbl {
-  font-size: 0.72rem;
-  opacity: 0.8;
+  font-size: 0.7rem;
+  color: #64748b;
 }
 
 .visor-val {
   margin-left: auto;
   font-size: 1.5rem;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .tipos,
@@ -275,29 +277,33 @@ function confirmar() {
 
 .tipo.activa,
 .forma.activa {
-  background: #b8d0f0;
-  border-style: inset;
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
 }
 
 .nota,
 .nota-documento {
   margin: 0.3rem 0;
   font-size: 0.76rem;
-  color: #404040;
+  color: #64748b;
 }
 
 .nota-documento {
   padding: 0.7rem;
-  background: #e8edf5;
-  border: 1px solid #8090a8;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
   text-align: center;
 }
 
 .sin-formas {
   margin: 0;
-  padding: 0.4rem;
-  background: #ffd0cc;
-  border: 1px solid #a00000;
+  padding: 0.5rem;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-radius: 10px;
+  color: #be123c;
   font-size: 0.78rem;
 }
 
@@ -305,12 +311,12 @@ function confirmar() {
   margin: 0.35rem 0 0.5rem;
   font-size: 0.85rem;
   text-align: right;
-  color: #303030;
+  color: #475569;
 }
 
 .cambio.falta {
-  color: #8b0000;
-  font-weight: 700;
+  color: #be123c;
+  font-weight: 600;
 }
 
 .pad {
@@ -322,32 +328,40 @@ function confirmar() {
 .btn-legacy {
   min-height: 3rem;
   padding: 0.3rem 0.5rem;
-  background: #d4d0c8;
-  border: 2px outset #f5f5f5;
-  color: #000;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  color: #1e293b;
   font-family: inherit;
   font-size: 0.85rem;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
   touch-action: manipulation;
+  transition: background-color 0.12s ease, border-color 0.12s ease, transform 0.06s ease;
+}
+
+.btn-legacy:hover:not(:disabled) {
+  background: #f1f5f9;
+  border-color: #94a3b8;
 }
 
 .btn-legacy:active:not(:disabled) {
-  border-style: inset;
+  transform: translateY(1px);
 }
 
 .btn-legacy:disabled {
-  color: #8a8a8a;
-  text-shadow: 1px 1px 0 #fff;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
 .num {
   font-size: 1.3rem;
+  font-weight: 500;
 }
 
 .aux {
-  background: #e8e0d0;
+  background: #f1f5f9;
+  color: #475569;
 }
 
 .exacto {
@@ -357,15 +371,25 @@ function confirmar() {
 .pie {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 5px;
-  padding: 0.6rem;
+  gap: 6px;
+  padding: 0.75rem;
+  border-top: 1px solid #e2e8f0;
 }
 
 .aceptar {
-  background: #c8e0c8;
+  background: #059669;
+  border-color: #059669;
+  color: #fff;
+}
+
+.aceptar:hover:not(:disabled) {
+  background: #047857;
+  border-color: #047857;
 }
 
 .cancelar {
-  background: #e0c8c8;
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+  color: #334155;
 }
 </style>

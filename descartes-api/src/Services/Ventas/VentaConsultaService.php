@@ -67,6 +67,17 @@ final class VentaConsultaService
         $params['documentoFactura'] = $documento;
       }
     }
+    // Los filtros de columna del grid son parciales: "152" debe encontrar 1523.
+    $albaranTexto = $this->soloDigitos($query['albaranTexto'] ?? null);
+    if ($albaranTexto !== '') {
+      $where[] = 'CAST(c.Albaran AS varchar(20)) LIKE :albaranTexto';
+      $params['albaranTexto'] = '%' . $albaranTexto . '%';
+    }
+    $facturaTexto = $this->soloDigitos($query['facturaTexto'] ?? null);
+    if ($facturaTexto !== '') {
+      $where[] = 'CAST(c.Factura AS varchar(20)) LIKE :facturaTexto';
+      $params['facturaTexto'] = '%' . $facturaTexto . '%';
+    }
 
     $this->aplicarFiltroClaseDocumento($where, $query);
 
@@ -115,7 +126,7 @@ final class VentaConsultaService
               Representante, Transporte, DireccionEnvio, PoblacionEnvio, CodigoPostalEnvio,
               ProvinciaEnvio, PaisEnvio, Telefono, Telefono2, Fax, Email, Almacen, Pedido,
               Referencia1, Referencia2, NumeroDeSerie, Observaciones, SujetoPasivo, Portes, Estado, Impreso,
-              Importe, Factura, FacturaTipo, Sesion, FechaEntrega, ImporteDtos, PjeDto,
+              Importe, Factura, FacturaTipo, Sesion, Mesa, Tarifa, FechaEntrega, ImporteDtos, PjeDto,
               Fpago1, Fpago2, Fpago3, ImpFpago1, ImpFpago2,
               ImporteBase1, ImporteBase2, ImporteBase3, ImporteBase4, ImporteBase5, ImporteBase6,
               PjeIva1, PjeIva2, PjeIva3, PjeIva4, PjeIva5, PjeIva6,
@@ -176,6 +187,8 @@ final class VentaConsultaService
     $detalle['observaciones'] = isset($cab['Observaciones']) ? trim((string) $cab['Observaciones']) : null;
     $detalle['sujetoPasivo'] = !empty($cab['SujetoPasivo']);
     $detalle['portes'] = $cab['Portes'] ?? null;
+    $detalle['mesa'] = isset($cab['Mesa']) && $cab['Mesa'] !== null ? (int) $cab['Mesa'] : null;
+    $detalle['tarifa'] = isset($cab['Tarifa']) && $cab['Tarifa'] !== null ? (int) $cab['Tarifa'] : null;
     $detalle['fechaEntrega'] = $this->fmtDate($cab['FechaEntrega'] ?? null);
     $detalle['bruto'] = (float) ($cab['ImporteBase1'] ?? 0);
     $detalle['descuento'] = (float) ($cab['ImporteDtos'] ?? 0);
@@ -206,6 +219,11 @@ final class VentaConsultaService
     $detalle['clienteSwift'] = null;
     $detalle['formaPagoDescripcion'] = null;
     $detalle['vencimientos'] = [];
+    $detalle['pjeRetIrpf'] = 0.0;
+    $detalle['basRetIrpf'] = 0.0;
+    $detalle['impRetIrpf'] = 0.0;
+    $detalle['importeFactura'] = null;
+    $detalle['importeLiquido'] = null;
 
     $cliente = trim((string) ($detalle['cliente'] ?? ''));
     if ($cliente !== '') {
@@ -235,16 +253,28 @@ final class VentaConsultaService
 
     try {
       $st = $this->pdo->prepare(
-        'SELECT TOP 1 fp.Descripcion
+        'SELECT TOP 1 fp.Descripcion, f.PjeRetIrpf, f.BasRetIrpf, f.ImpRetIrpf,
+                f.Importe, f.PagoACuenta
          FROM Facturas f
          LEFT JOIN FormasPago fp ON fp.Codigo = f.Fpago
          WHERE f.Empresa = :empresa AND f.FacturaTipo = :tipo AND f.Factura = :factura'
       );
       $st->execute(['empresa' => $empresa, 'tipo' => $facturaTipo, 'factura' => $factura]);
-      $descripcion = $st->fetchColumn();
-      $detalle['formaPagoDescripcion'] = $descripcion !== false
-        ? trim((string) $descripcion)
-        : null;
+      $facturaRow = $st->fetch(PDO::FETCH_ASSOC);
+      if ($facturaRow !== false) {
+        $detalle['formaPagoDescripcion'] = trim((string) ($facturaRow['Descripcion'] ?? '')) ?: null;
+        $detalle['pjeRetIrpf'] = round((float) ($facturaRow['PjeRetIrpf'] ?? 0), 4);
+        $detalle['basRetIrpf'] = round((float) ($facturaRow['BasRetIrpf'] ?? 0), 2);
+        $detalle['impRetIrpf'] = round((float) ($facturaRow['ImpRetIrpf'] ?? 0), 2);
+        $importeFactura = round((float) ($facturaRow['Importe'] ?? 0), 2);
+        $detalle['importeFactura'] = $importeFactura;
+        $detalle['importeLiquido'] = round(
+          $importeFactura
+          - $detalle['impRetIrpf']
+          - (float) ($facturaRow['PagoACuenta'] ?? 0),
+          2
+        );
+      }
 
       $st = $this->pdo->prepare(
         'SELECT Vencimiento, Importe
@@ -669,6 +699,15 @@ final class VentaConsultaService
       return false;
     }
     return (bool) preg_match('/^\d{4}-\d{2}-\d{2}/', (string) $value);
+  }
+
+  /** @param mixed $value */
+  private function soloDigitos($value): string
+  {
+    if ($value === null) {
+      return '';
+    }
+    return preg_replace('/\D+/', '', (string) $value) ?? '';
   }
 
   private function normalizarEmpresaCodigo(string $empresa): string

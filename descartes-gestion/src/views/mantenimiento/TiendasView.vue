@@ -24,6 +24,7 @@ import {
   validarTiendaObligatorios,
 } from '@/config/tiendas-tabs'
 import { extractApiError, useMantenimiento } from '@/composables/useMantenimiento'
+import { useMantenimientoServerSearch } from '@/composables/useMantenimientoServerSearch'
 import { usePermisos } from '@/composables/usePermisos'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -35,10 +36,11 @@ import TiendaLogoLocalPanel from '@/components/tiendas/TiendaLogoLocalPanel.vue'
 
 const MODULO = 'tiendas'
 const FILTER_KEYS = ['codigo', 'nombre', 'nif', 'poblacion', 'telefono1']
+const SERVER_FILTER_KEYS = ['codigo', 'nombre', 'nif', 'poblacion', 'telefono1'] as const
 const columns = getGridColumns('tiendas')
 
 const { puede } = usePermisos()
-const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(() => MODULO)
+const { items, total, page, pageSize, loading, error, listar, cancelarListado, obtener, crear, actualizar, eliminar } = useMantenimiento(() => MODULO)
 
 const puedeCrear = computed(() => puede(MODULO, 'crear'))
 const puedeEditar = computed(() => puede(MODULO, 'editar'))
@@ -49,6 +51,12 @@ const soloLecturaGrid = computed(() => !puedeCrear.value && !puedeEditar.value)
 const vista = ref<'grid' | 'ficha'>('grid')
 const filasTodas = ref<GridFila[]>([])
 const filtros = ref<Record<string, ColumnFilter>>(filtrosIniciales(FILTER_KEYS))
+const { serverQuery, onServerSearch } = useMantenimientoServerSearch({
+  filters: filtros,
+  serverKeys: SERVER_FILTER_KEYS,
+  reload: cargar,
+  cancel: cancelarListado,
+})
 const indiceSeleccionado = ref(0)
 const filtroActivo = ref<'activos' | 'todos' | 'inactivos'>('activos')
 const mensaje = ref<string | null>(null)
@@ -214,9 +222,10 @@ onMounted(async () => {
   await cargar()
 })
 
-async function cargar() {
+async function cargar(q = serverQuery.value) {
   mostrarAviso(null)
   const params: Record<string, string | number | boolean> = { page: page.value, pageSize: pageSize.value }
+  if (q) params.q = q
   if (filtroActivo.value === 'activos') params.activo = true
   if (filtroActivo.value === 'inactivos') params.activo = false
   const seqFiltro = filtroActivo.value
@@ -601,6 +610,7 @@ function tabTieneErrores(tabId: string): boolean {
           @actualizar="actualizarFila"
           @abrir="abrirFicha"
           @nuevo="onNuevo"
+          @search="onServerSearch"
         />
 
         <p class="hint">

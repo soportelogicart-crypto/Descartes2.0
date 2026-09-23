@@ -5,7 +5,7 @@ import { api } from '@/api/client'
 import type { FacturaDiarioItem } from '@/types/facturacion'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
-import { GRID_LIMITE_INICIAL } from '@/composables/useGridPageSize'
+import { useGridRenderLimit } from '@/composables/useGridRenderLimit'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import EntidadBuscarModal, {
@@ -133,6 +133,8 @@ const itemsFiltrados = computed(() => {
   return ordenarFilas(base, (row, key) => textoColumna[key as ColumnaKey](row), ['fecha'])
 })
 
+const { gridEl, visibles, onScrollGrid } = useGridRenderLimit(itemsFiltrados)
+
 function limpiarFiltrosColumna() {
   filtrosColumna.value = filtrosColumnaVacios()
 }
@@ -214,13 +216,8 @@ async function buscar() {
   mensaje.value = null
   try {
     const data = await listarDiarioFacturacion(paramsConsulta())
-    const todos = data.items ?? []
-    items.value = todos.slice(0, GRID_LIMITE_INICIAL)
-    const trunc =
-      todos.length > GRID_LIMITE_INICIAL
-        ? ` (mostrando ${GRID_LIMITE_INICIAL} de ${todos.length})`
-        : ''
-    mensaje.value = `${data.totales.facturas} facturas · ${data.totales.importe.toFixed(2)} €${trunc}`
+    items.value = data.items ?? []
+    mensaje.value = `${data.totales.facturas} facturas · ${data.totales.importe.toFixed(2)} €`
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudo cargar el diario')
     items.value = []
@@ -447,7 +444,7 @@ onMounted(async () => {
         <p v-if="error" class="error">{{ error }}</p>
         <p v-if="mensaje && !error" class="ok">{{ mensaje }}</p>
         <p v-if="loading" class="hint">Cargando…</p>
-        <div v-if="items.length" class="grid-wrap">
+        <div v-if="items.length" ref="gridEl" class="grid-wrap" @scroll.passive="onScrollGrid">
           <table>
             <thead>
               <tr>
@@ -474,7 +471,7 @@ onMounted(async () => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="r in itemsFiltrados" :key="`${r.empresa}|${r.facturaTipo}|${r.factura}`">
+              <tr v-for="r in visibles" :key="`${r.empresa}|${r.facturaTipo}|${r.factura}`">
                 <td>{{ r.fecha }}</td>
                 <td>{{ r.empresa }}</td>
                 <td>{{ r.facturaTipo }}</td>

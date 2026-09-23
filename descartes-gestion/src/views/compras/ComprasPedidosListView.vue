@@ -6,6 +6,7 @@ import { listarPedidosProveedor } from '@/api/compras'
 import type { PedidoProveedorResumen, PedidoSituacionLabel } from '@/types/compras'
 import { extractApiError } from '@/composables/extractApiError'
 import { GRID_LIMITE_INICIAL } from '@/composables/useGridPageSize'
+import { useGridServerFilters } from '@/composables/useGridServerFilters'
 import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
@@ -110,6 +111,25 @@ const filtrosColumnaActivos = computed(() =>
 )
 
 const hayFiltroColumna = computed(() => filtrosColumnaActivos.value.length > 0)
+
+/**
+ * Columnas que la API sabe filtrar: al escribir en ellas se relanza la consulta
+ * para buscar en toda la tabla, no solo en el bloque ya cargado.
+ */
+const filtrosServidorColumna = computed(() => ({
+  pedidoTexto: filtrosColumna.value.pedido.replace(/\D+/g, ''),
+  proveedor: filtrosColumna.value.proveedor.trim(),
+}))
+
+const hayFiltroServidorColumna = computed(() =>
+  Object.values(filtrosServidorColumna.value).some((v) => v !== '')
+)
+
+const { cancelarPendiente: cancelarRecargaPorColumnas } = useGridServerFilters(
+  () => JSON.stringify(filtrosServidorColumna.value),
+  () => cargar()
+)
+
 const { orden, clicarColumna, ordenarFilas } = useOrdenLista()
 
 const itemsFiltrados = computed(() => {
@@ -192,15 +212,17 @@ async function cargar() {
     const almacenNum = filtros.value.almacen.trim() ? Number(filtros.value.almacen) : undefined
     const situacionNum =
       filtros.value.situacion !== '' ? Number(filtros.value.situacion) : undefined
+    const servidor = filtrosServidorColumna.value
     const data = await listarPedidosProveedor({
       empresa: filtros.value.empresa
         ? normalizarEmpresaCodigo(filtros.value.empresa)
         : undefined,
       fechaDesde: filtros.value.fechaDesde || undefined,
       fechaHasta: filtros.value.fechaHasta || undefined,
-      proveedor: filtros.value.proveedor || undefined,
+      proveedor: filtros.value.proveedor || servidor.proveedor || undefined,
       almacen: Number.isFinite(almacenNum) ? almacenNum : undefined,
       pedido: Number.isFinite(pedidoNum) ? pedidoNum : undefined,
+      pedidoTexto: Number.isFinite(pedidoNum) ? undefined : servidor.pedidoTexto || undefined,
       situacion: Number.isFinite(situacionNum as number) ? situacionNum : undefined,
       page: 1,
       pageSize: BLOQUE_CARGA,
@@ -215,6 +237,7 @@ async function cargar() {
 }
 
 function buscar() {
+  cancelarRecargaPorColumnas()
   return cargar()
 }
 
@@ -285,7 +308,8 @@ onActivated(() => {
         <h2>Pedidos a proveedor</h2>
         <p class="hint">
           Tienda: <strong class="tienda-activa">{{ tiendaLabel }}</strong>
-          — Escriba bajo cada columna para filtrar el listado.
+          — Escriba bajo cada columna para filtrar. Pedido y Proveedor buscan en toda la base de
+          datos; el resto filtra lo ya cargado.
         </p>
       </div>
       <button v-if="puedeCrear" type="button" class="btn-nuevo" @click="nuevo">
@@ -418,7 +442,12 @@ onActivated(() => {
           <span>
             {{ itemsFiltrados.length }}
             {{ itemsFiltrados.length === 1 ? 'pedido' : 'pedidos' }}
-            <template v-if="hayFiltroColumna">de {{ items.length }} cargados</template>
+            <template v-if="hayFiltroServidorColumna">
+              de {{ total }} encontrados en la base de datos<template v-if="total > items.length">
+                (mostrando {{ GRID_LIMITE_INICIAL }})</template
+              >
+            </template>
+            <template v-else-if="hayFiltroColumna">de {{ items.length }} cargados</template>
             <template v-else-if="total > items.length">
               (de {{ total }}; mostrando {{ GRID_LIMITE_INICIAL }})
             </template>

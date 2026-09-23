@@ -34,7 +34,16 @@ const props = defineProps<{
   /** Albarán en alta/edición: permitir cambiar la fecha de cabecera. */
   puedeEditarFecha?: boolean
   vendedorNombre?: string
-  totales: { bruto: number; descuento: number; iva: number; importe: number }
+  totales: {
+    bruto: number
+    descuento: number
+    iva: number
+    importe: number
+    pjeRetIrpf?: number
+    basRetIrpf?: number
+    impRetIrpf?: number
+    importeLiquido?: number | null
+  }
 }>()
 
 const emit = defineEmits<{
@@ -423,6 +432,20 @@ onUnmounted(() => {
         <div><span>Dto</span><strong>{{ totales.descuento.toFixed(2) }}</strong></div>
         <div><span>IVA</span><strong>{{ totales.iva.toFixed(2) }}</strong></div>
         <div class="imp"><span>Importe</span><strong>{{ totales.importe.toFixed(2) }}</strong></div>
+        <template v-if="Number(totales.impRetIrpf || 0) !== 0">
+          <div>
+            <span>Base IRPF</span>
+            <strong>{{ Number(totales.basRetIrpf || 0).toFixed(2) }}</strong>
+          </div>
+          <div>
+            <span>Ret. IRPF {{ Number(totales.pjeRetIrpf || 0).toFixed(2) }}%</span>
+            <strong>{{ (-Number(totales.impRetIrpf || 0)).toFixed(2) }}</strong>
+          </div>
+          <div class="imp">
+            <span>Líquido a pagar</span>
+            <strong>{{ Number(totales.importeLiquido ?? totales.importe).toFixed(2) }}</strong>
+          </div>
+        </template>
       </div>
     </div>
 

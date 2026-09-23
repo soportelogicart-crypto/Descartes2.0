@@ -21,6 +21,7 @@ const emit = defineEmits<{
   abrir: [index: number]
   nuevo: []
   'update:filters': [filters: Record<string, ColumnFilter>]
+  search: []
 }>()
 
 function onRowDblClick(fila: AlmacenFila) {
@@ -86,6 +87,7 @@ function cellValue(fila: AlmacenFila, col: AlmacenColumn) {
           :filterable-keys="filterableKeys ?? []"
           :filters="filters ?? {}"
           @update:filters="emit('update:filters', $event)"
+          @search="emit('search')"
         />
       </thead>
       <tbody>

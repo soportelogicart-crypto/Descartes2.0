@@ -317,23 +317,24 @@ async function confirmar() {
   width: min(31rem, 96vw);
   max-height: 94vh;
   overflow: auto;
-  background: #d4d0c8;
-  border: 2px outset #f5f5f5;
-  color: #000;
-  font-family: 'Segoe UI', Tahoma, sans-serif;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.35);
+  color: #0f172a;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
 }
 
 .barra {
-  padding: 0.4rem 0.65rem;
-  background: linear-gradient(#00309c, #000060);
-  color: #fff;
-  font-weight: 700;
+  padding: 0.6rem 0.85rem;
+  background: linear-gradient(90deg, #0f172a, #1e293b);
+  color: #f8fafc;
+  font-weight: 600;
 }
 
 .cuerpo {
   display: grid;
   gap: 0.65rem;
-  padding: 0.7rem;
+  padding: 0.75rem;
 }
 
 .tipos {
@@ -345,29 +346,37 @@ async function confirmar() {
 button {
   min-height: 2.8rem;
   padding: 0.4rem 0.6rem;
-  background: #d4d0c8;
-  border: 2px outset #f5f5f5;
-  border-radius: 0;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  color: #1e293b;
   font: inherit;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, transform 0.06s ease;
 }
 
-button:active,
-button.activo {
-  border-style: inset;
+button:hover:not(:disabled):not(.activo) {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+button:active {
+  transform: translateY(1px);
 }
 
 button.activo {
-  background: #a8c4ec;
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
 }
 
 .visor {
-  padding: 0.5rem;
-  background: #000;
-  border: 2px inset #808080;
-  color: #30ff30;
-  font: 700 1.35rem Consolas, monospace;
+  padding: 0.5rem 0.7rem;
+  background: #0f172a;
+  border-radius: 10px;
+  color: #34d399;
+  font: 600 1.35rem 'Cascadia Mono', Consolas, monospace;
   text-align: right;
 }
 
@@ -399,19 +408,21 @@ button.activo {
 
 .resultados .clasificacion {
   margin-top: 0.15rem;
-  color: #404060;
+  color: #64748b;
   font-size: 0.72rem;
 }
 
 .ayuda {
   margin: 0;
-  color: #303030;
+  color: #64748b;
   font-size: 0.8rem;
 }
 
 .nuevo {
   display: grid;
-  background: #c8e0c8;
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #065f46;
   text-align: left;
 }
 
@@ -439,16 +450,26 @@ button.activo {
 label {
   display: grid;
   gap: 0.25rem;
-  font-weight: 700;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #475569;
 }
 
 input,
 select {
   min-height: 2.7rem;
-  padding: 0.35rem 0.5rem;
-  border: 2px inset #f5f5f5;
-  border-radius: 0;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  color: #0f172a;
   font: inherit;
+}
+
+input:focus,
+select:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
 }
 
 @media (max-width: 34rem) {
@@ -463,25 +484,35 @@ select {
 
 .error {
   margin: 0;
-  padding: 0.45rem;
-  background: #ffd7d7;
-  border: 1px solid #a00000;
-  color: #800000;
+  padding: 0.5rem 0.65rem;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-radius: 10px;
+  color: #be123c;
 }
 
 .pie {
   display: grid;
   grid-template-columns: auto 1fr auto auto;
-  gap: 4px;
-  padding: 0 0.7rem 0.7rem;
+  gap: 6px;
+  padding: 0.75rem;
+  border-top: 1px solid #e2e8f0;
 }
 
 .borrar {
-  background: #f0c8c8;
-  color: #740000;
+  background: #fff1f2;
+  border-color: #fecdd3;
+  color: #be123c;
 }
 
 .guardar {
-  background: #c8e0c8;
+  background: #059669;
+  border-color: #059669;
+  color: #fff;
+}
+
+.guardar:hover:not(:disabled) {
+  background: #047857;
+  border-color: #047857;
 }
 </style>

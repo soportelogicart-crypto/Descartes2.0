@@ -35,7 +35,8 @@ final class ImpresionFacturasService
       $orderSql = 'ORDER BY f.Fecha DESC, f.FacturaTipo DESC, f.Factura DESC';
     }
 
-    $sql = "SELECT TOP 500
+    // El grid filtra por columna sobre lo devuelto: conviene no recortar de más.
+    $sql = "SELECT TOP 5000
         f.Empresa, f.FacturaTipo, f.Factura, f.Fecha, f.Cliente, f.Importe, f.Fpago,
         ISNULL(f.Impresa, 0) AS Impresa, f.Estado,
         ISNULL(f.FacturaContadoDiferida, 0) AS FacturaContadoDiferida,
@@ -217,6 +218,15 @@ final class ImpresionFacturasService
         'descuento' => round((float) ($c['ImporteDtos'] ?? 0), 2),
         'pjeDto' => round((float) ($c['PjeDto'] ?? 0), 2),
         'importe' => round((float) ($c['Importe'] ?? 0), 2),
+        'pjeRetIrpf' => round((float) ($c['PjeRetIrpf'] ?? 0), 4),
+        'basRetIrpf' => round((float) ($c['BasRetIrpf'] ?? 0), 2),
+        'impRetIrpf' => round((float) ($c['ImpRetIrpf'] ?? 0), 2),
+        'liquido' => round(
+          (float) ($c['Importe'] ?? 0)
+          - (float) ($c['ImpRetIrpf'] ?? 0)
+          - (float) ($c['PagoACuenta'] ?? 0),
+          2
+        ),
       ],
     ];
   }
@@ -432,6 +442,7 @@ final class ImpresionFacturasService
         f.Empresa, f.FacturaTipo, f.Factura, f.Fecha, f.Cliente, f.Fpago, f.Estado,
         ISNULL(f.FacturaContadoDiferida, 0) AS FacturaContadoDiferida,
         f.Importe, f.ImporteDtos, f.PjeDto, f.PagoACuenta,
+        f.PjeRetIrpf, f.BasRetIrpf, f.ImpRetIrpf,
         f.ImporteBase1, f.ImporteBase2, f.ImporteBase3, f.ImporteBase4, f.ImporteBase5, f.ImporteBase6,
         f.PjeIva1, f.PjeIva2, f.PjeIva3, f.PjeIva4, f.PjeIva5, f.PjeIva6,
         f.ImporteIva1, f.ImporteIva2, f.ImporteIva3, f.ImporteIva4, f.ImporteIva5, f.ImporteIva6,
@@ -689,8 +700,25 @@ final class ImpresionFacturasService
     if (abs($pagoACuenta) > 0.0001) {
       $pdf->text('A cuenta: ' . $this->num($pagoACuenta), 10);
     }
+    $impRetIrpf = (float) ($c['ImpRetIrpf'] ?? 0);
+    if (abs($impRetIrpf) > 0.0001) {
+      $pdf->text(
+        'Ret. IRPF ' . $this->num((float) ($c['PjeRetIrpf'] ?? 0)) . '%'
+        . ' sobre ' . $this->num((float) ($c['BasRetIrpf'] ?? 0))
+        . ': ' . $this->num(-$impRetIrpf),
+        10
+      );
+    }
     $pdf->spacer(4);
-    $pdf->text('TOTAL: ' . $this->num((float) ($c['Importe'] ?? 0)) . ' EUR', 14, true);
+    $importe = (float) ($c['Importe'] ?? 0);
+    $pdf->text('TOTAL FACTURA: ' . $this->num($importe) . ' EUR', 12, true);
+    if (abs($impRetIrpf) > 0.0001 || abs($pagoACuenta) > 0.0001) {
+      $pdf->text(
+        'LIQUIDO A PAGAR: ' . $this->num($importe - $impRetIrpf - $pagoACuenta) . ' EUR',
+        14,
+        true
+      );
+    }
   }
 
   private function marcarImpresa(string $empresa, string $facturaTipo, int $factura): bool

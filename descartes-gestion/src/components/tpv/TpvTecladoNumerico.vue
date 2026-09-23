@@ -49,22 +49,30 @@ const emit = defineEmits<{
 .tecla {
   min-height: 3.2rem;
   padding: 0.3rem;
-  background: #d4d0c8;
-  border: 2px outset #f5f5f5;
-  border-radius: 0;
-  color: #000;
-  font-family: 'Segoe UI', Tahoma, sans-serif;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  color: #1e293b;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   font-size: 1.25rem;
-  font-weight: 700;
+  font-weight: 500;
   cursor: pointer;
+  touch-action: manipulation;
+  transition: background-color 0.12s ease, border-color 0.12s ease, transform 0.06s ease;
+}
+
+.tecla:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
 }
 
 .tecla:active {
-  border-style: inset;
+  transform: translateY(1px);
 }
 
 .tecla.aux {
-  background: #c8ccd4;
+  background: #f1f5f9;
+  color: #475569;
   font-size: 1.05rem;
 }
 </style>

@@ -9,6 +9,7 @@ use Descartes\Api\Services\Tpv\TpvArticuloService;
 use Descartes\Api\Services\Tpv\TpvClienteService;
 use Descartes\Api\Services\Tpv\TpvContextoService;
 use Descartes\Api\Services\Tpv\TpvTecladoService;
+use Descartes\Api\Services\Tpv\TpvTicketEsperaService;
 use Descartes\Api\Services\Ventas\VentaEmailService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -20,6 +21,7 @@ final class TpvController
   private TpvTecladoService $teclado;
   private TpvArticuloService $articulos;
   private TpvClienteService $clientes;
+  private TpvTicketEsperaService $ticketsEspera;
   private VentaEmailService $ventaEmail;
 
   public function __construct(
@@ -27,12 +29,14 @@ final class TpvController
     TpvTecladoService $teclado,
     TpvArticuloService $articulos,
     TpvClienteService $clientes,
+    TpvTicketEsperaService $ticketsEspera,
     VentaEmailService $ventaEmail
   ) {
     $this->contexto = $contexto;
     $this->teclado = $teclado;
     $this->articulos = $articulos;
     $this->clientes = $clientes;
+    $this->ticketsEspera = $ticketsEspera;
     $this->ventaEmail = $ventaEmail;
   }
 
@@ -169,6 +173,63 @@ final class TpvController
       return $this->json($response, 200, ['items' => $this->clientes->buscar($query, $limite)]);
     } catch (\InvalidArgumentException $e) {
       return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function listarTicketsEspera(Request $request, Response $response): Response
+  {
+    $q = $request->getQueryParams();
+    try {
+      return $this->json($response, 200, [
+        'items' => $this->ticketsEspera->listar(
+          trim((string) ($q['empresa'] ?? '')),
+          trim((string) ($q['puesto'] ?? ''))
+        ),
+      ]);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function ponerTicketEnEspera(Request $request, Response $response, array $args): Response
+  {
+    $body = (array) json_decode((string) $request->getBody(), true);
+    try {
+      return $this->json($response, 200, $this->ticketsEspera->ponerEnEspera(
+        trim((string) ($args['empresa'] ?? '')),
+        trim((string) ($args['tipo'] ?? '')),
+        (int) ($args['albaran'] ?? 0),
+        trim((string) ($body['puesto'] ?? ''))
+      ));
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      $status = in_array($e->getCode(), [404, 409], true) ? $e->getCode() : 500;
+      return ErrorResponse::json($response, $status, $e->getMessage(), $status === 409 ? 'CONFLICTO' : 'ERROR');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function recuperarTicketEspera(Request $request, Response $response, array $args): Response
+  {
+    $body = (array) json_decode((string) $request->getBody(), true);
+    try {
+      return $this->json($response, 200, $this->ticketsEspera->recuperar(
+        trim((string) ($args['empresa'] ?? '')),
+        trim((string) ($args['tipo'] ?? '')),
+        (int) ($args['albaran'] ?? 0),
+        trim((string) ($body['puesto'] ?? ''))
+      ));
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      $status = in_array($e->getCode(), [404, 409], true) ? $e->getCode() : 500;
+      return ErrorResponse::json($response, $status, $e->getMessage(), $status === 409 ? 'CONFLICTO' : 'ERROR');
     } catch (\Throwable $e) {
       return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
     }

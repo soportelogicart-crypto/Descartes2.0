@@ -64,6 +64,12 @@ final class AlbaranCompraConsultaService
       $where[] = 'c.SuAlbaran LIKE :suAlbaran';
       $params['suAlbaran'] = '%' . trim((string) $query['suAlbaran']) . '%';
     }
+    // El filtro de columna del grid es parcial: "152" debe encontrar 1523.
+    $albaranTexto = $this->soloDigitos($query['albaranTexto'] ?? null);
+    if ($albaranTexto !== '') {
+      $where[] = 'CAST(c.Albaran AS varchar(20)) LIKE :albaranTexto';
+      $params['albaranTexto'] = '%' . $albaranTexto . '%';
+    }
     if (array_key_exists('actualizado', $query) && $query['actualizado'] !== '' && $query['actualizado'] !== null) {
       $raw = $query['actualizado'];
       $si = $raw === true || $raw === 1 || $raw === '1' || $raw === 'true';
@@ -313,5 +319,14 @@ final class AlbaranCompraConsultaService
       return false;
     }
     return (bool) preg_match('/^\d{4}-\d{2}-\d{2}/', (string) $value);
+  }
+
+  /** @param mixed $value */
+  private function soloDigitos($value): string
+  {
+    if ($value === null) {
+      return '';
+    }
+    return preg_replace('/\D+/', '', (string) $value) ?? '';
   }
 }

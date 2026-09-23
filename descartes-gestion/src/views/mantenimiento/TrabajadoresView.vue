@@ -15,6 +15,7 @@ import {
   type ColumnFilter,
 } from '@/composables/useGridColumnFilters'
 import { extractApiError, useMantenimiento } from '@/composables/useMantenimiento'
+import { useMantenimientoServerSearch } from '@/composables/useMantenimientoServerSearch'
 import { usePermisos } from '@/composables/usePermisos'
 import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -25,6 +26,7 @@ import DecimalInput from '@/components/common/DecimalInput.vue'
 const ENTIDAD = 'trabajadores'
 const MODULO = 'trabajadores'
 const FILTER_KEYS = ['codigo', 'nombre']
+const SERVER_FILTER_KEYS = ['codigo', 'nombre'] as const
 const columns = getGridColumns(ENTIDAD)
 
 function trabajadorVacio(): Record<string, unknown> {
@@ -88,7 +90,7 @@ function primerCampoObligatorioVacio(ficha: Record<string, unknown>): string | n
 }
 
 const { puede } = usePermisos()
-const { items, total, page, pageSize, loading, error, listar, obtener, crear, actualizar, eliminar } = useMantenimiento(() => ENTIDAD)
+const { items, total, page, pageSize, loading, error, listar, cancelarListado, obtener, crear, actualizar, eliminar } = useMantenimiento(() => ENTIDAD)
 
 const puedeCrear = computed(() => puede(MODULO, 'crear'))
 const puedeEditar = computed(() => puede(MODULO, 'editar'))
@@ -98,6 +100,12 @@ const puedeVer = computed(() => puede(MODULO, 'ver'))
 const vista = ref<'grid' | 'ficha'>('grid')
 const filasTodas = ref<GridFila[]>([])
 const filtros = ref<Record<string, ColumnFilter>>(filtrosIniciales(FILTER_KEYS))
+const { serverQuery, onServerSearch } = useMantenimientoServerSearch({
+  filters: filtros,
+  serverKeys: SERVER_FILTER_KEYS,
+  reload: cargar,
+  cancel: cancelarListado,
+})
 const indiceSeleccionado = ref(0)
 const filtroActivo = ref<'activos' | 'todos' | 'inactivos'>('activos')
 const mensaje = ref<string | null>(null)
@@ -233,9 +241,10 @@ async function cargarUsuarios() {
   }
 }
 
-async function cargar() {
+async function cargar(q = serverQuery.value) {
   mensaje.value = null
   const params: Record<string, string | number | boolean> = { page: page.value, pageSize: pageSize.value }
+  if (q) params.q = q
   if (filtroActivo.value === 'activos') params.activo = true
   if (filtroActivo.value === 'inactivos') params.activo = false
   const seqFiltro = filtroActivo.value
@@ -601,6 +610,7 @@ async function onUltimo() {
           @actualizar="actualizarFila"
           @abrir="abrirFicha"
           @nuevo="onNuevo"
+          @search="onServerSearch"
         />
 
         <p class="hint">

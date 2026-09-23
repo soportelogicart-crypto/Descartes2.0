@@ -5,7 +5,7 @@ import { api } from '@/api/client'
 import type { FacturaImpresionItem } from '@/types/facturacion'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
-import { GRID_LIMITE_INICIAL } from '@/composables/useGridPageSize'
+import { useGridRenderLimit } from '@/composables/useGridRenderLimit'
 import {
   imprimirFacturasPreparadas,
   prepararImpresionFacturas,
@@ -69,8 +69,6 @@ const form = ref({
   facturacion: 'normal',
   canalImpresion: 'impresora',
   clientesModo: 'todos',
-  /** Solo con botón / checkbox explícito; el PDF no marca por defecto. */
-  marcarImpresa: false,
   empresaDesde: '',
   empresaHasta: '',
   fechaDesde: '',
@@ -150,6 +148,8 @@ const itemsFiltrados = computed(() => {
         )
   return ordenarFilas(base, (row, key) => textoColumna[key as ColumnaKey](row), ['fecha'])
 })
+
+const { gridEl, visibles, onScrollGrid } = useGridRenderLimit(itemsFiltrados)
 
 function limpiarFiltrosColumna() {
   filtrosColumna.value = filtrosColumnaVacios()
@@ -267,18 +267,13 @@ async function buscar() {
   mensaje.value = null
   try {
     const data = await listarFacturasImpresion(paramsConsulta())
-    const todos = data.items ?? []
-    items.value = todos.slice(0, GRID_LIMITE_INICIAL)
+    items.value = data.items ?? []
     selected.value = {}
-    const trunc =
-      todos.length > GRID_LIMITE_INICIAL
-        ? ` (mostrando ${GRID_LIMITE_INICIAL} de ${todos.length})`
-        : ''
     if (data.items.length === 0 && form.value.estadoImpresion === 'pendientes') {
       mensaje.value =
         '0 facturas pendientes de imprimir. Pruebe Estado = Todas o Impresas.'
     } else {
-      mensaje.value = `${data.totales.facturas} facturas · ${data.totales.importe.toFixed(2)} €${trunc}`
+      mensaje.value = `${data.totales.facturas} facturas · ${data.totales.importe.toFixed(2)} €`
     }
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudieron cargar facturas')
@@ -431,12 +426,10 @@ async function imprimirDocumentos() {
   try {
     const html = (await a4ModalRef.value?.capturarHtmlFolio()) || ''
     mensaje.value = await imprimirFacturasPreparadas(prep, html)
-    if (form.value.marcarImpresa) {
-      await marcarFacturasImpresas({ facturas: prep.documentos.map((d) => d.clave) })
-    }
+    await marcarFacturasImpresas({ facturas: prep.documentos.map((d) => d.clave) })
     preview.cerrar()
     a4Open.value = false
-    if (form.value.marcarImpresa) await buscar()
+    await buscar()
   } catch (e: unknown) {
     const msg = extractApiError(e, 'No se pudo imprimir')
     error.value = msg
@@ -489,8 +482,8 @@ onMounted(async () => {
         <h2>Impresión de facturas</h2>
         <p class="hint">
           Diferidas = crédito (Estado G). Imprimir abre la factura A4 (plantilla del
-          diseñador del puesto) y pregunta si quiere enviarla por email. Solo se marcan
-          como impresas si activa «Marcar al imprimir».
+          diseñador del puesto) y pregunta si quiere enviarla por email. Al imprimir, la
+          columna «Imp.» pasa a Sí. Previsualizar no marca nada.
         </p>
       </div>
       <div class="toolbar-actions">
@@ -569,10 +562,6 @@ onMounted(async () => {
                 <option value="todos">Todos</option>
                 <option value="seleccionados">Clientes seleccionados</option>
               </select>
-            </label>
-            <label class="check">
-              <input v-model="form.marcarImpresa" type="checkbox" />
-              <span>Marcar al imprimir</span>
             </label>
           </fieldset>
 
@@ -673,7 +662,7 @@ onMounted(async () => {
           No hay facturas con estas opciones e intervalos.
         </p>
 
-        <div v-if="items.length" class="grid-wrap">
+        <div v-if="items.length" ref="gridEl" class="grid-wrap" @scroll.passive="onScrollGrid">
           <table>
             <thead>
               <tr>
@@ -708,7 +697,7 @@ onMounted(async () => {
             </thead>
             <tbody>
               <tr
-                v-for="r in itemsFiltrados"
+                v-for="r in visibles"
                 :key="rowKey(r)"
                 :class="{ checked: selected[rowKey(r)] }"
                 @click="selected[rowKey(r)] = !selected[rowKey(r)]"
@@ -932,7 +921,7 @@ legend {
   font-weight: 600;
   color: #334155;
 }
-.opciones label:not(.check) {
+.opciones label {
   display: grid;
   grid-template-columns: 6.2rem minmax(0, 1fr);
   align-items: center;
@@ -940,13 +929,6 @@ legend {
   font-size: 0.75rem;
   color: #334155;
   min-width: 0;
-}
-.opciones label.check {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.75rem;
-  color: #334155;
 }
 .opciones select,
 .rangos input,

@@ -69,6 +69,12 @@ final class PedidoProveedorConsultaService
       $where[] = 'c.Situacion = :situacion';
       $params['situacion'] = (int) $query['situacion'];
     }
+    // El filtro de columna del grid es parcial: "152" debe encontrar 1523.
+    $pedidoTexto = $this->soloDigitos($query['pedidoTexto'] ?? null);
+    if ($pedidoTexto !== '') {
+      $where[] = 'CAST(c.Pedido AS varchar(20)) LIKE :pedidoTexto';
+      $params['pedidoTexto'] = '%' . $pedidoTexto . '%';
+    }
 
     $sqlWhere = implode(' AND ', $where);
     $from = 'PedidosCab c
@@ -344,5 +350,14 @@ final class PedidoProveedorConsultaService
       return false;
     }
     return (bool) preg_match('/^\d{4}-\d{2}-\d{2}/', (string) $value);
+  }
+
+  /** @param mixed $value */
+  private function soloDigitos($value): string
+  {
+    if ($value === null) {
+      return '';
+    }
+    return preg_replace('/\D+/', '', (string) $value) ?? '';
   }
 }

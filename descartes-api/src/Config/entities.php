@@ -18,7 +18,7 @@ return [
     'primaryKey' => 'Codigo',
     'modulo' => 'tiendas',
     'softDelete' => ['column' => 'Baja', 'inactiveValue' => 1, 'activeValue' => 0],
-    'searchColumns' => ['Codigo', 'Nombre', 'NIF', 'NombreFiscal'],
+    'searchColumns' => ['Codigo', 'Nombre', 'NIF', 'NombreFiscal', 'Poblacion', 'Telefono1'],
   ], $tiendasConfig),
   'usuarios' => [
     'table' => 'Usuarios_Ges',
@@ -174,7 +174,7 @@ return [
     'primaryKey' => 'Codigo',
     'modulo' => 'clientes',
     'softDelete' => ['column' => 'Baja', 'inactiveValue' => 1, 'activeValue' => 0],
-    'searchColumns' => ['Codigo', 'RazonSocial', 'NIF'],
+    'searchColumns' => ['Codigo', 'RazonSocial', 'NIF', 'Telefono1'],
   ], $clientesConfig),
   'proveedores' => array_merge([
     'table' => 'Proveedores',

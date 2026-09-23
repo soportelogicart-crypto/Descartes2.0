@@ -11,7 +11,7 @@ import { api } from '@/api/client'
 import type { FacturaManualPendiente, FacturaManualGenerada, FacturasManualPeriodicosResponse } from '@/types/facturacion'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
-import { GRID_LIMITE_INICIAL } from '@/composables/useGridPageSize'
+import { useGridRenderLimit } from '@/composables/useGridRenderLimit'
 import {
   imprimirFacturasPreparadas,
   prepararImpresionFacturas,
@@ -158,6 +158,8 @@ const itemsFiltrados = computed(() => {
   return ordenarFilas(base, (row, key) => textoColumna[key as ColumnaKey](row), ['fecha'])
 })
 
+const { gridEl, visibles, onScrollGrid } = useGridRenderLimit(itemsFiltrados)
+
 function limpiarFiltrosColumna() {
   filtrosColumna.value = filtrosColumnaVacios()
 }
@@ -261,13 +263,9 @@ async function buscar() {
   periodicosOmitidos.value = []
   try {
     const data = await listarFacturasManualPendientes(paramsConsulta())
-    const todos = data.items ?? []
-    items.value = todos.slice(0, GRID_LIMITE_INICIAL)
+    items.value = data.items ?? []
     selected.value = {}
     mensaje.value = `${data.totales.albaranes} albaranes · ${data.totales.importe.toFixed(2)} €`
-    if (todos.length > GRID_LIMITE_INICIAL) {
-      mensaje.value += ` · mostrando ${GRID_LIMITE_INICIAL}`
-    }
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudieron cargar albaranes pendientes')
     items.value = []
@@ -757,7 +755,7 @@ onMounted(async () => {
           No hay albaranes pendientes con estas opciones e intervalos.
         </p>
 
-        <div v-if="items.length" class="grid-wrap">
+        <div v-if="items.length" ref="gridEl" class="grid-wrap" @scroll.passive="onScrollGrid">
           <table>
             <thead>
               <tr>
@@ -793,7 +791,7 @@ onMounted(async () => {
             </thead>
             <tbody>
               <tr
-                v-for="r in itemsFiltrados"
+                v-for="r in visibles"
                 :key="rowKey(r)"
                 :class="{ checked: selected[rowKey(r)] }"
                 @click="selected[rowKey(r)] = !selected[rowKey(r)]"
