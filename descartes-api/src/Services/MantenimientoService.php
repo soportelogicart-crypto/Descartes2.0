@@ -211,7 +211,14 @@ final class MantenimientoService
 
     $items = [];
     while ($row = $stmt->fetch()) {
-      $items[] = $this->enrichItem($entidad, $this->mapRowToApi($config, $row), false);
+      $items[] = $this->mapRowToApi($config, $row);
+    }
+    if ($entidad === 'articulos') {
+      $items = $this->articuloService->enrichMany($items);
+    } else {
+      foreach ($items as $i => $item) {
+        $items[$i] = $this->enrichItem($entidad, $item, false);
+      }
     }
 
     return [

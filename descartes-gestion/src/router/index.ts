@@ -1,67 +1,7 @@
 import { ref } from 'vue'
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, type RouteComponent } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { usePermisos } from '@/composables/usePermisos'
-import LoginView from '@/views/LoginView.vue'
-import InstalacionView from '@/views/InstalacionView.vue'
-import EmpresaClienteView from '@/views/mantenimiento/EmpresaClienteView.vue'
-import EntidadView from '@/views/mantenimiento/EntidadView.vue'
-import AppLayout from '@/components/layout/AppLayout.vue'
-import ArticuloSeccionPlaceholder from '@/views/mantenimiento/ArticuloSeccionPlaceholder.vue'
-import MacrofamiliasView from '@/views/mantenimiento/MacrofamiliasView.vue'
-import FamiliasView from '@/views/mantenimiento/FamiliasView.vue'
-import SubfamiliasView from '@/views/mantenimiento/SubfamiliasView.vue'
-import AgrupacionesView from '@/views/mantenimiento/AgrupacionesView.vue'
-import ActividadesView from '@/views/mantenimiento/ActividadesView.vue'
-import InteresesComercialesView from '@/views/mantenimiento/InteresesComercialesView.vue'
-import OfertaClientesView from '@/views/mantenimiento/OfertaClientesView.vue'
-import CampanasView from '@/views/mantenimiento/CampanasView.vue'
-import AlbaranesPeriodicosView from '@/views/mantenimiento/AlbaranesPeriodicosView.vue'
-import ParametrosPuestoView from '@/views/mantenimiento/ParametrosPuestoView.vue'
-import PuestosView from '@/views/mantenimiento/PuestosView.vue'
-import ImpuestosView from '@/views/mantenimiento/ImpuestosView.vue'
-import FormasPagoView from '@/views/mantenimiento/FormasPagoView.vue'
-import ProveedoresView from '@/views/mantenimiento/ProveedoresView.vue'
-import OfertaProveedoresView from '@/views/mantenimiento/OfertaProveedoresView.vue'
-import HomeView from '@/views/HomeView.vue'
-import ModuloPlaceholderView from '@/views/ModuloPlaceholderView.vue'
-import ComprasAlbaranesListView from '@/views/compras/ComprasAlbaranesListView.vue'
-import CompraAlbaranDetalleView from '@/views/compras/CompraAlbaranDetalleView.vue'
-import ComprasPedidosListView from '@/views/compras/ComprasPedidosListView.vue'
-import CompraPedidoDetalleView from '@/views/compras/CompraPedidoDetalleView.vue'
-import ComprasFacturasListView from '@/views/compras/ComprasFacturasListView.vue'
-import CompraFacturaDetalleView from '@/views/compras/CompraFacturaDetalleView.vue'
-import EtiquetasColaView from '@/views/etiquetas/EtiquetasColaView.vue'
-import VentasListView from '@/views/ventas/VentasListView.vue'
-import VentaDetalleView from '@/views/ventas/VentaDetalleView.vue'
-import ArqueoView from '@/views/ventas/ArqueoView.vue'
-import ArqueoDesgloseView from '@/views/ventas/ArqueoDesgloseView.vue'
-import AnulacionesView from '@/views/ventas/AnulacionesView.vue'
-import CobrosPagosView from '@/views/ventas/CobrosPagosView.vue'
-import ValesView from '@/views/ventas/ValesView.vue'
-import PedidosClientesView from '@/views/ventas/PedidosClientesView.vue'
-import PedidoDetalleView from '@/views/ventas/PedidoDetalleView.vue'
-import AbcVentasListadoShell from '@/views/listados/AbcVentasListadoShell.vue'
-import AbcComprasListadoShell from '@/views/listados/AbcComprasListadoShell.vue'
-import GeneracionFacturasManualView from '@/views/facturacion/GeneracionFacturasManualView.vue'
-import GeneracionFacturasView from '@/views/facturacion/GeneracionFacturasView.vue'
-import ImpresionFacturasView from '@/views/facturacion/ImpresionFacturasView.vue'
-import ImpresionRecibosView from '@/views/facturacion/ImpresionRecibosView.vue'
-import DiarioFacturacionView from '@/views/facturacion/DiarioFacturacionView.vue'
-import AlbaranesPendientesView from '@/views/facturacion/AlbaranesPendientesView.vue'
-import RetrocesoFacturaView from '@/views/facturacion/RetrocesoFacturaView.vue'
-import TraspasoContableView from '@/views/facturacion/TraspasoContableView.vue'
-import ConfiguracionHubView from '@/views/configuracion/ConfiguracionHubView.vue'
-import DatafonoConfiguracionView from '@/views/configuracion/DatafonoConfiguracionView.vue'
-import FidelizacionConfigView from '@/views/configuracion/FidelizacionConfigView.vue'
-import DocumentosPlantillasView from '@/views/configuracion/DocumentosPlantillasView.vue'
-import TpvVentaView from '@/views/tpv/TpvVentaView.vue'
-import ListadosHubView from '@/views/listados/ListadosHubView.vue'
-import StockListadoShell from '@/views/listados/StockListadoShell.vue'
-import StockMinimosListadoView from '@/views/listados/StockMinimosListadoView.vue'
-import InformeIvaListadoView from '@/views/listados/InformeIvaListadoView.vue'
-import InformeTicketsListadoView from '@/views/listados/InformeTicketsListadoView.vue'
-import ExtractoClientesListadoView from '@/views/listados/ExtractoClientesListadoView.vue'
 import { getInstalacionEstado } from '@/api/instalacion'
 import { puedeAccederHubListados } from '@/config/listados-nav'
 import {
@@ -72,6 +12,72 @@ import {
   puedeAccederHubStock,
   stockListadoModuloPermiso,
 } from '@/config/listados-permisos'
+import LoginView from '@/views/LoginView.vue'
+import InstalacionView from '@/views/InstalacionView.vue'
+import AppLayout from '@/components/layout/AppLayout.vue'
+import HomeView from '@/views/HomeView.vue'
+
+/** Carga la pantalla al abrirla. Login, instalación, marco y inicio siguen en el arranque. */
+function vista(loader: () => Promise<{ default: RouteComponent }>) {
+  return () => loader().then((modulo) => modulo.default)
+}
+
+const EmpresaClienteView = vista(() => import('@/views/mantenimiento/EmpresaClienteView.vue'))
+const EntidadView = vista(() => import('@/views/mantenimiento/EntidadView.vue'))
+const ArticuloSeccionPlaceholder = vista(() => import('@/views/mantenimiento/ArticuloSeccionPlaceholder.vue'))
+const MacrofamiliasView = vista(() => import('@/views/mantenimiento/MacrofamiliasView.vue'))
+const FamiliasView = vista(() => import('@/views/mantenimiento/FamiliasView.vue'))
+const SubfamiliasView = vista(() => import('@/views/mantenimiento/SubfamiliasView.vue'))
+const AgrupacionesView = vista(() => import('@/views/mantenimiento/AgrupacionesView.vue'))
+const ActividadesView = vista(() => import('@/views/mantenimiento/ActividadesView.vue'))
+const InteresesComercialesView = vista(() => import('@/views/mantenimiento/InteresesComercialesView.vue'))
+const OfertaClientesView = vista(() => import('@/views/mantenimiento/OfertaClientesView.vue'))
+const CampanasView = vista(() => import('@/views/mantenimiento/CampanasView.vue'))
+const AlbaranesPeriodicosView = vista(() => import('@/views/mantenimiento/AlbaranesPeriodicosView.vue'))
+const ParametrosPuestoView = vista(() => import('@/views/mantenimiento/ParametrosPuestoView.vue'))
+const PuestosView = vista(() => import('@/views/mantenimiento/PuestosView.vue'))
+const ImpuestosView = vista(() => import('@/views/mantenimiento/ImpuestosView.vue'))
+const FormasPagoView = vista(() => import('@/views/mantenimiento/FormasPagoView.vue'))
+const ProveedoresView = vista(() => import('@/views/mantenimiento/ProveedoresView.vue'))
+const OfertaProveedoresView = vista(() => import('@/views/mantenimiento/OfertaProveedoresView.vue'))
+const ModuloPlaceholderView = vista(() => import('@/views/ModuloPlaceholderView.vue'))
+const ComprasAlbaranesListView = vista(() => import('@/views/compras/ComprasAlbaranesListView.vue'))
+const CompraAlbaranDetalleView = vista(() => import('@/views/compras/CompraAlbaranDetalleView.vue'))
+const ComprasPedidosListView = vista(() => import('@/views/compras/ComprasPedidosListView.vue'))
+const CompraPedidoDetalleView = vista(() => import('@/views/compras/CompraPedidoDetalleView.vue'))
+const ComprasFacturasListView = vista(() => import('@/views/compras/ComprasFacturasListView.vue'))
+const CompraFacturaDetalleView = vista(() => import('@/views/compras/CompraFacturaDetalleView.vue'))
+const EtiquetasColaView = vista(() => import('@/views/etiquetas/EtiquetasColaView.vue'))
+const VentasListView = vista(() => import('@/views/ventas/VentasListView.vue'))
+const VentaDetalleView = vista(() => import('@/views/ventas/VentaDetalleView.vue'))
+const ArqueoView = vista(() => import('@/views/ventas/ArqueoView.vue'))
+const ArqueoDesgloseView = vista(() => import('@/views/ventas/ArqueoDesgloseView.vue'))
+const AnulacionesView = vista(() => import('@/views/ventas/AnulacionesView.vue'))
+const CobrosPagosView = vista(() => import('@/views/ventas/CobrosPagosView.vue'))
+const ValesView = vista(() => import('@/views/ventas/ValesView.vue'))
+const PedidosClientesView = vista(() => import('@/views/ventas/PedidosClientesView.vue'))
+const PedidoDetalleView = vista(() => import('@/views/ventas/PedidoDetalleView.vue'))
+const AbcVentasListadoShell = vista(() => import('@/views/listados/AbcVentasListadoShell.vue'))
+const AbcComprasListadoShell = vista(() => import('@/views/listados/AbcComprasListadoShell.vue'))
+const GeneracionFacturasManualView = vista(() => import('@/views/facturacion/GeneracionFacturasManualView.vue'))
+const GeneracionFacturasView = vista(() => import('@/views/facturacion/GeneracionFacturasView.vue'))
+const ImpresionFacturasView = vista(() => import('@/views/facturacion/ImpresionFacturasView.vue'))
+const ImpresionRecibosView = vista(() => import('@/views/facturacion/ImpresionRecibosView.vue'))
+const DiarioFacturacionView = vista(() => import('@/views/facturacion/DiarioFacturacionView.vue'))
+const AlbaranesPendientesView = vista(() => import('@/views/facturacion/AlbaranesPendientesView.vue'))
+const RetrocesoFacturaView = vista(() => import('@/views/facturacion/RetrocesoFacturaView.vue'))
+const TraspasoContableView = vista(() => import('@/views/facturacion/TraspasoContableView.vue'))
+const ConfiguracionHubView = vista(() => import('@/views/configuracion/ConfiguracionHubView.vue'))
+const DatafonoConfiguracionView = vista(() => import('@/views/configuracion/DatafonoConfiguracionView.vue'))
+const FidelizacionConfigView = vista(() => import('@/views/configuracion/FidelizacionConfigView.vue'))
+const DocumentosPlantillasView = vista(() => import('@/views/configuracion/DocumentosPlantillasView.vue'))
+const TpvVentaView = vista(() => import('@/views/tpv/TpvVentaView.vue'))
+const ListadosHubView = vista(() => import('@/views/listados/ListadosHubView.vue'))
+const StockListadoShell = vista(() => import('@/views/listados/StockListadoShell.vue'))
+const StockMinimosListadoView = vista(() => import('@/views/listados/StockMinimosListadoView.vue'))
+const InformeIvaListadoView = vista(() => import('@/views/listados/InformeIvaListadoView.vue'))
+const InformeTicketsListadoView = vista(() => import('@/views/listados/InformeTicketsListadoView.vue'))
+const ExtractoClientesListadoView = vista(() => import('@/views/listados/ExtractoClientesListadoView.vue'))
 
 const articulosSeccionesPendientes = [
   { path: 'mantenimiento/secciones', name: 'secciones', titulo: 'Secciones' },

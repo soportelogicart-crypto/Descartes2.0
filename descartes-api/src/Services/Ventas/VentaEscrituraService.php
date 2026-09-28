@@ -1117,6 +1117,7 @@ final class VentaEscrituraService
       }
     }
 
+    $metas = $this->metasArticulosLinea($lineas);
     foreach ($lineas as $lin) {
       $articulo = trim((string) ($lin['articulo'] ?? ''));
       if ($articulo === '') {
@@ -1138,7 +1139,7 @@ final class VentaEscrituraService
         $precio = (float) ($lin['precio'] ?? 0);
         $pjeDto = (float) ($lin['pjeDto'] ?? 0);
         $importe = isset($lin['importe']) ? (float) $lin['importe'] : round($cant * $precio * (1 - $pjeDto / 100), 2);
-        $meta = $this->metaArticuloLinea($articulo);
+        $meta = $this->metaDeLinea($metas, $articulo);
         $precioTarifa = $meta['precioTarifa'] > 0 ? $meta['precioTarifa'] : $precio;
         $precioAlterado = abs($precio - $precioTarifa) > 0.0001 ? 1 : 0;
         $pjeIva = (float) (($lin['pjeIva'] ?? 0) > 0 ? $lin['pjeIva'] : 21);
@@ -1382,6 +1383,7 @@ final class VentaEscrituraService
        )'
     );
 
+    $metas = $this->metasArticulosLinea($lineas);
     foreach ($lineas as $lin) {
       $articulo = trim((string) ($lin['articulo'] ?? ''));
       if ($articulo === '') {
@@ -1403,7 +1405,7 @@ final class VentaEscrituraService
         $precio = (float) ($lin['precio'] ?? 0);
         $pjeDto = (float) ($lin['pjeDto'] ?? 0);
         $importe = isset($lin['importe']) ? (float) $lin['importe'] : round($cant * $precio * (1 - $pjeDto / 100), 2);
-        $meta = $this->metaArticuloLinea($articulo);
+        $meta = $this->metaDeLinea($metas, $articulo);
         $precioTarifa = isset($lin['precioTarifa']) && $lin['precioTarifa'] !== '' && $lin['precioTarifa'] !== null
           ? (float) $lin['precioTarifa']
           : ($meta['precioTarifa'] > 0 ? $meta['precioTarifa'] : $precio);
@@ -1434,6 +1436,72 @@ final class VentaEscrituraService
         'loteVenta' => $this->spaceIfEmpty($lin['loteVenta'] ?? null),
       ]);
     }
+  }
+
+  /**
+   * @param list<array<string, mixed>> $lineas
+   * @return array<string, array{precioMedio: float, precioTarifa: float}>|null
+   */
+  private function metasArticulosLinea(array $lineas): ?array
+  {
+    $codigos = [];
+    foreach ($lineas as $lin) {
+      $articulo = trim((string) ($lin['articulo'] ?? ''));
+      if ($articulo !== '' && strtoupper($articulo) !== 'NO') {
+        $codigos[$articulo] = $articulo;
+      }
+    }
+    $map = [];
+    foreach ($codigos as $codigo) {
+      $map[$codigo] = ['precioMedio' => 0.0, 'precioTarifa' => 0.0];
+    }
+    if ($map === []) {
+      return $map;
+    }
+
+    try {
+      foreach (array_chunk(array_keys($map), 400) as $chunk) {
+        $placeholders = [];
+        $params = [];
+        foreach ($chunk as $i => $codigo) {
+          $clave = 'c' . $i;
+          $placeholders[] = ':' . $clave;
+          $params[$clave] = $codigo;
+        }
+        $st = $this->pdo->prepare(
+          'SELECT Codigo, PrecioMedio, PrecioVen1 FROM Articulos
+           WHERE Codigo IN (' . implode(', ', $placeholders) . ')'
+        );
+        $st->execute($params);
+        while ($row = $st->fetch(PDO::FETCH_ASSOC)) {
+          $claveFila = rtrim((string) ($row['Codigo'] ?? ''));
+          foreach ($chunk as $codigo) {
+            if (rtrim($codigo) === $claveFila) {
+              $map[$codigo] = [
+                'precioMedio' => (float) ($row['PrecioMedio'] ?? 0),
+                'precioTarifa' => (float) ($row['PrecioVen1'] ?? 0),
+              ];
+            }
+          }
+        }
+      }
+    } catch (\Throwable $e) {
+      return null;
+    }
+
+    return $map;
+  }
+
+  /**
+   * @param array<string, array{precioMedio: float, precioTarifa: float}>|null $metas
+   * @return array{precioMedio: float, precioTarifa: float}
+   */
+  private function metaDeLinea(?array $metas, string $articulo): array
+  {
+    if ($metas === null) {
+      return $this->metaArticuloLinea($articulo);
+    }
+    return $metas[$articulo] ?? ['precioMedio' => 0.0, 'precioTarifa' => 0.0];
   }
 
   /** @return array{precioMedio: float, precioTarifa: float} */

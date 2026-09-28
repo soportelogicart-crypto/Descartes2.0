@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, defineAsyncComponent } from 'vue'
 import { useRoute } from 'vue-router'
 import { getEntidadConfig } from '@/config/entidades'
 import MantenimientoCrud from '@/components/mantenimiento/MantenimientoCrud.vue'
-import TiendasView from '@/views/mantenimiento/TiendasView.vue'
-import AlmacenesView from '@/views/mantenimiento/AlmacenesView.vue'
-import ArticulosView from '@/views/mantenimiento/ArticulosView.vue'
-import ClientesView from '@/views/mantenimiento/ClientesView.vue'
-import RolesView from '@/views/mantenimiento/RolesView.vue'
-import UsuariosView from '@/views/mantenimiento/UsuariosView.vue'
-import TrabajadoresView from '@/views/mantenimiento/TrabajadoresView.vue'
+
+const TiendasView = defineAsyncComponent(() => import('@/views/mantenimiento/TiendasView.vue'))
+const AlmacenesView = defineAsyncComponent(() => import('@/views/mantenimiento/AlmacenesView.vue'))
+const ArticulosView = defineAsyncComponent(() => import('@/views/mantenimiento/ArticulosView.vue'))
+const ClientesView = defineAsyncComponent(() => import('@/views/mantenimiento/ClientesView.vue'))
+const RolesView = defineAsyncComponent(() => import('@/views/mantenimiento/RolesView.vue'))
+const UsuariosView = defineAsyncComponent(() => import('@/views/mantenimiento/UsuariosView.vue'))
+const TrabajadoresView = defineAsyncComponent(() => import('@/views/mantenimiento/TrabajadoresView.vue'))
 
 const props = defineProps<{ entidadFija?: string }>()
 const route = useRoute()
