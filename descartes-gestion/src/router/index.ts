@@ -2,7 +2,7 @@ import { ref } from 'vue'
 import { createRouter, createWebHistory, type RouteComponent } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { usePermisos } from '@/composables/usePermisos'
-import { getInstalacionEstado } from '@/api/instalacion'
+import { getInstalacionEstado, olvidarInstalacionEstado } from '@/api/instalacion'
 import { puedeAccederHubListados } from '@/config/listados-nav'
 import {
   abcComprasModuloPermiso,
@@ -516,6 +516,7 @@ router.beforeEach(async (to) => {
     try {
       await auth.fetchMe()
     } catch {
+      olvidarInstalacionEstado()
       return { name: 'login', query: { redirect: to.fullPath } }
     }
   }

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { api } from '@/api/client'
+import { olvidarInstalacionEstado } from '@/api/instalacion'
 
 export type PermisosMap = Record<string, Record<string, boolean>>
 
@@ -23,6 +24,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function logout() {
+    olvidarInstalacionEstado()
     await api.post('/api/auth/logout')
     usuario.value = null
     permisos.value = {}

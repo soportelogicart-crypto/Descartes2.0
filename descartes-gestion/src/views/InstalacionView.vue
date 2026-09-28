@@ -69,7 +69,7 @@ function validarFormulario(): string | null {
 async function cargarEstado() {
   error.value = null
   try {
-    estado.value = await getInstalacionEstado()
+    estado.value = await getInstalacionEstado({ refrescar: true })
     diagnostico.value = estado.value.diagnostico ?? null
     if (estado.value.tipo) form.tipo = estado.value.tipo
     if (estado.value.server) form.server = estado.value.server

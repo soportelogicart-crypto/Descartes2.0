@@ -53,9 +53,46 @@ export interface InstalacionForm {
   trustCert: boolean
 }
 
-export async function getInstalacionEstado(): Promise<InstalacionEstado> {
-  const { data } = await api.get<InstalacionEstado>('/api/instalacion/estado')
-  return data
+let estadoCache: InstalacionEstado | null = null
+let estadoPendiente: Promise<InstalacionEstado> | null = null
+let estadoTicket = 0
+
+/** La siguiente navegación vuelve a preguntar a la API. */
+export function olvidarInstalacionEstado() {
+  estadoCache = null
+  estadoTicket += 1
+}
+
+function recordarInstalacionEstado(estado: InstalacionEstado): InstalacionEstado {
+  estadoTicket += 1
+  estadoCache = estado
+  return estado
+}
+
+/**
+ * Estado de instalación. Se reutiliza en memoria hasta recargar, guardar la
+ * configuración o llamar a olvidarInstalacionEstado().
+ */
+export async function getInstalacionEstado(opciones?: {
+  refrescar?: boolean
+}): Promise<InstalacionEstado> {
+  if (!opciones?.refrescar) {
+    if (estadoCache) return estadoCache
+    if (estadoPendiente) return estadoPendiente
+  }
+
+  const ticket = ++estadoTicket
+  const peticion = api
+    .get<InstalacionEstado>('/api/instalacion/estado')
+    .then(({ data }) => {
+      if (ticket === estadoTicket) estadoCache = data
+      return data
+    })
+    .finally(() => {
+      if (estadoPendiente === peticion) estadoPendiente = null
+    })
+  estadoPendiente = peticion
+  return peticion
 }
 
 function payloadDesdeForm(form: InstalacionForm) {
@@ -77,15 +114,16 @@ export async function probarInstalacion(form: InstalacionForm): Promise<{
   const { data } = await api.post('/api/instalacion/probar', payloadDesdeForm(form), {
     timeout: 45000,
   })
+  if (data?.ok) olvidarInstalacionEstado()
   return data
 }
 
 export async function configurarInstalacion(form: InstalacionForm): Promise<InstalacionEstado> {
   const { data } = await api.post<InstalacionEstado>('/api/instalacion/configurar', payloadDesdeForm(form))
-  return data
+  return recordarInstalacionEstado(data)
 }
 
 export async function migrarInstalacionActiva(): Promise<InstalacionEstado> {
   const { data } = await api.post<InstalacionEstado>('/api/instalacion/migrar')
-  return data
+  return recordarInstalacionEstado(data)
 }
