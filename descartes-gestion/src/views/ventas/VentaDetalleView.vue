@@ -661,10 +661,10 @@ const albaranesFacturaOtraVenta = computed((): VentaAlbaranFacturaResumen[] => {
 })
 
 /** Copiar albarán/presupuesto/ticket/factura recuperada a venta nueva. */
-/** Albarán (no factura/presupuesto bloqueado): fecha editable en alta o modificación. */
+/** Albarán o presupuesto: fecha editable en alta o modificación. Factura/ticket no. */
 const puedeEditarFechaCabecera = computed(() => {
   if (bloqueado.value || esTicketCerrado.value) return false
-  if (docKind.value === 'factura' || docKind.value === 'presupuesto') return false
+  if (docKind.value === 'factura') return false
   if (esNuevo.value || modoEdicion.value) return true
   return false
 })

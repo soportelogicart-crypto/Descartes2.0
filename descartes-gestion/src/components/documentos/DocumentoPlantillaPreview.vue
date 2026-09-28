@@ -535,6 +535,13 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
                 <span>{{ formatImporte(iva.base) }}</span>
                 <strong>{{ formatImporte(iva.cuota) }}</strong>
               </div>
+              <div
+                v-if="Number(datos.totales.descuentoFidelizacion || 0) > 0"
+                class="tot-row"
+              >
+                <span>Dto. fidelización</span>
+                <strong>-{{ formatImporte(Number(datos.totales.descuentoFidelizacion)) }}</strong>
+              </div>
               <div class="tot-row total">
                 <span>{{ etiquetaTotal(b) }}</span>
                 <strong>{{ formatImporte(datos.totales.importe) }}</strong>

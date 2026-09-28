@@ -32,7 +32,6 @@ const moduloPorSlugArticulos: Record<string, string> = {
 const moduloPorSlugClientes: Record<string, string> = {
   actividades: 'actividades',
   'intereses-comerciales': 'intereses-comerciales',
-  'tipos-calculo-fidelizacion': 'clientes',
   clientes: 'clientes',
   'oferta-clientes': 'oferta-clientes',
   campanas: 'campanas',

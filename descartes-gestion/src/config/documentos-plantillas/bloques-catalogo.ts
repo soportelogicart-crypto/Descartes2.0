@@ -37,12 +37,15 @@ export const CATALOGO_BLOQUES: BloqueCatalogoItem[] = [
 
 /** Catálogo reducido para ticket térmico 80 mm. */
 export const CATALOGO_BLOQUES_TICKET: BloqueCatalogoItem[] = [
+  { type: 'emblema', nombre: 'Logo (emblema)', unico: true },
   { type: 'empresa-cabecera', nombre: 'Empresa', unico: true },
   { type: 'titulo-documento', nombre: 'Título' },
   { type: 'bloque-meta', nombre: 'Datos ticket' },
   { type: 'tabla-lineas', nombre: 'Líneas', unico: true },
   { type: 'totales-ticket', nombre: 'Totales', unico: true },
   { type: 'literales-puesto', nombre: 'Literales puesto', unico: true },
+  { type: 'codigo-barras', nombre: 'Código de barras', unico: true },
+  { type: 'comprobante-tarjeta', nombre: 'Comprobante tarjeta', unico: true },
   { type: 'texto', nombre: 'Texto fijo' },
   { type: 'separador', nombre: 'Separador' },
   { type: 'campo', nombre: 'Campo' },
@@ -322,6 +325,17 @@ export function crearBloquePorTipo(type: PlantillaBloqueTipo): PlantillaBloque {
         w: 76,
         h: 18,
         bind: ['totales.base', 'totales.ivas', 'totales.importe'],
+      }
+    case 'comprobante-tarjeta':
+      return {
+        id: 'comprobante-tarjeta',
+        type,
+        x: 2,
+        y: 170,
+        w: 76,
+        h: 48,
+        bind: ['tarjeta'],
+        label: 'Comprobante datáfono',
       }
     case 'literales-puesto':
       return {

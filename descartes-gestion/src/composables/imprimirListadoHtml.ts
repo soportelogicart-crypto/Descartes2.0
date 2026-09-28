@@ -5,6 +5,7 @@ import {
   escribirVentanaPreview,
   PREVIEW_MSG_ERROR,
   PREVIEW_MSG_IMPRIMIR,
+  PREVIEW_MSG_RESULTADO,
 } from '@/composables/previewDocumentoVentana'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 
@@ -26,9 +27,14 @@ function registrarListenerImpresionPreview(): void {
     const ejecutar = impresionDesdePreview.get(ventana)
     if (!ejecutar) return
     void ejecutar().then((res) => {
-      if (!res.ok && !ventana.closed) {
-        ventana.postMessage({ tipo: PREVIEW_MSG_ERROR, mensaje: res.message }, '*')
-      }
+      if (ventana.closed) return
+      ventana.postMessage(
+        {
+          tipo: res.ok ? PREVIEW_MSG_RESULTADO : PREVIEW_MSG_ERROR,
+          mensaje: res.message,
+        },
+        '*'
+      )
     })
   })
 }
@@ -108,6 +114,8 @@ export async function enviarListadoHtmlAImpresora(
         silent: true,
       })
     }
+    // Sin impresora de Listados en el puesto, la predeterminada de Windows.
+    intentos.push({ silent: true })
     intentos.push({ silent: false })
 
     let ultimoError = 'No se pudo imprimir'

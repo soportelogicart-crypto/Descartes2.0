@@ -11,6 +11,8 @@ import { onUnmounted, ref } from 'vue'
 
 export const PREVIEW_MSG_IMPRIMIR = 'descartes-preview-imprimir'
 export const PREVIEW_MSG_ERROR = 'descartes-preview-error'
+/** Impresión terminada bien: devuelve el botón a su estado normal. */
+export const PREVIEW_MSG_RESULTADO = 'descartes-preview-resultado'
 
 /**
  * Ventana de previsualización asociada a una vista: la abre, la rellena y
@@ -196,8 +198,11 @@ export function escribirVentanaPreview(
       window.close();
     });
     window.addEventListener('message', function (e) {
-      if (!e.data || e.data.tipo !== '${PREVIEW_MSG_ERROR}') return;
-      err.textContent = String(e.data.mensaje || 'No se pudo imprimir');
+      var tipo = e.data && e.data.tipo;
+      if (tipo !== '${PREVIEW_MSG_ERROR}' && tipo !== '${PREVIEW_MSG_RESULTADO}') return;
+      var fallo = tipo === '${PREVIEW_MSG_ERROR}';
+      err.style.color = fallo ? '#b91c1c' : '#15803d';
+      err.textContent = String(e.data.mensaje || (fallo ? 'No se pudo imprimir' : 'Impresión enviada'));
       if (btn) { btn.disabled = false; btn.textContent = 'Imprimir'; }
     });
   })();

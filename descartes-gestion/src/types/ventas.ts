@@ -89,6 +89,7 @@ export type VentaDetalle = VentaResumen & {
   tarifa?: number | null
   bruto?: number
   descuento?: number
+  descuentoFidelizacion?: number
   iva?: number
   pjeIva1?: number
   pjeDto?: number
@@ -108,6 +109,17 @@ export type VentaDetalle = VentaResumen & {
   lineas: VentaLinea[]
   /** Si el documento está facturado: resto de albaranes de la misma factura. */
   albaranesFactura?: VentaAlbaranFacturaResumen[]
+  valeFidelizacion?: {
+    aplicado: number
+    saldoRestante: number
+    consumos: { vale: number; importe: number; saldo: number }[]
+  }
+  fidelizacionPuntos?: {
+    compra: number
+    acumulados: number
+    fechaInicio?: string
+    fechaFin?: string
+  }
 }
 
 export type VentaPayload = {
@@ -330,6 +342,9 @@ export type Vale = {
   codigo: number
   cliente: string | null
   importe: number
+  importeOriginal?: number
+  saldoPendiente?: number
+  tipoVale?: 'REGALO' | 'FIDELIZACION' | string
   fecha: string | null
   fechaCaducidad: string | null
   liquidado: boolean

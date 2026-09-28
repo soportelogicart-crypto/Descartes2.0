@@ -11,11 +11,6 @@ export const clientesMenuItems: ClientesMenuItem[] = [
     titulo: 'Intereses comerciales',
     ruta: '/mantenimiento/intereses-comerciales',
   },
-  {
-    slug: 'tipos-calculo-fidelizacion',
-    titulo: 'Tipos calculo fidelizacion',
-    ruta: '/mantenimiento/tipos-calculo-fidelizacion',
-  },
   { slug: 'clientes', titulo: 'Clientes', ruta: '/mantenimiento/clientes' },
   { slug: 'oferta-clientes', titulo: 'Oferta de clientes', ruta: '/mantenimiento/oferta-clientes' },
   { slug: 'campanas', titulo: 'Campañas', ruta: '/mantenimiento/campanas' },

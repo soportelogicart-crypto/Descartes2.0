@@ -586,7 +586,8 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
   /** Finaliza como Ticket, Albarán, Presupuesto o Factura. */
   async function cobrar(
     tipoDocumento: string,
-    formaPago = ''
+    formaPago = '',
+    opciones: { aplicarValeFidelizacion?: boolean } = {}
   ): Promise<VentaDetalle | null> {
     const tipo = String(tipoDocumento ?? '').trim().toUpperCase()
     if (!['T', 'A', 'P', 'F'].includes(tipo)) {
@@ -620,7 +621,8 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
         v.tipo,
         v.albaran,
         tipo,
-        requierePago ? fpago : undefined
+        requierePago ? fpago : undefined,
+        opciones
       )
       venta.value = cerrada
       return cerrada
@@ -724,6 +726,7 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
     cargarTicketsEspera,
     ponerEnEspera,
     recuperarEnEspera,
+    cargarVentaRecuperada,
     anadirArticulo,
     anadirPorCodigo,
     confirmarPrecioPendiente,

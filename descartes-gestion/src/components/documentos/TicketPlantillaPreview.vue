@@ -3,10 +3,18 @@ import { computed } from 'vue'
 import type { DocumentoPlantilla } from '@/config/documentos-plantillas'
 import {
   datosPreviewPorTipo,
-  formatImporte,
   getByPath,
   type DocumentoPreviewDatos,
 } from '@/config/documentos-plantillas/preview-datos'
+import { lineasComprobanteTarjeta } from '@/composables/comprobanteTarjeta'
+import {
+  lineasCabeceraEmpresa,
+  lineasMetaTicket,
+  lineasTablaArticulos,
+  lineasTituloTicket,
+  lineasTotalesTicket,
+  valorCodigoBarrasTicket,
+} from '@/config/documentos-plantillas/ticket-texto'
 
 const props = defineProps<{
   plantilla: DocumentoPlantilla
@@ -28,71 +36,83 @@ function literales(): string[] {
   const list = datos.value.puesto?.literales
   return Array.isArray(list) ? list.filter((s) => String(s).trim() !== '') : []
 }
+
+function lineasArticulos(): string[] {
+  return lineasTablaArticulos(datos.value.lineas)
+}
+
+function lineasComprobante(): string[] {
+  const t = datos.value.tarjeta
+  return t ? lineasComprobanteTarjeta(t) : []
+}
+
+function srcEmblema(): string {
+  return str('empresa.emblemaUrl')
+}
 </script>
 
 <template>
   <div class="ticket-preview">
     <p class="hint">
-      Vista previa 80 mm. Literales de ejemplo = {{ datos.tienda.literalTicket }} líneas (como en
-      Tiendas → Literales ticket). Pies Fra./Presupuesto/Vale se usan en documentos A4, no en el
-      ticket.
+      Vista previa 80 mm. El logo sale de la carpeta <code>logos</code> de la empresa (bloque
+      Emblema). El comprobante de tarjeta solo se imprime tras un cobro o devolución con datáfono.
     </p>
 
     <div class="desk">
       <div class="paper">
         <div v-for="b in bloques" :key="b.id" class="block" :class="`t-${b.type}`">
-          <template v-if="b.type === 'empresa-cabecera'">
-            <div class="center strong">{{ str('empresa.nombre') }}</div>
-            <div class="center small">{{ str('empresa.direccion') }}</div>
-            <div class="center small">
-              {{ str('empresa.cp') }} {{ str('empresa.poblacion') }}
+          <template v-if="b.type === 'emblema'">
+            <div class="center">
+              <img v-if="srcEmblema()" class="emblema" :src="srcEmblema()" alt="Logo" />
+              <span v-else class="muted small">(sin logo)</span>
             </div>
-            <div class="center small">Tel. {{ str('empresa.telefono') }} · NIF {{ str('empresa.nif') }}</div>
+          </template>
+
+          <template v-else-if="b.type === 'empresa-cabecera'">
+            <div v-for="(linea, i) in lineasCabeceraEmpresa(datos)" :key="i" class="mono">{{ linea }}</div>
           </template>
 
           <template v-else-if="b.type === 'titulo-documento'">
-            <div class="center strong">{{ b.label || 'TICKET' }}</div>
-            <div class="center">{{ str('documento.numero') }}</div>
+            <div v-for="(linea, i) in lineasTituloTicket(datos, b.label)" :key="i" class="mono">
+              {{ linea }}
+            </div>
           </template>
 
           <template v-else-if="b.type === 'bloque-meta'">
-            <div class="meta">
-              <span>{{ str('documento.fecha') }}</span>
-              <span>{{ str('documento.terminalSesion') }}</span>
-            </div>
-            <div v-if="str('documento.atendidoPor')" class="small">
-              Atendido: {{ str('documento.atendidoPor') }}
-            </div>
+            <div v-for="(linea, i) in lineasMetaTicket(datos)" :key="i" class="mono">{{ linea }}</div>
           </template>
 
           <template v-else-if="b.type === 'tabla-lineas'">
-            <div v-for="(ln, i) in datos.lineas" :key="i" class="linea">
-              <div class="ln-desc">{{ ln.descripcion }}</div>
-              <div class="ln-row">
-                <span>{{ ln.unidades }} × {{ formatImporte(ln.precio ?? ln.pvp ?? ln.importe) }}</span>
-                <span>{{ formatImporte(ln.importe) }}</span>
-              </div>
-            </div>
+            <div class="sep small">--------------------------------------------------------</div>
+            <div v-for="(linea, i) in lineasArticulos()" :key="i" class="mono">{{ linea }}</div>
           </template>
 
           <template v-else-if="b.type === 'totales-ticket' || b.type === 'totales-iva'">
-            <div v-for="(iva, i) in datos.totales.ivas" :key="i" class="tot-row small">
-              <span>Base {{ iva.pje }}%</span>
-              <span>{{ formatImporte(iva.base) }}</span>
-            </div>
-            <div v-for="(iva, i) in datos.totales.ivas" :key="'c' + i" class="tot-row small">
-              <span>IVA {{ iva.pje }}%</span>
-              <span>{{ formatImporte(iva.cuota) }}</span>
-            </div>
-            <div class="tot-row strong">
-              <span>TOTAL</span>
-              <span>{{ formatImporte(datos.totales.importe) }}</span>
-            </div>
+            <div class="sep small">--------------------------------------------------------</div>
+            <div
+              v-for="(t, i) in lineasTotalesTicket(datos)"
+              :key="i"
+              class="mono"
+              :class="t.tipo === 'doble' ? 'tot-doble' : 'tot-grande'"
+            >{{ t.texto }}</div>
           </template>
 
           <template v-else-if="b.type === 'literales-puesto'">
             <div v-for="(lit, i) in literales()" :key="i" class="center small lit">{{ lit }}</div>
             <div v-if="!literales().length" class="muted center small">(sin literales)</div>
+          </template>
+
+          <template v-else-if="b.type === 'codigo-barras'">
+            <div class="center barcode-placeholder">||||| Code 128 |||||</div>
+            <div class="center small">{{ valorCodigoBarrasTicket(datos) }}</div>
+          </template>
+
+          <template v-else-if="b.type === 'comprobante-tarjeta'">
+            <template v-if="datos.tarjeta">
+              <div class="sep small">--------------------------------</div>
+              <div v-for="(linea, i) in lineasComprobante()" :key="i" class="mono">{{ linea }}</div>
+            </template>
+            <div v-else class="muted center small">(solo con cobro datáfono)</div>
           </template>
 
           <template v-else-if="b.type === 'separador'">
@@ -155,14 +175,22 @@ function literales(): string[] {
 
 .paper {
   width: 80mm;
+  box-sizing: border-box;
+  overflow: hidden;
   max-width: 100%;
   background: #fff;
   padding: 3mm 2.5mm 6mm;
   box-shadow: 0 4px 16px rgb(15 23 42 / 25%);
   font-family: 'Consolas', 'Courier New', monospace;
-  font-size: 11px;
-  line-height: 1.25;
+  font-size: 9px;
+  line-height: 1.2;
   color: #0f172a;
+}
+
+.emblema {
+  max-width: 42mm;
+  max-height: 18mm;
+  object-fit: contain;
 }
 
 .block {
@@ -178,28 +206,36 @@ function literales(): string[] {
 }
 
 .small {
-  font-size: 10px;
+  font-size: 9px;
+}
+
+.mono {
+  white-space: pre;
+  font-size: 8.5px;
+  line-height: 1.15;
 }
 
 .muted {
   color: #94a3b8;
 }
 
-.meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.35rem;
-  font-size: 10px;
+/* Font A (42 col) en el mismo ancho de papel que las 56 col; TOTAL a doble alto. */
+.mono.tot-grande,
+.mono.tot-doble {
+  font-size: 9.9px;
+  font-weight: 700;
+}
+
+.mono.tot-doble {
+  transform: scaleY(2);
+  transform-origin: top;
+  margin-bottom: 1.2em;
 }
 
 .linea {
   margin-bottom: 0.25rem;
   border-bottom: 1px dotted #e2e8f0;
   padding-bottom: 0.15rem;
-}
-
-.ln-desc {
-  font-weight: 600;
 }
 
 .ln-row,
@@ -214,6 +250,12 @@ function literales(): string[] {
   letter-spacing: -0.5px;
   color: #64748b;
   overflow: hidden;
+}
+
+.barcode-placeholder {
+  letter-spacing: 2px;
+  font-size: 10px;
+  color: #334155;
 }
 
 .lit {

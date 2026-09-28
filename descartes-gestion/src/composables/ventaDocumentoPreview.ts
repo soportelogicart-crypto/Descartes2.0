@@ -12,6 +12,12 @@ function fmtFecha(iso: string | null | undefined): string {
   return `${day}/${m}/${y}`
 }
 
+/** La API devuelve Fecha en ISO con hora ("2026-09-28T07:46:26+02:00"). */
+function fmtHora(iso: string | null | undefined): string {
+  const m = String(iso ?? '').match(/[T ](\d{2}):(\d{2})/)
+  return m ? `${m[1]}:${m[2]}` : ''
+}
+
 function redondear2(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100
 }
@@ -45,6 +51,8 @@ export function ventaAPreviewDatos(
     preciosIvaIncluido?: boolean
     /** Data URL del logo de la carpeta `logos`. Vacío = no se imprime. */
     emblemaUrl?: string
+    /** Nombre del cajero (Trabajadores); la venta solo guarda el código. */
+    vendedorNombre?: string
   } = {}
 ): DocumentoPreviewDatos {
   const ivas = (venta.importesIva ?? []).map((x) => ({
@@ -150,10 +158,11 @@ export function ventaAPreviewDatos(
       numero: numDoc,
       serie: String(venta.tipo ?? ''),
       fecha: fmtFecha(venta.fecha),
+      hora: fmtHora(venta.fecha),
       suPedido: String(venta.pedido ?? ''),
       albaran: String(venta.albaran ?? ''),
       terminalSesion: [venta.puesto, venta.sesion].filter((x) => x != null && String(x).trim()).join('-'),
-      atendidoPor: String(venta.vendedor ?? ''),
+      atendidoPor: extras.vendedorNombre?.trim() || String(venta.vendedor ?? ''),
       fechaEntrega: fmtFecha(venta.fechaEntrega),
       transportista: String(venta.transporte ?? ''),
       portes: String(venta.portes ?? ''),
@@ -167,6 +176,7 @@ export function ventaAPreviewDatos(
       base: redondear2(base),
       ivas,
       importe: redondear2(Number(venta.importeFactura ?? venta.importe) || 0),
+      descuentoFidelizacion: redondear2(Number(venta.descuentoFidelizacion) || 0),
       pjeRetIrpf: Number(venta.pjeRetIrpf) || 0,
       basRetIrpf: redondear2(Number(venta.basRetIrpf) || 0),
       impRetIrpf: redondear2(Number(venta.impRetIrpf) || 0),
@@ -178,6 +188,12 @@ export function ventaAPreviewDatos(
         ) || 0
       ),
     },
+    fidelizacion: venta.fidelizacionPuntos
+      ? {
+          puntosCompra: redondear2(venta.fidelizacionPuntos.compra),
+          puntosAcumulados: redondear2(venta.fidelizacionPuntos.acumulados),
+        }
+      : undefined,
     vencimientos: (venta.vencimientos ?? []).map((v) => ({
       fecha: fmtFecha(v.fecha),
       importe: redondear2(v.importe),

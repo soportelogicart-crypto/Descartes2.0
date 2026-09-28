@@ -12,7 +12,7 @@ export const plantillaTicket: DocumentoPlantilla = {
   nombre: 'Ticket estándar 80 mm',
   descripcion:
     'Ticket térmico. Cabecera de tienda, líneas, totales y literales del puesto (Tiendas → Literales ticket).',
-  version: 1,
+  version: 2,
   page: {
     format: 'ticket-80',
     orientation: 'portrait',
@@ -20,6 +20,17 @@ export const plantillaTicket: DocumentoPlantilla = {
     marginMm: { top: 2, right: 2, bottom: 4, left: 2 },
   },
   blocks: [
+    {
+      id: 'emblema',
+      type: 'emblema',
+      x: 26,
+      y: 2,
+      w: 28,
+      h: 18,
+      label: 'Logo tienda',
+      bind: ['empresa.emblemaUrl'],
+      props: { fit: 'contain', centrado: true },
+    },
     {
       id: 'empresa',
       type: 'empresa-cabecera',
@@ -52,7 +63,7 @@ export const plantillaTicket: DocumentoPlantilla = {
       y: 30,
       w: 76,
       h: 8,
-      label: 'TICKET',
+      label: 'FACTURA SIMPLIFICADA',
       bind: ['documento.numero'],
       props: { centrado: true },
     },
@@ -115,6 +126,26 @@ export const plantillaTicket: DocumentoPlantilla = {
       bind: ['puesto.literales', 'tienda.literalTicket'],
       label: 'Literales del puesto (1…N según tienda)',
       props: { centrado: true },
+    },
+    {
+      id: 'codigo-barras',
+      type: 'codigo-barras',
+      x: 2,
+      y: 156,
+      w: 76,
+      h: 12,
+      bind: ['documento.codigoBarras'],
+      props: { centrado: true },
+    },
+    {
+      id: 'comprobante-tarjeta',
+      type: 'comprobante-tarjeta',
+      x: 2,
+      y: 170,
+      w: 76,
+      h: 48,
+      bind: ['tarjeta'],
+      label: 'Comprobante datáfono (solo cobro con tarjeta)',
     },
   ],
 }

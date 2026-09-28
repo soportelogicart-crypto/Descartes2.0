@@ -52,6 +52,8 @@ import AlbaranesPendientesView from '@/views/facturacion/AlbaranesPendientesView
 import RetrocesoFacturaView from '@/views/facturacion/RetrocesoFacturaView.vue'
 import TraspasoContableView from '@/views/facturacion/TraspasoContableView.vue'
 import ConfiguracionHubView from '@/views/configuracion/ConfiguracionHubView.vue'
+import DatafonoConfiguracionView from '@/views/configuracion/DatafonoConfiguracionView.vue'
+import FidelizacionConfigView from '@/views/configuracion/FidelizacionConfigView.vue'
 import DocumentosPlantillasView from '@/views/configuracion/DocumentosPlantillasView.vue'
 import TpvVentaView from '@/views/tpv/TpvVentaView.vue'
 import ListadosHubView from '@/views/listados/ListadosHubView.vue'
@@ -99,6 +101,18 @@ const router = createRouter({
           name: 'configuracion-base-datos',
           component: InstalacionView,
           meta: { titulo: 'Base de datos' },
+        },
+        {
+          path: 'configuracion/datafono',
+          name: 'configuracion-datafono',
+          component: DatafonoConfiguracionView,
+          meta: { titulo: 'Datáfono integrado' },
+        },
+        {
+          path: 'configuracion/fidelizacion',
+          name: 'configuracion-fidelizacion',
+          component: FidelizacionConfigView,
+          meta: { titulo: 'Fidelización', modulo: 'clientes', accion: 'ver' },
         },
         {
           path: 'configuracion/documentos',
@@ -465,6 +479,10 @@ const router = createRouter({
           component: ArticuloSeccionPlaceholder,
           meta: { titulo: seccion.titulo },
         })),
+        {
+          path: 'mantenimiento/tipos-calculo-fidelizacion',
+          redirect: '/configuracion/fidelizacion',
+        },
         { path: 'mantenimiento/:entidad', name: 'mantenimiento', component: EntidadView },
       ],
     },

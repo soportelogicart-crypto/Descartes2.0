@@ -15,6 +15,7 @@ import type {
   VentaPayload,
   VentaResumen,
 } from '@/types/ventas'
+import type { PaymentTerminalPayload, PaymentTerminalResult } from '@/bridge/electron'
 
 export async function listarVentas(params: Record<string, string | number | undefined>) {
   const { data } = await api.get<Paged<VentaResumen>>('/api/ventas/albaranes', { params })
@@ -26,6 +27,78 @@ export async function obtenerVenta(empresa: string, tipo: string, albaran: numbe
     `/api/ventas/albaranes/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}`
   )
   return data
+}
+
+export type AutorizacionTarjetaRegistro = {
+  puesto: string
+  sesion: number
+  formaPago?: number
+  pedidoRedsys?: string
+  identificadorRts?: string
+  autorizacion?: string
+  clr?: string
+  tarjeta?: string
+  importe?: number
+  comercio?: string
+  tpv?: string
+  tipoOperacion?: string
+  aid?: string
+  lbl?: string
+  arc?: string
+  marcaTarjeta?: string
+}
+
+export type AutorizacionTarjetaItem = {
+  pedidoRedsys?: string
+  identificadorRts?: string
+  autorizacion?: string
+  clr?: string
+  tarjeta?: string
+  importe?: number
+}
+
+export async function obtenerAutorizacionTarjetaAlbaran(
+  empresa: string,
+  albaran: number,
+  tipo = 'A'
+) {
+  const { data } = await api.get<{ item: AutorizacionTarjetaItem | null }>(
+    `/api/ventas/albaranes/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}/autorizacion-tarjeta`
+  )
+  return data.item
+}
+
+export async function buscarAutorizacionTarjetaPorAut(
+  empresa: string,
+  aut: string,
+  clr: string,
+  importe?: number,
+  albaranOrigen?: number
+) {
+  const { data } = await api.get<{ item: AutorizacionTarjetaItem | null }>(
+    `/api/ventas/autorizacion-tarjeta/${encodeURIComponent(empresa)}/buscar`,
+    {
+      params: {
+        aut,
+        clr,
+        importe,
+        albaran: albaranOrigen && albaranOrigen > 0 ? albaranOrigen : undefined,
+      },
+    }
+  )
+  return data.item
+}
+
+export async function registrarAutorizacionTarjetaAlbaran(
+  empresa: string,
+  albaran: number,
+  payload: AutorizacionTarjetaRegistro,
+  tipo = 'A'
+) {
+  await api.post(
+    `/api/ventas/albaranes/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}/autorizacion-tarjeta`,
+    payload
+  )
 }
 
 export async function crearVenta(payload: VentaPayload) {
@@ -80,11 +153,34 @@ export async function finalizarVenta(
   tipo: string,
   albaran: number,
   nuevoTipo: string,
-  fpago1?: string
+  fpago1?: string,
+  opciones: { aplicarValeFidelizacion?: boolean } = {}
 ) {
   const { data } = await api.post<VentaDetalle>(
     `/api/ventas/albaranes/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}/finalizar`,
-    { tipo: nuevoTipo, ...(fpago1 ? { fpago1 } : {}) }
+    { tipo: nuevoTipo, ...(fpago1 ? { fpago1 } : {}), ...opciones }
+  )
+  return data
+}
+
+export async function cobrarDatafonoDispositivo(
+  puesto: string,
+  payload: PaymentTerminalPayload
+) {
+  const { data } = await api.post<PaymentTerminalResult>(
+    `/api/ventas/puestos/${encodeURIComponent(puesto)}/dispositivo/datafono/cobrar`,
+    payload
+  )
+  return data
+}
+
+export async function cancelarDatafonoDispositivo(
+  puesto: string,
+  payload: Pick<PaymentTerminalPayload, 'operationId'>
+) {
+  const { data } = await api.post<PaymentTerminalResult>(
+    `/api/ventas/puestos/${encodeURIComponent(puesto)}/dispositivo/datafono/cancelar`,
+    payload
   )
   return data
 }
@@ -311,6 +407,120 @@ export async function listarCobrosPagos(params: Record<string, string | number |
 
 export async function listarVales(params: Record<string, string | number | undefined>) {
   const { data } = await api.get<Paged<Vale>>('/api/ventas/vales', { params })
+  return data
+}
+
+export async function valeFidelizacionDisponible(empresa: string, cliente: string) {
+  const { data } = await api.get<{
+    cliente: string
+    saldo: number
+    vales: { empresa?: string; codigo: number; saldo: number; fechaCaducidad: string | null }[]
+  }>('/api/ventas/fidelizacion/vale-disponible', { params: { empresa, cliente } })
+  return data
+}
+
+export async function semestreFidelizacion() {
+  const { data } = await api.get<{ inicio: string; fin: string }>('/api/ventas/fidelizacion/semestre')
+  return data
+}
+
+export type FidelizacionValeCliente = {
+  cliente: string
+  razonSocial: string
+  tarjetaFidelizacion: string
+  importeTotal: number
+  puntos: number
+  importeCanje: number
+  vale?: number
+}
+
+export type FidelizacionValesSemestreResultado = {
+  simulado: boolean
+  generadoAhora?: boolean
+  fueraDeVentana?: boolean
+  empresa: string
+  fechaInicio: string
+  fechaFin: string
+  fechaCaducidad: string
+  pjeCanje: number
+  formaPago: string
+  yaGenerado?: boolean
+  clientes: FidelizacionValeCliente[]
+  vales: number
+  importeTotal: number
+}
+
+export type FidelizacionModelo = {
+  codigo: string
+  nombre: string
+  motor: string
+  factor: number
+  configuracion: { pjeCanje?: number; mesesCaducidad?: number }
+}
+
+export type FidelizacionConfiguracion = {
+  empresa: string
+  seleccionado: string
+  modelos: FidelizacionModelo[]
+}
+
+export async function obtenerConfiguracionFidelizacion(empresa: string) {
+  const { data } = await api.get<FidelizacionConfiguracion>(
+    '/api/ventas/fidelizacion/configuracion',
+    { params: { empresa } }
+  )
+  return data
+}
+
+export async function seleccionarModeloFidelizacion(empresa: string, codigo: string) {
+  const { data } = await api.put<FidelizacionConfiguracion>(
+    '/api/ventas/fidelizacion/configuracion',
+    { empresa, codigo }
+  )
+  return data
+}
+
+export type FidelizacionEstadoAutomatico = {
+  empresa: string
+  aplica: boolean
+  pendiente: boolean
+  fechaInicio: string
+  fechaFin: string
+  ventanaInicio: string
+  ventanaFin: string
+  dentroVentana: boolean
+  yaGenerado: boolean
+}
+
+export async function estadoAutomaticoFidelizacion(empresa: string) {
+  const { data } = await api.get<FidelizacionEstadoAutomatico>(
+    '/api/ventas/fidelizacion/automatico/estado',
+    { params: { empresa } }
+  )
+  return data
+}
+
+export async function generarAutomaticamenteFidelizacion(empresa: string, puesto: string) {
+  const { data } = await api.post<FidelizacionValesSemestreResultado>(
+    '/api/ventas/fidelizacion/automatico/generar',
+    { empresa, puesto }
+  )
+  return data
+}
+
+export async function generarValesFidelizacion(payload: {
+  empresa: string
+  fechaInicio: string
+  fechaFin: string
+  formaPago?: string
+  pjeCanje?: number
+  simular?: boolean
+  forzar?: boolean
+}) {
+  const { data } = await api.post<FidelizacionValesSemestreResultado>(
+    '/api/ventas/fidelizacion/vales-semestre',
+    payload
+  )
   return data
 }
 

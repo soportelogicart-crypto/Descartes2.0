@@ -1,3 +1,4 @@
+import type { ComprobanteTarjetaDatos } from '@/composables/comprobanteTarjeta'
 import type { DocumentoTipo } from './types'
 
 export type DocumentoPreviewLinea = {
@@ -49,6 +50,8 @@ export type DocumentoPreviewDatos = {
     numero: string
     serie: string
     fecha: string
+    /** HH:MM del documento (ticket térmico). */
+    hora?: string
     suPedido: string
     albaran: string
     terminalSesion: string
@@ -66,10 +69,15 @@ export type DocumentoPreviewDatos = {
     base: number
     ivas: { pje: number; base: number; cuota: number }[]
     importe: number
+    descuentoFidelizacion?: number
     pjeRetIrpf?: number
     basRetIrpf?: number
     impRetIrpf?: number
     liquido?: number
+  }
+  fidelizacion?: {
+    puntosCompra: number
+    puntosAcumulados: number
   }
   vencimientos: { fecha: string; importe: number }[]
   verifactu: {
@@ -89,6 +97,8 @@ export type DocumentoPreviewDatos = {
   puesto: {
     literales: string[]
   }
+  /** Cobro con datáfono integrado (Redsys). Solo si la venta se cobró con tarjeta. */
+  tarjeta?: ComprobanteTarjetaDatos | null
   /**
    * Datos de artículo para plantillas tipo etiqueta (binds articulo.*).
    * Ausente en documentos A4 / ticket.
@@ -216,44 +226,61 @@ export function datosPreviewPorTipo(tipo: DocumentoTipo): DocumentoPreviewDatos 
   if (tipo === 'ticket') {
     return {
       ...comunes,
+      empresa: { ...comunes.empresa, emblemaUrl: EMBLEMA_PLACEHOLDER },
       documento: {
         ...comunes.documento,
-        numero: 'T-26021571',
-        fecha: '12/08/2026 10:42',
-        terminalSesion: '02-14',
-        atendidoPor: 'Maria',
+        numero: '26020924',
+        albaran: '26021812',
+        fecha: '25/09/2026 07:12',
+        terminalSesion: '001-01-00002',
+        atendidoPor: 'Jordi Diez',
+        formaPago: 'VISA XP',
+        codigoBarras: '*$60001026021812*',
         observaciones: '',
       },
       lineas: [
         {
-          articulo: '0010031961',
-          descripcion: 'PEONIA 3L',
+          articulo: '1621',
+          descripcion: 'DIVERSOS 21',
           unidades: 1,
-          precio: 18.35,
-          dto: 0,
-          pjeIva: 10,
-          importe: 18.35,
-        },
-        {
-          articulo: '001000055',
-          descripcion: 'SUSTRATO 20L',
-          unidades: 2,
-          precio: 6.5,
+          precio: 0.1,
           dto: 0,
           pjeIva: 21,
-          importe: 13.0,
+          importe: 0.1,
         },
       ],
       totales: {
-        base: 28.35,
-        ivas: [
-          { pje: 10, base: 16.68, cuota: 1.67 },
-          { pje: 21, base: 10.74, cuota: 2.26 },
-        ],
-        importe: 31.35,
+        base: 0.08,
+        ivas: [{ pje: 21, base: 0.08, cuota: 0.02 }],
+        importe: 0.1,
       },
       puesto: {
         literales: basePuestoLiterales.slice(0, baseTienda.literalTicket),
+      },
+      tarjeta: {
+        aprobada: true,
+        titulo: 'ACEPTADA',
+        operacion: 'PAGO',
+        importe: 0.1,
+        moneda: 'EUR',
+        nombreComercio: comunes.empresa.nombre,
+        ciudad: comunes.empresa.poblacion,
+        tarjeta: '************6014',
+        marca: 'MASTERCARD',
+        aid: 'A0000000041010',
+        comercio: '022477657',
+        terminal: '1',
+        arc: '00',
+        ope: '62011',
+        pedidoRedsys: '122600578',
+        rts: '',
+        aut: '252094',
+        clr: '6014',
+        fecha: '25/09/26',
+        hora: '07:12:44',
+        literales: ['OPERACION CONTACTLESS. FIRMA NO NECESARIA.'],
+        reciboCliente: true,
+        xml: '',
       },
     }
   }

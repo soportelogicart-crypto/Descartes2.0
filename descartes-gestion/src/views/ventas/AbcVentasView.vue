@@ -26,7 +26,6 @@ import {
 import {
   ABC_VENTAS_AGRUPACION_ARTICULOS,
   ABC_VENTAS_AGRUPACION_CLIENTES,
-  ABC_VENTAS_DIVISAS,
   ABC_VENTAS_FORMATO,
   ABC_VENTAS_FORMATO_ARTICULOS,
   ABC_VENTAS_AGRUPACION_HORAS,
@@ -83,10 +82,12 @@ import {
   dimensionDesdePathAbcVentas,
   useRutaInstanciaKeepAlive,
 } from '@/composables/useRutaInstanciaKeepAlive'
+import { useDivisasTienda } from '@/composables/useDivisasTienda'
 
 const route = useRoute()
 const router = useRouter()
 const { pathInstancia, esEstaInstanciaActiva } = useRutaInstanciaKeepAlive()
+const { divisasTienda } = useDivisasTienda()
 
 const dimensionEfectiva = computed(() => {
   if (esEstaInstanciaActiva()) {
@@ -170,6 +171,12 @@ const form = ref<AbcVentasFiltros>({
   importeHasta: '',
   facturaDesde: '',
   facturaHasta: '',
+})
+
+watch(divisasTienda, (opciones) => {
+  if (opciones.length && !opciones.some((o) => o.value === form.value.divisa)) {
+    form.value.divisa = opciones[0].value
+  }
 })
 
 const rangosIntervalos = computed(() =>
@@ -617,7 +624,8 @@ function rowTotales(t: AbcVentasTotales) {
           <label>
             <span>Divisa</span>
             <select v-model="form.divisa">
-              <option v-for="o in ABC_VENTAS_DIVISAS" :key="o.value" :value="o.value">{{ o.label }}</option>
+              <option v-if="!divisasTienda.length" :value="form.divisa">{{ form.divisa }}</option>
+              <option v-for="o in divisasTienda" :key="o.value" :value="o.value">{{ o.label }}</option>
             </select>
           </label>
           <label>

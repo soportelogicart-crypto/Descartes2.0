@@ -107,6 +107,9 @@ export type TpvFormaPago = {
   etiqueta: string
   abrirCajon: boolean
   copiasTicket: number
+  datafono: boolean
+  emv: boolean
+  agrupacion: number
 }
 
 export type TpvContexto = {
@@ -118,6 +121,8 @@ export type TpvContexto = {
   tarifa: number
   impresoraTickets: string | null
   formatoTickets: string | null
+  datafono: string | null
+  terminalDatafono: string | null
   vendedor: string | null
   clienteRapido: string
   formasPago: TpvFormaPago[]

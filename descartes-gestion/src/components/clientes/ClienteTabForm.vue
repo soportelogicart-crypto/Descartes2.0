@@ -19,7 +19,7 @@ const props = defineProps<{
   codigoReadOnly?: boolean
   ocultarCabecera?: boolean
   camposInvalidos?: string[]
-  motorFidelizacion?: 'NINGUNO' | 'EUROS' | 'PUNTOS'
+  motorFidelizacion?: 'NINGUNO' | 'EUROS' | 'PUNTOS' | 'VALE_SEMESTRAL'
   /** Ficha de un cliente ya grabado: junto a «Cuenta contable» se ofrece darla de alta. */
   mostrarCrearCuentaCtb?: boolean
   puedeCrearCuentaCtb?: boolean
@@ -74,17 +74,17 @@ function conAltaCuentaCtb(field: ClienteField) {
 function isReadOnly(field: ClienteField) {
   if (props.readonly || field.readOnly) return true
   if (field.key === 'codigo' && props.codigoReadOnly) return true
+  const motor = props.motorFidelizacion ?? 'NINGUNO'
+  if (field.key === 'pjeFidelizacion' || field.key === 'acumuladoFidelizacion') {
+    return motor !== 'EUROS'
+  }
+  if (field.key === 'acumuladoPuntos') {
+    return motor !== 'PUNTOS'
+  }
   return false
 }
 
 function fieldVisible(field: ClienteField) {
-  const motor = props.motorFidelizacion ?? 'NINGUNO'
-  if (field.key === 'pjeFidelizacion' || field.key === 'acumuladoFidelizacion') {
-    return motor === 'EUROS'
-  }
-  if (field.key === 'acumuladoPuntos') {
-    return motor === 'PUNTOS'
-  }
   return true
 }
 
@@ -92,6 +92,7 @@ function etiquetaMotorFidelizacion() {
   const motor = props.motorFidelizacion ?? 'NINGUNO'
   if (motor === 'EUROS') return 'Método activo: saldo en euros'
   if (motor === 'PUNTOS') return 'Método activo: puntos'
+  if (motor === 'VALE_SEMESTRAL') return 'Método activo: vale semestral. Acum. puntos es el total del semestre.'
   return 'La tienda no tiene fidelización activa'
 }
 

@@ -1,3 +1,4 @@
+import { api } from '@/api/client'
 import { marcarVentaImpresa } from '@/api/ventas'
 import { textoTicketDesdePlantilla } from '@/config/documentos-plantillas/ticket-texto'
 import { imprimirTicketTermica } from '@/composables/impresionTicketTermica'
@@ -16,6 +17,7 @@ import {
   resolverPlantilla,
   type PrepImpresionA4,
 } from '@/composables/impresionDocumentoA4Shared'
+import { comprobanteDesdeXmlRedsys } from '@/composables/comprobanteTarjeta'
 import type { VentaDetalle } from '@/types/ventas'
 
 export type { PrepImpresionA4 }
@@ -33,6 +35,18 @@ const META_ALBARAN_A4 = {
   label: 'Albarán',
 } as const
 
+/** Sin nombre el ticket imprime el código del cajero; no debe impedir imprimir. */
+async function nombreTrabajador(codigo: string): Promise<string> {
+  const c = codigo.trim()
+  if (!c) return ''
+  try {
+    const { data } = await api.get(`/api/mantenimiento/trabajadores/${encodeURIComponent(c)}`)
+    return String(data?.nombre ?? data?.descripcion ?? '').trim()
+  } catch {
+    return ''
+  }
+}
+
 /** A4 al forzar folio: un ticket recuperado se imprime como albarán. */
 function metaA4Forzado(venta: VentaDetalle) {
   const meta = tipoPlantillaDesdeVenta(venta)
@@ -43,7 +57,12 @@ function metaA4Forzado(venta: VentaDetalle) {
 /** Construye datos + plantilla / o imprime ticket térmico (sin elegir impresora). */
 export async function prepararOImprimirVenta(
   venta: VentaDetalle,
-  opciones: { puestoCodigo: string; formato?: 'auto' | 'ticket' | 'a4' | 'albaran' }
+  opciones: {
+    puestoCodigo: string
+    formato?: 'auto' | 'ticket' | 'a4' | 'albaran'
+    /** XML Redsys del último cobro con datáfono (misma venta). */
+    receiptDatafono?: string | null
+  }
 ): Promise<PrepImpresionResult> {
   const formato = opciones.formato ?? 'auto'
   const metaAuto = tipoPlantillaDesdeVenta(venta)
@@ -55,10 +74,11 @@ export async function prepararOImprimirVenta(
     throw new Error('Configure el puesto de este equipo para imprimir.')
   }
 
-  const [puesto, tienda, plantillas] = await Promise.all([
+  const [puesto, tienda, plantillas, vendedorNombre] = await Promise.all([
     cargarPuesto(puestoCodigo),
     cargarTienda(String(venta.empresa || '').trim()),
     cargarPlantillasEmpresa(String(venta.empresa || '').trim()),
+    nombreTrabajador(String(venta.vendedor ?? '')),
   ])
 
   const extras = await extrasEmpresaParaDocumento(
@@ -69,7 +89,17 @@ export async function prepararOImprimirVenta(
   const datos = ventaAPreviewDatos(venta, {
     ...extras,
     literalesPuesto: literalesDesdePuesto(puesto),
+    vendedorNombre,
   })
+  const receipt = String(opciones.receiptDatafono ?? '').trim()
+  if (receipt) {
+    datos.tarjeta =
+      comprobanteDesdeXmlRedsys(receipt, {
+        nombreComercio: extras.empresaNombre,
+        ciudad: extras.empresaPoblacion,
+        importeEsperado: datos.totales.importe,
+      }) ?? undefined
+  }
 
   if (comoTicket) {
     const plantilla = resolverPlantilla(plantillas, '', 'ticket')
@@ -78,6 +108,7 @@ export async function prepararOImprimirVenta(
       puestoCodigo,
       puesto,
       texto,
+      emblemaDataUrl: extras.emblemaUrl || undefined,
       tipo: 'ticket',
       empresa: String(venta.empresa || ''),
       sesion: Number(venta.sesion) || undefined,

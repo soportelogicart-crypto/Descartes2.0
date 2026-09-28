@@ -10,7 +10,6 @@ import {
   type AbcComprasFiltroRango,
 } from '@/config/abc-compras-filtros'
 import {
-  ABC_COMPRAS_DIVISAS,
   ABC_COMPRAS_IM_ARTICULOS,
   ABC_COMPRAS_VALOR,
   abcComprasEtiquetaUnidadesJerarquia,
@@ -43,10 +42,12 @@ import {
   dimensionDesdePathAbcCompras,
   useRutaInstanciaKeepAlive,
 } from '@/composables/useRutaInstanciaKeepAlive'
+import { useDivisasTienda } from '@/composables/useDivisasTienda'
 
 const route = useRoute()
 const router = useRouter()
 const { pathInstancia, esEstaInstanciaActiva } = useRutaInstanciaKeepAlive()
+const { divisasTienda } = useDivisasTienda()
 
 const dimensionEfectiva = computed(() => {
   if (esEstaInstanciaActiva()) {
@@ -98,6 +99,12 @@ const form = ref<AbcComprasFiltros>({
   ultimaVentaHasta: '',
   centralDesde: '',
   centralHasta: '',
+})
+
+watch(divisasTienda, (opciones) => {
+  if (opciones.length && !opciones.some((o) => o.value === form.value.divisa)) {
+    form.value.divisa = opciones[0].value
+  }
 })
 
 type CampoForm = keyof AbcComprasFiltros
@@ -285,7 +292,8 @@ async function imprimir() {
         <label>
           <span>Divisa</span>
           <select v-model="form.divisa">
-            <option v-for="o in ABC_COMPRAS_DIVISAS" :key="o.value" :value="o.value">
+            <option v-if="!divisasTienda.length" :value="form.divisa">{{ form.divisa }}</option>
+            <option v-for="o in divisasTienda" :key="o.value" :value="o.value">
               {{ o.label }}
             </option>
           </select>

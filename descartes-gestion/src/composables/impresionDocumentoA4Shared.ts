@@ -5,6 +5,7 @@ import {
   documentosPlantillas,
   type DocumentoPlantilla,
 } from '@/config/documentos-plantillas'
+import { CATALOGO_BLOQUES_TICKET } from '@/config/documentos-plantillas/bloques-catalogo'
 import type { DocumentoPreviewDatos } from '@/config/documentos-plantillas/preview-datos'
 
 export type PrepImpresionA4 = {
@@ -39,14 +40,40 @@ export function esqueletoPorTipo(tipo: string, plantillaId?: string): DocumentoP
   return base ? clonePlantilla(base) : null
 }
 
+function es404(e: unknown): boolean {
+  return (e as { response?: { status?: number } })?.response?.status === 404
+}
+
 export async function cargarPuesto(codigo: string): Promise<PuestoDoc> {
-  const { data } = await api.get(`/api/mantenimiento/puestos-trabajo/${encodeURIComponent(codigo)}`)
-  return (data ?? {}) as PuestoDoc
+  try {
+    const { data } = await api.get(
+      `/api/mantenimiento/puestos-trabajo/${encodeURIComponent(codigo)}`
+    )
+    return (data ?? {}) as PuestoDoc
+  } catch (e: unknown) {
+    // El puesto sale de la config del PC: si la base no lo tiene, "Registro no
+    // encontrado" no dice dónde está el problema.
+    if (es404(e)) {
+      throw new Error(
+        `No existe el puesto ${codigo} en esta base de datos. Reconfigure este equipo.`
+      )
+    }
+    throw e
+  }
 }
 
 export async function cargarTienda(codigo: string): Promise<Record<string, unknown>> {
-  const { data } = await api.get(`/api/mantenimiento/tiendas/${encodeURIComponent(codigo)}`)
-  return (data ?? {}) as Record<string, unknown>
+  try {
+    const { data } = await api.get(`/api/mantenimiento/tiendas/${encodeURIComponent(codigo)}`)
+    return (data ?? {}) as Record<string, unknown>
+  } catch (e: unknown) {
+    if (es404(e)) {
+      throw new Error(
+        `No existe la tienda ${codigo} en esta base de datos. Reconfigure este equipo.`
+      )
+    }
+    throw e
+  }
 }
 
 export async function cargarPlantillasEmpresa(empresa: string): Promise<
@@ -75,6 +102,28 @@ export function literalesDesdePuesto(puesto: PuestoDoc): string[] {
   return out
 }
 
+/** Añade bloques únicos nuevos (logo, comprobante tarjeta…) sin tocar el diseño existente. */
+function complementarPlantillaTicket(
+  guardada: DocumentoPlantilla,
+  skeleton: DocumentoPlantilla
+): DocumentoPlantilla {
+  if (guardada.tipo !== 'ticket') return guardada
+  const presentes = new Set(guardada.blocks.map((b) => b.type))
+  const faltantes = skeleton.blocks.filter((b) => {
+    const meta = CATALOGO_BLOQUES_TICKET.find((c) => c.type === b.type)
+    return meta?.unico && !presentes.has(b.type)
+  })
+  if (!faltantes.length) return guardada
+  const maxY = guardada.blocks.reduce((m, b) => Math.max(m, b.y + b.h), 0)
+  let y = maxY + 2
+  const blocks = [...guardada.blocks]
+  for (const b of faltantes) {
+    blocks.push({ ...(JSON.parse(JSON.stringify(b)) as typeof b), y })
+    y += b.h + 2
+  }
+  return { ...guardada, blocks }
+}
+
 /** Si la plantilla guardada es el esqueleto base de una versión anterior, usa la del código. */
 function plantillaVigente(guardada: DocumentoPlantilla, tipo: string): DocumentoPlantilla {
   const skeleton = esqueletoPorTipo(tipo, guardada.id) ?? esqueletoPorTipo(tipo)
@@ -83,7 +132,7 @@ function plantillaVigente(guardada: DocumentoPlantilla, tipo: string): Documento
   const vGuardada = Number(guardada.version || 0)
   const vBase = Number(skeleton.version || 0)
   if (mismaBase && vGuardada < vBase) return skeleton
-  return guardada
+  return complementarPlantillaTicket(guardada, skeleton)
 }
 
 export function resolverPlantilla(

@@ -31,7 +31,7 @@ const props = defineProps<{
   modoLineas?: boolean
   /** Ticket cerrado: solo cliente / NIF / razón / contacto. */
   soloDatosFiscales?: boolean
-  /** Albarán en alta/edición: permitir cambiar la fecha de cabecera. */
+  /** Albarán o presupuesto en alta/edición: permitir cambiar la fecha de cabecera. */
   puedeEditarFecha?: boolean
   vendedorNombre?: string
   totales: {
@@ -393,7 +393,7 @@ onUnmounted(() => {
               :value="fechaInput()"
               type="date"
               :readonly="fechaBloqueada"
-              :title="fechaBloqueada ? undefined : 'Fecha del albarán'"
+              :title="fechaBloqueada ? undefined : 'Fecha del documento'"
               @input="setFecha(($event.target as HTMLInputElement).value)"
             />
           </label>

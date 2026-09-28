@@ -1,6 +1,7 @@
 import { imprimirTermicaDispositivo } from '@/api/ventas'
 import { getDescartesBridge } from '@/bridge/electron'
 import { cargarPuesto, type PuestoDoc } from '@/composables/impresionDocumentoA4Shared'
+import { ANCHO_TICKET } from '@/composables/comprobanteTarjeta'
 
 function impresoraTicketsPuesto(puesto: PuestoDoc): string {
   const principal = String(puesto.impresoraTickets ?? '').trim()
@@ -21,6 +22,8 @@ export async function imprimirTicketTermica(opciones: {
   impresora?: string
   puesto?: PuestoDoc
   abrirCajon?: boolean
+  /** Logo de tienda (data URL) para imprimir antes del texto si la plantilla incluye emblema. */
+  emblemaDataUrl?: string
 }): Promise<{ message: string; stub: boolean; impresora: string }> {
   const texto = opciones.texto.trim()
   if (!texto) {
@@ -46,6 +49,8 @@ export async function imprimirTicketTermica(opciones: {
     impresora,
     abrirCajon: Boolean(opciones.abrirCajon),
     cortar: true,
+    ancho: ANCHO_TICKET,
+    emblemaDataUrl: opciones.emblemaDataUrl || undefined,
   }
 
   const bridge = getDescartesBridge()

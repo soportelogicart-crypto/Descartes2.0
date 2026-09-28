@@ -8,6 +8,9 @@ const props = defineProps<{
   formasPago: TpvFormaPago[]
   permiteFactura: boolean
   guardando?: boolean
+  cobrandoDatafono?: boolean
+  /** Tras un abono en TPV: preseleccionar la forma del ticket origen (p. ej. tarjeta). */
+  formaPagoInicial?: string
 }>()
 
 const emit = defineEmits<{
@@ -49,6 +52,12 @@ const valido = computed(
     (!requierePago.value || !falta.value)
 )
 
+const esDevolucion = computed(() => props.total < -0.005)
+
+const formaSeleccionada = computed(() =>
+  props.formasPago.find((f) => f.codigo === formaPago.value)
+)
+
 function euros(n: number): string {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
 }
@@ -59,8 +68,15 @@ watch(
     if (!abierto) return
     tipoDocumento.value = 'T'
     entrada.value = ''
-    // No seleccionar por defecto: el cajero debe indicar cómo cobra.
-    formaPago.value = ''
+    const sugerida = String(props.formaPagoInicial ?? '').trim()
+    if (
+      sugerida &&
+      props.formasPago.some((f) => f.codigo === sugerida)
+    ) {
+      formaPago.value = sugerida
+    } else {
+      formaPago.value = ''
+    }
   },
   { immediate: true }
 )
@@ -97,7 +113,7 @@ function confirmar() {
 <template>
   <div v-if="open" class="overlay" @mousedown.prevent>
     <div class="ventana" role="dialog" aria-modal="true">
-      <header class="barra">FINALIZAR VENTA</header>
+      <header class="barra">{{ esDevolucion ? 'DEVOLUCIÓN / ABONO' : 'FINALIZAR VENTA' }}</header>
 
       <div class="cuerpo">
         <div class="visor total">
@@ -128,6 +144,11 @@ function confirmar() {
           Factura requiere cliente real con NIF y razon social.
         </p>
 
+        <p v-if="esDevolucion && requierePago" class="nota devolucion">
+          Importe negativo: al confirmar con tarjeta (datáfono) se enviará una
+          <strong>devolución</strong> al TPV integrado.
+        </p>
+
         <template v-if="requierePago">
           <p class="rotulo">FORMA DE PAGO (SELECCIONE UNA)</p>
           <div v-if="formasPago.length" class="formas">
@@ -146,6 +167,12 @@ function confirmar() {
           <p v-else class="sin-formas">
             No hay formas de pago de contado configuradas (CobroDeArqueo). Revise Mantenimiento →
             Formas de pago.
+          </p>
+          <p
+            v-if="esDevolucion && formaSeleccionada?.datafono"
+            class="nota datafono-hint"
+          >
+            Forma con datáfono: pulse «Cobrar y finalizar» para devolver el importe en el pinpad.
           </p>
 
           <p class="rotulo">ENTREGADO (opcional)</p>
@@ -173,6 +200,9 @@ function confirmar() {
             <button type="button" class="btn-legacy num aux" @click="borrarUno">←</button>
             <button type="button" class="btn-legacy aux exacto" @click="exacto">EXACTO</button>
           </div>
+          <p v-if="cobrandoDatafono" class="datafono-espera">
+            Esperando respuesta del datáfono…
+          </p>
         </template>
         <p v-else class="nota-documento">
           {{ tipoDocumento === 'A' ? 'El albaran queda pendiente de facturar.' : 'El presupuesto no genera cobro.' }}
@@ -186,12 +216,20 @@ function confirmar() {
           :disabled="!valido || guardando"
           @click="confirmar"
         >
-          {{ guardando ? 'FINALIZANDO…' : requierePago ? 'COBRAR Y FINALIZAR' : 'FINALIZAR' }}
+          {{
+            cobrandoDatafono
+              ? 'ESPERANDO DATÁFONO…'
+              : guardando
+                ? 'FINALIZANDO…'
+                : requierePago
+                  ? 'COBRAR Y FINALIZAR'
+                  : 'FINALIZAR'
+          }}
         </button>
         <button
           type="button"
           class="btn-legacy cancelar"
-          :disabled="guardando"
+          :disabled="guardando && !cobrandoDatafono"
           @click="emit('cancelar')"
         >
           CANCELAR
@@ -282,6 +320,18 @@ function confirmar() {
   color: #fff;
 }
 
+.nota.devolucion,
+.nota.datafono-hint {
+  margin: 0.35rem 0 0.5rem;
+  padding: 0.45rem 0.55rem;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  color: #1e3a8a;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
 .nota,
 .nota-documento {
   margin: 0.3rem 0;
@@ -317,6 +367,16 @@ function confirmar() {
 .cambio.falta {
   color: #be123c;
   font-weight: 600;
+}
+
+.datafono-espera {
+  margin: 0.5rem 0;
+  padding: 0.65rem;
+  border-radius: 10px;
+  background: #ecfeff;
+  color: #0e7490;
+  font-weight: 700;
+  text-align: center;
 }
 
 .pad {

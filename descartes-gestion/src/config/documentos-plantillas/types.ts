@@ -24,6 +24,7 @@ export type PlantillaBloqueTipo =
   | 'qr-verifactu'
   | 'pie'
   | 'literales-puesto'
+  | 'comprobante-tarjeta'
   | 'separador'
 
 /** `label` = página de etiqueta (widthMm × heightMm). */

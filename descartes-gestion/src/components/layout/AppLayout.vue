@@ -20,10 +20,17 @@ import { stockListadoPorAgrupar } from '@/config/stock-listado-config'
 import { entidades } from '@/config/entidades'
 import { usePermisos } from '@/composables/usePermisos'
 import PuestoEquipoModal from '@/components/puestos/PuestoEquipoModal.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import EsperaModal from '@/components/common/EsperaModal.vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { useTabsStore } from '@/stores/tabs'
 import AppTabs from '@/components/layout/AppTabs.vue'
+import {
+  estadoAutomaticoFidelizacion,
+  generarAutomaticamenteFidelizacion,
+} from '@/api/ventas'
+import { extractApiError } from '@/composables/extractApiError'
 
 const auth = useAuthStore()
 const { puede } = usePermisos()
@@ -37,6 +44,9 @@ const clientesAbierto = ref(false)
 const puestosAbierto = ref(false)
 const proveedoresAbierto = ref(false)
 const modalEquipoAbierto = ref(false)
+const generandoFidelizacion = ref(false)
+const avisoFidelizacion = ref('')
+const comprobacionesFidelizacion = new Set<string>()
 
 // Toda la aplicación usa una franja de iconos. El menú completo se abre
 // flotando para no reducir el ancho útil de la pantalla actual.
@@ -222,15 +232,50 @@ watch(
   () => auth.cargado,
   async (cargado) => {
     if (!cargado) return
-    if (puestoContexto.equipoId) {
+    // En Electron la configuración vive en el disco del PC, no en el navegador:
+    // sin leerla antes, un localStorage vacío vuelve a preguntar el puesto.
+    if (puestoContexto.enElectron || puestoContexto.equipoId) {
       await puestoContexto.hydrateFromApi()
     }
     if (!puestoContexto.configurado) {
       modalEquipoAbierto.value = true
+      return
     }
+    await comprobarFidelizacionAutomatica()
   },
   { immediate: true }
 )
+
+async function comprobarFidelizacionAutomatica() {
+  const empresa = puestoContexto.empresaCodigo?.trim() ?? ''
+  const puesto = puestoContexto.puestoCodigo?.trim() ?? ''
+  if (!auth.cargado || !empresa || !puesto || comprobacionesFidelizacion.has(empresa)) return
+  comprobacionesFidelizacion.add(empresa)
+  try {
+    const estado = await estadoAutomaticoFidelizacion(empresa)
+    if (!estado.pendiente) return
+    generandoFidelizacion.value = true
+    const resultado = await generarAutomaticamenteFidelizacion(empresa, puesto)
+    if (resultado.generadoAhora) {
+      avisoFidelizacion.value =
+        `El puesto ${puesto} ha generado ${resultado.vales} vales de fidelización ` +
+        `por un total de ${resultado.importeTotal.toLocaleString('es-ES', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })} €.`
+    }
+  } catch (e: unknown) {
+    const status = (e as { response?: { status?: number } }).response?.status
+    if (status !== 403) {
+      avisoFidelizacion.value = extractApiError(
+        e,
+        'No se pudieron generar automáticamente los vales de fidelización'
+      )
+    }
+  } finally {
+    generandoFidelizacion.value = false
+  }
+}
 
 function toggleSeccion(id: string) {
   const seccion = secciones.value.find((s) => s.id === id)
@@ -294,6 +339,7 @@ function toggleProveedores() {
 
 function onEquipoConfirmado() {
   modalEquipoAbierto.value = false
+  void comprobarFidelizacionAutomatica()
 }
 
 async function logout() {
@@ -610,6 +656,21 @@ async function logout() {
       :obligatorio="!puestoContexto.configurado"
       @cerrar="modalEquipoAbierto = false"
       @confirmado="onEquipoConfirmado"
+    />
+    <EsperaModal
+      :open="generandoFidelizacion"
+      titulo="Fidelización"
+      mensaje="Generando los vales de fidelización del semestre…"
+    />
+    <ConfirmDialog
+      :open="!!avisoFidelizacion"
+      title="Fidelización"
+      :message="avisoFidelizacion"
+      confirm-label="Aceptar"
+      hide-cancel
+      :danger="false"
+      @confirm="avisoFidelizacion = ''"
+      @cancel="avisoFidelizacion = ''"
     />
   </div>
 </template>

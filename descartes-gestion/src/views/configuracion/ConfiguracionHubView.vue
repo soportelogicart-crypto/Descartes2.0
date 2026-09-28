@@ -32,6 +32,20 @@ const opciones = [
     disponible: true,
   },
   {
+    id: 'datafono',
+    titulo: 'Datáfono integrado',
+    descripcion: 'Sermepa/Redsys TPV-PC, comercio, WSDL, pinpad y modo demo (por equipo).',
+    ruta: '/configuracion/datafono',
+    disponible: true,
+  },
+  {
+    id: 'fidelizacion',
+    titulo: 'Fidelización',
+    descripcion: 'Vales semestrales (1 € = 1 punto, canje 3 %) y otros programas.',
+    ruta: '/configuracion/fidelizacion',
+    disponible: true,
+  },
+  {
     id: 'impresoras',
     titulo: 'Impresoras y periféricos',
     descripcion: 'Próximamente: acceso rápido a la configuración de impresoras del puesto.',

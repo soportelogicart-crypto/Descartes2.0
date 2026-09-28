@@ -184,6 +184,7 @@ export async function descargarInformeIvaPdf(body: InformeIvaParams): Promise<Bl
 
 export type InformeTicketsFila = {
   empresa: string
+  tiendaNombre?: string
   albaran: number
   fecha: string
   numeroTicket: number | null
@@ -195,6 +196,62 @@ export type InformeTicketsFila = {
   sesion: number | null
   estado: string
   formaPago: string
+  fpago1?: string
+  fpago2?: string
+  impFpago1?: number
+  impFpago2?: number
+  nif?: string
+  base?: number
+  iva?: number
+  recargo?: number
+  numeroArticulos?: number
+  agente?: string
+  representante?: string
+  origen?: string
+  esAbono?: boolean
+  desgloseIva?: Array<{
+    pjeIva: number
+    base: number
+    iva: number
+    pjeRecargo: number
+    recargo: number
+    importe: number
+  }>
+}
+
+export type InformeTicketsPerfilPago = {
+  importe: number
+  conteo: number
+  pje: number
+}
+
+export type InformeTicketsResumen = {
+  empresa: string
+  tiendaNombre: string
+  fecha: string | null
+  tickets: number
+  ticketsVenta?: number
+  abonos: number
+  numeroArticulos: number
+  primerTicket: number | null
+  ultimoTicket: number | null
+  base: number
+  iva: number
+  recargo: number
+  importe: number
+  importeMinimo: number | null
+  importeMaximo: number | null
+  importeMedio: number
+  desgloseIva: Array<{
+    pjeIva: number
+    pjeRecargo: number
+    base: number
+    iva: number
+    recargo: number
+    importe: number
+  }>
+  formasPago: Array<{ codigo: string; importe: number; conteo: number; agrupacion?: number }>
+  perfilPago?: Record<string, InformeTicketsPerfilPago>
 }
 
 export type InformeTicketsResult = {
@@ -203,9 +260,49 @@ export type InformeTicketsResult = {
   empresa: string
   puesto: string
   vendedor: string
+  divisa?: string
+  formato?: string
   soloNumerados: boolean
   items: InformeTicketsFila[]
-  totales: { tickets: number; importe: number }
+  resumenDiario?: InformeTicketsResumen[]
+  resumenTiendas?: InformeTicketsResumen[]
+  exportar?: Array<{
+    empresa: string
+    tiendaNombre: string
+    fecha: string
+    numeroTicket: number
+    tipo: string
+    cliente: string
+    razonSocial: string
+    nif: string
+    pjeIva: number
+    base: number
+    iva: number
+    pjeRecargo: number
+    recargo: number
+    importe: number
+  }>
+  totales: {
+    tickets: number
+    ticketsVenta?: number
+    abonos?: number
+    importe: number
+    base?: number
+    iva?: number
+    recargo?: number
+    numeroArticulos?: number
+    importeMinimo?: number | null
+    importeMaximo?: number | null
+    importeMedio?: number
+    primerTicket?: number | null
+    ultimoTicket?: number | null
+    desgloseIva?: InformeTicketsResumen['desgloseIva']
+    formasPago?: InformeTicketsResumen['formasPago']
+    perfilPago?: InformeTicketsResumen['perfilPago']
+    empresa?: string
+    tiendaNombre?: string
+    fecha?: string | null
+  }
   truncado: boolean
   limite: number
 }
@@ -213,9 +310,29 @@ export type InformeTicketsResult = {
 export async function generarInformeTickets(params: {
   fechaDesde: string
   fechaHasta: string
+  formato?: string
+  divisa?: string
   empresa?: string
+  empresaDesde?: string
+  empresaHasta?: string
   puesto?: string
+  puestoDesde?: string
+  puestoHasta?: string
+  sesionDesde?: number
+  sesionHasta?: number
+  agenteDesde?: string
+  agenteHasta?: string
+  representanteDesde?: string
+  representanteHasta?: string
+  clienteDesde?: string
+  clienteHasta?: string
+  ticketDesde?: number
+  ticketHasta?: number
+  origenDesde?: string
+  origenHasta?: string
   vendedor?: string
+  vendedorDesde?: string
+  vendedorHasta?: string
   soloNumerados?: boolean
 }): Promise<InformeTicketsResult> {
   const { data } = await api.get<InformeTicketsResult>('/api/listados/informe-tickets', { params })

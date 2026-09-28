@@ -98,7 +98,7 @@ const mostrarDireccion = ref(false)
 const mostrarContactos = ref(false)
 const mostrarEstadistica = ref(false)
 const mostrarConsumo = ref(false)
-const motorFidelizacion = ref<'NINGUNO' | 'EUROS' | 'PUNTOS'>('NINGUNO')
+const motorFidelizacion = ref<'NINGUNO' | 'EUROS' | 'PUNTOS' | 'VALE_SEMESTRAL'>('NINGUNO')
 const avisoModalOpen = ref(false)
 const avisoModalTitulo = ref('Campo obligatorio')
 const avisoModalMensaje = ref('')
@@ -180,7 +180,9 @@ async function resolverMotorFidelizacion() {
     if (seq !== motorFidelizacionSeq) return
     const motor = String(data.motorFidelizacion ?? 'NINGUNO').trim().toUpperCase()
     motorFidelizacion.value =
-      motor === 'EUROS' || motor === 'PUNTOS' ? motor : 'NINGUNO'
+      motor === 'EUROS' || motor === 'PUNTOS' || motor === 'VALE_SEMESTRAL'
+        ? motor
+        : 'NINGUNO'
   } catch {
     if (seq === motorFidelizacionSeq) motorFidelizacion.value = 'NINGUNO'
   }
@@ -551,6 +553,7 @@ function normalizarFechasFicha(data: Record<string, unknown>): Record<string, un
     'fechaAlta',
     'ultimaCompra',
     'fechaNacimiento',
+    'fechaAltaFidelizacion',
     'fechaFirmaMandato',
     'fechaCaducidadCarnet',
   ]

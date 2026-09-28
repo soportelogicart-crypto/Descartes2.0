@@ -7,7 +7,12 @@ import {
   obtenerNivelTeclado,
   obtenerNivelesTeclado,
 } from '@/api/tpv'
-import { enviarVentaPorEmail } from '@/api/ventas'
+import {
+  enviarVentaPorEmail,
+  registrarAutorizacionTarjetaAlbaran,
+  valeFidelizacionDisponible,
+} from '@/api/ventas'
+import TpvDevolucionDatafonoModal from '@/components/tpv/TpvDevolucionDatafonoModal.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import TpvAbonoModal from '@/components/tpv/TpvAbonoModal.vue'
 import TpvBotonConfigModal from '@/components/tpv/TpvBotonConfigModal.vue'
@@ -23,6 +28,12 @@ import TpvTicketPanel from '@/components/tpv/TpvTicketPanel.vue'
 import TpvTicketVisorModal from '@/components/tpv/TpvTicketVisorModal.vue'
 import VentaImpresionA4Modal from '@/components/ventas/VentaImpresionA4Modal.vue'
 import VentaPostFinalizacionModal from '@/components/ventas/VentaPostFinalizacionModal.vue'
+import {
+  crearOperacionCobroDatafono,
+  type DevolucionDatafonoContexto,
+  type OperacionCobroDatafono,
+} from '@/composables/cobroDatafono'
+import { autorizacionDesdeXmlRedsys } from '@/composables/comprobanteTarjeta'
 import { createBarcodeScanWatcher } from '@/composables/useBarcodeScanWatcher'
 import { extractApiError } from '@/composables/extractApiError'
 import {
@@ -70,6 +81,8 @@ const editandoDescuentoLinea = ref(-1)
 const codigoManual = ref('')
 const inputCodigo = ref<HTMLInputElement | null>(null)
 const cobroAbierto = ref(false)
+const cobrandoDatafono = ref(false)
+const operacionDatafono = ref<OperacionCobroDatafono | null>(null)
 const confirmarAnulacion = ref(false)
 const abonoAbierto = ref(false)
 const codigoTecladoAbierto = ref(false)
@@ -84,6 +97,105 @@ const clienteAbierto = ref(false)
 /** Último ticket cerrado: permite reintentar la impresión sin rehacer la venta. */
 const ultimoTicket = ref<VentaDetalle | null>(null)
 const ultimoTipoDocumento = ref('T')
+/** XML Redsys del último cobro con datáfono (para comprobante en el ticket). */
+const ultimoReceiptDatafono = ref<string | null>(null)
+/** Forma de pago sugerida al abrir cobro (p. ej. tras abono del ticket origen). */
+const formaPagoSugeridaCobro = ref('')
+const devolucionDatafonoAbierto = ref(false)
+const devolucionAlbaranOrigen = ref(0)
+
+type CobroPendienteTrasDevolucion = {
+  datos: { tipoDocumento: string; formaPago: string; entregado: number }
+  importeDatafono: number
+  aplicarValeFidelizacion: boolean
+}
+
+const cobroPendienteTrasDevolucion = ref<CobroPendienteTrasDevolucion | null>(null)
+
+function mensajeErrorDevolucionRedsys(mensaje: string): string {
+  const m = mensaje.trim()
+  if (/TPV-PC0091|TPV-PC_EMV0001|operaci[oó]n original no existe|operacion especificada no existe/i.test(m)) {
+    return (
+      `${m} — Redsys no encuentra el cobro original. ` +
+      'Revise el PED del ticket (no use OPE). Si el ticket es antiguo, copie también el RTS o busque el cobro en el TPV legacy.'
+    )
+  }
+  return m
+}
+
+async function ejecutarCobroEnDatafono(
+  importeDatafono: number,
+  referencia: string,
+  devolucionCtx: DevolucionDatafonoContexto
+): Promise<boolean> {
+  const contexto = tpv.contexto
+  if (!contexto) {
+    tpv.error = 'No hay contexto de TPV para el datáfono'
+    return false
+  }
+  ultimoReceiptDatafono.value = null
+  const operacion = crearOperacionCobroDatafono(
+    contexto,
+    importeDatafono,
+    referencia,
+    devolucionCtx
+  )
+  operacionDatafono.value = operacion
+  cobrandoDatafono.value = true
+  tpv.error = null
+  try {
+    const resultado = await operacion.ejecutar()
+    if (!resultado.ok || !resultado.approved) {
+      const base =
+        resultado.message ||
+        (importeDatafono < -0.005
+          ? 'El datáfono no autorizó la devolución'
+          : 'El datáfono no autorizó el cobro')
+      tpv.error =
+        importeDatafono < -0.005 ? mensajeErrorDevolucionRedsys(base) : base
+      return false
+    }
+    if (resultado.receipt) {
+      ultimoReceiptDatafono.value = resultado.receipt
+    }
+    return true
+  } catch (e: unknown) {
+    tpv.error = extractApiError(e, 'No se pudo comunicar con el datáfono')
+    return false
+  } finally {
+    cobrandoDatafono.value = false
+    operacionDatafono.value = null
+  }
+}
+
+async function onDevolucionDatafonoConfirmada(ctx: DevolucionDatafonoContexto) {
+  devolucionDatafonoAbierto.value = false
+  const pending = cobroPendienteTrasDevolucion.value
+  cobroPendienteTrasDevolucion.value = null
+  if (!pending || !tpv.contexto || !tpv.venta) {
+    tpv.error = 'No se pudo continuar la devolución en datáfono'
+    cobroAbierto.value = true
+    return
+  }
+  const referencia = `VENTA-${tpv.contexto.empresa}-${tpv.venta.tipo}-${tpv.venta.albaran}`
+  const ok = await ejecutarCobroEnDatafono(pending.importeDatafono, referencia, ctx)
+  if (!ok) {
+    cobroAbierto.value = true
+    return
+  }
+  await finalizarVentaTrasCobro(
+    pending.datos,
+    pending.importeDatafono,
+    pending.aplicarValeFidelizacion
+  )
+}
+
+function onDevolucionDatafonoCancelada() {
+  devolucionDatafonoAbierto.value = false
+  cobroPendienteTrasDevolucion.value = null
+  tpv.error = 'Devolución en datáfono cancelada'
+  cobroAbierto.value = true
+}
 const errorImpresion = ref<string | null>(null)
 const imprimiendo = ref(false)
 const a4Open = ref(false)
@@ -302,9 +414,17 @@ function abrirAbono() {
 
 async function onAbonoCreado(abono: VentaDetalle) {
   abonoAbierto.value = false
-  await router.push(
-    `/ventas/${encodeURIComponent(abono.empresa)}/${encodeURIComponent(abono.tipo)}/${abono.albaran}`
-  )
+  ultimoReceiptDatafono.value = null
+  tpv.cargarVentaRecuperada(abono)
+  const fp = String(abono.formasPago?.[0]?.codigo ?? '').trim()
+  formaPagoSugeridaCobro.value = fp
+  const importe = Number(abono.importe ?? tpv.total)
+  const eurosTxt = Math.abs(importe).toFixed(2).replace('.', ',')
+  tpv.aviso =
+    `Abono ${abono.albaran} listo. Finalice como ticket y devuelva ${eurosTxt} €` +
+    (fp ? ` (forma sugerida: ${fp}).` : '.')
+  cobrado.value = null
+  cobroAbierto.value = true
 }
 
 function cancelarAbono() {
@@ -330,6 +450,8 @@ async function foco() {
     modalPrecio.value.open ||
     editandoDescuentoLinea.value >= 0 ||
     cobroAbierto.value ||
+    devolucionDatafonoAbierto.value ||
+    cobrandoDatafono.value ||
     confirmarAnulacion.value ||
     abonoAbierto.value ||
     codigoTecladoAbierto.value ||
@@ -520,18 +642,47 @@ const permiteFactura = computed(() => {
 function abrirCobro() {
   if (!puedeCobrar.value) return
   cobrado.value = null
+  formaPagoSugeridaCobro.value = ''
   cobroAbierto.value = true
 }
 
-async function onCobroConfirmado(datos: {
-  tipoDocumento: string
-  formaPago: string
-  entregado: number
-}) {
-  const cerrada = await tpv.cobrar(datos.tipoDocumento, datos.formaPago)
+async function finalizarVentaTrasCobro(
+  datos: { tipoDocumento: string; formaPago: string; entregado: number },
+  importeDatafono: number,
+  aplicarValeFidelizacion: boolean
+) {
+  const contexto = tpv.contexto
+  const forma = contexto?.formasPago.find((item) => item.codigo === datos.formaPago)
+  const cerrada = await tpv.cobrar(datos.tipoDocumento, datos.formaPago, {
+    aplicarValeFidelizacion,
+  })
   if (!cerrada) return
 
-  const cambio = datos.entregado > 0 ? datos.entregado - tpv.total : 0
+  if (
+    ultimoReceiptDatafono.value &&
+    importeDatafono > 0.005 &&
+    contexto &&
+    forma?.datafono
+  ) {
+    try {
+      const auth = autorizacionDesdeXmlRedsys(
+        ultimoReceiptDatafono.value,
+        Number(cerrada.importe ?? importeDatafono)
+      )
+      if (auth) {
+        await registrarAutorizacionTarjetaAlbaran(cerrada.empresa, cerrada.albaran, {
+          puesto: contexto.puesto,
+          sesion: Number(cerrada.sesion ?? contexto.sesion ?? 0),
+          formaPago: 1,
+          ...auth,
+        })
+      }
+    } catch {
+      // El cobro ya está hecho; fallar el registro no debe bloquear la venta.
+    }
+  }
+
+  const cambio = datos.entregado > 0 ? datos.entregado - Number(cerrada.importe ?? tpv.total) : 0
   const etiquetas: Record<string, string> = {
     T: 'Ticket',
     A: 'Albaran',
@@ -544,6 +695,7 @@ async function onCobroConfirmado(datos: {
       ? cerrada.factura ?? tpv.numeroTicket
       : cerrada.albaran
   cobroAbierto.value = false
+  formaPagoSugeridaCobro.value = ''
   ultimoTicket.value = cerrada
   ultimoTipoDocumento.value = datos.tipoDocumento
   ultimoDocumento.value = `${etiqueta} ${numero}`
@@ -552,6 +704,19 @@ async function onCobroConfirmado(datos: {
     cambio > 0
       ? `${etiqueta} ${numero} finalizado. Cambio ${cambio.toFixed(2).replace('.', ',')} €`
       : `${etiqueta} ${numero} finalizado`
+  if (cerrada.valeFidelizacion?.aplicado) {
+    const aplicado = cerrada.valeFidelizacion.aplicado.toFixed(2).replace('.', ',')
+    const saldo = cerrada.valeFidelizacion.saldoRestante.toFixed(2).replace('.', ',')
+    cobrado.value +=
+      cerrada.valeFidelizacion.saldoRestante > 0
+        ? `. Vale de fidelización aplicado: ${aplicado} €. Saldo restante: ${saldo} €.`
+        : `. Vale de fidelización aplicado: ${aplicado} €. Vale agotado.`
+  }
+  if (cerrada.fidelizacionPuntos) {
+    const compra = cerrada.fidelizacionPuntos.compra.toFixed(2).replace('.', ',')
+    const acumulados = cerrada.fidelizacionPuntos.acumulados.toFixed(2).replace('.', ',')
+    cobrado.value += `. Puntos de esta compra: ${compra}. Acumulados del semestre: ${acumulados}.`
+  }
 
   postVentaError.value = null
   postVentaOpen.value = true
@@ -561,6 +726,58 @@ async function onCobroConfirmado(datos: {
   cantidadTecleada.value = ''
   codigoManual.value = ''
   tpv.cerrarTicket()
+}
+
+async function onCobroConfirmado(datos: {
+  tipoDocumento: string
+  formaPago: string
+  entregado: number
+}) {
+  const contexto = tpv.contexto
+  const forma = contexto?.formasPago.find((item) => item.codigo === datos.formaPago)
+  const requierePago = datos.tipoDocumento === 'T' || datos.tipoDocumento === 'F'
+  const totalCobro = Number(tpv.venta?.importe ?? tpv.total)
+  let aplicarValeFidelizacion = false
+  let descuentoValePrevisto = 0
+  if (requierePago && totalCobro > 0.005 && contexto && tpv.cliente?.codigo) {
+    try {
+      const disponible = await valeFidelizacionDisponible(contexto.empresa, tpv.cliente.codigo)
+      if (disponible.saldo > 0) {
+        const aplicable = Math.min(disponible.saldo, totalCobro)
+        aplicarValeFidelizacion = window.confirm(
+          `Tiene ${disponible.saldo.toFixed(2).replace('.', ',')} € en vales de fidelización. ` +
+            `¿Aplicar ${aplicable.toFixed(2).replace('.', ',')} € de descuento a esta compra?`
+        )
+        descuentoValePrevisto = aplicarValeFidelizacion ? aplicable : 0
+      }
+    } catch (e: unknown) {
+      tpv.error = extractApiError(e, 'No se pudo consultar el vale de fidelización')
+      return
+    }
+  }
+  const importeDatafono = totalCobro - descuentoValePrevisto
+  if (requierePago && forma?.datafono && Math.abs(importeDatafono) > 0.005) {
+    if (!contexto || !tpv.venta) {
+      tpv.error = 'No se puede identificar la venta para iniciar el datáfono'
+      return
+    }
+    if (importeDatafono < -0.005) {
+      cobroPendienteTrasDevolucion.value = {
+        datos,
+        importeDatafono,
+        aplicarValeFidelizacion,
+      }
+      devolucionAlbaranOrigen.value = Number(tpv.venta.albaranOrigenAbono ?? 0)
+      cobroAbierto.value = false
+      devolucionDatafonoAbierto.value = true
+      return
+    }
+    const referencia = `VENTA-${contexto.empresa}-${tpv.venta.tipo}-${tpv.venta.albaran}`
+    const ok = await ejecutarCobroEnDatafono(importeDatafono, referencia, {})
+    if (!ok) return
+  }
+
+  await finalizarVentaTrasCobro(datos, importeDatafono, aplicarValeFidelizacion)
 }
 
 async function imprimirTrasCobro() {
@@ -648,6 +865,7 @@ async function imprimirTicket() {
   try {
     const res = await prepararOImprimirVenta(venta, {
       puestoCodigo: puestoStore.puestoCodigo ?? '',
+      receiptDatafono: ultimoReceiptDatafono.value,
     })
     if (res.kind !== 'ticket') {
       errorImpresion.value = 'El documento no salió como ticket térmico; revise la plantilla'
@@ -776,8 +994,16 @@ function cerrarVisorTicket() {
   void foco()
 }
 
-function onCobroCancelado() {
+async function onCobroCancelado() {
+  if (operacionDatafono.value) {
+    try {
+      await operacionDatafono.value.cancelar()
+    } catch {
+      // El cobro principal devolverá el error de cancelación.
+    }
+  }
   cobroAbierto.value = false
+  formaPagoSugeridaCobro.value = ''
   void foco()
 }
 
@@ -1105,12 +1331,40 @@ onMounted(() => {
       @cancelar="onClienteCancelado"
     />
 
+    <TpvDevolucionDatafonoModal
+      :open="devolucionDatafonoAbierto"
+      :empresa="tpv.contexto?.empresa ?? ''"
+      :albaran-origen="devolucionAlbaranOrigen"
+      :importe-devolucion="Math.abs(Number(tpv.total))"
+      @confirmar="onDevolucionDatafonoConfirmada"
+      @cancelar="onDevolucionDatafonoCancelada"
+    />
+
+    <Teleport to="body">
+      <div
+        v-if="cobrandoDatafono"
+        class="overlay-datafono-global"
+        role="status"
+        aria-live="polite"
+      >
+        <div class="overlay-datafono-panel">
+          <p class="overlay-datafono-titulo">Esperando datáfono…</p>
+          <p class="overlay-datafono-hint">
+            Siga las instrucciones en el pinpad. No cierre la aplicación.
+          </p>
+          <p v-if="tpv.error" class="overlay-datafono-error">{{ tpv.error }}</p>
+        </div>
+      </div>
+    </Teleport>
+
     <TpvCobroModal
       :open="cobroAbierto"
       :total="tpv.total"
       :formas-pago="tpv.contexto?.formasPago ?? []"
+      :forma-pago-inicial="formaPagoSugeridaCobro"
       :permite-factura="permiteFactura"
-      :guardando="tpv.guardando"
+      :guardando="tpv.guardando || cobrandoDatafono"
+      :cobrando-datafono="cobrandoDatafono"
       @confirmar="onCobroConfirmado"
       @cancelar="onCobroCancelado"
     />
@@ -1791,5 +2045,50 @@ onMounted(() => {
  */
 html:has(.tpv) {
   --escala-ui: min(1.65vh, 1.35vw);
+}
+
+.overlay-datafono-global {
+  position: fixed;
+  inset: 0;
+  z-index: 8000;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(15 23 42 / 72%);
+}
+
+.overlay-datafono-panel {
+  max-width: 22rem;
+  padding: 1.25rem 1.5rem;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 20px 48px rgb(0 0 0 / 35%);
+  text-align: center;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+.overlay-datafono-titulo {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.overlay-datafono-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.overlay-datafono-error {
+  margin: 0.75rem 0 0;
+  padding: 0.5rem 0.65rem;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-radius: 8px;
+  color: #be123c;
+  font-size: 0.82rem;
+  text-align: left;
 }
 </style>

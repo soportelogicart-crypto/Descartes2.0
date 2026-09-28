@@ -19,10 +19,10 @@ type BuscarEntidad = 'clientes' | 'trabajadores' | 'puestos-trabajo'
 
 const ESTADOS_VENTA = [
   { value: '', label: 'Todos' },
-  { value: 'B', label: 'B — En edición' },
-  { value: 'D', label: 'D' },
-  { value: 'F', label: 'F — Facturado' },
-  { value: 'G', label: 'G — Contado diferido' },
+  { value: 'B', label: 'Presupuesto o venta sin finalizar (B)' },
+  { value: 'D', label: 'Otros (D)' },
+  { value: 'F', label: 'Facturado (F)' },
+  { value: 'G', label: 'Contado diferido (G)' },
 ] as const
 
 const CLASES_DOCUMENTO = [
@@ -174,7 +174,7 @@ const textoColumna: Record<ColumnaKey, (v: VentaResumen) => string> = {
   cliente: (v) => `${v.cliente ?? ''} ${v.razonSocial ?? ''}`,
   puesto: (v) => String(v.puesto ?? ''),
   vendedor: (v) => String(v.vendedor ?? ''),
-  estado: (v) => String(v.estado ?? ''),
+  estado: (v) => `${estadoTexto(v)} ${v.estado ?? ''}`,
   importe: (v) => Number(v.importe ?? 0).toFixed(2),
   factura: (v) => fmtFactura(v),
 }
@@ -304,6 +304,25 @@ function fmtFactura(v: VentaResumen) {
     return `${t}-${n}`
   }
   return '—'
+}
+
+/**
+ * El Estado legacy son letras (B, F, G) que no dicen nada a quien usa el listado.
+ * La situación real sale de FacturaTipo: R es presupuesto, y sin sesión aún no se finalizó.
+ */
+function estadoTexto(v: VentaResumen) {
+  const ft = String(v.facturaTipo ?? '').trim().toUpperCase()
+  const estado = String(v.estado ?? '').trim().toUpperCase()
+  const factura = Number(v.factura ?? 0)
+  if (ft === 'A') return 'Abono'
+  if (ft === 'F') return estado === 'G' ? 'Contado diferido' : 'Facturado'
+  if (ft === 'T' && factura > 0) return 'Ticket'
+  // Toda venta nace con Estado B y FacturaTipo R; al finalizar recibe sesión.
+  if (ft === 'R') return estado === 'B' && Number(v.sesion ?? 0) <= 0 ? 'Sin finalizar' : 'Presupuesto'
+  if (estado === 'F') return 'Facturado'
+  if (estado === 'G') return 'Contado diferido'
+  if (estado === 'B') return 'Sin finalizar'
+  return estado === '' ? 'Albarán' : estado
 }
 
 function abrirBuscar(campo: 'cliente' | 'vendedor' | 'puesto') {
@@ -441,7 +460,7 @@ onActivated(() => {
         </label>
         <label>
           Estado
-          <select v-model="filtros.estado" title="Estado del albarán">
+          <select v-model="filtros.estado" title="Situación del documento (código legacy entre paréntesis)">
             <option v-for="e in ESTADOS_VENTA" :key="e.value || 'todos'" :value="e.value">
               {{ e.label }}
             </option>
@@ -505,7 +524,9 @@ onActivated(() => {
                 </td>
                 <td class="col-puesto">{{ v.puesto || '—' }}</td>
                 <td class="col-vend">{{ v.vendedor || '—' }}</td>
-                <td class="col-estado">{{ v.estado || '—' }}</td>
+                <td class="col-estado" :title="`Estado legacy: ${v.estado || '—'}`">
+                  {{ estadoTexto(v) }}
+                </td>
                 <td class="num col-imp">{{ Number(v.importe ?? 0).toFixed(2) }}</td>
                 <td class="col-fact">{{ fmtFactura(v) }}</td>
               </tr>
@@ -793,7 +814,7 @@ th {
   width: 6rem;
 }
 .col-estado {
-  width: 5.5rem;
+  width: 8.5rem;
 }
 .col-imp {
   width: 8rem;

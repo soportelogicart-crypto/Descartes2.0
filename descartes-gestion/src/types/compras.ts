@@ -301,7 +301,7 @@ export type AbcComprasFiltros = {
     | 'secciones'
     | 'subsecciones'
   imArticulos: AbcComprasImArticulosModo
-  divisa?: 'EU' | 'PES'
+  divisa?: string
   valor: 'precioMedio' | 'precioMedioActual' | 'ultimoPrecio' | 'sinValorTarifa'
   formatoJerarquia?:
     | 'normal'
