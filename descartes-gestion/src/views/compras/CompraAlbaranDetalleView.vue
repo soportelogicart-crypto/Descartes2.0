@@ -1016,7 +1016,12 @@ function registrarPvp(codigo: string, pvp: number) {
   }
 }
 
+let pvpCargaTicket = 0
+
 async function cargarPvpsLineas(lineas: Array<{ articulo?: string | null; precioVenta?: number | null }>) {
+  const ticket = ++pvpCargaTicket
+  const tarifa = tarifaEmpresaActual()
+  const pendientes = new Set<string>()
   for (const l of lineas) {
     const art = String(l.articulo ?? '').trim()
     if (!art) continue
@@ -1025,14 +1030,26 @@ async function cargarPvpsLineas(lineas: Array<{ articulo?: string | null; precio
       registrarPvp(art, ya)
       continue
     }
-    try {
-      const artRes = await resolverArticulo(art)
-      const pvp = pvpDesdeDatosArticulo(artRes, tarifaEmpresaActual())
-      if (pvp > 0) registrarPvp(String(artRes.codigo ?? art).trim() || art, pvp)
-    } catch {
-      /* el artículo puede no tener PVP */
+    pendientes.add(art)
+  }
+
+  const codigos = [...pendientes]
+  let cursor = 0
+  async function cargarSiguiente() {
+    while (cursor < codigos.length) {
+      const art = codigos[cursor++]
+      try {
+        const artRes = await resolverArticulo(art)
+        if (ticket !== pvpCargaTicket) return
+        const pvp = pvpDesdeDatosArticulo(artRes, tarifa)
+        if (pvp > 0) registrarPvp(String(artRes.codigo ?? art).trim() || art, pvp)
+      } catch {
+        /* el artículo puede no tener PVP */
+      }
     }
   }
+  const trabajadores = Math.min(8, codigos.length)
+  await Promise.all(Array.from({ length: trabajadores }, () => cargarSiguiente()))
 }
 
 function lineaCosteCambio(l: FormLinea): boolean {
