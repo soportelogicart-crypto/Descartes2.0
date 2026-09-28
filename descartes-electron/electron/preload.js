@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('descartes', {
 
   getEquipoConfig: () => ipcRenderer.invoke('equipo:get'),
   setEquipoConfig: (payload) => ipcRenderer.invoke('equipo:set', payload),
+  setDatafonoConfig: (payload) => ipcRenderer.invoke('equipo:setDatafono', payload),
   clearEquipoConfig: () => ipcRenderer.invoke('equipo:clear'),
   getHostname: () => ipcRenderer.invoke('equipo:hostname'),
   logoEmpresa: (codigo) => ipcRenderer.invoke('logos:empresa', codigo),
@@ -25,6 +26,12 @@ contextBridge.exposeInMainWorld('descartes', {
   readCashDrawer: (payload) => ipcRenderer.invoke('peripheral:readCashDrawer', payload || {}),
   readScale: () => ipcRenderer.invoke('peripheral:readScale'),
   displayPrice: (payload) => ipcRenderer.invoke('peripheral:displayPrice', payload),
+  paymentTerminalStatus: (payload) =>
+    ipcRenderer.invoke('peripheral:paymentTerminalStatus', payload || {}),
+  paymentTerminalCharge: (payload) =>
+    ipcRenderer.invoke('peripheral:paymentTerminalCharge', payload || {}),
+  paymentTerminalCancel: (payload) =>
+    ipcRenderer.invoke('peripheral:paymentTerminalCancel', payload || {}),
 })
 
 ipcRenderer.on('app:navigate', (_event, path) => {

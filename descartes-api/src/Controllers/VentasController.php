@@ -9,10 +9,12 @@ use Descartes\Api\Services\Facturacion\ImpresionFacturasService;
 use Descartes\Api\Services\PermissionService;
 use Descartes\Api\Services\Ventas\AbcVentasService;
 use Descartes\Api\Services\Ventas\AnulacionConsultaService;
+use Descartes\Api\Services\Ventas\AutorizacionTarjetaService;
 use Descartes\Api\Services\Ventas\ArqueoService;
 use Descartes\Api\Services\Ventas\CobroPagoConsultaService;
 use Descartes\Api\Services\Ventas\DesgloseArqueoVentasService;
 use Descartes\Api\Services\Ventas\DispositivoPuestoService;
+use Descartes\Api\Services\Ventas\FidelizacionValesSemestreService;
 use Descartes\Api\Services\Ventas\PedidoClienteService;
 use Descartes\Api\Services\Ventas\ValeService;
 use Descartes\Api\Services\Ventas\VentaConsultaService;
@@ -34,9 +36,11 @@ final class VentasController
   private AnulacionConsultaService $anulaciones;
   private CobroPagoConsultaService $cobrosPagos;
   private ValeService $vales;
+  private FidelizacionValesSemestreService $fidelizacionVales;
   private PedidoClienteService $pedidos;
   private AbcVentasService $abcVentas;
   private VentaEmailService $ventaEmail;
+  private AutorizacionTarjetaService $autorizacionesTarjeta;
   private PermissionService $permissions;
   private LoggerInterface $logger;
 
@@ -50,9 +54,11 @@ final class VentasController
     AnulacionConsultaService $anulaciones,
     CobroPagoConsultaService $cobrosPagos,
     ValeService $vales,
+    FidelizacionValesSemestreService $fidelizacionVales,
     PedidoClienteService $pedidos,
     AbcVentasService $abcVentas,
     VentaEmailService $ventaEmail,
+    AutorizacionTarjetaService $autorizacionesTarjeta,
     PermissionService $permissions,
     LoggerInterface $logger
   ) {
@@ -65,9 +71,11 @@ final class VentasController
     $this->anulaciones = $anulaciones;
     $this->cobrosPagos = $cobrosPagos;
     $this->vales = $vales;
+    $this->fidelizacionVales = $fidelizacionVales;
     $this->pedidos = $pedidos;
     $this->abcVentas = $abcVentas;
     $this->ventaEmail = $ventaEmail;
+    $this->autorizacionesTarjeta = $autorizacionesTarjeta;
     $this->permissions = $permissions;
     $this->logger = $logger;
   }
@@ -535,6 +543,96 @@ final class VentasController
     }
   }
 
+  public function getAutorizacionTarjetaAlbaran(Request $request, Response $response, array $args): Response
+  {
+    try {
+      $empresa = trim((string) ($args['empresa'] ?? ''));
+      $albaran = (int) ($args['albaran'] ?? 0);
+      $item = $this->autorizacionesTarjeta->buscarPorAlbaran($empresa, $albaran);
+      return $this->json($response, 200, ['item' => $item]);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function buscarAutorizacionTarjeta(Request $request, Response $response, array $args): Response
+  {
+    try {
+      $q = $request->getQueryParams();
+      $empresa = trim((string) ($args['empresa'] ?? ''));
+      $aut = trim((string) ($q['aut'] ?? $q['autorizacion'] ?? ''));
+      $clr = trim((string) ($q['clr'] ?? ''));
+      $importeRaw = $q['importe'] ?? null;
+      $importe = $importeRaw !== null && $importeRaw !== '' ? (float) $importeRaw : null;
+      $albaranOrigen = isset($q['albaran']) ? (int) $q['albaran'] : 0;
+      $item = $this->autorizacionesTarjeta->resolverParaDevolucion(
+        $empresa,
+        $aut,
+        $clr,
+        $importe,
+        $albaranOrigen > 0 ? $albaranOrigen : null
+      );
+      return $this->json($response, 200, ['item' => $item]);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function registrarAutorizacionTarjeta(Request $request, Response $response, array $args): Response
+  {
+    $body = (array) ($request->getParsedBody() ?? []);
+    if ($body === []) {
+      $body = (array) json_decode((string) $request->getBody(), true);
+    }
+    try {
+      $empresa = trim((string) ($args['empresa'] ?? ''));
+      $puesto = trim((string) ($body['puesto'] ?? ''));
+      $sesion = (int) ($body['sesion'] ?? 0);
+      $albaran = (int) ($args['albaran'] ?? 0);
+      $this->autorizacionesTarjeta->registrar($empresa, $puesto, $sesion, $albaran, $body);
+      return $this->json($response, 200, ['ok' => true]);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function cobrarDatafonoDispositivo(Request $request, Response $response, array $args): Response
+  {
+    return $this->operacionDatafono($request, $response, $args, 'cobrarDatafono');
+  }
+
+  public function cancelarDatafonoDispositivo(Request $request, Response $response, array $args): Response
+  {
+    return $this->operacionDatafono($request, $response, $args, 'cancelarDatafono');
+  }
+
+  public function estadoDatafonoDispositivo(Request $request, Response $response, array $args): Response
+  {
+    return $this->operacionDatafono($request, $response, $args, 'estadoDatafono');
+  }
+
+  private function operacionDatafono(
+    Request $request,
+    Response $response,
+    array $args,
+    string $metodo
+  ): Response {
+    $body = (array) ($request->getParsedBody() ?? []);
+    if ($body === []) {
+      $body = (array) json_decode((string) $request->getBody(), true);
+    }
+    try {
+      $item = $this->dispositivos->{$metodo}(trim((string) ($args['puesto'] ?? '')), $body);
+      return $this->json($response, 200, $item);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
   public function getArqueoDesglose(Request $request, Response $response): Response
   {
     $q = $request->getQueryParams();
@@ -576,6 +674,22 @@ final class VentasController
     return $this->json($response, 200, $this->vales->listar($request->getQueryParams()));
   }
 
+  public function valeFidelizacionDisponible(Request $request, Response $response): Response
+  {
+    $q = $request->getQueryParams();
+    try {
+      $item = $this->vales->fidelizacionDisponible(
+        trim((string) ($q['empresa'] ?? '')),
+        trim((string) ($q['cliente'] ?? ''))
+      );
+      return $this->json($response, 200, $item);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
   public function createVale(Request $request, Response $response): Response
   {
     $body = (array) json_decode((string) $request->getBody(), true);
@@ -584,6 +698,97 @@ final class VentasController
       return $this->json($response, 201, $item);
     } catch (\InvalidArgumentException $e) {
       return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function semestreFidelizacion(Request $request, Response $response): Response
+  {
+    $sem = $this->fidelizacionVales->semestreAnterior();
+    return $this->json($response, 200, $sem);
+  }
+
+  public function configuracionFidelizacion(Request $request, Response $response): Response
+  {
+    try {
+      $q = $request->getQueryParams();
+      return $this->json(
+        $response,
+        200,
+        $this->fidelizacionVales->configuracion(trim((string) ($q['empresa'] ?? '')))
+      );
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    }
+  }
+
+  public function seleccionarModeloFidelizacion(Request $request, Response $response): Response
+  {
+    $body = (array) ($request->getParsedBody() ?? []);
+    try {
+      return $this->json(
+        $response,
+        200,
+        $this->fidelizacionVales->seleccionarModelo(
+          trim((string) ($body['empresa'] ?? '')),
+          trim((string) ($body['codigo'] ?? ''))
+        )
+      );
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    }
+  }
+
+  public function estadoAutomaticoFidelizacion(Request $request, Response $response): Response
+  {
+    try {
+      $q = $request->getQueryParams();
+      return $this->json(
+        $response,
+        200,
+        $this->fidelizacionVales->estadoAutomatico(trim((string) ($q['empresa'] ?? '')))
+      );
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function generarAutomaticamenteFidelizacion(Request $request, Response $response): Response
+  {
+    $body = (array) ($request->getParsedBody() ?? []);
+    try {
+      $item = $this->fidelizacionVales->generarAutomaticamente(
+        trim((string) ($body['empresa'] ?? '')),
+        trim((string) ($body['puesto'] ?? ''))
+      );
+      return $this->json($response, 200, $item);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function generarValesFidelizacion(Request $request, Response $response): Response
+  {
+    $body = (array) ($request->getParsedBody() ?? []);
+    if ($body === []) {
+      $body = (array) json_decode((string) $request->getBody(), true);
+    }
+    try {
+      $item = $this->fidelizacionVales->ejecutar($body);
+      return $this->json($response, !empty($item['simulado']) ? 200 : 201, $item);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
     } catch (\Throwable $e) {
       return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
     }

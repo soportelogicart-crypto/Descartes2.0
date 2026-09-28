@@ -488,7 +488,7 @@ final class AbcComprasService
   private function normalizarDivisa(mixed $raw): string
   {
     $s = strtoupper(trim((string) $raw));
-    return $s === 'PES' ? 'PES' : 'EU';
+    return $s !== '' ? mb_substr($s, 0, 2) : 'EU';
   }
 
   /**

@@ -46,6 +46,15 @@ function sendJson(res, status, body) {
   res.end(raw)
 }
 
+/**
+ * Un sitio web cualquiera no debe poder ordenar cobros a localhost. Electron
+ * usa IPC y el proxy PHP no envía Origin, por lo que ambos caminos legítimos
+ * siguen disponibles.
+ */
+function paymentRequestAllowed(req) {
+  return !req.headers.origin
+}
+
 async function handle(req, res) {
   const url = String(req.url || '').split('?')[0]
 
@@ -92,6 +101,29 @@ async function handle(req, res) {
       message: result.message || '',
       impresora: result.impresora || null,
     })
+    return
+  }
+
+  if (url.startsWith('/datafono/') && !paymentRequestAllowed(req)) {
+    sendJson(res, 403, { ok: false, code: 'ORIGEN_NO_PERMITIDO', message: 'Origen no permitido' })
+    return
+  }
+
+  if (req.method === 'POST' && url === '/datafono/estado') {
+    const result = await peripherals.paymentTerminalStatus(await readJson(req))
+    sendJson(res, 200, result)
+    return
+  }
+
+  if (req.method === 'POST' && url === '/datafono/cobrar') {
+    const result = await peripherals.paymentTerminalCharge(await readJson(req))
+    sendJson(res, 200, result)
+    return
+  }
+
+  if (req.method === 'POST' && url === '/datafono/cancelar') {
+    const result = await peripherals.paymentTerminalCancel(await readJson(req))
+    sendJson(res, 200, result)
     return
   }
 

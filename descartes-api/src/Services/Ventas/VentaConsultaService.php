@@ -126,7 +126,9 @@ final class VentaConsultaService
               Representante, Transporte, DireccionEnvio, PoblacionEnvio, CodigoPostalEnvio,
               ProvinciaEnvio, PaisEnvio, Telefono, Telefono2, Fax, Email, Almacen, Pedido,
               Referencia1, Referencia2, NumeroDeSerie, Observaciones, SujetoPasivo, Portes, Estado, Impreso,
-              Importe, Factura, FacturaTipo, Sesion, Mesa, Tarifa, FechaEntrega, ImporteDtos, PjeDto,
+              Importe, Factura, FacturaTipo, Sesion, Mesa, Tarifa, FechaEntrega,
+              ImporteDtos, ImporteDtoFidelizacion, PjeDto,
+              PuntosFidelizacionCompra, PuntosFidelizacionAcumulados,
               Fpago1, Fpago2, Fpago3, ImpFpago1, ImpFpago2,
               ImporteBase1, ImporteBase2, ImporteBase3, ImporteBase4, ImporteBase5, ImporteBase6,
               PjeIva1, PjeIva2, PjeIva3, PjeIva4, PjeIva5, PjeIva6,
@@ -192,6 +194,15 @@ final class VentaConsultaService
     $detalle['fechaEntrega'] = $this->fmtDate($cab['FechaEntrega'] ?? null);
     $detalle['bruto'] = (float) ($cab['ImporteBase1'] ?? 0);
     $detalle['descuento'] = (float) ($cab['ImporteDtos'] ?? 0);
+    $detalle['descuentoFidelizacion'] = (float) ($cab['ImporteDtoFidelizacion'] ?? 0);
+    $puntosCompra = (float) ($cab['PuntosFidelizacionCompra'] ?? 0);
+    $puntosAcumulados = (float) ($cab['PuntosFidelizacionAcumulados'] ?? 0);
+    if ($puntosCompra != 0.0 || $puntosAcumulados != 0.0) {
+      $detalle['fidelizacionPuntos'] = [
+        'compra' => $puntosCompra,
+        'acumulados' => $puntosAcumulados,
+      ];
+    }
     $detalle['iva'] = (float) ($cab['ImporteIva1'] ?? 0);
     $detalle['pjeIva1'] = (float) ($cab['PjeIva1'] ?? 0);
     $detalle['pjeDto'] = (float) ($cab['PjeDto'] ?? 0);

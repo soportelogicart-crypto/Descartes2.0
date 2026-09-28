@@ -12,7 +12,7 @@ use PDO;
  */
 final class FidelizacionService
 {
-  private const MOTORES_REGISTRADOS = ['NINGUNO', 'EUROS', 'PUNTOS'];
+  private const MOTORES_REGISTRADOS = ['NINGUNO', 'EUROS', 'PUNTOS', 'VALE_SEMESTRAL'];
 
   private PDO $pdo;
 
@@ -74,6 +74,11 @@ final class FidelizacionService
     $motor = strtoupper(trim((string) ($tipo['motor'] ?? 'NINGUNO')));
     if ($motor === 'NINGUNO') {
       return ['avisos' => $avisos, 'aplicado' => false];
+    }
+    // El programa semestral calcula los puntos desde las ventas cerradas;
+    // no usa los acumulados incrementales de Clientes.
+    if ($motor === 'VALE_SEMESTRAL') {
+      return ['avisos' => $avisos, 'aplicado' => true];
     }
 
     if (!in_array($motor, self::MOTORES_REGISTRADOS, true)) {

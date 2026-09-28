@@ -279,7 +279,8 @@ final class ListadosFiltrosSql
   }
 
   /**
-   * Combo Divisa del informe ABC ventas (EU / PES sobre [Empresas_Ges].Divisa de la tienda).
+   * Divisa elegida en informes ABC. La lista procede de la divisa principal y
+   * alternativa configuradas en la tienda, por lo que ambas son válidas.
    *
    * @param list<string> $where
    * @param array<string, mixed> $params
@@ -287,20 +288,18 @@ final class ListadosFiltrosSql
   public static function filtroDivisaAbcVentas(array &$where, array &$params, string $empresaColumnSql, mixed $raw): void
   {
     $divisa = strtoupper(trim((string) ($raw ?? 'EU')));
-    if ($divisa === 'EU') {
-      self::filtroDivisaEuEmpresa($where, $empresaColumnSql);
-
-      return;
-    }
-    if ($divisa !== 'PES') {
+    if ($divisa === '') {
       return;
     }
     $col = 'RTRIM(' . $empresaColumnSql . ')';
     $where[] = 'EXISTS (
       SELECT 1 FROM [Empresas_Ges] eg
       WHERE RTRIM(eg.[Codigo]) = ' . $col . "
-        AND RTRIM(ISNULL(eg.[Divisa], 'EU')) = :abcDivisaTienda
+        AND (
+          UPPER(RTRIM(ISNULL(eg.[Divisa], ''))) = :abcDivisaTienda
+          OR UPPER(RTRIM(ISNULL(eg.[DivisaAlt], ''))) = :abcDivisaTienda
+        )
     )";
-    $params['abcDivisaTienda'] = 'PES';
+    $params['abcDivisaTienda'] = $divisa;
   }
 }

@@ -28,6 +28,9 @@ final class MigrationService
     '009-tipos-calculo-fidelizacion.sql',
     '010-permisos-albaranes-periodicos.sql',
     '015-albaranes-periodicos-activo.sql',
+    '016-fidelizacion-vales-semestre.sql',
+    '017-fidelizacion-automatizacion.sql',
+    '018-tarjeta-fidelizacion-dni.sql',
   ];
 
   /**

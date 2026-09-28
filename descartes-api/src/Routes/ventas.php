@@ -37,12 +37,19 @@ return function (App $app): void {
       ->add($setPermiso('ventas', 'ver'));
     $group->get('/albaranes', [VentasController::class, 'listVentas'])
       ->add($setPermiso('ventas', 'ver'));
+    $group->get('/autorizacion-tarjeta/{empresa}/buscar', [VentasController::class, 'buscarAutorizacionTarjeta'])
+      ->add($setPermiso('ventas', 'ver'));
     $group->get('/puestos/{puesto}', [VentasController::class, 'getPuestoVenta'])
       ->add($setPermiso('ventas', 'ver'));
     $group->post('/albaranes', [VentasController::class, 'createVenta'])
       ->add($setPermiso('ventas', 'crear'));
     $group->post('/albaranes/reservar', [VentasController::class, 'reservarAlbaran'])
       ->add($setPermiso('ventas', 'crear'));
+    // Antes que getVenta: /001/26021812/autorizacion-tarjeta no debe interpretarse como tipo+albarán.
+    $group->get('/albaranes/{empresa}/{tipo}/{albaran}/autorizacion-tarjeta', [VentasController::class, 'getAutorizacionTarjetaAlbaran'])
+      ->add($setPermiso('ventas', 'ver'));
+    $group->post('/albaranes/{empresa}/{tipo}/{albaran}/autorizacion-tarjeta', [VentasController::class, 'registrarAutorizacionTarjeta'])
+      ->add($setPermiso('ventas', 'editar'));
     $group->get('/albaranes/{empresa}/{tipo}/{albaran}', [VentasController::class, 'getVenta'])
       ->add($setPermiso('ventas', 'ver'));
     $group->post('/albaranes/{empresa}/{tipo}/{albaran}/email', [VentasController::class, 'emailVenta'])
@@ -80,6 +87,12 @@ return function (App $app): void {
       ->add($setPermiso('ventas-arqueo', 'editar'));
     $group->post('/puestos/{puesto}/dispositivo/imprimir', [VentasController::class, 'imprimirDispositivo'])
       ->add($setPermiso('ventas-arqueo', 'ver'));
+    $group->post('/puestos/{puesto}/dispositivo/datafono/estado', [VentasController::class, 'estadoDatafonoDispositivo'])
+      ->add($setPermiso('ventas', 'ver'));
+    $group->post('/puestos/{puesto}/dispositivo/datafono/cobrar', [VentasController::class, 'cobrarDatafonoDispositivo'])
+      ->add($setPermiso('ventas', 'editar'));
+    $group->post('/puestos/{puesto}/dispositivo/datafono/cancelar', [VentasController::class, 'cancelarDatafonoDispositivo'])
+      ->add($setPermiso('ventas', 'editar'));
 
     $group->get('/anulaciones', [VentasController::class, 'listAnulaciones'])
       ->add($setPermiso('ventas-anulaciones', 'ver'));
@@ -89,10 +102,23 @@ return function (App $app): void {
 
     $group->get('/vales', [VentasController::class, 'listVales'])
       ->add($setPermiso('ventas-vales', 'ver'));
+    $group->get('/fidelizacion/vale-disponible', [VentasController::class, 'valeFidelizacionDisponible'])
+      ->add($setPermiso('ventas', 'ver'));
     $group->post('/vales', [VentasController::class, 'createVale'])
       ->add($setPermiso('ventas-vales', 'crear'));
     $group->post('/vales/{empresa}/{codigo}/liquidar', [VentasController::class, 'liquidarVale'])
       ->add($setPermiso('ventas-vales', 'editar'));
+    $group->get('/fidelizacion/semestre', [VentasController::class, 'semestreFidelizacion'])
+      ->add($setPermiso('ventas-vales', 'ver'));
+    $group->get('/fidelizacion/configuracion', [VentasController::class, 'configuracionFidelizacion'])
+      ->add($setPermiso('clientes', 'ver'));
+    $group->put('/fidelizacion/configuracion', [VentasController::class, 'seleccionarModeloFidelizacion'])
+      ->add($setPermiso('clientes', 'editar'));
+    // Cualquier usuario autenticado puede disparar la tarea idempotente al abrir el programa.
+    $group->get('/fidelizacion/automatico/estado', [VentasController::class, 'estadoAutomaticoFidelizacion']);
+    $group->post('/fidelizacion/automatico/generar', [VentasController::class, 'generarAutomaticamenteFidelizacion']);
+    $group->post('/fidelizacion/vales-semestre', [VentasController::class, 'generarValesFidelizacion'])
+      ->add($setPermiso('ventas-vales', 'crear'));
 
     $group->get('/pedidos-clientes', [VentasController::class, 'listPedidos'])
       ->add($setPermiso('ventas-pedidos', 'ver'));

@@ -18,6 +18,8 @@ final class VentaEscrituraService
   private VentaConsultaService $consulta;
   private ArqueoService $arqueo;
   private FidelizacionService $fidelizacion;
+  private ValeService $vales;
+  private FidelizacionValesSemestreService $fidelizacionVales;
   private RecibosFacturaService $recibos;
   private FacturacionRetencionIrpfService $retencionIrpf;
 
@@ -26,6 +28,8 @@ final class VentaEscrituraService
     VentaConsultaService $consulta,
     ?ArqueoService $arqueo = null,
     ?FidelizacionService $fidelizacion = null,
+    ?ValeService $vales = null,
+    ?FidelizacionValesSemestreService $fidelizacionVales = null,
     ?RecibosFacturaService $recibos = null,
     ?FacturacionRetencionIrpfService $retencionIrpf = null
   ) {
@@ -33,6 +37,9 @@ final class VentaEscrituraService
     $this->consulta = $consulta;
     $this->arqueo = $arqueo ?? new ArqueoService($pdo);
     $this->fidelizacion = $fidelizacion ?? new FidelizacionService($pdo);
+    $this->vales = $vales ?? new ValeService($pdo);
+    $this->fidelizacionVales = $fidelizacionVales
+      ?? new FidelizacionValesSemestreService($pdo, $this->vales);
     $this->recibos = $recibos ?? new RecibosFacturaService($pdo);
     $this->retencionIrpf = $retencionIrpf ?? new FacturacionRetencionIrpfService($pdo);
   }
@@ -455,6 +462,8 @@ final class VentaEscrituraService
     ];
     /** @var list<string> */
     $avisosFidelizacion = [];
+    $resultadoValeFidelizacion = null;
+    $puntosFidelizacion = null;
     // Contado/ticket: forma de pago elegida (legacy Frame1/DbList2: CobroDeArqueo).
     $fpagoBody = trim((string) ($body['fpago1'] ?? ''));
     $fpago1 = $fpagoBody !== '' ? $fpagoBody : trim((string) ($this->fpagoCodigo($actual, 0)));
@@ -464,6 +473,38 @@ final class VentaEscrituraService
 
     $this->pdo->beginTransaction();
     try {
+      if (!empty($body['aplicarValeFidelizacion']) && in_array($opcion, ['T', 'F'], true)) {
+        $clienteVale = trim((string) ($actual['cliente'] ?? ''));
+        if ($clienteVale !== '' && strtoupper($clienteVale) !== 'ZZZZZZZZZ') {
+          $disponible = $this->vales->fidelizacionDisponible($empresa, $clienteVale, true);
+          $objetivo = min((float) $disponible['saldo'], max(0, $importe));
+          if ($objetivo > 0) {
+            $totalesVale = $this->calcularTotales((array) ($actual['lineas'] ?? []), [
+              'empresa' => $empresa,
+              'cliente' => $clienteVale,
+              'pjeIva1' => $actual['pjeIva1'] ?? 0,
+              'importeDtoFidelizacion' => $objetivo,
+            ]);
+            $this->actualizarTotalesFidelizacion(
+              $empresa,
+              $tipoActual,
+              $albaran,
+              $totalesVale
+            );
+            $aplicado = (float) ($totalesVale['descuentoFidelizacion'] ?? 0);
+            $resultadoValeFidelizacion = $this->vales->consumirFidelizacion(
+              $empresa,
+              $clienteVale,
+              $aplicado,
+              $tipoActual,
+              $albaran
+            );
+            $actual = $this->consulta->obtenerFicha($empresa, $tipoActual, $albaran) ?? $actual;
+            $importe = (float) ($actual['importe'] ?? 0);
+          }
+        }
+      }
+
       if ($opcion === 'T') {
         $factura = $this->nextContadorEmpresa($empresa, 'UltTicket');
         $this->pdo->prepare(
@@ -594,6 +635,34 @@ final class VentaEscrituraService
 
       if (in_array($opcion, ['T', 'F', 'A'], true)) {
         $this->actualizarFechaUltimaVentaArticulos($empresa, $tipoActual, $albaran, $actual);
+        $puntosFidelizacion = $this->fidelizacionVales->puntosCliente(
+          $empresa,
+          trim((string) ($actual['cliente'] ?? '')),
+          $esTicketAFactura ? 0.0 : max(0, $importe)
+        );
+        if ($puntosFidelizacion !== null) {
+          $this->pdo->prepare(
+            'UPDATE AlbaranesVentasCab
+             SET PuntosFidelizacionCompra = :compra,
+                 PuntosFidelizacionAcumulados = :acumulados
+             WHERE Empresa = :e AND Tipo = :t AND Albaran = :a'
+          )->execute([
+            'compra' => $puntosFidelizacion['compra'],
+            'acumulados' => $puntosFidelizacion['acumulados'],
+            'e' => $empresa,
+            't' => $tipoActual,
+            'a' => $albaran,
+          ]);
+          $clientePuntos = trim((string) ($actual['cliente'] ?? ''));
+          if ($clientePuntos !== '') {
+            $this->pdo->prepare(
+              'UPDATE Clientes SET AcumuladoPuntos = :p WHERE RTRIM(Codigo) = :c'
+            )->execute([
+              'p' => $puntosFidelizacion['acumulados'],
+              'c' => $clientePuntos,
+            ]);
+          }
+        }
       }
 
       $this->pdo->commit();
@@ -609,7 +678,53 @@ final class VentaEscrituraService
     if ($avisosFidelizacion !== []) {
       $detalle['avisosFidelizacion'] = $avisosFidelizacion;
     }
+    if ($resultadoValeFidelizacion !== null) {
+      $detalle['valeFidelizacion'] = $resultadoValeFidelizacion;
+    }
+    if ($puntosFidelizacion !== null) {
+      $detalle['fidelizacionPuntos'] = $puntosFidelizacion;
+    }
     return $detalle;
+  }
+
+  /**
+   * @param array<string, mixed> $totales
+   */
+  private function actualizarTotalesFidelizacion(
+    string $empresa,
+    string $tipo,
+    int $albaran,
+    array $totales
+  ): void {
+    $st = $this->pdo->prepare(
+      'UPDATE AlbaranesVentasCab SET
+         Importe = :importe, ImporteDtos = :importeDtos,
+         ImporteDtoFidelizacion = :dtoFid,
+         ImporteBase1 = :b1, ImporteBase2 = :b2, ImporteBase3 = :b3, ImporteBase4 = :b4,
+         PjeIva1 = :p1, PjeIva2 = :p2, PjeIva3 = :p3, PjeIva4 = :p4,
+         ImporteIva1 = :i1, ImporteIva2 = :i2, ImporteIva3 = :i3, ImporteIva4 = :i4
+       WHERE Empresa = :e AND Tipo = :t AND Albaran = :a'
+    );
+    $st->execute([
+      'importe' => (float) ($totales['importe'] ?? 0),
+      'importeDtos' => (float) ($totales['descuento'] ?? 0),
+      'dtoFid' => (float) ($totales['descuentoFidelizacion'] ?? 0),
+      'b1' => (float) ($totales['bases'][0] ?? 0),
+      'b2' => (float) ($totales['bases'][1] ?? 0),
+      'b3' => (float) ($totales['bases'][2] ?? 0),
+      'b4' => (float) ($totales['bases'][3] ?? 0),
+      'p1' => (float) ($totales['pjes'][0] ?? 0),
+      'p2' => (float) ($totales['pjes'][1] ?? 0),
+      'p3' => (float) ($totales['pjes'][2] ?? 0),
+      'p4' => (float) ($totales['pjes'][3] ?? 0),
+      'i1' => (float) ($totales['ivas'][0] ?? 0),
+      'i2' => (float) ($totales['ivas'][1] ?? 0),
+      'i3' => (float) ($totales['ivas'][2] ?? 0),
+      'i4' => (float) ($totales['ivas'][3] ?? 0),
+      'e' => $empresa,
+      't' => $tipo,
+      'a' => $albaran,
+    ]);
   }
 
   public function eliminar(string $empresa, string $tipo, int $albaran): void
@@ -1458,9 +1573,44 @@ final class VentaEscrituraService
       $importe = round(array_sum($bases) + $ivaTotal, 2);
     }
 
+    // Vale de fidelización: descuento fijo repartido proporcionalmente entre
+    // los grupos de IVA. Así reduce bases/cuotas correctamente sin ser pago.
+    $dtoFidelizacionSolicitado = round(max(0, (float) ($body['importeDtoFidelizacion'] ?? 0)), 2);
+    $dtoFidelizacion = 0.0;
+    $totalAntesFidelizacion = round(array_sum($bases) + array_sum($ivas), 2);
+    if ($dtoFidelizacionSolicitado > 0 && $totalAntesFidelizacion > 0) {
+      $objetivo = min($dtoFidelizacionSolicitado, $totalAntesFidelizacion);
+      $restante = $objetivo;
+      $indices = [];
+      for ($j = 0; $j < 4; $j++) {
+        if (round($bases[$j] + $ivas[$j], 2) > 0) {
+          $indices[] = $j;
+        }
+      }
+      foreach ($indices as $pos => $j) {
+        $brutoGrupo = round($bases[$j] + $ivas[$j], 2);
+        $ultimo = $pos === count($indices) - 1;
+        $parte = $ultimo
+          ? $restante
+          : round($objetivo * $brutoGrupo / $totalAntesFidelizacion, 2);
+        $parte = min($parte, $brutoGrupo);
+        $nuevoBruto = round($brutoGrupo - $parte, 2);
+        $nuevaBase = $pjes[$j] > 0
+          ? round($nuevoBruto / (1 + $pjes[$j] / 100), 2)
+          : $nuevoBruto;
+        $bases[$j] = $nuevaBase;
+        $ivas[$j] = round($nuevoBruto - $nuevaBase, 2);
+        $restante = round($restante - $parte, 2);
+      }
+      $importe = round(array_sum($bases) + array_sum($ivas), 2);
+      $ivaTotal = round(array_sum($ivas), 2);
+      $dtoFidelizacion = round($totalAntesFidelizacion - $importe, 2);
+    }
+
     return [
       'bruto' => round($bruto, 2),
       'descuento' => round($importeDtosCab, 2),
+      'descuentoFidelizacion' => $dtoFidelizacion,
       'iva' => round($ivaTotal, 2),
       'importe' => round($importe, 2),
       'pjeIva' => $pjes[0],

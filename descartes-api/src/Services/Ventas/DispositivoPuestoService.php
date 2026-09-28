@@ -20,7 +20,7 @@ final class DispositivoPuestoService
   }
 
   /**
-   * @return array{puesto: string, cajonElectronico: bool, tipoCajon: ?string, dispositivoCajon: ?string, agenteUrl: ?string}
+   * @return array<string, mixed>
    */
   public function metaPuesto(string $puesto): array
   {
@@ -30,6 +30,8 @@ final class DispositivoPuestoService
       'cajonElectronico' => false,
       'tipoCajon' => null,
       'dispositivoCajon' => null,
+      'datafono' => null,
+      'terminalDatafono' => null,
       'agenteUrl' => $this->agenteUrl(),
     ];
     if ($puesto === '') {
@@ -37,7 +39,8 @@ final class DispositivoPuestoService
     }
     try {
       $st = $this->pdo->prepare(
-        'SELECT CajonElectronico, DispositivoCajon FROM Puestos WHERE Puesto = :p'
+        'SELECT CajonElectronico, DispositivoCajon, Datafono, TerminalDatafono
+         FROM Puestos WHERE Puesto = :p'
       );
       $st->execute(['p' => $puesto]);
       $row = $st->fetch(PDO::FETCH_ASSOC);
@@ -47,6 +50,10 @@ final class DispositivoPuestoService
         $meta['cajonElectronico'] = $tipo !== '';
         $dev = trim((string) ($row['DispositivoCajon'] ?? ''));
         $meta['dispositivoCajon'] = $dev !== '' ? $dev : null;
+        $datafono = trim((string) ($row['Datafono'] ?? ''));
+        $meta['datafono'] = $datafono !== '' ? $datafono : null;
+        $terminal = trim((string) ($row['TerminalDatafono'] ?? ''));
+        $meta['terminalDatafono'] = $terminal !== '' ? $terminal : null;
       }
     } catch (\Throwable $e) {
       // Esquema antiguo sin columnas.
@@ -172,6 +179,106 @@ final class DispositivoPuestoService
     ];
   }
 
+  /**
+   * Solicita un cobro al driver instalado en el equipo de caja.
+   *
+   * @param array<string, mixed> $body
+   * @return array<string, mixed>
+   */
+  public function cobrarDatafono(string $puesto, array $body): array
+  {
+    $payload = $this->payloadDatafono($puesto, $body, true);
+    $agent = $this->llamarAgente('POST', '/datafono/cobrar', $payload, 135);
+    if ($agent === null) {
+      return $this->datafonoNoDisponible($puesto, $payload['operationId']);
+    }
+    return [
+      ...$agent,
+      'agenteOnline' => true,
+      'puesto' => $puesto,
+    ];
+  }
+
+  /**
+   * @param array<string, mixed> $body
+   * @return array<string, mixed>
+   */
+  public function cancelarDatafono(string $puesto, array $body): array
+  {
+    $payload = $this->payloadDatafono($puesto, $body, false);
+    $agent = $this->llamarAgente('POST', '/datafono/cancelar', $payload);
+    if ($agent === null) {
+      return $this->datafonoNoDisponible($puesto, $payload['operationId']);
+    }
+    return [...$agent, 'agenteOnline' => true, 'puesto' => $puesto];
+  }
+
+  /**
+   * @param array<string, mixed> $body
+   * @return array<string, mixed>
+   */
+  public function estadoDatafono(string $puesto, array $body = []): array
+  {
+    $payload = $this->payloadDatafono($puesto, $body, false, false);
+    $agent = $this->llamarAgente('POST', '/datafono/estado', $payload);
+    if ($agent === null) {
+      return $this->datafonoNoDisponible($puesto, '');
+    }
+    return [...$agent, 'agenteOnline' => true, 'puesto' => $puesto];
+  }
+
+  /**
+   * @param array<string, mixed> $body
+   * @return array<string, mixed>
+   */
+  private function payloadDatafono(
+    string $puesto,
+    array $body,
+    bool $requireAmount,
+    bool $requireOperation = true
+  ): array {
+    $puesto = trim($puesto);
+    if ($puesto === '') {
+      throw new \InvalidArgumentException('puesto es obligatorio');
+    }
+    $meta = $this->metaPuesto($puesto);
+    $operationId = trim((string) ($body['operationId'] ?? ''));
+    if ($requireOperation && $operationId === '') {
+      throw new \InvalidArgumentException('operationId es obligatorio');
+    }
+    $amountCents = (int) ($body['amountCents'] ?? 0);
+    if ($requireAmount && $amountCents <= 0) {
+      throw new \InvalidArgumentException('amountCents debe ser mayor que cero');
+    }
+    return [
+      'puesto' => $puesto,
+      'driver' => $meta['datafono'],
+      'terminal' => $meta['terminalDatafono'],
+      'operationId' => $operationId,
+      'amountCents' => $amountCents,
+      'currency' => strtoupper(trim((string) ($body['currency'] ?? 'EUR'))) ?: 'EUR',
+      'reference' => trim((string) ($body['reference'] ?? '')),
+      'timeoutMs' => max(5000, min(300000, (int) ($body['timeoutMs'] ?? 120000))),
+    ];
+  }
+
+  /**
+   * @return array<string, mixed>
+   */
+  private function datafonoNoDisponible(string $puesto, string $operationId): array
+  {
+    return [
+      'ok' => false,
+      'approved' => false,
+      'stub' => true,
+      'agenteOnline' => false,
+      'puesto' => $puesto,
+      'operationId' => $operationId !== '' ? $operationId : null,
+      'code' => 'AGENTE_NO_DISPONIBLE',
+      'message' => 'Agente local no disponible para el datáfono. Ejecute Descartes Electron.',
+    ];
+  }
+
   private function impresoraTicketsPuesto(string $puesto): string
   {
     try {
@@ -239,7 +346,7 @@ final class DispositivoPuestoService
    * @param array<string, mixed> $payload
    * @return array<string, mixed>|null
    */
-  private function llamarAgente(string $method, string $path, array $payload): ?array
+  private function llamarAgente(string $method, string $path, array $payload, int $timeout = 25): ?array
   {
     $base = $this->agenteUrl();
     if ($base === null) {
@@ -263,7 +370,7 @@ final class DispositivoPuestoService
         CURLOPT_HTTPHEADER => $headers,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_CONNECTTIMEOUT => 2,
-        CURLOPT_TIMEOUT => 25,
+        CURLOPT_TIMEOUT => $timeout,
       ];
       if ($json !== null) {
         $headers[] = 'Content-Type: application/json';
@@ -284,7 +391,7 @@ final class DispositivoPuestoService
     $http = [
       'method' => $method,
       'header' => "Accept: application/json\r\n",
-      'timeout' => 8,
+      'timeout' => $timeout,
       'ignore_errors' => true,
     ];
     if ($json !== null) {

@@ -33,7 +33,8 @@ final class TpvContextoService
     }
 
     $stmt = $this->pdo->prepare(
-      'SELECT Puesto, Teclado, Tarifa, ImpresoraTickets, ImpresoraTicketsF
+      'SELECT Puesto, Teclado, Tarifa, ImpresoraTickets, ImpresoraTicketsF,
+              Datafono, TerminalDatafono
        FROM Puestos WHERE RTRIM(Puesto) = :p'
     );
     $stmt->execute(['p' => $puesto]);
@@ -44,7 +45,10 @@ final class TpvContextoService
 
     $tecladoCodigo = (int) ($row['Teclado'] ?? 0);
     if ($tecladoCodigo <= 0) {
-      throw new \InvalidArgumentException("El puesto {$puesto} no tiene teclado táctil configurado");
+      throw new \InvalidArgumentException(
+        "El puesto {$puesto} no tiene teclado táctil asignado. Indique el número de teclado en "
+          . 'Mantenimiento → Puestos → Datos Generales → Asignación.'
+      );
     }
 
     $tecladoGeneral = str_pad((string) $tecladoCodigo, 3, '0', STR_PAD_LEFT);
@@ -64,6 +68,8 @@ final class TpvContextoService
       'tarifa' => (int) ($row['Tarifa'] ?? 0),
       'impresoraTickets' => $impresora !== '' ? $impresora : null,
       'formatoTickets' => null,
+      'datafono' => trim((string) ($row['Datafono'] ?? '')) ?: null,
+      'terminalDatafono' => trim((string) ($row['TerminalDatafono'] ?? '')) ?: null,
       'vendedor' => $this->vendedorDelPuesto($puesto),
       'clienteRapido' => 'ZZZZZZZZZ',
       'formasPago' => $this->formasPagoContado(),
@@ -111,7 +117,8 @@ final class TpvContextoService
   private function formasPagoContado(): array
   {
     $stmt = $this->pdo->query(
-      'SELECT Codigo, Descripcion, Abreviacion, AbrirCajon, CopiasTicket
+      'SELECT Codigo, Descripcion, Abreviacion, AbrirCajon, CopiasTicket,
+              Datafono, EMV, Agrupacion
        FROM FormasPago
        WHERE ISNULL(CobroDeArqueo, 0) = 1 AND ISNULL(Baja, 0) = 0
        ORDER BY ISNULL(OrdenAparicionVenta, 999), Codigo'
@@ -133,6 +140,9 @@ final class TpvContextoService
         'etiqueta' => $etiqueta,
         'abrirCajon' => (int) ($row['AbrirCajon'] ?? 0) === 1,
         'copiasTicket' => (int) ($row['CopiasTicket'] ?? 0),
+        'datafono' => (int) ($row['Datafono'] ?? 0) !== 0,
+        'emv' => (int) ($row['EMV'] ?? 0) !== 0,
+        'agrupacion' => (int) ($row['Agrupacion'] ?? 0),
       ];
     }
 

@@ -4,13 +4,17 @@
  * A4/etiquetas: GDI vía webContents.print.
  */
 
-const { BrowserWindow } = require('electron')
+const { BrowserWindow, nativeImage } = require('electron')
 const { execFile } = require('child_process')
 const { promisify } = require('util')
-const { buildTicketBuffer } = require('./escpos-encode')
+const { buildTicketBuffer, buildLogoEscPos } = require('./escpos-encode')
 const { isWindows, printRawWindows } = require('./raw-print-win')
+const paymentTerminal = require('./payment-terminal')
 
 const execFileAsync = promisify(execFile)
+
+/** Tope de espera de `webContents.print`: sin él, un driver mudo cuelga la app. */
+const PRINT_TIMEOUT_MS = 30000
 
 function psQuote(value) {
   return String(value || '').replace(/'/g, "''")
@@ -218,9 +222,14 @@ function resolvePrinterName(payload, printers) {
  * un HTML/GDI (EMF) se queda detrás o retenido en ESDPRT.
  */
 async function printTicket(payload) {
-  const texto = payload && typeof payload.texto === 'string' ? payload.texto : ''
+  let texto = payload && typeof payload.texto === 'string' ? payload.texto : ''
   if (!texto.trim()) {
     return { ok: false, stub: false, message: 'texto es obligatorio' }
+  }
+  const emblemaUrl =
+    payload && typeof payload.emblemaDataUrl === 'string' ? payload.emblemaDataUrl.trim() : ''
+  if (emblemaUrl && texto.includes('@@EMBLEMA@@')) {
+    texto = texto.replace(/@@EMBLEMA@@\n?/g, '')
   }
 
   if (!isWindows()) {
@@ -251,13 +260,21 @@ async function printTicket(payload) {
   await enableDirectPrint(printerName)
   await purgeRetainedJobs(printerName)
 
-  const buffer = buildTicketBuffer({
-    texto,
-    cortar: payload && payload.cortar !== false,
-    abrirCajon: !!(payload && payload.abrirCajon),
-    ancho: payload && payload.ancho != null ? Number(payload.ancho) : 42,
-    feed: payload && payload.feed != null ? Number(payload.feed) : 4,
-  })
+  const parts = []
+  if (emblemaUrl) {
+    const logo = buildLogoEscPos(emblemaUrl, nativeImage)
+    if (logo.length) parts.push(logo)
+  }
+  parts.push(
+    buildTicketBuffer({
+      texto,
+      cortar: payload && payload.cortar !== false,
+      abrirCajon: !!(payload && payload.abrirCajon),
+      ancho: payload && payload.ancho != null ? Number(payload.ancho) : 56,
+      feed: payload && payload.feed != null ? Number(payload.feed) : 4,
+    })
+  )
+  const buffer = Buffer.concat(parts)
 
   console.log('[peripherals] printTicket RAW', {
     printerName,
@@ -343,6 +360,18 @@ async function displayPrice(payload) {
     stub: true,
     message: 'Visor de cliente no implementado (stub)',
   }
+}
+
+function paymentTerminalStatus(payload = {}) {
+  return paymentTerminal.status(payload)
+}
+
+function paymentTerminalCharge(payload = {}) {
+  return paymentTerminal.charge(payload)
+}
+
+function paymentTerminalCancel(payload = {}) {
+  return paymentTerminal.cancel(payload)
 }
 
 /**
@@ -437,8 +466,30 @@ async function printHtmlSized(payload, opts) {
   )
   fs.writeFileSync(tmpPath, html, 'utf8')
 
+  // Sin silent, Chromium abre su diálogo dentro de la ventana: si está oculta
+  // no se ve y la llamada nunca vuelve. Y si el driver no responde, tampoco.
   const printOnce = (win, useSilent) =>
     new Promise((resolvePrint) => {
+      let atendido = false
+      const terminar = (res) => {
+        if (atendido) return
+        atendido = true
+        resolvePrint(res)
+      }
+      const temporizador = setTimeout(() => {
+        terminar({
+          success: false,
+          failureReason: useSilent
+            ? `«${resolved.name}» no respondió en ${PRINT_TIMEOUT_MS / 1000} s (¿apagada o sin conexión?)`
+            : 'El diálogo de impresión no se completó',
+        })
+      }, PRINT_TIMEOUT_MS)
+
+      if (!useSilent && !win.isDestroyed()) {
+        win.show()
+        win.focus()
+      }
+
       win.webContents.print(
         {
           silent: useSilent,
@@ -457,7 +508,8 @@ async function printHtmlSized(payload, opts) {
           },
         },
         (success, failureReason) => {
-          resolvePrint({ success: !!success, failureReason: failureReason || '' })
+          clearTimeout(temporizador)
+          terminar({ success: !!success, failureReason: failureReason || '' })
         }
       )
     })
@@ -539,4 +591,7 @@ module.exports = {
   readCashDrawer,
   readScale,
   displayPrice,
+  paymentTerminalStatus,
+  paymentTerminalCharge,
+  paymentTerminalCancel,
 }

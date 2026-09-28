@@ -46,7 +46,10 @@ final class ValeService
     $total = (int) $countStmt->fetchColumn();
 
     $innerSql = "SELECT v.Empresa, v.Codigo, v.Cliente, v.Importe, v.Fecha, v.FechaCaducidad,
-                   v.Liquidado, v.FechaLiquidacion, v.TipoLiquidacion
+                   v.Liquidado, v.FechaLiquidacion, v.TipoLiquidacion,
+                   RTRIM(ISNULL(v.TipoVale, 'REGALO')) AS TipoVale,
+                   ISNULL(v.ImporteOriginal, v.Importe) AS ImporteOriginal,
+                   ISNULL(v.SaldoPendiente, CASE WHEN v.Liquidado = 1 THEN 0 ELSE v.Importe END) AS SaldoPendiente
             FROM Vales v
             WHERE {$sqlWhere}";
     $sql = SqlPagination::wrap($innerSql, 'v.Fecha DESC, v.Codigo DESC', $offset, $pageSize);
@@ -87,10 +90,19 @@ final class ValeService
     $codigo = $this->nextCodigo($empresa);
     $fechaCad = !empty($body['fechaCaducidad']) ? $body['fechaCaducidad'] : null;
     $formaPago = isset($body['formaPago']) ? substr(trim((string) $body['formaPago']), 0, 2) : null;
+    $tipoVale = strtoupper(trim((string) ($body['tipoVale'] ?? 'REGALO')));
+    if (!in_array($tipoVale, ['REGALO', 'FIDELIZACION'], true)) {
+      throw new \InvalidArgumentException('tipoVale debe ser REGALO o FIDELIZACION');
+    }
 
-    $sql = 'INSERT INTO Vales (Empresa, Codigo, Liquidado, Fecha, Importe, Cliente, FormaPago, FechaCaducidad, TrasModem)
-            VALUES (:empresa, :codigo, 0, GETDATE(), :importe, :cliente, :formaPago,
-                    CONVERT(datetime, :fechaCad, 120), 0)';
+    $sql = 'INSERT INTO Vales (
+              Empresa, Codigo, Liquidado, Fecha, Importe, Cliente, FormaPago,
+              FechaCaducidad, TrasModem, TipoVale, ImporteOriginal, SaldoPendiente
+            )
+            VALUES (
+              :empresa, :codigo, 0, GETDATE(), :importe, :cliente, :formaPago,
+              CONVERT(datetime, :fechaCad, 120), 0, :tipoVale, :importeOriginal, :saldoPendiente
+            )';
     $stmt = $this->pdo->prepare($sql);
     $stmt->execute([
       'empresa' => $empresa,
@@ -99,6 +111,9 @@ final class ValeService
       'cliente' => $cliente,
       'formaPago' => $formaPago,
       'fechaCad' => $fechaCad,
+      'tipoVale' => $tipoVale,
+      'importeOriginal' => $importe,
+      'saldoPendiente' => $importe,
     ]);
 
     return $this->obtener($empresa, $codigo);
@@ -135,8 +150,8 @@ final class ValeService
     }
 
     $upd = $this->pdo->prepare(
-      'UPDATE Vales SET Liquidado = 1, FechaLiquidacion = CONVERT(datetime, :fecha, 120),
-              TipoLiquidacion = :tipo
+      'UPDATE Vales SET Liquidado = 1, SaldoPendiente = 0,
+              FechaLiquidacion = CONVERT(datetime, :fecha, 120), TipoLiquidacion = :tipo
        WHERE Empresa = :empresa AND Codigo = :codigo AND Liquidado = 0'
     );
     $upd->execute([
@@ -152,6 +167,122 @@ final class ValeService
     return $this->obtener($empresa, $codigo);
   }
 
+  /**
+   * Vales de fidelización utilizables, por caducidad y antigüedad.
+   *
+   * @return array{cliente: string, saldo: float, vales: list<array<string, mixed>>}
+   */
+  public function fidelizacionDisponible(string $empresa, string $cliente, bool $bloquear = false): array
+  {
+    $empresa = trim($empresa);
+    $cliente = trim($cliente);
+    if ($empresa === '' || $cliente === '') {
+      throw new \InvalidArgumentException('empresa y cliente son obligatorios');
+    }
+    $lock = $bloquear ? ' WITH (UPDLOCK, HOLDLOCK)' : '';
+    $st = $this->pdo->prepare(
+      "SELECT RTRIM(Empresa) AS Empresa, Codigo,
+              ISNULL(SaldoPendiente, Importe) AS SaldoPendiente, FechaCaducidad
+       FROM Vales{$lock}
+       WHERE RTRIM(Cliente) = :c
+         AND RTRIM(ISNULL(TipoVale, 'REGALO')) = 'FIDELIZACION'
+         AND ISNULL(Liquidado, 0) = 0
+         AND ISNULL(SaldoPendiente, Importe) > 0
+         AND (FechaCaducidad IS NULL OR CONVERT(date, FechaCaducidad) >= CONVERT(date, GETDATE()))
+       ORDER BY CASE WHEN FechaCaducidad IS NULL THEN 1 ELSE 0 END, FechaCaducidad, Fecha, Empresa, Codigo"
+    );
+    $st->execute(['c' => $cliente]);
+    $vales = [];
+    $saldo = 0.0;
+    while ($row = $st->fetch(PDO::FETCH_ASSOC)) {
+      $importe = round((float) ($row['SaldoPendiente'] ?? 0), 2);
+      $saldo += $importe;
+      $vales[] = [
+        'empresa' => trim((string) ($row['Empresa'] ?? '')),
+        'codigo' => (int) ($row['Codigo'] ?? 0),
+        'saldo' => $importe,
+        'fechaCaducidad' => !empty($row['FechaCaducidad'])
+          ? date('Y-m-d', strtotime((string) $row['FechaCaducidad']))
+          : null,
+      ];
+    }
+    return ['cliente' => $cliente, 'saldo' => round($saldo, 2), 'vales' => $vales];
+  }
+
+  /**
+   * Consume saldo FIFO. Debe ejecutarse dentro de la transacción de cierre.
+   *
+   * @return array{aplicado: float, saldoRestante: float, consumos: list<array<string, mixed>>}
+   */
+  public function consumirFidelizacion(
+    string $empresa,
+    string $cliente,
+    float $importe,
+    string $tipoVenta,
+    int $albaran
+  ): array {
+    if (!$this->pdo->inTransaction()) {
+      throw new \LogicException('El consumo del vale requiere una transacción activa');
+    }
+    $disponible = $this->fidelizacionDisponible($empresa, $cliente, true);
+    $pendiente = min(round(max(0, $importe), 2), $disponible['saldo']);
+    $consumos = [];
+    foreach ($disponible['vales'] as $vale) {
+      if ($pendiente < 0.005) {
+        break;
+      }
+      $usado = round(min($pendiente, (float) $vale['saldo']), 2);
+      if ($usado <= 0) {
+        continue;
+      }
+      $nuevoSaldo = round((float) $vale['saldo'] - $usado, 2);
+      $liquidado = $nuevoSaldo < 0.005;
+      $empresaVale = trim((string) ($vale['empresa'] ?? '')) ?: $empresa;
+      $upd = $this->pdo->prepare(
+        'UPDATE Vales SET SaldoPendiente = :saldo, Liquidado = :liquidado,
+             FechaLiquidacion = CASE WHEN :liquidado2 = 1 THEN GETDATE() ELSE NULL END,
+             TipoLiquidacion = CASE WHEN :liquidado3 = 1 THEN \'F\' ELSE TipoLiquidacion END
+         WHERE RTRIM(Empresa) = :e AND Codigo = :codigo AND ISNULL(Liquidado, 0) = 0'
+      );
+      $upd->execute([
+        'saldo' => $liquidado ? 0 : $nuevoSaldo,
+        'liquidado' => $liquidado ? 1 : 0,
+        'liquidado2' => $liquidado ? 1 : 0,
+        'liquidado3' => $liquidado ? 1 : 0,
+        'e' => $empresaVale,
+        'codigo' => (int) $vale['codigo'],
+      ]);
+      if ($upd->rowCount() !== 1) {
+        throw new \RuntimeException('El saldo del vale cambió durante el cobro', 409);
+      }
+      $ins = $this->pdo->prepare(
+        'INSERT INTO ValeConsumos
+           (Empresa, ValeCodigo, EmpresaVenta, TipoVenta, Albaran, Importe, Fecha)
+         VALUES (:e, :vale, :ev, :tv, :a, :importe, GETDATE())'
+      );
+      $ins->execute([
+        'e' => $empresaVale,
+        'vale' => (int) $vale['codigo'],
+        'ev' => $empresa,
+        'tv' => $tipoVenta,
+        'a' => $albaran,
+        'importe' => $usado,
+      ]);
+      $consumos[] = [
+        'vale' => (int) $vale['codigo'],
+        'importe' => $usado,
+        'saldo' => $liquidado ? 0.0 : $nuevoSaldo,
+      ];
+      $pendiente = round($pendiente - $usado, 2);
+    }
+    $aplicado = round(min($importe, $disponible['saldo']) - $pendiente, 2);
+    return [
+      'aplicado' => $aplicado,
+      'saldoRestante' => round($disponible['saldo'] - $aplicado, 2),
+      'consumos' => $consumos,
+    ];
+  }
+
   public function obtener(string $empresa, int $codigo): array
   {
     $row = $this->obtenerRaw($empresa, $codigo);
@@ -164,7 +295,10 @@ final class ValeService
   private function obtenerRaw(string $empresa, int $codigo): ?array
   {
     $stmt = $this->pdo->prepare(
-      'SELECT Empresa, Codigo, Cliente, Importe, Fecha, FechaCaducidad, Liquidado, FechaLiquidacion, TipoLiquidacion
+      'SELECT Empresa, Codigo, Cliente, Importe, Fecha, FechaCaducidad, Liquidado, FechaLiquidacion, TipoLiquidacion,
+              RTRIM(ISNULL(TipoVale, \'REGALO\')) AS TipoVale,
+              ISNULL(ImporteOriginal, Importe) AS ImporteOriginal,
+              ISNULL(SaldoPendiente, CASE WHEN Liquidado = 1 THEN 0 ELSE Importe END) AS SaldoPendiente
        FROM Vales WHERE Empresa = :empresa AND Codigo = :codigo'
     );
     $stmt->execute(['empresa' => $empresa, 'codigo' => $codigo]);
@@ -174,7 +308,9 @@ final class ValeService
 
   private function nextCodigo(string $empresa): int
   {
-    $stmt = $this->pdo->prepare('SELECT ISNULL(MAX(Codigo), 0) + 1 FROM Vales WHERE Empresa = :empresa');
+    $stmt = $this->pdo->prepare(
+      'SELECT ISNULL(MAX(Codigo), 0) + 1 FROM Vales WITH (UPDLOCK, HOLDLOCK) WHERE Empresa = :empresa'
+    );
     $stmt->execute(['empresa' => $empresa]);
     return (int) $stmt->fetchColumn();
   }
@@ -195,6 +331,9 @@ final class ValeService
       'codigo' => (int) $row['Codigo'],
       'cliente' => $row['Cliente'],
       'importe' => (float) ($row['Importe'] ?? 0),
+      'importeOriginal' => (float) ($row['ImporteOriginal'] ?? $row['Importe'] ?? 0),
+      'saldoPendiente' => (float) ($row['SaldoPendiente'] ?? $row['Importe'] ?? 0),
+      'tipoVale' => trim((string) ($row['TipoVale'] ?? 'REGALO')),
       'fecha' => isset($row['Fecha']) && $row['Fecha'] ? date('c', strtotime((string) $row['Fecha'])) : null,
       'fechaCaducidad' => $caducidad ? date('Y-m-d', strtotime((string) $caducidad)) : null,
       'liquidado' => $liquidado,

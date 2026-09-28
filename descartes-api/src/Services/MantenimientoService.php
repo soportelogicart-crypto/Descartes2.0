@@ -8,6 +8,8 @@ use Descartes\Api\Config\EntityConfig;
 use Descartes\Api\Database\SqlPagination;
 use Descartes\Api\Repositories\ArtBarrasRepository;
 use Descartes\Api\Repositories\ClientesRiesgoRepository;
+use Descartes\Api\Services\Ventas\FidelizacionValesSemestreService;
+use Descartes\Api\Services\Ventas\ValeService;
 use PDO;
 use PDOException;
 
@@ -19,6 +21,7 @@ final class MantenimientoService
   private ArticuloService $articuloService;
   private ClientesRiesgoRepository $clientesRiesgoRepository;
   private ?ArticuloGeneracionCodigosService $articuloGeneracionCodigos = null;
+  private ?FidelizacionValesSemestreService $fidelizacionVales = null;
 
   public function __construct(
     PDO $pdo,
@@ -390,6 +393,17 @@ final class MantenimientoService
     return $this->articuloGeneracionCodigos;
   }
 
+  private function fidelizacionVales(): FidelizacionValesSemestreService
+  {
+    if ($this->fidelizacionVales === null) {
+      $this->fidelizacionVales = new FidelizacionValesSemestreService(
+        $this->pdo,
+        new ValeService($this->pdo)
+      );
+    }
+    return $this->fidelizacionVales;
+  }
+
   public function update(string $entidad, string $codigo, array $data): ?array
   {
     if ($entidad === 'puestos-trabajo') {
@@ -403,7 +417,7 @@ final class MantenimientoService
       $this->validarArticulo($data, $codigo);
     }
     if ($entidad === 'clientes') {
-      $this->prepararDatosCliente($data);
+      $this->prepararDatosCliente($data, $codigo);
       $this->prepararFechaAltaFidelizacion($data);
       $this->validarCliente($data, $codigo);
     }
@@ -1206,8 +1220,8 @@ final class MantenimientoService
       if ($nuevoCodigo === '') {
         throw new \InvalidArgumentException('El codigo es obligatorio');
       }
-      if (strlen($nuevoCodigo) > 6) {
-        throw new \InvalidArgumentException('El codigo admite como maximo 6 caracteres');
+      if (strlen($nuevoCodigo) > 20) {
+        throw new \InvalidArgumentException('El codigo admite como maximo 20 caracteres');
       }
       $stmt = $this->pdo->prepare('SELECT 1 FROM [Actividades] WHERE RTRIM([Codigo]) = :codigo');
       $stmt->execute(['codigo' => $nuevoCodigo]);
@@ -1559,6 +1573,13 @@ final class MantenimientoService
         $item['riesgoPendiente'] = $riesgo['riesgoPendiente'];
         // Legacy: «Riesgo comercial» no lee RiesgoActualAdonix, lo calcula.
         $item['riesgoActualAdonix'] = $riesgo['riesgoComercial'];
+        $puntos = $this->fidelizacionVales()->puntosCliente(
+          trim((string) ($item['tiendaCodigo'] ?? '')),
+          $codigo
+        );
+        if ($puntos !== null) {
+          $item['acumuladoPuntos'] = $puntos['acumulados'];
+        }
       }
     }
 
@@ -1613,7 +1634,7 @@ final class MantenimientoService
 
     if ($esAlta || array_key_exists('motor', $data)) {
       $motor = strtoupper(trim((string) ($data['motor'] ?? '')));
-      if (!in_array($motor, ['NINGUNO', 'EUROS', 'PUNTOS'], true)) {
+      if (!in_array($motor, ['NINGUNO', 'EUROS', 'PUNTOS', 'VALE_SEMESTRAL'], true)) {
         throw new \InvalidArgumentException('Motor de fidelizacion no reconocido');
       }
     }
@@ -1664,11 +1685,16 @@ final class MantenimientoService
     }
   }
 
-  private function prepararDatosCliente(array &$data): void
+  private function prepararDatosCliente(array &$data, ?string $codigo = null): void
   {
     $this->prepararIban($data);
     if (array_key_exists('referenciaMandato', $data)) {
       $data['referenciaMandato'] = trim((string) ($data['referenciaMandato'] ?? ''));
+    }
+    $empresa = trim((string) ($data['tiendaCodigo'] ?? ''));
+    $cliente = trim((string) ($codigo ?? $data['codigo'] ?? ''));
+    if ($this->fidelizacionVales()->puntosCliente($empresa, $cliente) !== null) {
+      unset($data['acumuladoPuntos']);
     }
   }
 

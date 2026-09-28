@@ -148,6 +148,7 @@ function registerIpc() {
   ipcMain.handle('equipo:get', () => localConfig.readEquipo())
   ipcMain.handle('equipo:hostname', () => localConfig.defaultEquipoId())
   ipcMain.handle('equipo:set', (_event, payload) => localConfig.writeEquipo(payload || {}))
+  ipcMain.handle('equipo:setDatafono', (_event, payload) => localConfig.writeDatafono(payload || {}))
   ipcMain.handle('equipo:clear', () => localConfig.clearEquipo())
   ipcMain.handle('logos:empresa', (_event, codigo) => logos.resolveEmpresa(codigo))
   ipcMain.handle('logos:guardar', (event, codigo) => {
@@ -165,6 +166,15 @@ function registerIpc() {
   ipcMain.handle('peripheral:readCashDrawer', (_event, payload) => peripherals.readCashDrawer(payload || {}))
   ipcMain.handle('peripheral:readScale', () => peripherals.readScale())
   ipcMain.handle('peripheral:displayPrice', (_event, payload) => peripherals.displayPrice(payload))
+  ipcMain.handle('peripheral:paymentTerminalStatus', (_event, payload) =>
+    peripherals.paymentTerminalStatus(payload || {})
+  )
+  ipcMain.handle('peripheral:paymentTerminalCharge', (_event, payload) =>
+    peripherals.paymentTerminalCharge(payload || {})
+  )
+  ipcMain.handle('peripheral:paymentTerminalCancel', (_event, payload) =>
+    peripherals.paymentTerminalCancel(payload || {})
+  )
 }
 
 app.whenReady().then(async () => {
