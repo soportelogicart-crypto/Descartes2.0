@@ -1,4 +1,4 @@
-import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type ComputedRef, type Ref } from 'vue'
 
 /**
  * Monta en el DOM solo las primeras filas y añade el resto al bajar el scroll,
@@ -16,16 +16,29 @@ export function useGridRenderLimit<T>(
 
   function onScrollGrid() {
     const el = gridEl.value
-    if (!el) return
-    if (el.scrollTop + el.clientHeight < el.scrollHeight - 250) return
-    if (limite.value < filas.value.length) {
-      limite.value += paso
-    }
+    if (!el || limite.value >= filas.value.length) return
+    const scrolleaDentro = el.scrollHeight > el.clientHeight + 4
+    const cercaDentro = scrolleaDentro && el.scrollTop + el.clientHeight >= el.scrollHeight - 250
+    const cercaVentana = el.getBoundingClientRect().bottom <= window.innerHeight + 250
+    if (!cercaDentro && !cercaVentana) return
+    limite.value += paso
   }
 
   watch(filas, () => {
     limite.value = inicial
     if (gridEl.value) gridEl.value.scrollTop = 0
+  })
+
+  watch(visibles, () => {
+    void nextTick(onScrollGrid)
+  })
+
+  onMounted(() => {
+    window.addEventListener('scroll', onScrollGrid, true)
+    void nextTick(onScrollGrid)
+  })
+  onBeforeUnmount(() => {
+    window.removeEventListener('scroll', onScrollGrid, true)
   })
 
   return { gridEl, visibles, onScrollGrid }

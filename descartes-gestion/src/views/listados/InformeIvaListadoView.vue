@@ -27,6 +27,7 @@ import { useListadosRecientes } from '@/composables/useListadosRecientes'
 import { useAuthStore } from '@/stores/auth'
 import { descargarCsv, escCsv, numCsv } from '@/utils/csvExcel'
 import { imprimirListadoHtml } from '@/composables/imprimirListadoHtml'
+import { useGridRenderLimit } from '@/composables/useGridRenderLimit'
 
 type CampoEntidad = 'clienteDesde' | 'clienteHasta' | 'puestoDesde' | 'puestoHasta'
 type EntidadModal = 'clientes' | 'puestos-trabajo'
@@ -85,6 +86,8 @@ const buscarCampo = ref<CampoEntidad>('clienteDesde')
 const buscarInicial = ref('')
 
 const tieneDatos = computed(() => (resultado.value?.items.length ?? 0) > 0)
+const filasListado = computed(() => resultado.value?.items ?? [])
+const { gridEl, visibles, onScrollGrid } = useGridRenderLimit(filasListado)
 const tiposIva = computed((): InformeIvaResumenFila[] => resultado.value?.resumenPorIva ?? [])
 
 function pjeKey(p: number): string {
@@ -539,7 +542,7 @@ onMounted(() => {
           Se muestran como máximo {{ resultado.limite }} documentos; acote fechas o tienda.
         </p>
 
-        <div v-if="tieneDatos" class="grid-wrap">
+        <div v-if="tieneDatos" ref="gridEl" class="grid-wrap" @scroll.passive="onScrollGrid">
           <table class="grid">
             <thead>
               <tr>
@@ -555,7 +558,7 @@ onMounted(() => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(row, i) in resultado!.items" :key="`${row.empresa}-${row.numeroTicket}-${i}`">
+              <tr v-for="(row, i) in visibles" :key="`${row.empresa}-${row.numeroTicket}-${i}`">
                 <td>{{ row.fecha }}</td>
                 <td>{{ etiquetaDocumento(row) }}</td>
                 <td>{{ row.empresa }}</td>

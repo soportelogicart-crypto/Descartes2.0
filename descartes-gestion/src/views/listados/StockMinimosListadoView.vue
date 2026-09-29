@@ -8,6 +8,7 @@ import { useListadosRecientes } from '@/composables/useListadosRecientes'
 import { useAuthStore } from '@/stores/auth'
 import { descargarCsv, escCsv, numCsv } from '@/utils/csvExcel'
 import { imprimirListadoHtml } from '@/composables/imprimirListadoHtml'
+import { useGridRenderLimit } from '@/composables/useGridRenderLimit'
 
 const auth = useAuthStore()
 const { registrarReciente } = useListadosRecientes()
@@ -20,6 +21,8 @@ const resultado = ref<StockMinimosResult | null>(null)
 const almacen = ref(0)
 
 const tieneDatos = computed(() => (resultado.value?.items.length ?? 0) > 0)
+const filasListado = computed(() => resultado.value?.items ?? [])
+const { gridEl, visibles, onScrollGrid } = useGridRenderLimit(filasListado)
 
 function formatoUnidades(n: number): string {
   const r = Math.round(n * 10000) / 10000
@@ -146,7 +149,7 @@ onMounted(() => {
       <p v-else-if="mensaje" class="flash flash-ok">{{ mensaje }}</p>
     </template>
 
-    <div v-if="tieneDatos" class="grid-wrap">
+    <div v-if="tieneDatos" ref="gridEl" class="grid-wrap" @scroll.passive="onScrollGrid">
       <table class="grid">
         <thead>
           <tr>
@@ -161,7 +164,7 @@ onMounted(() => {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(row, i) in resultado!.items" :key="`${row.articulo}-${row.almacen}-${i}`">
+          <tr v-for="(row, i) in visibles" :key="`${row.articulo}-${row.almacen}-${i}`">
             <td>{{ row.articulo }}</td>
             <td>{{ row.descripcion }}</td>
             <td class="num" :title="row.almacenNombre">{{ row.almacen }}</td>

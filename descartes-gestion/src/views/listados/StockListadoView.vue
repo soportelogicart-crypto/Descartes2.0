@@ -41,6 +41,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useStockListadoSesionStore } from '@/stores/stockListadoSesion'
 import { descargarCsv, escCsv, numCsv } from '@/utils/csvExcel'
 import { imprimirListadoHtml } from '@/composables/imprimirListadoHtml'
+import { useGridRenderLimit } from '@/composables/useGridRenderLimit'
 
 const route = useRoute()
 const router = useRouter()
@@ -182,6 +183,8 @@ watch(
 )
 
 const tieneDatos = computed(() => (resultado.value?.items.length ?? 0) > 0)
+const filasListado = computed(() => resultado.value?.items ?? [])
+const { gridEl, visibles, onScrollGrid } = useGridRenderLimit(filasListado)
 
 const etiquetaGrupo = computed(() => {
   const t = def.value?.titulo ?? 'Stock'
@@ -626,7 +629,7 @@ function volverAlSelector() {
           Se muestran como máximo {{ resultado.limite }} filas; acote intervalos.
         </p>
 
-        <div v-if="tieneDatos" class="grid-wrap">
+        <div v-if="tieneDatos" ref="gridEl" class="grid-wrap" @scroll.passive="onScrollGrid">
           <table class="grid">
             <thead>
               <tr>
@@ -637,7 +640,7 @@ function volverAlSelector() {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(row, i) in resultado!.items" :key="`${row.grupoCodigo}-${i}`">
+              <tr v-for="(row, i) in visibles" :key="`${row.grupoCodigo}-${i}`">
                 <td>{{ row.grupoCodigo }}</td>
                 <td>{{ row.grupoNombre }}</td>
                 <td class="num">{{ formatoUnidades(row.unidades) }}</td>

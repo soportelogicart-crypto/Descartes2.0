@@ -54,11 +54,15 @@ final class StockMinimosListadoService
             ) st ON st.[articulo] = RTRIM(m.[Articulo]) AND st.[almacen] = m.[Almacen]
             WHERE ISNULL(m.[Minimo], 0) > 0
               AND ISNULL(st.[unidades], 0) < ISNULL(m.[Minimo], 0)
-              AND (:almacen = 0 OR m.[Almacen] = :almacen)
+              AND (:almacenTodos = 0 OR m.[Almacen] = :almacen)
             ORDER BY m.[Almacen], m.[Articulo]";
 
     $stmt = $this->pdo->prepare($sql);
-    $stmt->execute(['almacen' => $almacen]);
+    // ODBC no reutiliza el mismo nombre de parámetro en una sentencia.
+    $stmt->execute([
+      'almacenTodos' => $almacen,
+      'almacen' => $almacen,
+    ]);
 
     $items = [];
     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {

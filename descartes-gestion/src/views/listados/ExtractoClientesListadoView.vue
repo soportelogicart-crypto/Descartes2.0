@@ -11,6 +11,7 @@ import { useAuthStore } from '@/stores/auth'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { descargarCsv, escCsv, numCsv } from '@/utils/csvExcel'
 import { imprimirListadoHtml } from '@/composables/imprimirListadoHtml'
+import { useGridRenderLimit } from '@/composables/useGridRenderLimit'
 
 type Opt = { value: string; label: string }
 
@@ -39,6 +40,8 @@ const form = ref({
 })
 
 const tieneDatos = computed(() => (resultado.value?.items.length ?? 0) > 0)
+const filasListado = computed(() => resultado.value?.items ?? [])
+const { gridEl, visibles, onScrollGrid } = useGridRenderLimit(filasListado)
 
 function metaImpresion(): string[] {
   const r = resultado.value
@@ -233,7 +236,7 @@ onMounted(() => {
       <span><strong>Riesgo acumulado:</strong> {{ numCsv(resultado.riesgoAcumulado) }} €</span>
     </div>
 
-    <div v-if="tieneDatos" class="grid-wrap">
+    <div v-if="tieneDatos" ref="gridEl" class="grid-wrap" @scroll.passive="onScrollGrid">
       <table class="grid">
         <thead>
           <tr>
@@ -247,7 +250,7 @@ onMounted(() => {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(row, i) in resultado!.items" :key="`${row.documento}-${row.fecha}-${i}`">
+          <tr v-for="(row, i) in visibles" :key="`${row.documento}-${row.fecha}-${i}`">
             <td>{{ row.fecha }}</td>
             <td>{{ row.documento }}</td>
             <td>{{ row.empresa }}</td>
