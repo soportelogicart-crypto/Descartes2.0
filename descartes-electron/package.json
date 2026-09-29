@@ -1,6 +1,6 @@
 {
   "name": "descartes-electron",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "Shell Electron fino para Descartes 2.0 (UI en servidor + perifericos locales)",
   "author": "Descartes",

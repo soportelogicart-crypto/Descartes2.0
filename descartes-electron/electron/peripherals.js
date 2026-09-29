@@ -16,18 +16,8 @@ const execFileAsync = promisify(execFile)
 /** Tope de espera de `webContents.print`: sin él, un driver mudo cuelga la app. */
 const PRINT_TIMEOUT_MS = 30000
 
-function psQuote(value) {
-  return String(value || '').replace(/'/g, "''")
-}
-
-async function runPs(command, timeout = 15000) {
-  const { stdout, stderr } = await execFileAsync(
-    'powershell.exe',
-    ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command],
-    { windowsHide: true, timeout, maxBuffer: 1024 * 1024 }
-  )
-  return { stdout: String(stdout || ''), stderr: String(stderr || '') }
-}
+/** Impresoras a las que ya se aplicó direct/BIDI en esta sesión de Electron. */
+const impresorasTicketListas = new Set()
 
 /** El monitor Epson ESDPRT retiene trabajos si BIDI espera estado y la cola está NotAvailable. */
 async function disablePrinterBidi(printerName) {
@@ -55,46 +45,11 @@ async function enableDirectPrint(printerName) {
   }
 }
 
-async function purgeRetainedJobs(printerName) {
-  const n = psQuote(printerName)
-  try {
-    await runPs(
-      `Get-PrintJob -PrinterName '${n}' -ErrorAction SilentlyContinue | ForEach-Object {` +
-        ` $st = [string]$_.JobStatus;` +
-        ` if ($st -match 'Retain|Error|Offline|Paused') {` +
-        `   Remove-PrintJob -PrinterName '${n}' -ID $_.Id -ErrorAction SilentlyContinue` +
-        ` }` +
-        `}`
-    )
-  } catch {
-    /* ignore */
-  }
-}
-
-async function printerStatusName(printerName) {
-  const n = psQuote(printerName)
-  try {
-    const { stdout } = await runPs(
-      `$p = Get-Printer -Name '${n}' -ErrorAction SilentlyContinue; if ($p) { $p.PrinterStatus.ToString() }`
-    )
-    return stdout.trim()
-  } catch {
-    return ''
-  }
-}
-
-async function hasStuckJob(printerName) {
-  const n = psQuote(printerName)
-  try {
-    const { stdout } = await runPs(
-      `$j = Get-PrintJob -PrinterName '${n}' -ErrorAction SilentlyContinue |` +
-        ` Where-Object { $_.PagesPrinted -eq 0 -and ([string]$_.JobStatus) -match 'Print|Retain|Error' };` +
-        ` if ($j) { 'YES' } else { 'NO' }`
-    )
-    return stdout.trim() === 'YES'
-  } catch {
-    return false
-  }
+/** Una vez por impresora y sesión: el ticket no debe esperar a rundll32 en cada venta. */
+async function prepararImpresoraTicket(printerName) {
+  if (impresorasTicketListas.has(printerName)) return
+  await Promise.all([disablePrinterBidi(printerName), enableDirectPrint(printerName)])
+  impresorasTicketListas.add(printerName)
 }
 
 /**
@@ -256,9 +211,7 @@ async function printTicket(payload) {
   }
   const printerName = resolved.name
 
-  await disablePrinterBidi(printerName)
-  await enableDirectPrint(printerName)
-  await purgeRetainedJobs(printerName)
+  await prepararImpresoraTicket(printerName)
 
   const parts = []
   if (emblemaUrl) {
@@ -293,22 +246,19 @@ async function printTicket(payload) {
         'En el puesto, campo Tickets, elija el nombre exacto de Windows (TICKETU / TICKETW).',
     }
   }
-  if (!result.ok) {
-    return { ok: false, stub: false, impresora: printerName, message: result.message }
-  }
-
-  await new Promise((r) => setTimeout(r, 8000))
-  if (await hasStuckJob(printerName)) {
-    const status = await printerStatusName(printerName)
+  if (!result.ok && result.stuck) {
     return {
       ok: false,
       stub: false,
       impresora: printerName,
       message:
-        `El ticket sigue en la cola de «${printerName}» sin imprimirse (Windows: ${status || '?'}). ` +
+        `El ticket sigue en la cola de «${printerName}» sin imprimirse (Windows: ${result.status || '?'}). ` +
         'Abra esa impresora en Windows, cancele todos los documentos, apague y encienda la TM-T88IV ' +
         'y vuelva a probar. El reinicio de la cola ya no hace falta.',
     }
+  }
+  if (!result.ok) {
+    return { ok: false, stub: false, impresora: printerName, message: result.message }
   }
 
   return {
