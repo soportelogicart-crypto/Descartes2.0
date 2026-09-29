@@ -297,9 +297,11 @@ final class ListadosFiltrosSql
       WHERE RTRIM(eg.[Codigo]) = ' . $col . "
         AND (
           UPPER(RTRIM(ISNULL(eg.[Divisa], ''))) = :abcDivisaTienda
-          OR UPPER(RTRIM(ISNULL(eg.[DivisaAlt], ''))) = :abcDivisaTienda
+          OR UPPER(RTRIM(ISNULL(eg.[DivisaAlt], ''))) = :abcDivisaTiendaAlt
         )
     )";
+    // ODBC no reutiliza el mismo nombre de parámetro en una sentencia.
     $params['abcDivisaTienda'] = $divisa;
+    $params['abcDivisaTiendaAlt'] = $divisa;
   }
 }

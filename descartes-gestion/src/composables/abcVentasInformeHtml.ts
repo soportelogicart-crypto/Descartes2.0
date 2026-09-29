@@ -4,6 +4,7 @@ import {
   abcVentasFormatoArticulosMuestraComision,
 } from '@/config/abc-ventas-opciones'
 import { svgAbcHorasGraficoHtml } from '@/composables/abcVentasHorasGrafico'
+import { ESTILOS_LISTADO_A4 } from '@/composables/listadoPrintStyles'
 import {
   etiquetaBloqueGrupoAbc,
   etiquetaDimensionAbc,
@@ -367,8 +368,7 @@ function tablaGrupoHtml(g: AbcVentasGrupo, d: AbcVentasResponse): string {
 }
 
 const LEGACY_PRINT_CSS = `
-@page { margin: 14mm; }
-body { font-family: Arial, Helvetica, sans-serif; font-size: 10px; color: #111; margin: 0; }
+body { font-size: 10px; color: #111; }
 .legacy-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 4px; }
 .legacy-tit { font-size: 22px; font-weight: 700; font-style: italic; color: #006f6f; margin: 0; }
 .legacy-tit-line { border: none; border-top: 2px solid #006f6f; margin: 2px 0 6px; }
@@ -378,6 +378,8 @@ body { font-family: Arial, Helvetica, sans-serif; font-size: 10px; color: #111; 
 .legacy-impresion { font-size: 9px; margin-bottom: 6px; }
 .legacy-sep { border: none; border-top: 3px solid #6b2d2d; margin: 0 0 8px; }
 .abc-legacy { width: 100%; border-collapse: collapse; font-size: 9px; }
+.abc-legacy thead { display: table-header-group; }
+.abc-legacy tr { break-inside: avoid; page-break-inside: avoid; }
 .abc-legacy th, .abc-legacy td { border: none; padding: 2px 5px; vertical-align: top; }
 .abc-legacy thead th { background: #006f6f; color: #fff; font-weight: 700; text-align: left; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .abc-legacy th.col-num, .abc-legacy td.col-num, .abc-legacy th.col-pct, .abc-legacy td.col-pct { text-align: right; }
@@ -432,11 +434,11 @@ export function construirHtmlInformeAbcVentas(
 .matriz-venta-horaria .matriz-total-row th, .matriz-venta-horaria .matriz-total-row td { font-weight: 700; }
 `
     return `<!doctype html><html><head><meta charset="utf-8"><title>${titulo}</title>
-<style>body{font-family:Arial,sans-serif;font-size:10px;margin:14mm}${matrizCss}</style></head><body>
+<style>${ESTILOS_LISTADO_A4}${matrizCss}</style></head><body><main class="folio">
 <h1 style="font-size:14px;margin:0 0 4px">${titulo}</h1>
 <p style="margin:0 0 8px">Fecha de Impresión: ${esc(impresion)} · ${esc(desde || '')} – ${esc(hasta || '')}</p>
 ${cuerpo}
-</body></html>`
+</main></body></html>`
   }
 
   if (abcVentasUsaInformePlanoHorasAbc(d)) {
@@ -452,14 +454,15 @@ ${cuerpo}
     })
     const [desde, hasta] = opciones.periodo.replace(/^Fecha\s*/, '').split(' - ')
     return `<!doctype html><html><head><meta charset="utf-8"><title>${titulo}</title>
-<style>${LEGACY_PRINT_CSS}
-.abc-table.abc-legacy.abc-horas-plano{width:max-content;max-width:100%;table-layout:auto;font-size:8px}
+<style>${ESTILOS_LISTADO_A4}${LEGACY_PRINT_CSS}
+.abc-table.abc-legacy.abc-horas-plano{width:100%;table-layout:fixed;font-size:8px}
 .abc-table.abc-legacy.abc-horas-plano th,.abc-table.abc-legacy.abc-horas-plano td{border:1px solid #ccc;padding:1px 4px}
-.abc-table.abc-legacy.abc-horas-plano .col-codigo{width:auto;padding-right:4px;white-space:nowrap}
+.abc-table.abc-legacy.abc-horas-plano .col-codigo{width:21%;padding-right:4px;white-space:nowrap}
 .abc-table.abc-legacy.abc-horas-plano .col-total-horas{text-align:right;white-space:nowrap}
-.abc-table.abc-legacy.abc-horas-plano .col-num,.abc-table.abc-legacy.abc-horas-plano .col-pct{width:auto;text-align:right}
-.abc-horas-grafico{margin-top:12px}
-</style></head><body>
+.abc-table.abc-legacy.abc-horas-plano .col-num,.abc-table.abc-legacy.abc-horas-plano .col-pct{width:auto;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.abc-horas-grafico{width:100%;margin:7mm 0 0;break-inside:avoid;page-break-inside:avoid}
+.abc-horas-grafico svg{display:block;width:100%;height:68mm}
+</style></head><body><main class="folio">
 <div class="legacy-top">
   <div><h1 class="legacy-tit">${titulo}</h1><hr class="legacy-tit-line" /></div>
   <div class="legacy-fecha">
@@ -471,7 +474,7 @@ ${cuerpo}
 <p class="legacy-impresion">Fecha de Impresión: ${esc(impresion)}</p>
 <hr class="legacy-sep" />
 ${cuerpo}
-</body></html>`
+</main></body></html>`
   } else if (legacyPlano) {
     if (d.bloques?.length) {
       for (const b of d.bloques) {
@@ -502,7 +505,7 @@ ${cuerpo}
   if (legacyPlano) {
     const [desde, hasta] = opciones.periodo.replace(/^Fecha\s*/, '').split(' - ')
     return `<!doctype html><html><head><meta charset="utf-8"><title>${tituloLegacy}</title>
-<style>${LEGACY_PRINT_CSS}</style></head><body>
+<style>${ESTILOS_LISTADO_A4}${LEGACY_PRINT_CSS}</style></head><body><main class="folio">
 <div class="legacy-top">
   <div><h1 class="legacy-tit">${tituloLegacy}</h1><hr class="legacy-tit-line" /></div>
   <div class="legacy-fecha">
@@ -514,7 +517,7 @@ ${cuerpo}
 <p class="legacy-impresion">Fecha de Impresión: ${esc(impresion)}</p>
 <hr class="legacy-sep" />
 ${cuerpo}
-</body></html>`
+</main></body></html>`
   }
 
   const cabRows = [
@@ -529,6 +532,6 @@ ${cuerpo}
   }
 
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(opciones.tituloCabecera)}</title>
-<style>body{font-family:Arial,sans-serif;font-size:10px}.cab-row{margin-bottom:3px}.abc-table{width:100%;border-collapse:collapse}.abc-table th,.abc-table td{border:1px solid #ccc;padding:2px 4px}</style>
-</head><body>${cabRows.join('')}${cuerpo}</body></html>`
+<style>${ESTILOS_LISTADO_A4}.cab-row{margin-bottom:3px}.abc-table{width:100%;border-collapse:collapse}.abc-table thead{display:table-header-group}.abc-table tr{break-inside:avoid;page-break-inside:avoid}.abc-table th,.abc-table td{border:1px solid #ccc;padding:2px 4px}</style>
+</head><body><main class="folio">${cabRows.join('')}${cuerpo}</main></body></html>`
 }

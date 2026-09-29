@@ -8,49 +8,80 @@ import {
   PREVIEW_MSG_RESULTADO,
 } from '@/composables/previewDocumentoVentana'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
+import {
+  ESTILOS_LISTADO_A4,
+  type ListadoAlineacion,
+  type ListadoColumnaImpresion,
+} from '@/composables/listadoPrintStyles'
 
 const MAX_FILAS_IMPRESION = 2500
 
 type ResultadoImpresion = { ok: boolean; message: string }
 
 const impresionDesdePreview = new WeakMap<Window, () => Promise<ResultadoImpresion>>()
+let previewActiva: { ventana: Window; ejecutar: () => Promise<ResultadoImpresion> } | null = null
 
 let listenerPreviewRegistrado = false
+
+function notificarPreview(ventana: Window, res: ResultadoImpresion): void {
+  if (ventana.closed) return
+  ventana.postMessage(
+    {
+      tipo: res.ok ? PREVIEW_MSG_RESULTADO : PREVIEW_MSG_ERROR,
+      mensaje: res.message,
+    },
+    '*'
+  )
+}
 
 function registrarListenerImpresionPreview(): void {
   if (listenerPreviewRegistrado || typeof window === 'undefined') return
   listenerPreviewRegistrado = true
   window.addEventListener('message', (e: MessageEvent) => {
     if ((e.data as { tipo?: string } | null)?.tipo !== PREVIEW_MSG_IMPRIMIR) return
-    const ventana = e.source
-    if (!(ventana instanceof Window)) return
-    const ejecutar = impresionDesdePreview.get(ventana)
-    if (!ejecutar) return
-    void ejecutar().then((res) => {
-      if (ventana.closed) return
-      ventana.postMessage(
-        {
-          tipo: res.ok ? PREVIEW_MSG_RESULTADO : PREVIEW_MSG_ERROR,
-          mensaje: res.message,
-        },
-        '*'
-      )
-    })
+    if (e.origin !== window.location.origin && e.origin !== 'null') return
+    const fuente = e.source
+    const porVentana = fuente instanceof Window ? impresionDesdePreview.get(fuente) : undefined
+    const actual = previewActiva
+    const ejecutar =
+      porVentana ?? (actual && !actual.ventana.closed ? actual.ejecutar : undefined)
+    const ventana = fuente instanceof Window ? fuente : actual?.ventana
+    if (!ejecutar || !ventana) return
+    void ejecutar().then((res) => notificarPreview(ventana, res))
   })
 }
 
+type ImpresoraResuelta = { nombre: string; id: number | null }
+
+const SIN_IMPRESORA: ImpresoraResuelta = { nombre: '', id: null }
+
 /** Impresora «Listados» en Generales II del puesto (legacy imp80 / impresora80). */
-export async function resolverImpresoraListadosPuesto(): Promise<{ nombre: string; id: number | null }> {
+export async function resolverImpresoraListadosPuesto(): Promise<ImpresoraResuelta> {
+  const { listados } = await impresorasDelPuesto()
+  return listados
+}
+
+async function impresorasDelPuesto(): Promise<{ listados: ImpresoraResuelta; tickets: ImpresoraResuelta }> {
   const puestoCodigo = usePuestoContextoStore().puestoCodigo?.trim() ?? ''
   if (!puestoCodigo) {
-    return { nombre: '', id: null }
+    return { listados: SIN_IMPRESORA, tickets: SIN_IMPRESORA }
   }
   try {
     const puesto = await cargarPuesto(puestoCodigo)
-    return await resolverNombreImpresoraDoc(puesto, 'imp80', 'impresora80')
+    const [listados, tickets] = await Promise.all([
+      resolverNombreImpresoraDoc(puesto, 'imp80', 'impresora80'),
+      resolverNombreImpresoraDoc(puesto, 'impresoraTickets', null),
+    ])
+    return { listados, tickets }
   } catch {
-    return { nombre: '', id: null }
+    return { listados: SIN_IMPRESORA, tickets: SIN_IMPRESORA }
   }
+}
+
+function esLaImpresoraDeTickets(listados: ImpresoraResuelta, tickets: ImpresoraResuelta): boolean {
+  const a = listados.nombre.trim().toLowerCase()
+  const b = tickets.nombre.trim().toLowerCase()
+  return a !== '' && a === b
 }
 
 /** Vista previa / impresión A4 sencilla: cabecera + tabla HTML. */
@@ -61,41 +92,61 @@ export function construirListadoHtml(opciones: {
   thead: string[]
   filas: (string | number)[][]
   pie?: string[]
+  columnas?: ListadoColumnaImpresion[]
 }): string {
   const esc = (s: string) =>
     s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-  const thead = opciones.thead.map((h) => `<th>${esc(h)}</th>`).join('')
+  const encabezadoTexto = /fecha|c[oó]digo|documento|cliente|art[ií]culo|descripci[oó]n|concepto|tienda|almac[eé]n|nombre|tipo/i
+  const pareceNumero = (valor: string | number) => {
+    if (typeof valor === 'number') return Number.isFinite(valor)
+    const texto = String(valor).trim()
+    if (!texto) return true
+    return /^[-+]?\s*\d{1,3}(?:[.\s]\d{3})*(?:,\d+)?\s*(?:€|%)?$/.test(texto)
+  }
+  const alineacionColumna = (i: number): ListadoAlineacion => {
+    const explicita = opciones.columnas?.[i]?.alineacion
+    if (explicita) return explicita
+    if (encabezadoTexto.test(opciones.thead[i] ?? '')) return 'left'
+    const valores = opciones.filas.map((fila) => fila[i]).filter((valor) => String(valor ?? '').trim() !== '')
+    return valores.length > 0 && valores.every(pareceNumero) ? 'right' : 'left'
+  }
+  const alineaciones = opciones.thead.map((_, i) => alineacionColumna(i))
+  const colgroup = opciones.thead
+    .map((_, i) => {
+      const ancho = opciones.columnas?.[i]?.ancho
+      return `<col${ancho ? ` style="width:${esc(ancho)}"` : ''}/>`
+    })
+    .join('')
+  const thead = opciones.thead
+    .map((h, i) => `<th class="align-${alineaciones[i]}">${esc(h)}</th>`)
+    .join('')
   const body = opciones.filas
     .map(
       (fila) =>
-        `<tr>${fila.map((c, i) => `<td class="${i > 0 ? 'num' : ''}">${esc(String(c))}</td>`).join('')}</tr>`
+        `<tr>${fila
+          .map((c, i) => `<td class="align-${alineaciones[i] ?? 'left'}">${esc(String(c))}</td>`)
+          .join('')}</tr>`
     )
     .join('')
   const meta = (opciones.metaLineas ?? [])
-    .map((l) => `<p class="meta">${esc(l)}</p>`)
+    .map((l) => `<p>${esc(l)}</p>`)
     .join('')
   const pie =
     opciones.pie && opciones.pie.length
-      ? `<p class="tot">${opciones.pie.map(esc).join(' · ')}</p>`
+      ? `<p class="listado-totales">${opciones.pie.map(esc).join(' · ')}</p>`
       : ''
-  const subt = opciones.subtitulo ? `<p class="sub">${esc(opciones.subtitulo)}</p>` : ''
+  const subt = opciones.subtitulo
+    ? `<p class="listado-subtitulo">${esc(opciones.subtitulo)}</p>`
+    : ''
+  const fechaImpresion = new Date().toLocaleString('es-ES')
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(opciones.titulo)}</title>
-<style>
-@page { margin: 14mm; }
-body{font-family:Arial,sans-serif;font-size:11px;color:#111;padding:0;margin:0}
-h1{font-size:16px;margin:0 0 4px}
-.sub{color:#444;margin:0 0 8px;font-size:12px}
-.meta{color:#555;margin:2px 0;font-size:10px}
-table{width:100%;border-collapse:collapse;margin-top:10px}
-th,td{border-bottom:1px solid #ccc;padding:3px 5px;text-align:left}
-th{background:#f1f5f9;font-size:10px}
-td.num,th.num{text-align:right}
-.tot{font-weight:700;margin-top:12px;font-size:11px}
-</style></head><body>
-<h1>${esc(opciones.titulo)}</h1>${subt}${meta}
-<table><thead><tr>${thead}</tr></thead><tbody>${body}</tbody></table>
-${pie}
-</body></html>`
+<style>${ESTILOS_LISTADO_A4}</style></head><body><main class="folio">
+<header class="listado-cabecera">
+  <div><h1 class="listado-titulo">${esc(opciones.titulo)}</h1>${subt}</div>
+  <div class="listado-meta">${meta}<p><strong>Impresión:</strong> ${esc(fechaImpresion)}</p></div>
+</header>
+<table class="listado-tabla"><colgroup>${colgroup}</colgroup><thead><tr>${thead}</tr></thead><tbody>${body}</tbody></table>
+${pie}</main></body></html>`
 }
 
 /** Envía el HTML del listado a la impresora (Electron o diálogo del sistema). */
@@ -105,17 +156,17 @@ export async function enviarListadoHtmlAImpresora(
 ): Promise<ResultadoImpresion> {
   const bridge = getDescartesBridge()
   if (bridge?.printHtml) {
-    const imp = await resolverImpresoraListadosPuesto()
+    const { listados, tickets } = await impresorasDelPuesto()
     const intentos: { impresora?: string; impresoraId?: number; silent: boolean }[] = []
-    if (imp.nombre || imp.id) {
+    // La de tickets (TICKETU) es RAW: un listado A4 entra en la cola y no sale en papel.
+    if ((listados.nombre || listados.id) && !esLaImpresoraDeTickets(listados, tickets)) {
       intentos.push({
-        impresora: imp.nombre || undefined,
-        impresoraId: imp.id ?? undefined,
+        impresora: listados.nombre || undefined,
+        impresoraId: listados.id ?? undefined,
         silent: true,
       })
     }
-    // Sin impresora de Listados en el puesto, la predeterminada de Windows.
-    intentos.push({ silent: true })
+    // Sin impresora de listados no se manda a la predeterminada: en caja suele ser la de tickets.
     intentos.push({ silent: false })
 
     let ultimoError = 'No se pudo imprimir'
@@ -149,6 +200,7 @@ export async function imprimirListadoHtml(opciones: {
   thead?: string[]
   filas?: (string | number)[][]
   pie?: string[]
+  columnas?: ListadoColumnaImpresion[]
   filenameFallback?: string
   /** Si false, imprime directo sin ventana de previsualización. */
   preview?: boolean
@@ -186,7 +238,9 @@ export async function imprimirListadoHtml(opciones: {
       return { ok: false, message: 'Popup bloqueado: se descargó HTML para abrir manualmente' }
     }
 
-    impresionDesdePreview.set(ventana, () => enviarListadoHtmlAImpresora(html, ventana))
+    const ejecutar = () => enviarListadoHtmlAImpresora(html, ventana)
+    impresionDesdePreview.set(ventana, ejecutar)
+    previewActiva = { ventana, ejecutar }
 
     const imp = await resolverImpresoraListadosPuesto()
     escribirVentanaPreview(ventana, html, {
