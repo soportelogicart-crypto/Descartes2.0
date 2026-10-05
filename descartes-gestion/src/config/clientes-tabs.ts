@@ -22,6 +22,7 @@ export type ClienteField = {
     | 'trabajadores'
     | 'clientes'
     | 'cuentas'
+  | 'tipos-descuento'
   /** Lupa de búsqueda (p. ej. cliente de facturación o cuenta contable). */
   lookup?: boolean
 }
@@ -187,9 +188,14 @@ export const clienteTabs: ClienteTab[] = [
         columns: 2,
         row: 'mkt2',
         fields: [
-          inline('tarjetaFidelizacion', 'Tarjeta fidelizacion', { span: 2, maxLength: 20 }),
+          inline('tarjetaFidelizacion', 'Tarjeta fidelizacion', { maxLength: 20 }),
           inline('fechaAltaFidelizacion', 'Fecha alta fidelizacion', { type: 'date' }),
           inline('pjeFidelizacion', '% Fidelizacion', { type: 'number' }),
+          inline('tipoDescuentoFidelizacion', 'Tipo Dto. fidelizacion', {
+            maxLength: 6,
+            lookup: true,
+            optionsSource: 'tipos-descuento',
+          }),
           inline('acumuladoFidelizacion', 'Acum. fidelizacion', { type: 'number' }),
           inline('acumuladoPuntos', 'Acum. puntos', { type: 'number' }),
         ],
@@ -200,8 +206,11 @@ export const clienteTabs: ClienteTab[] = [
         row: 'mkt3',
         fields: [
           inline('tarifa', 'Tarifa', { type: 'number' }),
-          inline('tipoDescuento', 'Tipo descuento', { maxLength: 6 }),
-          inline('tipoDescuentoFidelizacion', 'Tipo Dto. fidelizacion', { maxLength: 6 }),
+          inline('tipoDescuento', 'Tipo descuento', {
+            maxLength: 6,
+            lookup: true,
+            optionsSource: 'tipos-descuento',
+          }),
           inline('dto1', 'Descuento cabecera', { type: 'number' }),
           inline('dto2', 'Descuento linea', { type: 'number' }),
         ],

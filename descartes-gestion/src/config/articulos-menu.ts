@@ -12,6 +12,7 @@ export const articulosMenuItems: ArticulosMenuItem[] = [
   { slug: 'secciones', titulo: 'Secciones', ruta: '/mantenimiento/secciones' },
   { slug: 'subsecciones', titulo: 'Subsecciones', ruta: '/mantenimiento/subsecciones' },
   { slug: 'articulos', titulo: 'Articulos', ruta: '/mantenimiento/articulos' },
+  { slug: 'tipos-descuento', titulo: 'Tipo descuento', ruta: '/mantenimiento/tipos-descuento' },
 ]
 
 export const articulosMenuRutas = articulosMenuItems.map((item) => item.ruta)

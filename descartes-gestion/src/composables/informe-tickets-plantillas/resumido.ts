@@ -19,7 +19,7 @@ function bloqueDia(
   return `<section class="resumido-dia legacy-dia">
     <table class="legacy-resumen"><tbody>${filaResumen(dia, fecha(dia.fecha))}</tbody></table>
     <div class="resumido-dia-cajas">
-      <div>${tablaIvaDoble(dia)}${tablaPagos(dia, tienda)}</div>
+      <div>${tablaIvaDoble(dia)}${tablaPagos(dia, tienda, true)}</div>
       ${perfilDia(dia)}
     </div>
   </section>`
@@ -55,7 +55,7 @@ function cuerpo(data: InformeTicketsResult): string {
 const ESTILOS = `
 .resumido-cabeceras{margin-bottom:1mm}
 .resumido-cabeceras th:first-child{background:transparent}
-.resumido-dia-cajas{display:grid;grid-template-columns:70% 30%;gap:0;margin:1mm 1mm 0}
+.resumido-dia-cajas{display:grid;grid-template-columns:minmax(0,1.85fr) minmax(0,1fr);gap:1.5mm;margin:1mm 0 0}
 .resumido-dia-cajas>div>.legacy-box{border-right:0}
 .resumido-dia-cajas .iva-doble{border-bottom:0}
 .resumido-dia .legacy-resumen td:first-child{font-size:8pt}

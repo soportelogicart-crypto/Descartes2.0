@@ -68,8 +68,8 @@ function intOpt(value: string): number | undefined {
 
 function params() {
   return {
-    fechaDesde: form.value.fechaDesde,
-    fechaHasta: form.value.fechaHasta,
+    fechaDesde: form.value.fechaDesde || undefined,
+    fechaHasta: form.value.fechaHasta || undefined,
     formato: form.value.formato,
     divisa: form.value.divisa,
     empresaDesde: form.value.empresaDesde.trim() || undefined,
@@ -95,7 +95,7 @@ function params() {
 }
 
 async function generar() {
-  if (form.value.fechaDesde > form.value.fechaHasta) {
+  if (form.value.fechaDesde && form.value.fechaHasta && form.value.fechaDesde > form.value.fechaHasta) {
     error.value = 'La fecha desde no puede ser posterior a la fecha hasta.'
     return
   }
@@ -202,6 +202,7 @@ async function imprimir() {
           ? `Diario IVA ${form.value.divisa}`
           : `Informe de Tickets ${form.value.divisa}`,
       html,
+      orientacion: 'vertical',
       filenameFallback: `informe-tickets-${form.value.formato}.html`,
     })
     if (res.ok) mensaje.value = res.message

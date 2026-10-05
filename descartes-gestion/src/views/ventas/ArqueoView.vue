@@ -11,9 +11,12 @@ import {
 } from '@/api/ventas'
 import type { ArqueoLinea, ArqueoResponse } from '@/types/ventas'
 import { extractApiError } from '@/composables/useMantenimiento'
+import { ANCHO_TICKET, centrarTicket } from '@/composables/comprobanteTarjeta'
 import { imprimirTicketTermica } from '@/composables/impresionTicketTermica'
+import { TICKET_MARCA_GRANDE } from '@/config/documentos-plantillas/ticket-texto'
 import { usePdfPreview } from '@/composables/usePdfPreview'
 import { usePermisos } from '@/composables/usePermisos'
+import { useAuthStore } from '@/stores/auth'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { api } from '@/api/client'
 import PdfPreviewModal from '@/components/common/PdfPreviewModal.vue'
@@ -24,6 +27,7 @@ type PuestoOpt = Opt & { tiendaCodigo: string; ultSesion: number }
 type MovTipo = 'entrada' | 'salida'
 
 const puestoContexto = usePuestoContextoStore()
+const auth = useAuthStore()
 const { puede } = usePermisos()
 const puedeVer = computed(() => puede('ventas-arqueo', 'ver'))
 const puedeIntroducir = computed(() => puede('ventas-arqueo', 'editar'))
@@ -247,6 +251,7 @@ async function cargar() {
   try {
     data.value = await obtenerArqueo(emp, pue, ses)
     initEntrados(data.value)
+    mensaje.value = `Arqueo actualizado: puesto ${pue}, sesión ${ses}.`
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudo cargar el arqueo')
     data.value = null
@@ -408,29 +413,107 @@ async function confirmarMovimiento() {
       importe,
       concepto: movForm.value.concepto.trim() || undefined,
     }
-    data.value =
-      movTipo.value === 'entrada'
-        ? await entradaCajaArqueo(emp, pue, ses, payload)
-        : await salidaCajaArqueo(emp, pue, ses, payload)
+    const esSalida = movTipo.value === 'salida'
+    data.value = esSalida
+      ? await salidaCajaArqueo(emp, pue, ses, payload)
+      : await entradaCajaArqueo(emp, pue, ses, payload)
     initEntrados(data.value)
     modalMov.value = false
     const mov = data.value.ultimoMovimiento
-    if (movTipo.value === 'entrada') {
+    if (!esSalida) {
       const despues = mov?.acumuladoDespues
       mensaje.value =
         despues != null
           ? `Entrada de caja +${importe.toFixed(2)} en ${mov?.formaPago ?? movForm.value.formaPago}. Acumulado: ${Number(despues).toFixed(2)} (la Diferencia negativa es normal hasta introducir el arqueo físico).`
           : `Entrada de caja registrada (+${importe.toFixed(2)} en Acumulado)`
     } else {
-      mensaje.value =
+      const base =
         mov?.acumuladoDespues != null
           ? `Salida de caja −${importe.toFixed(2)}. Acumulado ${mov.formaPago}: ${Number(mov.acumuladoDespues).toFixed(2)}`
           : `Salida de caja registrada (−${importe.toFixed(2)} en Acumulado)`
+      const avisoTicket = await imprimirComprobanteSalida(data.value)
+      mensaje.value = avisoTicket ? `${base}. ${avisoTicket}` : base
     }
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudo registrar el movimiento')
   } finally {
     saving.value = false
+  }
+}
+
+function lineaTicket(izq: string, der: string, ancho = ANCHO_TICKET): string {
+  const derecha = der.trim()
+  const izquierda = izq.trim()
+  if (!derecha) return izquierda.slice(0, ancho)
+  const hueco = Math.max(0, ancho - derecha.length - 1)
+  return `${izquierda.slice(0, hueco).padEnd(hueco)} ${derecha}`.slice(0, ancho)
+}
+
+function eurosTicket(n: number): string {
+  return `${n.toFixed(2).replace('.', ',')} EUR`
+}
+
+function textoComprobanteSalida(res: ArqueoResponse): string {
+  const mov = res.ultimoMovimiento
+  const forma = String(mov?.formaPago ?? '').trim()
+  const linea = res.lineas.find((l) => l.formaPago === forma)
+  const desc = String(linea?.descripcion ?? '').trim()
+  const ahora = new Date()
+  const fecha = ahora.toLocaleString('es-ES', {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+  const cajero = String(auth.usuario?.nombre || auth.usuario?.codigo || '').trim() || '-'
+  const sep = ''.padEnd(ANCHO_TICKET, '-')
+  const lines = [
+    TICKET_MARCA_GRANDE + centrarTicket('SALIDA DE CAJA', 42),
+    '',
+    lineaTicket('Empresa', res.empresa),
+    lineaTicket('Puesto', res.puesto),
+    lineaTicket('Sesion', String(res.sesion)),
+    lineaTicket('Fecha', fecha),
+    lineaTicket('Cajero', cajero),
+    sep,
+    lineaTicket('Forma', desc ? `${forma} ${desc}` : forma),
+  ]
+  const concepto = String(mov?.concepto ?? '').trim()
+  if (concepto) lines.push(lineaTicket('Concepto', concepto))
+  lines.push(sep)
+  lines.push(lineaTicket('IMPORTE', `-${eurosTicket(Number(mov?.importe) || 0)}`))
+  if (mov?.acumuladoDespues != null) {
+    lines.push(lineaTicket('Acumulado', eurosTicket(Number(mov.acumuladoDespues))))
+  }
+  if (mov?.valeCodigo) lines.push(lineaTicket('Vale', String(mov.valeCodigo)))
+  lines.push(sep)
+  return lines.join('\n')
+}
+
+/** Imprime el comprobante. Si falla, la salida ya está guardada. */
+async function imprimirComprobanteSalida(res: ArqueoResponse): Promise<string> {
+  const forma = String(res.ultimoMovimiento?.formaPago ?? '').trim()
+  const linea = res.lineas.find((l) => l.formaPago === forma)
+  const esEfectivo = (linea?.agrupacion ?? 0) === 0
+  try {
+    const print = await imprimirTicketTermica({
+      puestoCodigo: form.value.puesto.trim(),
+      texto: textoComprobanteSalida(res),
+      tipo: 'salida-caja',
+      empresa: res.empresa,
+      sesion: res.sesion,
+      abrirCajon: esEfectivo,
+    })
+    return print.stub
+      ? `Comprobante (prueba): ${print.message}`
+      : `Comprobante enviado a «${print.impresora}»`
+  } catch (e: unknown) {
+    error.value = extractApiError(
+      e,
+      'La salida quedó registrada, pero no se pudo imprimir el comprobante'
+    )
+    return ''
   }
 }
 
@@ -460,8 +543,9 @@ async function imprimirPantalla() {
 <style>
 body{font-family:Arial,sans-serif;font-size:12px;padding:16px;color:#111}
 h1{font-size:16px;margin:0 0 8px}
-table{width:100%;border-collapse:collapse;margin-top:10px}
+table{width:auto;border-collapse:collapse;margin-top:10px}
 th,td{border-bottom:1px solid #ccc;padding:4px 6px;text-align:left}
+td.desc{max-width:42mm;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 td.num,th.num{text-align:right}
 .tot{font-weight:700;margin-top:10px}
 .meta{color:#444;margin:2px 0}
@@ -671,41 +755,38 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section>
+  <section class="arqueo-view">
     <h2>Arqueo de caja</h2>
     <p class="hint">
-      Por defecto se selecciona el <strong>puesto de este equipo</strong>
+      Puesto de este equipo
       <template v-if="puestoContexto.puestoCodigo">
         (<code>{{ puestoContexto.puestoCodigo }}</code>)</template
-      >; puede cambiarlo. La «tienda arqueo» no es la tienda de la venta: es el campo
-      <strong>EmpresaArqueo</strong> configurado en Mantenimiento → Puestos (ahí sale el código, p. ej. 42).
+      >. La tienda es la empresa de arqueo configurada en el puesto.
     </p>
+    <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="mensaje" class="ok">{{ mensaje }}</p>
 
-    <form class="filtros" @submit.prevent="cargar">
-      <label>
+    <div class="listado-panel">
+    <form class="ficha-header" @submit.prevent="cargar">
+      <label class="campo-puesto">
         Puesto
         <select v-model="form.puesto" required :disabled="loadingOpts || !puestosAll.length || editando">
           <option value="" disabled>— seleccionar —</option>
           <option v-for="p in puestosAll" :key="p.value" :value="p.value">{{ p.label }}</option>
         </select>
       </label>
-      <label>
+      <label class="campo-tienda">
         Tienda arqueo
         <input :value="tiendaLabel" type="text" readonly tabindex="-1" />
       </label>
-      <label>
-        Sesion
+      <label class="campo-sesion">
+        Sesión
         <DecimalInput v-model="form.sesion" :empty-as-null="false" :integer="true" :required="true" :disabled="editando" />
       </label>
-      <button type="submit" :disabled="loading || loadingOpts || editando">Consultar</button>
+      <button type="submit" class="tool-btn primary" :disabled="loading || loadingOpts || editando">
+        {{ loading ? 'Consultando…' : 'Consultar' }}
+      </button>
     </form>
-
-    <p v-if="empresaArqueo && form.puesto" class="hint query">
-      Consulta: empresa <strong>{{ empresaArqueo }}</strong> / puesto
-      <strong>{{ form.puesto }}</strong> / sesion <strong>{{ form.sesion }}</strong>
-    </p>
-    <p v-if="error" class="error">{{ error }}</p>
-    <p v-if="mensaje" class="ok">{{ mensaje }}</p>
 
     <template v-if="data">
       <div class="cab-sesion">
@@ -719,11 +800,11 @@ onMounted(async () => {
         <div><span class="k">Salidas caja</span> {{ data.contadores?.salidaEfectivo ?? 0 }}</div>
       </div>
 
-      <div class="acciones" v-if="puedeVer">
+      <div class="toolbar" v-if="puedeVer">
         <button
           v-if="puedeAbrirIntroducir && !editando"
           type="button"
-          class="primary"
+          class="tool-btn primary"
           :disabled="loading || saving"
           @click="empezarIntroducir(false)"
         >
@@ -732,18 +813,20 @@ onMounted(async () => {
         <button
           v-if="puedeAbrirRepetir && !editando"
           type="button"
+          class="tool-btn"
           :disabled="loading || saving"
           @click="empezarIntroducir(true)"
         >
           Repetir arqueo
         </button>
-        <button v-if="editando" type="button" class="primary" :disabled="saving" @click="confirmarIntroducir">
+        <button v-if="editando" type="button" class="tool-btn primary" :disabled="saving" @click="confirmarIntroducir">
           {{ saving ? 'Guardando…' : 'Confirmar Entrado' }}
         </button>
-        <button v-if="editando" type="button" :disabled="saving" @click="cancelarEdicion">Cancelar</button>
+        <button v-if="editando" type="button" class="tool-btn" :disabled="saving" @click="cancelarEdicion">Cancelar</button>
         <button
           v-if="puedeAbrirEntrada"
           type="button"
+          class="tool-btn"
           :disabled="loading || saving"
           @click="abrirMovimiento('entrada')"
         >
@@ -752,7 +835,9 @@ onMounted(async () => {
         <button
           v-if="puedeAbrirSalida"
           type="button"
+          class="tool-btn"
           :disabled="loading || saving"
+          title="Registra la salida e imprime un comprobante en la impresora de tickets"
           @click="abrirMovimiento('salida')"
         >
           Salida de caja
@@ -760,7 +845,7 @@ onMounted(async () => {
         <button
           v-if="puedeAbrirCerrar"
           type="button"
-          class="danger"
+          class="tool-btn danger"
           :disabled="loading || saving"
           @click="abrirCerrar"
         >
@@ -769,24 +854,27 @@ onMounted(async () => {
         <button
           v-if="puedeLeerCajon"
           type="button"
+          class="tool-btn"
           :disabled="loading || saving"
           title="Solo con cajón electrónico (Cashlogy/PayDesk/OPOS). Para contar a mano use Introducir arqueo."
           @click="leerCajon"
         >
           Leer cajón
         </button>
-        <button type="button" :disabled="loading || !data.lineas.length" @click="imprimirPantalla">
+        <span class="toolbar-sep" aria-hidden="true"></span>
+        <button type="button" class="tool-btn" :disabled="loading || !data.lineas.length" @click="imprimirPantalla">
           Imprimir pantalla
         </button>
-        <button type="button" :disabled="loading || saving || !data.lineas.length" @click="abrirInformePdf">
+        <button type="button" class="tool-btn" :disabled="loading || saving || !data.lineas.length" @click="abrirInformePdf">
           Informe PDF
         </button>
-        <button type="button" :disabled="loading || !data.lineas.length" @click="exportarExcel">
+        <button type="button" class="tool-btn" :disabled="loading || !data.lineas.length" @click="exportarExcel">
           Excel
         </button>
         <button
           v-if="puedeImprimirTermica"
           type="button"
+          class="tool-btn"
           :disabled="loading || saving || !data.lineas.length"
           title="Envía el arqueo a la impresora térmica del puesto"
           @click="imprimirTermica"
@@ -818,8 +906,8 @@ onMounted(async () => {
         <table>
           <thead>
             <tr>
-              <th>Forma</th>
-              <th>Descripcion</th>
+              <th class="c-forma">Forma</th>
+              <th class="c-desc">Descripción</th>
               <th class="num">Acumulado</th>
               <th class="num">Entrado</th>
               <th class="num">Diferencia</th>
@@ -827,8 +915,8 @@ onMounted(async () => {
           </thead>
           <tbody>
             <tr v-for="l in data.lineas" :key="l.formaPago" :class="{ dim: !l.cuentaParaArqueo }">
-              <td>{{ l.formaPago }}</td>
-              <td>{{ l.descripcion }}</td>
+              <td class="c-forma">{{ l.formaPago }}</td>
+              <td class="c-desc" :title="l.descripcion || ''">{{ l.descripcion }}</td>
               <td class="num">{{ l.acumulado.toFixed(2) }}</td>
               <td class="num">
                 <DecimalInput
@@ -868,7 +956,7 @@ onMounted(async () => {
           <tbody>
             <tr v-for="l in data.lineas" :key="'p-' + l.formaPago">
               <td>{{ l.formaPago }}</td>
-              <td>{{ l.descripcion }}</td>
+              <td class="desc">{{ l.descripcion }}</td>
               <td class="num">{{ l.acumulado.toFixed(2) }}</td>
               <td class="num">{{ l.entrado.toFixed(2) }}</td>
               <td class="num">{{ (l.diferencia ?? l.entrado - l.acumulado).toFixed(2) }}</td>
@@ -882,11 +970,16 @@ onMounted(async () => {
         </p>
       </div>
     </template>
+    </div>
 
     <!-- Modal cerrar sesión -->
     <div v-if="modalCerrar" class="modal-backdrop" @click.self="modalCerrar = false">
       <div class="modal" role="dialog" aria-labelledby="cerrar-title">
-        <h3 id="cerrar-title">Cerrar sesión de caja</h3>
+        <header class="modal-head">
+          <h3 id="cerrar-title">Cerrar sesión de caja</h3>
+          <button type="button" class="btn-close" title="Cerrar" @click="modalCerrar = false">×</button>
+        </header>
+        <form class="ficha-campos" @submit.prevent="confirmarCerrar">
         <p class="hint">
           Descuadre efectivo (Entrado − Acumulado):
           <strong :class="{ descuadre: descuadrePreview !== 0 }">{{ descuadrePreview.toFixed(2) }}</strong>
@@ -921,18 +1014,23 @@ onMounted(async () => {
           Forzar cierre (sesión sin movimientos)
         </label>
         <div class="modal-actions">
-          <button type="button" :disabled="saving" @click="modalCerrar = false">Cancelar</button>
-          <button type="button" class="primary" :disabled="saving" @click="confirmarCerrar">
+          <button type="button" class="tool-btn" :disabled="saving" @click="modalCerrar = false">Cancelar</button>
+          <button type="submit" class="tool-btn primary" :disabled="saving">
             {{ saving ? 'Cerrando…' : 'Confirmar cierre' }}
           </button>
         </div>
+        </form>
       </div>
     </div>
 
     <!-- Modal entrada/salida -->
     <div v-if="modalMov" class="modal-backdrop" @click.self="modalMov = false">
-      <div class="modal" role="dialog" :aria-labelledby="'mov-title'">
-        <h3 id="mov-title">{{ movTipo === 'entrada' ? 'Entrada de caja' : 'Salida de caja' }}</h3>
+      <div class="modal" role="dialog" aria-labelledby="mov-title">
+        <header class="modal-head">
+          <h3 id="mov-title">{{ movTipo === 'entrada' ? 'Entrada de caja' : 'Salida de caja' }}</h3>
+          <button type="button" class="btn-close" title="Cerrar" @click="modalMov = false">×</button>
+        </header>
+        <form class="ficha-campos" @submit.prevent="confirmarMovimiento">
         <p class="hint">
           <template v-if="movTipo === 'entrada'">
             Suma el importe al <strong>Acumulado</strong> (teórico). La columna Diferencia puede
@@ -940,6 +1038,7 @@ onMounted(async () => {
           </template>
           <template v-else>
             Resta el importe del <strong>Acumulado</strong>. No puede dejarlo por debajo de cero.
+            Al registrar se imprime un comprobante en la impresora de tickets.
           </template>
         </p>
         <label>
@@ -960,11 +1059,12 @@ onMounted(async () => {
           <input v-model="movForm.concepto" type="text" maxlength="50" placeholder="Opcional" />
         </label>
         <div class="modal-actions">
-          <button type="button" :disabled="saving" @click="modalMov = false">Cancelar</button>
-          <button type="button" class="primary" :disabled="saving" @click="confirmarMovimiento">
+          <button type="button" class="tool-btn" :disabled="saving" @click="modalMov = false">Cancelar</button>
+          <button type="submit" class="tool-btn primary" :disabled="saving">
             {{ saving ? 'Guardando…' : 'Registrar' }}
           </button>
         </div>
+        </form>
       </div>
     </div>
   </section>
@@ -981,76 +1081,87 @@ onMounted(async () => {
 .hint {
   color: #64748b;
   font-size: 0.85rem;
-  margin: 0.35rem 0 0.75rem;
+  margin: 0.25rem 0 0.6rem;
 }
-.hint.query {
-  margin-top: 0;
+.arqueo-view .listado-panel {
+  min-width: 0;
+  width: fit-content;
+  max-width: 100%;
 }
-.filtros {
+.ficha-header {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 0.4rem 0.65rem;
   align-items: end;
-  margin: 0.75rem 0;
+  margin: 0 0 0.35rem;
+  padding: 0.4rem 0.5rem;
+  background: #fff;
+  border: 1px solid #c5cdd8;
+  border-radius: 8px;
 }
-.filtros label {
-  display: flex;
-  flex-direction: column;
+.ficha-header label {
+  display: grid;
+  gap: 0.1rem;
   font-size: 0.75rem;
-  gap: 0.15rem;
-  min-width: 11rem;
 }
-.filtros input,
-.filtros select,
-.acciones button,
-.inp-ent,
-.modal input,
-.modal select {
-  padding: 0.35rem 0.45rem;
-  border: 1px solid #94a3b8;
-  border-radius: 4px;
-  min-height: 2rem;
+.ficha-header input,
+.ficha-header select {
+  padding: 0.15rem 0.35rem;
+  border: 1px solid #c5cdd8;
+  border-radius: 3px;
+  font-size: 0.78rem;
+  height: 1.65rem;
+  box-sizing: border-box;
 }
-.filtros input[readonly] {
-  background: #f1f5f9;
+.campo-puesto select {
+  width: 16rem;
+  max-width: 100%;
+}
+.campo-tienda input {
+  width: 11rem;
+  background: #f8fafc;
   color: #334155;
 }
-.filtros button,
-.acciones button,
-.modal-actions button {
-  padding: 0.4rem 0.85rem;
-  cursor: pointer;
-  background: #fff;
+.campo-sesion :deep(input) {
+  width: 4.5rem;
+}
+.tool-btn {
+  padding: 0.35rem 0.75rem;
   border: 1px solid #94a3b8;
-  border-radius: 4px;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 0.8rem;
+  cursor: pointer;
 }
-.acciones button.primary,
-.filtros button,
-.modal-actions button.primary {
-  background: #0f172a;
+.tool-btn.primary {
+  background: #2563eb;
+  border-color: #1d4ed8;
   color: #fff;
-  border-color: #0f172a;
 }
-.acciones button.danger {
-  background: #b91c1c;
-  color: #fff;
-  border-color: #b91c1c;
+.tool-btn.danger {
+  color: #b91c1c;
+  border-color: #fecaca;
 }
-.acciones {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  margin: 0.75rem 0;
+.tool-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.toolbar-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 0.1rem 0.15rem;
+  background: #cbd5e1;
 }
 .cab-sesion {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
-  gap: 0.35rem 1rem;
-  font-size: 0.82rem;
-  padding: 0.6rem 0.75rem;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 4px;
+  grid-template-columns: repeat(4, max-content);
+  gap: 0.35rem 1.1rem;
+  font-size: 0.78rem;
+  margin-bottom: 0.35rem;
+  padding: 0.45rem 0.55rem;
+  background: #fff;
+  border: 1px solid #c5cdd8;
+  border-radius: 8px;
 }
 .cab-sesion .k {
   display: block;
@@ -1058,36 +1169,58 @@ onMounted(async () => {
   color: #64748b;
 }
 .grid-wrap {
+  width: fit-content;
+  max-width: 100%;
   overflow: auto;
   border: 1px solid #94a3b8;
   border-radius: 4px;
+  background: #fff;
 }
-table {
-  width: 100%;
+.grid-wrap table {
+  width: auto;
   border-collapse: collapse;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
+  table-layout: fixed;
 }
-th,
-td {
-  border-bottom: 1px solid #e2e8f0;
-  padding: 0.35rem 0.5rem;
+.grid-wrap th,
+.grid-wrap td {
+  border: 1px solid #cbd5e1;
+  padding: 0.15rem 0.35rem;
+  vertical-align: middle;
 }
-th {
-  background: #f1f5f9;
+.grid-wrap th {
+  background: linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%);
+  font-weight: 600;
+  text-align: center;
+}
+.c-forma {
+  width: 3.4rem;
+}
+.c-desc {
+  width: 14rem;
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .num {
+  width: 6.2rem;
   text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .inp-ent {
-  width: 6.5rem;
+  width: 100%;
+  max-width: 5.6rem;
   text-align: right;
+  box-sizing: border-box;
 }
 .dim {
   opacity: 0.55;
 }
 .total {
-  font-size: 1.05rem;
-  margin: 0.75rem 0;
+  font-size: 0.95rem;
+  margin: 0.45rem 0;
 }
 .descuadre {
   color: #b91c1c;
@@ -1110,34 +1243,65 @@ th {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
   z-index: 40;
-  padding: 1rem;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 1.5rem 1rem;
+  overflow: auto;
+  background: rgb(15 23 42 / 45%);
 }
 .modal {
-  background: #fff;
-  border-radius: 6px;
-  padding: 1rem 1.15rem;
-  width: min(24rem, 100%);
+  width: min(28rem, 96vw);
+  display: flex;
+  flex-direction: column;
+  background: #f8fafc;
+  border: 1px solid #94a3b8;
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgb(15 23 42 / 25%);
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.75rem;
+  background: linear-gradient(180deg, #e8eef5 0%, #d7e0ea 100%);
+  border-bottom: 1px solid #94a3b8;
+  border-radius: 10px 10px 0 0;
+}
+.modal-head h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+.btn-close {
+  border: none;
+  background: transparent;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  color: #475569;
+}
+.ficha-campos {
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 0.7rem 0.8rem 0.85rem;
 }
-.modal h3 {
-  margin: 0 0 0.25rem;
-  font-size: 1.05rem;
-}
-.modal label {
-  display: flex;
-  flex-direction: column;
+.ficha-campos label {
+  display: grid;
+  gap: 0.15rem;
   font-size: 0.78rem;
-  gap: 0.2rem;
 }
-.modal label.check {
+.ficha-campos input,
+.ficha-campos select {
+  padding: 0.2rem 0.35rem;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  font-size: 0.8rem;
+}
+.ficha-campos label.check {
+  display: flex;
   flex-direction: row;
   align-items: center;
   gap: 0.4rem;
@@ -1147,6 +1311,6 @@ th {
   display: flex;
   justify-content: flex-end;
   gap: 0.45rem;
-  margin-top: 0.35rem;
+  margin-top: 0.25rem;
 }
 </style>

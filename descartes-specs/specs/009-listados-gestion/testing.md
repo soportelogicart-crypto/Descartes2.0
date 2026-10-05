@@ -75,3 +75,10 @@ Alternativa desde hub sin abrir submenú: si el menú compacto permite ir direct
 - [ ] Stock genera y exporta CSV con `;`
 
 Marcar **T006** en `tasks.md` cuando estos casos pasen en tu entorno.
+
+---
+
+## Pruebas PDF
+
+La matriz por familia, los PDF controlados y las comprobaciones de papel están en
+[`testing-pdf.md`](testing-pdf.md).

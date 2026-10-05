@@ -6,6 +6,7 @@ namespace Descartes\Api\Controllers;
 
 use Descartes\Api\Http\ErrorResponse;
 use Descartes\Api\Services\PermissionService;
+use Descartes\Api\Services\UsuarioCorreoService;
 use PDO;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -15,11 +16,13 @@ final class AuthController
 {
   private PDO $pdo;
   private PermissionService $permissionService;
+  private UsuarioCorreoService $correo;
 
-  public function __construct(PDO $pdo, PermissionService $permissionService)
+  public function __construct(PDO $pdo, PermissionService $permissionService, UsuarioCorreoService $correo)
   {
     $this->pdo = $pdo;
     $this->permissionService = $permissionService;
+    $this->correo = $correo;
   }
 
   public function login(Request $request, Response $response): Response
@@ -49,11 +52,7 @@ final class AuthController
       return ErrorResponse::json($response, 401, 'Credenciales invalidas', 'NO_AUTENTICADO');
     }
 
-    $usuarioData = [
-      'codigo' => $row['Codigo'],
-      'nombre' => $row['Nombre'],
-      'rolCodigo' => $row['Rol'] ?? null,
-    ];
+    $usuarioData = $this->usuarioConRol($row['Codigo'], $row['Nombre'], $row['Rol'] ?? null);
 
     $_SESSION['usuario'] = $usuarioData;
 
@@ -79,10 +78,80 @@ final class AuthController
       return ErrorResponse::json($response, 401, 'Sesion no iniciada', 'NO_AUTENTICADO');
     }
 
+    $usuario = $this->usuarioConRol(
+      (string) ($usuario['codigo'] ?? ''),
+      (string) ($usuario['nombre'] ?? ''),
+      $usuario['rolCodigo'] ?? null
+    );
+
     return $this->json($response, 200, [
       'usuario' => $usuario,
       'permisos' => $this->permissionService->permisosPorRol((string) ($usuario['rolCodigo'] ?? '')),
     ]);
+  }
+
+  public function getCorreo(Request $request, Response $response): Response
+  {
+    $codigo = trim((string) ($_SESSION['usuario']['codigo'] ?? ''));
+    if ($codigo === '') {
+      return ErrorResponse::json($response, 401, 'Sesion no iniciada', 'NO_AUTENTICADO');
+    }
+    return $this->json($response, 200, $this->correo->obtener($codigo));
+  }
+
+  public function putCorreo(Request $request, Response $response): Response
+  {
+    $codigo = trim((string) ($_SESSION['usuario']['codigo'] ?? ''));
+    if ($codigo === '') {
+      return ErrorResponse::json($response, 401, 'Sesion no iniciada', 'NO_AUTENTICADO');
+    }
+    $body = (array) json_decode((string) $request->getBody(), true);
+    try {
+      return $this->json($response, 200, $this->correo->guardar($codigo, $body));
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    }
+  }
+
+  public function probarCorreo(Request $request, Response $response): Response
+  {
+    $codigo = trim((string) ($_SESSION['usuario']['codigo'] ?? ''));
+    if ($codigo === '') {
+      return ErrorResponse::json($response, 401, 'Sesion no iniciada', 'NO_AUTENTICADO');
+    }
+    $body = (array) json_decode((string) $request->getBody(), true);
+    try {
+      return $this->json($response, 200, $this->correo->probar($codigo, $body));
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'CORREO');
+    }
+  }
+
+  /**
+   * @return array{codigo: string, nombre: string, rolCodigo: ?string, rolNombre: ?string}
+   */
+  private function usuarioConRol(string $codigo, string $nombre, mixed $rolCodigo): array
+  {
+    $rol = trim((string) $rolCodigo);
+    $rolNombre = null;
+    if ($rol !== '') {
+      $stmt = $this->pdo->prepare(
+        'SELECT RTRIM([Nombre]) AS Nombre FROM [Roles] WHERE RTRIM([Codigo]) = :codigo'
+      );
+      $stmt->bindValue(':codigo', $rol);
+      $stmt->execute();
+      $nombreRol = $stmt->fetchColumn();
+      $rolNombre = is_string($nombreRol) && trim($nombreRol) !== '' ? trim($nombreRol) : null;
+    }
+
+    return [
+      'codigo' => $codigo,
+      'nombre' => $nombre,
+      'rolCodigo' => $rol !== '' ? $rol : null,
+      'rolNombre' => $rolNombre,
+    ];
   }
 
   private function verifyPassword(string $plain, string $stored): bool

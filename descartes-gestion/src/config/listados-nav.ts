@@ -72,6 +72,17 @@ export const LISTADOS_CATALOGO: ListadoCatalogoItem[] = [
     disponible: true,
   },
   {
+    id: 'ventas-situacion',
+    titulo: 'Situación de ventas',
+    descripcion: 'Totales de tickets, facturas y albaranes por sesión o por fechas.',
+    categoria: 'ventas',
+    palabrasClave: ['situacion', 'situación', 'tickets', 'facturas', 'sesion', 'efectivo'],
+    kind: 'acceso',
+    ruta: '/ventas/situacion',
+    modulo: 'ventas-situacion',
+    disponible: true,
+  },
+  {
     id: 'ventas-arqueo',
     titulo: 'Arqueo de caja',
     descripcion: 'Consulta de arqueos por puesto y fecha (Ventas).',

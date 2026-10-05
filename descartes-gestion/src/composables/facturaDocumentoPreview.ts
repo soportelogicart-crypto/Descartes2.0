@@ -2,11 +2,21 @@ import type {
   DocumentoPreviewDatos,
   DocumentoPreviewLinea,
 } from '@/config/documentos-plantillas/preview-datos'
-import { cuentaBancariaEnmascarada } from '@/composables/ventaDocumentoPreview'
+import { datosBancariosCliente } from '@/composables/ventaDocumentoPreview'
 import type { FacturaDocumento } from '@/types/facturacion'
 
 function redondear2(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100
+}
+
+function datosBancariosFactura(doc: FacturaDocumento) {
+  return datosBancariosCliente({
+    formaPagoTipo: doc.formaPago.tipo,
+    formaPagoNota: doc.formaPago.nota,
+    cuentaBancaria: doc.cliente.cuentaBancaria,
+    iban: doc.cliente.iban,
+    banco: doc.cliente.banco,
+  })
 }
 
 /** Tipo de plantilla del diseñador según el cobro de la factura. */
@@ -64,6 +74,7 @@ export function facturaAPreviewDatos(
   } = {}
 ): DocumentoPreviewDatos {
   const nLit = Math.max(0, Math.min(9, Number(extras.literalTicket ?? 3) || 0))
+  const banco = datosBancariosFactura(doc)
 
   const lineas: DocumentoPreviewLinea[] = []
   let albaranActual: number | null = null
@@ -145,9 +156,10 @@ export function facturaAPreviewDatos(
       pais: doc.cliente.pais,
       cif: doc.cliente.nif,
       telefono: doc.cliente.telefono,
-      cuentaBancaria: cuentaBancariaEnmascarada(doc.cliente.cuentaBancaria),
-      iban: doc.cliente.iban,
+      cuentaBancaria: banco.cuentaBancaria,
+      iban: banco.iban,
       swift: doc.cliente.swift,
+      banco: banco.banco,
     },
     documento: {
       numero: String(doc.factura),

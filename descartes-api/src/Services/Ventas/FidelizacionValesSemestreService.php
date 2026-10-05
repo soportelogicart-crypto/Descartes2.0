@@ -95,7 +95,62 @@ final class FidelizacionValesSemestreService
       'empresa' => $empresa,
       'seleccionado' => trim((string) $seleccionado),
       'modelos' => $modelos,
+      'tiendas' => $this->tiendasPuntos(),
     ];
+  }
+
+  /**
+   * Tiendas activas y si están fuera del programa de puntos.
+   *
+   * @return list<array{codigo: string, nombre: string, sinPuntos: bool}>
+   */
+  public function tiendasPuntos(): array
+  {
+    $q = $this->pdo->query(
+      'SELECT RTRIM([Codigo]) AS Codigo, RTRIM(ISNULL([Nombre], \'\')) AS Nombre,
+              ISNULL([BloqueoFidelizacion], 0) AS Bloqueo
+       FROM [Empresas_Ges]
+       WHERE ISNULL([Baja], 0) = 0
+       ORDER BY [Codigo]'
+    );
+    $tiendas = [];
+    if ($q === false) {
+      return $tiendas;
+    }
+    while ($row = $q->fetch(PDO::FETCH_ASSOC)) {
+      $tiendas[] = [
+        'codigo' => trim((string) ($row['Codigo'] ?? '')),
+        'nombre' => trim((string) ($row['Nombre'] ?? '')),
+        'sinPuntos' => (int) ($row['Bloqueo'] ?? 0) !== 0,
+      ];
+    }
+
+    return $tiendas;
+  }
+
+  /** La tienda deja de sumar puntos (o vuelve a sumarlos) sin cambiar el modelo. */
+  public function marcarSinPuntos(string $empresa, bool $sinPuntos): array
+  {
+    $empresa = trim($empresa);
+    if ($empresa === '') {
+      throw new \InvalidArgumentException('empresa es obligatoria');
+    }
+    $upd = $this->pdo->prepare(
+      'UPDATE [Empresas_Ges] SET [BloqueoFidelizacion] = :bloqueo WHERE RTRIM([Codigo]) = :empresa'
+    );
+    $upd->bindValue(':bloqueo', $sinPuntos ? 1 : 0, PDO::PARAM_INT);
+    $upd->bindValue(':empresa', $empresa);
+    $upd->execute();
+    if ($upd->rowCount() === 0) {
+      $existe = $this->pdo->prepare('SELECT 1 FROM [Empresas_Ges] WHERE RTRIM([Codigo]) = :empresa');
+      $existe->bindValue(':empresa', $empresa);
+      $existe->execute();
+      if ($existe->fetchColumn() === false) {
+        throw new \RuntimeException('Tienda no encontrada', 404);
+      }
+    }
+
+    return ['empresa' => $empresa, 'sinPuntos' => $sinPuntos];
   }
 
   /** @return array<string, mixed> */
@@ -213,17 +268,30 @@ final class FidelizacionValesSemestreService
     if (($modelo['motor'] ?? '') !== self::MOTOR || $cliente === '' || strtoupper($cliente) === 'ZZZZZZZZZ') {
       return null;
     }
-    $semestre = $this->semestreActual();
-    $st = $this->pdo->prepare(
-      'SELECT ISNULL(SUM(a.Importe), 0)
-       FROM AlbaranesVentasCab a
-       WHERE RTRIM(a.Cliente) = :c
-         AND a.Fecha >= CONVERT(datetime, :inicio, 120)
-         AND a.Fecha < DATEADD(day, 1, CONVERT(datetime, :fin, 120))
-         AND ISNULL(a.Anulado, 0) = 0
-         AND (ISNULL(a.Sesion, 0) > 0 OR ISNULL(a.Factura, 0) > 0)'
+    $tarjeta = $this->pdo->prepare(
+      "SELECT RTRIM(ISNULL(TarjetaFidelizacion, '')) FROM Clientes WHERE RTRIM(Codigo) = :c"
     );
-    $st->execute([
+    $tarjeta->execute(['c' => $cliente]);
+    if (trim((string) $tarjeta->fetchColumn()) === '') {
+      return null;
+    }
+    $semestre = $this->semestreActual();
+    $exclusiones = $this->exclusionesDe($modelo['configuracion'] ?? []);
+    $importe = $this->expresionImporte('a', $exclusiones);
+    $st = $this->pdo->prepare(
+      'SELECT ISNULL(SUM(t.Elegible), 0)
+       FROM (
+         SELECT ' . $importe['sql'] . ' AS Elegible
+         FROM AlbaranesVentasCab a
+         WHERE RTRIM(a.Cliente) = :c
+           AND a.Fecha >= CONVERT(datetime, :inicio, 120)
+           AND a.Fecha < DATEADD(day, 1, CONVERT(datetime, :fin, 120))
+           AND ISNULL(a.Anulado, 0) = 0
+           AND (ISNULL(a.Sesion, 0) > 0 OR ISNULL(a.Factura, 0) > 0)
+           AND ' . $this->sqlTiendaHacePuntos('a') . '
+       ) t'
+    );
+    $st->execute($importe['params'] + [
       'c' => $cliente,
       'inicio' => $semestre['inicio'],
       'fin' => $semestre['fin'],
@@ -270,7 +338,12 @@ final class FidelizacionValesSemestreService
 
     // El vale de fidelización es un descuento, no una forma de pago.
     $formaPago = '';
-    $clientes = $this->calcularClientes($inicio, $fin, $pje);
+    $clientes = $this->calcularClientes(
+      $inicio,
+      $fin,
+      $pje,
+      $this->exclusionesDe($configModelo)
+    );
     $mesesCaducidad = max(1, min(60, (int) ($configModelo['mesesCaducidad'] ?? 6)));
     $caducidad = (new \DateTimeImmutable('today'))->modify("+{$mesesCaducidad} months")->format('Y-m-d');
     $importeTotal = 0.0;
@@ -397,27 +470,40 @@ final class FidelizacionValesSemestreService
   /**
    * @return list<array<string, mixed>>
    */
-  private function calcularClientes(string $inicio, string $fin, float $pje): array
+  /**
+   * @param list<array{tipo: string, codigo: string, descripcion: string}> $exclusiones
+   * @return list<array<string, mixed>>
+   */
+  private function calcularClientes(string $inicio, string $fin, float $pje, array $exclusiones = []): array
   {
+    $importe = $this->expresionImporte('a', $exclusiones);
     $sql = "SELECT
-        RTRIM(c.Codigo) AS Cliente,
-        RTRIM(ISNULL(c.RazonSocial, '')) AS RazonSocial,
-        RTRIM(ISNULL(c.TarjetaFidelizacion, '')) AS TarjetaFidelizacion,
-        SUM(a.Importe) AS ImporteTotal
-      FROM AlbaranesVentasCab a
-      INNER JOIN Clientes c ON RTRIM(a.Cliente) = RTRIM(c.Codigo)
-      WHERE c.TarjetaFidelizacion IS NOT NULL
-        AND RTRIM(c.TarjetaFidelizacion) <> ''
-        AND RTRIM(c.Codigo) <> 'ZZZZZZZZZ'
-        AND a.Fecha >= CONVERT(datetime, :inicio, 120)
-        AND a.Fecha < DATEADD(day, 1, CONVERT(datetime, :fin, 120))
-        AND ISNULL(a.Anulado, 0) = 0
-        AND (ISNULL(a.Sesion, 0) > 0 OR ISNULL(a.Factura, 0) > 0)
-      GROUP BY c.Codigo, c.RazonSocial, c.TarjetaFidelizacion
-      HAVING SUM(a.Importe) > 0
-      ORDER BY SUM(a.Importe) DESC";
+        RTRIM(t.Cliente) AS Cliente,
+        RTRIM(ISNULL(t.RazonSocial, '')) AS RazonSocial,
+        RTRIM(ISNULL(t.TarjetaFidelizacion, '')) AS TarjetaFidelizacion,
+        SUM(t.Elegible) AS ImporteTotal
+      FROM (
+        SELECT
+          c.Codigo AS Cliente,
+          c.RazonSocial,
+          c.TarjetaFidelizacion,
+          " . $importe['sql'] . " AS Elegible
+        FROM AlbaranesVentasCab a
+        INNER JOIN Clientes c ON RTRIM(a.Cliente) = RTRIM(c.Codigo)
+        WHERE c.TarjetaFidelizacion IS NOT NULL
+          AND RTRIM(c.TarjetaFidelizacion) <> ''
+          AND RTRIM(c.Codigo) <> 'ZZZZZZZZZ'
+          AND a.Fecha >= CONVERT(datetime, :inicio, 120)
+          AND a.Fecha < DATEADD(day, 1, CONVERT(datetime, :fin, 120))
+          AND ISNULL(a.Anulado, 0) = 0
+          AND (ISNULL(a.Sesion, 0) > 0 OR ISNULL(a.Factura, 0) > 0)
+          AND " . $this->sqlTiendaHacePuntos('a') . "
+      ) t
+      GROUP BY t.Cliente, t.RazonSocial, t.TarjetaFidelizacion
+      HAVING SUM(t.Elegible) > 0
+      ORDER BY SUM(t.Elegible) DESC";
     $stmt = $this->pdo->prepare($sql);
-    $stmt->execute([
+    $stmt->execute($importe['params'] + [
       'inicio' => $inicio,
       'fin' => $fin,
     ]);
@@ -517,6 +603,194 @@ final class FidelizacionValesSemestreService
       'puesto' => $puesto !== '' ? $puesto : null,
       'automatica' => $automatico ? 1 : 0,
     ]);
+  }
+
+  /** Ventas de una tienda con bloqueo de fidelización no suman puntos. */
+  /**
+   * Importe del documento que suma en el vale: el total, menos las líneas excluidas.
+   * Null si esta tienda no usa el vale semestral o no hay exclusiones.
+   */
+  public function importeElegibleDocumento(string $empresa, string $tipo, int $albaran): ?float
+  {
+    $modelo = $this->modeloSeleccionado($empresa);
+    if (($modelo['motor'] ?? '') !== self::MOTOR) {
+      return null;
+    }
+    $exclusiones = $this->exclusionesDe($modelo['configuracion'] ?? []);
+    if ($exclusiones === []) {
+      return null;
+    }
+    $importe = $this->expresionImporte('a', $exclusiones);
+    $st = $this->pdo->prepare(
+      'SELECT ' . $importe['sql'] . '
+       FROM AlbaranesVentasCab a
+       WHERE RTRIM(a.Empresa) = :e AND a.Tipo = :t AND a.Albaran = :a'
+    );
+    $st->execute($importe['params'] + [
+      'e' => trim($empresa),
+      't' => $tipo,
+      'a' => $albaran,
+    ]);
+    $valor = $st->fetchColumn();
+    return $valor === false ? null : round(max(0, (float) $valor), 2);
+  }
+
+  /**
+   * @param array<string, mixed> $body
+   * @return array<string, mixed>
+   */
+  public function guardarConfiguracion(string $codigo, array $body): array
+  {
+    $codigo = trim($codigo);
+    if ($codigo === '') {
+      throw new \InvalidArgumentException('El modelo de vale semestral es obligatorio');
+    }
+    $st = $this->pdo->prepare(
+      'SELECT Configuracion FROM TiposCalculoFidelizacion
+       WHERE RTRIM(Codigo) = :c AND RTRIM(Motor) = :motor AND ISNULL(Baja, 0) = 0'
+    );
+    $st->execute(['c' => $codigo, 'motor' => self::MOTOR]);
+    $actual = $st->fetchColumn();
+    if ($actual === false) {
+      throw new \InvalidArgumentException('El modelo seleccionado no es de vale semestral');
+    }
+    $pje = $body['pjeCanje'] ?? self::PJE_CANJE;
+    if (is_string($pje)) {
+      $pje = str_replace(',', '.', trim($pje));
+    }
+    if (!is_numeric($pje) || (float) $pje <= 0 || (float) $pje > 100) {
+      throw new \InvalidArgumentException('El porcentaje de canje debe ser mayor que 0 y hasta 100');
+    }
+    $exclusionesBody = $body['exclusiones'] ?? [];
+    if (!is_array($exclusionesBody)) {
+      throw new \InvalidArgumentException('Las exclusiones no son válidas');
+    }
+    $exclusiones = $this->normalizarExclusiones($exclusionesBody);
+    if (count($exclusiones) > 2000) {
+      throw new \InvalidArgumentException('Se admiten hasta 2000 exclusiones');
+    }
+
+    $config = json_decode((string) $actual, true);
+    if (!is_array($config)) {
+      $config = [];
+    }
+    $config['pjeCanje'] = round((float) $pje, 4);
+    $config['exclusiones'] = $exclusiones;
+    $json = json_encode($config, JSON_UNESCAPED_UNICODE);
+    if ($json === false) {
+      throw new \RuntimeException('No se pudo guardar la configuración del vale');
+    }
+    $upd = $this->pdo->prepare(
+      'UPDATE TiposCalculoFidelizacion SET Configuracion = :c WHERE RTRIM(Codigo) = :codigo'
+    );
+    $upd->execute(['c' => $json, 'codigo' => $codigo]);
+
+    return $config;
+  }
+
+  /**
+   * @param array<string, mixed> $config
+   * @return list<array{tipo: string, codigo: string, descripcion: string}>
+   */
+  private function exclusionesDe(array $config): array
+  {
+    return $this->normalizarExclusiones($config['exclusiones'] ?? []);
+  }
+
+  /**
+   * @param mixed $lista
+   * @return list<array{tipo: string, codigo: string, descripcion: string}>
+   */
+  private function normalizarExclusiones(mixed $lista): array
+  {
+    if (!is_array($lista)) {
+      return [];
+    }
+    $vistos = [];
+    $salida = [];
+    foreach ($lista as $item) {
+      if (!is_array($item)) {
+        continue;
+      }
+      $tipo = strtoupper(trim((string) ($item['tipo'] ?? '')));
+      $codigo = trim((string) ($item['codigo'] ?? ''));
+      if (!in_array($tipo, ['M', 'F', 'S', 'A'], true) || ($codigo === '' && $tipo !== 'M')) {
+        continue;
+      }
+      $clave = $tipo . ':' . strtoupper($codigo);
+      if (isset($vistos[$clave])) {
+        continue;
+      }
+      $vistos[$clave] = true;
+      $salida[] = [
+        'tipo' => $tipo,
+        'codigo' => substr($codigo, 0, 18),
+        'descripcion' => mb_substr(trim((string) ($item['descripcion'] ?? '')), 0, 60),
+      ];
+    }
+    return $salida;
+  }
+
+  /**
+   * Total de la venta, menos el importe de las líneas excluidas. Sin exclusiones, el total.
+   *
+   * @param list<array{tipo: string, codigo: string, descripcion: string}> $exclusiones
+   * @return array{sql: string, params: array<string, string>}
+   */
+  private function expresionImporte(string $alias, array $exclusiones): array
+  {
+    if ($exclusiones === []) {
+      return ['sql' => 'ISNULL(' . $alias . '.Importe, 0)', 'params' => []];
+    }
+    $filtros = [];
+    $params = [];
+    foreach ($exclusiones as $i => $item) {
+      $nombre = 'ex' . $i;
+      if ($item['tipo'] === 'A') {
+        $filtros[] = 'RTRIM(l.Articulo) = :' . $nombre;
+      } elseif ($item['tipo'] === 'F') {
+        $filtros[] = 'RTRIM(CAST(ar.Familia AS nvarchar(18))) = :' . $nombre;
+      } elseif ($item['tipo'] === 'S') {
+        $filtros[] = 'RTRIM(CAST(ar.Subfamilia AS nvarchar(18))) = :' . $nombre;
+      } elseif ($item['codigo'] === '') {
+        $filtros[] = '(
+          RTRIM(ISNULL(CAST(fa.MacroFamilia AS nvarchar(18)), \'\')) = \'\'
+          OR NOT EXISTS (
+            SELECT 1 FROM MacroFamilias m
+            WHERE RTRIM(CAST(m.Codigo AS nvarchar(18))) = RTRIM(CAST(fa.MacroFamilia AS nvarchar(18)))
+          )
+        )';
+        continue;
+      } else {
+        $filtros[] = 'RTRIM(CAST(fa.MacroFamilia AS nvarchar(18))) = :' . $nombre;
+      }
+      $params[$nombre] = $item['codigo'];
+    }
+    $sql = '(SELECT CASE WHEN v < 0 THEN 0 ELSE v END FROM (
+        SELECT ISNULL(' . $alias . '.Importe, 0) - ISNULL((
+          SELECT SUM(l.Importe)
+          FROM AlbaranesVentasLin l
+          INNER JOIN Articulos ar ON RTRIM(ar.Codigo) = RTRIM(l.Articulo)
+          LEFT JOIN Familias fa
+            ON RTRIM(CAST(fa.Codigo AS nvarchar(18))) = RTRIM(CAST(ar.Familia AS nvarchar(18)))
+          WHERE l.Empresa = ' . $alias . '.Empresa
+            AND l.Tipo = ' . $alias . '.Tipo
+            AND l.Albaran = ' . $alias . '.Albaran
+            AND UPPER(RTRIM(ISNULL(l.Articulo, \'\'))) <> \'NO\'
+            AND (' . implode(' OR ', $filtros) . ')
+        ), 0) AS v
+      ) calcFid)';
+
+    return ['sql' => $sql, 'params' => $params];
+  }
+
+  private function sqlTiendaHacePuntos(string $aliasCabecera): string
+  {
+    return 'NOT EXISTS (
+      SELECT 1 FROM [Empresas_Ges] eFid
+      WHERE RTRIM(eFid.[Codigo]) = RTRIM(' . $aliasCabecera . '.[Empresa])
+        AND ISNULL(eFid.[BloqueoFidelizacion], 0) <> 0
+    )';
   }
 
   /** Primera tienda con el programa semestral activo. */

@@ -59,7 +59,10 @@ function directorioAyudante() {
  * Se compila una vez con el csc del .NET Framework que trae Windows.
  */
 function ayudante() {
-  const fuente = path.join(__dirname, 'redsys', 'RedsysTpvpc.cs')
+  // csc.exe no puede leer dentro de app.asar: el fuente se empaqueta en app.asar.unpacked.
+  const fuente = path
+    .join(__dirname, 'redsys', 'RedsysTpvpc.cs')
+    .replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`)
   const destino = path.join(directorioAyudante(), 'RedsysTpvpc.exe')
   const compilado = fs.existsSync(destino) && fs.statSync(destino).mtimeMs >= fs.statSync(fuente).mtimeMs
   if (compilado) return destino

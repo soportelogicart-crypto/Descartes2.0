@@ -39,6 +39,13 @@ const opciones = [
     disponible: true,
   },
   {
+    id: 'correo',
+    titulo: 'Correo',
+    descripcion: 'SMTP del usuario para enviar pedidos, albaranes y facturas sin abrir un programa de correo.',
+    ruta: '/configuracion/correo',
+    disponible: true,
+  },
+  {
     id: 'fidelizacion',
     titulo: 'Fidelización',
     descripcion: 'Vales semestrales (1 € = 1 punto, canje 3 %) y otros programas.',

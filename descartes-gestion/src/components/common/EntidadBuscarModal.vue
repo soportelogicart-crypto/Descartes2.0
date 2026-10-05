@@ -29,6 +29,7 @@ const props = defineProps<{
     | 'roles'
     | 'usuarios'
     | 'tipos-calculo-fidelizacion'
+    | 'tipos-descuento'
     | 'formas-pago'
     | 'bancos'
     | 'cuentas'
@@ -78,6 +79,7 @@ const tituloModal = () => {
   if (props.entidad === 'roles') return 'Buscar rol'
   if (props.entidad === 'usuarios') return 'Buscar usuario'
   if (props.entidad === 'tipos-calculo-fidelizacion') return 'Buscar tipo fidelizacion'
+  if (props.entidad === 'tipos-descuento') return 'Buscar tipo de descuento'
   if (props.entidad === 'formas-pago') return 'Buscar forma de pago'
   if (props.entidad === 'bancos') return 'Buscar banco'
   if (props.entidad === 'cuentas') return 'Buscar cuenta'
@@ -164,6 +166,11 @@ async function buscar() {
       params: { q: q.value, page: 1, pageSize: 200 },
     })
     if (peticion !== ultimaPeticion) return
+    if (props.entidad === 'tipos-descuento') {
+      items.value = agruparTiposDescuento((data.items ?? []) as Record<string, unknown>[])
+      indice.value = Math.min(indice.value, Math.max(0, items.value.length - 1))
+      return
+    }
     items.value = (data.items ?? []).map((item: Record<string, unknown>) => {
       const codigo = String(item.codigo ?? item.puesto ?? '').trim()
       let etiqueta = ''
@@ -190,6 +197,29 @@ async function buscar() {
   } finally {
     if (peticion === ultimaPeticion) loading.value = false
   }
+}
+
+function agruparTiposDescuento(filas: Record<string, unknown>[]): Fila[] {
+  const grupos = new Map<string, string[]>()
+  for (const item of filas) {
+    const codigo = String(item.tipoDescuento ?? '').trim()
+    if (!codigo) continue
+    const tipo = String(item.tipo ?? '').trim()
+    const codigoOferta = tipo === '.' ? '' : String(item.codigo ?? '').trim()
+    const quien = tipo === '.' ? 'General' : [tipo, codigoOferta].filter(Boolean).join(' ')
+    const desde = String(item.fechaInicio ?? '').slice(0, 10)
+    const hasta = String(item.fechaFin ?? '').slice(0, 10)
+    const periodo = hasta ? `${desde} a ${hasta}` : desde ? `desde ${desde}` : ''
+    const dto = item.descuento == null || item.descuento === '' ? '' : `${item.descuento}%`
+    const texto = [quien, dto, periodo].filter(Boolean).join(' ')
+    const previos = grupos.get(codigo) ?? []
+    previos.push(texto)
+    grupos.set(codigo, previos)
+  }
+  return [...grupos.entries()].map(([codigo, textos]) => ({
+    codigo,
+    etiqueta: textos.join(' | '),
+  }))
 }
 
 function seleccionarIndice(i: number) {
@@ -306,6 +336,7 @@ function onBusquedaKeydown(e: KeyboardEvent) {
                           entidad === 'roles' ||
                           entidad === 'usuarios' ||
                           entidad === 'tipos-calculo-fidelizacion' ||
+                          entidad === 'tipos-descuento' ||
                           entidad === 'cuentas' ||
                           entidad === 'cuentas-ultimo-nivel' ||
                           entidad === 'cuentas-banco' ||

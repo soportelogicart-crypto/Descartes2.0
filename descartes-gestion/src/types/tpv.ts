@@ -108,6 +108,8 @@ export type TpvFormaPago = {
   abrirCajon: boolean
   copiasTicket: number
   datafono: boolean
+  /** Legacy: marcado junto a Datafono significa terminal integrado. */
+  chipAcumuladoMenu: boolean
   emv: boolean
   agrupacion: number
 }
@@ -137,6 +139,8 @@ export type TpvLineaBorrador = {
   pjeDto: number
   importe: number
   pjeIva: number
+  /** Línea regalada por una oferta: la oferta no le recalcula el descuento. */
+  regalo?: boolean
 }
 
 /** Número de ticket propuesto al abrir caja, antes de grabar la cabecera. */

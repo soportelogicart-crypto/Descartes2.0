@@ -1,0 +1,98 @@
+[
+  {
+    "nombre": "01-stock",
+    "orientacion": "vertical",
+    "tablas": 1,
+    "tablasDesbordadas": 0,
+    "anchoDocumentoPx": 794,
+    "archivo": "01-stock.pdf"
+  },
+  {
+    "nombre": "02-stock-minimos",
+    "orientacion": "vertical",
+    "tablas": 1,
+    "tablasDesbordadas": 0,
+    "anchoDocumentoPx": 794,
+    "archivo": "02-stock-minimos.pdf"
+  },
+  {
+    "nombre": "03-extracto-clientes",
+    "orientacion": "vertical",
+    "tablas": 1,
+    "tablasDesbordadas": 0,
+    "anchoDocumentoPx": 794,
+    "archivo": "03-extracto-clientes.pdf"
+  },
+  {
+    "nombre": "04-informe-iva",
+    "orientacion": "horizontal",
+    "tablas": 1,
+    "tablasDesbordadas": 0,
+    "anchoDocumentoPx": 1123,
+    "archivo": "04-informe-iva.pdf"
+  },
+  {
+    "nombre": "05-mantenimiento-clientes",
+    "orientacion": "vertical",
+    "tablas": 1,
+    "tablasDesbordadas": 0,
+    "anchoDocumentoPx": 794,
+    "archivo": "05-mantenimiento-clientes.pdf"
+  },
+  {
+    "nombre": "06-abc-ventas-articulos",
+    "orientacion": "vertical",
+    "tablas": 1,
+    "tablasDesbordadas": 0,
+    "anchoDocumentoPx": 794,
+    "archivo": "06-abc-ventas-articulos.pdf"
+  },
+  {
+    "nombre": "07-abc-ventas-dias-semana",
+    "orientacion": "vertical",
+    "tablas": 1,
+    "tablasDesbordadas": 0,
+    "anchoDocumentoPx": 794,
+    "archivo": "07-abc-ventas-dias-semana.pdf"
+  },
+  {
+    "nombre": "08-abc-compras-familias",
+    "orientacion": "vertical",
+    "tablas": 9,
+    "tablasDesbordadas": 0,
+    "anchoDocumentoPx": 794,
+    "archivo": "08-abc-compras-familias.pdf"
+  },
+  {
+    "nombre": "09-tickets-desglosado",
+    "orientacion": "vertical",
+    "tablas": 12,
+    "tablasDesbordadas": 0,
+    "anchoDocumentoPx": 794,
+    "archivo": "09-tickets-desglosado.pdf"
+  },
+  {
+    "nombre": "10-tickets-resumido",
+    "orientacion": "vertical",
+    "tablas": 13,
+    "tablasDesbordadas": 0,
+    "anchoDocumentoPx": 794,
+    "archivo": "10-tickets-resumido.pdf"
+  },
+  {
+    "nombre": "11-tickets-super-resumido",
+    "orientacion": "vertical",
+    "tablas": 7,
+    "tablasDesbordadas": 0,
+    "anchoDocumentoPx": 794,
+    "archivo": "11-tickets-super-resumido.pdf"
+  },
+  {
+    "nombre": "12-tickets-diario-iva",
+    "orientacion": "vertical",
+    "tablas": 3,
+    "tablasDesbordadas": 0,
+    "anchoDocumentoPx": 794,
+    "archivo": "12-tickets-diario-iva.pdf"
+  }
+]

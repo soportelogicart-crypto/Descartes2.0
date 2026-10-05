@@ -76,6 +76,10 @@ async function cargarTiendas() {
 
 let seq = 0
 async function generar() {
+  if (!form.value.fechaDesde || !form.value.fechaHasta) {
+    error.value = 'Indique la fecha desde y la fecha hasta: el saldo anterior se calcula a partir de la fecha desde.'
+    return
+  }
   if (form.value.fechaDesde > form.value.fechaHasta) {
     error.value = 'La fecha desde no puede ser posterior a la fecha hasta.'
     return
@@ -167,13 +171,23 @@ async function imprimir() {
   const res = await imprimirListadoHtml({
     titulo: 'Extracto de clientes',
     metaLineas: metaImpresion(),
-    thead: ['Fecha', 'Documento', 'Concepto', 'Debe', 'Haber', 'Saldo'],
+    thead: ['Fecha', 'Documento', 'Tienda', 'Concepto', 'Debe', 'Haber', 'Saldo'],
+    columnas: [
+      { ancho: '14%', alineacion: 'left' },
+      { ancho: '14%', alineacion: 'left' },
+      { ancho: '8%', alineacion: 'center' },
+      { ancho: '34%', alineacion: 'left' },
+      { ancho: '10%', alineacion: 'right' },
+      { ancho: '10%', alineacion: 'right' },
+      { ancho: '10%', alineacion: 'right' },
+    ],
     filas: filas.map((row) => [
       row.fecha,
       row.documento,
+      row.empresa,
       row.concepto,
-      numCsv(row.debe),
-      numCsv(row.haber),
+      row.debe ? numCsv(row.debe) : '',
+      row.haber ? numCsv(row.haber) : '',
       numCsv(row.saldo),
     ]),
     pie: [

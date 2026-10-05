@@ -61,6 +61,8 @@ export type VentaLinea = {
   pjeDto: number
   importe: number
   pjeIva?: number
+  /** Línea regalada por una oferta: la oferta no le recalcula el descuento. */
+  regalo?: boolean
 }
 
 export type VentaDetalle = VentaResumen & {
@@ -102,17 +104,34 @@ export type VentaDetalle = VentaResumen & {
   clienteCuentaBancaria?: string | null
   clienteIban?: string | null
   clienteSwift?: string | null
+  /** Agencia bancaria del cliente, o Banco si la agencia está vacía. */
+  clienteBanco?: string | null
   formaPagoDescripcion?: string | null
+  /** FormasPago.Tipo de la factura (X = transferencia). */
+  formaPagoTipo?: string | null
+  /** FormasPago.Nota de la factura (IBAN de la empresa en transferencias). */
+  formaPagoNota?: string | null
   vencimientos?: { fecha: string | null; importe: number }[]
   formasPago: { codigo: string; importe: number }[]
   importesIva: { pjeIva: number; base: number; iva: number }[]
   lineas: VentaLinea[]
+  /** Factura creada al compensar este ticket. Si tiene valor, no se puede volver a convertir. */
+  facturaConversion?: number | null
+  /** Número del ticket negativo creado en la conversión. */
+  ticketNegativo?: number | null
+  /** Albarán interno de ese ticket negativo. */
+  albaranTicketNegativo?: number | null
   /** Si el documento está facturado: resto de albaranes de la misma factura. */
   albaranesFactura?: VentaAlbaranFacturaResumen[]
   valeFidelizacion?: {
     aplicado: number
     saldoRestante: number
     consumos: { vale: number; importe: number; saldo: number }[]
+  }
+  puntosCanje?: {
+    puntos: number
+    puntosUsables: number
+    euros: number
   }
   fidelizacionPuntos?: {
     compra: number
@@ -175,6 +194,42 @@ export type Paged<T> = {
   total: number
   page: number
   pageSize: number
+}
+
+export type SituacionVentasDetalle = {
+  empresa: string
+  puesto: string
+  sesion: number
+  fechaInicio: string | null
+  fechaFin: string | null
+  tickets: number
+  importeTickets: number
+  facturas: number
+  importeFacturas: number
+  albaranes: number
+  importeAlbaranes: number
+}
+
+export type SituacionVentasResponse = {
+  modo: 'sesion' | 'fechas' | string
+  puesto: string | null
+  sesion: number | null
+  fechaDesde: string | null
+  fechaHasta: string | null
+  sesiones: number
+  tickets: number
+  importeTickets: number
+  facturas: number
+  importeFacturas: number
+  albaranes: number
+  importeAlbaranes: number
+  totalNumero: number
+  totalImporte: number
+  totalConAlbaranesNumero: number
+  totalConAlbaranesImporte: number
+  efectivo: number
+  detalle: SituacionVentasDetalle[]
+  truncado: boolean
 }
 
 export type ArqueoLinea = {

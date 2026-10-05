@@ -79,6 +79,15 @@ export async function previewGeneracionFacturas(
   return data
 }
 
+export async function enviarFacturasGeneracionEmail(body: {
+  facturas: Array<{ empresa: string; facturaTipo: string; factura: number; cliente?: string }>
+  pdfs?: Record<string, string>
+  plantilla?: boolean
+}): Promise<FacturasEmailResultado> {
+  const { data } = await api.post<FacturasEmailResultado>('/api/facturacion/generar/email', body)
+  return data
+}
+
 export async function generarFacturasAutomatico(
   body: FacturasGeneracionBody
 ): Promise<FacturasGeneracionResponse> {
@@ -99,9 +108,14 @@ export async function obtenerFacturaDocumento(
   empresa: string,
   facturaTipo: string,
   factura: number,
-  origen: 'impresion' | 'manual' = 'impresion'
+  origen: 'impresion' | 'manual' | 'generacion' = 'impresion'
 ): Promise<FacturaDocumento> {
-  const raiz = origen === 'manual' ? 'manual/documento' : 'impresion/documento'
+  const raiz =
+    origen === 'manual'
+      ? 'manual/documento'
+      : origen === 'generacion'
+        ? 'generar/documento'
+        : 'impresion/documento'
   const { data } = await api.get<FacturaDocumento>(
     `/api/facturacion/${raiz}/${encodeURIComponent(empresa)}/${encodeURIComponent(facturaTipo)}/${factura}`
   )
@@ -127,6 +141,8 @@ export type FacturasEmailResultado = {
 export async function enviarFacturasManualEmail(body: {
   facturas: Array<{ empresa: string; facturaTipo: string; factura: number; cliente?: string }>
   email?: string
+  /** PDF de la plantilla por factura ("empresa|tipo|factura" → base64). */
+  pdfs?: Record<string, string>
 }): Promise<FacturasEmailResultado> {
   const { data } = await api.post<FacturasEmailResultado>('/api/facturacion/manual/email', body)
   return data
@@ -135,6 +151,8 @@ export async function enviarFacturasManualEmail(body: {
 export async function enviarFacturasImpresionEmail(body: {
   facturas: Array<{ empresa: string; facturaTipo: string; factura: number; cliente?: string }>
   email?: string
+  /** PDF de la plantilla por factura ("empresa|tipo|factura" → base64). */
+  pdfs?: Record<string, string>
 }): Promise<FacturasEmailResultado> {
   const { data } = await api.post<FacturasEmailResultado>('/api/facturacion/impresion/email', body)
   return data

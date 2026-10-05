@@ -157,10 +157,19 @@ function registerIpc() {
   })
   ipcMain.handle('logos:abrirCarpeta', () => logos.openLogosFolder())
   ipcMain.handle('logos:directorio', () => logos.getLogosDirectory())
+  // En Windows, tras alert/confirm nativo la página no recupera el teclado hasta cambiar de ventana.
+  ipcMain.on('ventana:reenfocar', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    win.blur()
+    win.focus()
+    win.webContents.focus()
+  })
 
   ipcMain.handle('peripheral:listPrinters', () => peripherals.listPrinters())
   ipcMain.handle('peripheral:printTicket', (_event, payload) => peripherals.printTicket(payload))
   ipcMain.handle('peripheral:printHtml', (_event, payload) => peripherals.printHtml(payload))
+  ipcMain.handle('peripheral:htmlToPdf', (_event, payload) => peripherals.htmlToPdf(payload || {}))
   ipcMain.handle('peripheral:printLabel', (_event, payload) => peripherals.printLabel(payload))
   ipcMain.handle('peripheral:openCashDrawer', () => peripherals.openCashDrawer())
   ipcMain.handle('peripheral:readCashDrawer', (_event, payload) => peripherals.readCashDrawer(payload || {}))

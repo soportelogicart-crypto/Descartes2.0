@@ -351,18 +351,24 @@ async function imprimir() {
   const filas = resultado.value?.items ?? []
   if (!filas.length) return
   const t = resultado.value!.totales
-  const thead = ['Fecha', 'Documento', 'Cliente', ...cabecerasDesglose(), 'Total']
+  const thead = ['Fecha', 'Documento', 'Tienda', 'Cliente', ...cabecerasDesglose(), 'Total']
   const body = filas.map((r) => [
     r.fecha,
     etiquetaDocumento(r),
+    r.empresa,
     r.razonSocial || r.cliente,
     ...filaDesgloseValores(r),
     numCsv(r.importeTotal),
   ])
+  const columnas = thead.map((_, i) => ({
+    alineacion: i < 4 ? ('left' as const) : ('right' as const),
+    ancho: i === 3 ? '18%' : i < 3 ? '11%' : undefined,
+  }))
   const res = await imprimirListadoHtml({
     titulo: 'Informe de IVA',
     metaLineas: metaImpresion(),
     thead,
+    columnas,
     filas: body,
     pie: [
       `${t.tickets} documentos · Base: ${numCsv(t.baseImponible)} € · Cuota: ${numCsv(t.cuotaIva)} € · Total: ${numCsv(t.importeTotal)} €`,

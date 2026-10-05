@@ -86,26 +86,19 @@ final class FacturacionController
     $body = (array) json_decode((string) $request->getBody(), true);
     try {
       $result = $this->manual->generarAutomatico($body);
-      // Las prefacturas no son documentos fiscales y no se envían. En las
-      // facturas, cada fallo SMTP queda reflejado sin revertir la generación.
-      if (($result['tipoFacturacion'] ?? 'facturas') === 'facturas') {
-        $result['emails'] = $this->facturaEmail->enviarGeneradas($result['facturas'] ?? []);
-      } else {
-        $result['emails'] = [
-          'candidatas' => 0,
-          'enviadas' => 0,
-          'omitidas' => 0,
-          'errores' => 0,
-          'detalles' => [],
-        ];
-      }
+      // El correo lo envía el escritorio después, con el PDF de la plantilla.
+      $result['emails'] = [
+        'candidatas' => 0,
+        'enviadas' => 0,
+        'omitidas' => 0,
+        'errores' => 0,
+        'detalles' => [],
+      ];
       $this->logger->info('Facturas generadas (automatico)', [
         'source' => 'api',
         'action' => 'facturacion.generar',
         'facturas' => $result['totales']['facturas'] ?? 0,
         'albaranes' => $result['totales']['albaranes'] ?? 0,
-        'emailsEnviados' => $result['emails']['enviadas'] ?? 0,
-        'emailsErrores' => $result['emails']['errores'] ?? 0,
       ]);
       return $this->json($response, 200, $result);
     } catch (\InvalidArgumentException $e) {
@@ -138,6 +131,30 @@ final class FacturacionController
     }
   }
 
+  public function emailGeneracion(Request $request, Response $response): Response
+  {
+    $body = (array) json_decode((string) $request->getBody(), true);
+    $facturas = $body['facturas'] ?? [];
+    if (!is_array($facturas) || $facturas === []) {
+      return ErrorResponse::json($response, 400, 'Indique al menos una factura', 'VALIDACION');
+    }
+    $pdfs = is_array($body['pdfs'] ?? null) ? $body['pdfs'] : [];
+    try {
+      $result = $this->facturaEmail->enviarGeneradas($facturas, $pdfs, !empty($body['plantilla']));
+      $this->logger->info('Facturas generadas enviadas por email', [
+        'source' => 'api',
+        'action' => 'facturacion.generar.email',
+        'enviadas' => $result['enviadas'] ?? 0,
+        'errores' => $result['errores'] ?? 0,
+      ]);
+      return $this->json($response, 200, $result);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
   public function emailManual(Request $request, Response $response): Response
   {
     return $this->emailFacturas($request, $response, 'facturacion.manual.email');
@@ -156,8 +173,9 @@ final class FacturacionController
       return ErrorResponse::json($response, 400, 'Indique al menos una factura', 'VALIDACION');
     }
     $email = trim((string) ($body['email'] ?? ''));
+    $pdfs = is_array($body['pdfs'] ?? null) ? $body['pdfs'] : [];
     try {
-      $result = $this->facturaEmail->enviarSolicitadas($facturas, $email !== '' ? $email : null);
+      $result = $this->facturaEmail->enviarSolicitadas($facturas, $email !== '' ? $email : null, $pdfs);
       $this->logger->info('Facturas enviadas por email', [
         'source' => 'api',
         'action' => $action,

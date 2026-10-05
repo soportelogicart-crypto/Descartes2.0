@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Descartes\Api\Services\Ventas;
 
+use Descartes\Api\Services\UsuarioCorreoService;
 use Descartes\Api\Support\SimplePdf;
 use PDO;
 use PHPMailer\PHPMailer\PHPMailer;
@@ -13,11 +14,13 @@ final class VentaEmailService
 {
   private VentaConsultaService $ventas;
   private PDO $pdo;
+  private UsuarioCorreoService $correo;
 
-  public function __construct(VentaConsultaService $ventas, PDO $pdo)
+  public function __construct(VentaConsultaService $ventas, PDO $pdo, UsuarioCorreoService $correo)
   {
     $this->ventas = $ventas;
     $this->pdo = $pdo;
+    $this->correo = $correo;
   }
 
   /** @return array{destinatario: string, documento: string} */
@@ -25,7 +28,8 @@ final class VentaEmailService
     string $empresa,
     string $tipo,
     int $albaran,
-    string $destinatario
+    string $destinatario,
+    ?string $pdfBase64 = null
   ): array {
     $destinatario = trim($destinatario);
     if (!filter_var($destinatario, FILTER_VALIDATE_EMAIL)) {
@@ -44,14 +48,15 @@ final class VentaEmailService
     }
 
     $documento = $this->etiquetaDocumento($venta);
-    $mail = $this->crearMailer();
+    $mail = $this->correo->crearMailer();
     $mail->addAddress($destinatario);
+    $this->correo->anadirCopia($mail, $destinatario);
     $mail->Subject = $documento;
     $mail->isHTML(true);
     $mail->Body = $this->html($venta, $documento);
     $mail->AltBody = $documento . "\nImporte: " . $this->euros((float) ($venta['importe'] ?? 0));
     $mail->addStringAttachment(
-      $this->pdf($venta, $documento),
+      $this->pdfAdjunto($pdfBase64) ?? $this->pdf($venta, $documento),
       $this->nombreArchivo($documento) . '.pdf',
       PHPMailer::ENCODING_BASE64,
       'application/pdf'
@@ -66,37 +71,6 @@ final class VentaEmailService
     }
 
     return ['destinatario' => $destinatario, 'documento' => $documento];
-  }
-
-  private function crearMailer(): PHPMailer
-  {
-    $host = trim((string) ($_ENV['MAIL_HOST'] ?? ''));
-    $from = trim((string) ($_ENV['MAIL_FROM_ADDRESS'] ?? ''));
-    if ($host === '' || !filter_var($from, FILTER_VALIDATE_EMAIL)) {
-      throw new \RuntimeException(
-        'Correo no configurado: defina MAIL_HOST y MAIL_FROM_ADDRESS en descartes-api/.env'
-      );
-    }
-
-    $mail = new PHPMailer(true);
-    $mail->CharSet = PHPMailer::CHARSET_UTF8;
-    $mail->isSMTP();
-    $mail->Host = $host;
-    $mail->Port = max(1, (int) ($_ENV['MAIL_PORT'] ?? 587));
-    $usuario = trim((string) ($_ENV['MAIL_USERNAME'] ?? ''));
-    $mail->SMTPAuth = $usuario !== '';
-    if ($mail->SMTPAuth) {
-      $mail->Username = $usuario;
-      $mail->Password = (string) ($_ENV['MAIL_PASSWORD'] ?? '');
-    }
-    $seguridad = strtolower(trim((string) ($_ENV['MAIL_ENCRYPTION'] ?? 'tls')));
-    if ($seguridad === 'tls' || $seguridad === 'ssl') {
-      $mail->SMTPSecure = $seguridad;
-    } else {
-      $mail->SMTPAutoTLS = false;
-    }
-    $mail->setFrom($from, trim((string) ($_ENV['MAIL_FROM_NAME'] ?? 'Descartes')));
-    return $mail;
   }
 
   /** @param array<string, mixed> $venta */
@@ -134,6 +108,20 @@ final class VentaEmailService
       . '<tbody>' . $filas . '</tbody></table>'
       . '<p style="text-align:right;font-size:1.25em"><strong>Total: '
       . $this->euros((float) ($venta['importe'] ?? 0)) . '</strong></p></div>';
+  }
+
+  /** PDF de la plantilla generado en el escritorio. Si no viene, se usa el genérico. */
+  private function pdfAdjunto(?string $pdfBase64): ?string
+  {
+    $b64 = trim((string) $pdfBase64);
+    if ($b64 === '') {
+      return null;
+    }
+    $pdf = base64_decode($b64, true);
+    if ($pdf === false || !str_starts_with($pdf, '%PDF')) {
+      throw new \InvalidArgumentException('El PDF de la plantilla no es válido');
+    }
+    return $pdf;
   }
 
   /** @param array<string, mixed> $venta */

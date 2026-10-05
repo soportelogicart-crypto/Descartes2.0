@@ -169,7 +169,11 @@ function confirmar() {
             Formas de pago.
           </p>
           <p
-            v-if="esDevolucion && formaSeleccionada?.datafono"
+            v-if="
+              esDevolucion &&
+              formaSeleccionada?.datafono &&
+              formaSeleccionada.chipAcumuladoMenu
+            "
             class="nota datafono-hint"
           >
             Forma con datáfono: pulse «Cobrar y finalizar» para devolver el importe en el pinpad.

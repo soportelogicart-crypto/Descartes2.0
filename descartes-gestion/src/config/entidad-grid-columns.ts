@@ -119,6 +119,17 @@ export const entidadGridColumns: Record<string, GridColumn[]> = {
     { key: 'fechaInicio', label: 'Fecha inicio', type: 'text', width: '6.5rem', readOnly: true },
     { key: 'fechaFin', label: 'Fecha fin', type: 'text', width: '6.5rem', readOnly: true },
   ],
+  'tipos-descuento': [
+    { key: 'tipoDescuento', label: 'Tipo dto.', type: 'text', width: '5.5rem', readOnly: true },
+    { key: 'tipo', label: 'Tipo', type: 'text', width: '8rem', readOnly: true },
+    { key: 'codigoTipo', label: 'Codigo', type: 'text', width: '8rem', readOnly: true },
+    { key: 'fechaInicio', label: 'Fecha inicio', type: 'text', width: '6.5rem', readOnly: true },
+    { key: 'fechaFin', label: 'Fecha fin', type: 'text', width: '6.5rem', readOnly: true },
+    { key: 'descuento', label: '% Dto.', type: 'number', width: '4.5rem', readOnly: true },
+    { key: 'importeMinimo', label: 'Imp. min.', type: 'number', width: '5.5rem', readOnly: true },
+    { key: 'importeMaximo', label: 'Imp. max.', type: 'number', width: '5.5rem', readOnly: true },
+    { key: 'articuloRegalo', label: 'Regalo', type: 'text', width: '7rem', readOnly: true },
+  ],
   'oferta-clientes': [
     { key: 'articulo', label: 'Articulo', type: 'text', width: '8rem', readOnly: true },
     { key: 'articuloDescripcion', label: 'Descripcion', type: 'text', width: '14rem', readOnly: true },

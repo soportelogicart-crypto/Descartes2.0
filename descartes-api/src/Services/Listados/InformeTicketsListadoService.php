@@ -98,14 +98,17 @@ final class InformeTicketsListadoService
 
     $resumen = $this->crearResumen($items);
     $exportar = $q['formato'] === 'exportar' ? $this->crearFilasExportacion($items) : [];
+    $fechasTickets = array_column($items, 'fecha');
+    $fechaDesde = $q['fechaDesde'] ?? ($fechasTickets !== [] ? min($fechasTickets) : null);
+    $fechaHasta = $q['fechaHasta'] ?? ($fechasTickets !== [] ? max($fechasTickets) : null);
 
     return [
       'formato' => $q['formato'],
       'divisa' => $q['divisa'],
       'divisaConvertida' => false,
       'divisasConfiguradas' => $divisasConfiguradas,
-      'fechaDesde' => $q['fechaDesde'],
-      'fechaHasta' => $q['fechaHasta'],
+      'fechaDesde' => $fechaDesde,
+      'fechaHasta' => $fechaHasta,
       // Compatibilidad con consumidores del contrato anterior.
       'empresa' => $q['empresa'],
       'puesto' => $q['puesto'],
@@ -584,12 +587,10 @@ final class InformeTicketsListadoService
    */
   private function normalizarQuery(array $query): array
   {
+    // Fechas opcionales: se puede pedir solo por sesión, tienda, ticket… (el TOP limita el volumen).
     $fechaDesde = ListadosFiltrosSql::fechaDiaInput($query['fechaDesde'] ?? null);
     $fechaHasta = ListadosFiltrosSql::fechaDiaInput($query['fechaHasta'] ?? null);
-    if ($fechaDesde === null || $fechaHasta === null) {
-      throw new InvalidArgumentException('fechaDesde y fechaHasta son obligatorias (YYYY-MM-DD)');
-    }
-    if ($fechaDesde > $fechaHasta) {
+    if ($fechaDesde !== null && $fechaHasta !== null && $fechaDesde > $fechaHasta) {
       throw new InvalidArgumentException('La fecha desde no puede ser posterior a la fecha hasta');
     }
 

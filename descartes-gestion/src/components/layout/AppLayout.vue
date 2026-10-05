@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { articulosMenuItems, esRutaArticulos } from '@/config/articulos-menu'
@@ -31,8 +31,23 @@ import {
   generarAutomaticamenteFidelizacion,
 } from '@/api/ventas'
 import { extractApiError } from '@/composables/extractApiError'
+import { getInstalacionEstado } from '@/api/instalacion'
 
 const auth = useAuthStore()
+const nombreBaseDatos = ref('')
+const etiquetaRol = computed(() => {
+  const rol = auth.usuario?.rolNombre?.trim() || auth.usuario?.rolCodigo?.trim() || ''
+  return rol
+})
+
+onMounted(async () => {
+  try {
+    const estado = await getInstalacionEstado()
+    nombreBaseDatos.value = (estado.diagnostico?.baseDatos || estado.database || '').trim()
+  } catch {
+    nombreBaseDatos.value = ''
+  }
+})
 const { puede } = usePermisos()
 const puestoContexto = usePuestoContextoStore()
 const tabsStore = useTabsStore()
@@ -639,7 +654,14 @@ async function logout() {
     <div class="main">
       <header class="topbar">
         <span class="topbar-titulo">{{ tituloPantalla }}</span>
-        <span class="topbar-usuario">{{ auth.usuario?.nombre ?? 'Usuario' }}</span>
+        <span class="topbar-derecha">
+          <span v-if="nombreBaseDatos" class="topbar-bd" :title="`Base de datos ${nombreBaseDatos}`">
+            {{ nombreBaseDatos }}
+          </span>
+          <span class="topbar-usuario">
+            {{ auth.usuario?.nombre ?? 'Usuario' }}<template v-if="etiquetaRol"> · {{ etiquetaRol }}</template>
+          </span>
+        </span>
       </header>
       <AppTabs />
       <main class="content" :class="{ 'content--flush': route.meta.contentFlush }">
@@ -946,7 +968,7 @@ async function logout() {
 .topbar {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
+  align-items: center;
   gap: 0.75rem;
   padding: 0.35rem 0.6rem;
   background: linear-gradient(#00309c, #000060);
@@ -962,8 +984,16 @@ async function logout() {
   font-weight: 700;
 }
 
+.topbar-derecha {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.topbar-bd,
 .topbar-usuario {
-  max-width: 16rem;
+  max-width: 18rem;
   padding: 0.05rem 0.4rem;
   overflow: hidden;
   background: rgba(255, 255, 255, 0.15);
@@ -972,6 +1002,10 @@ async function logout() {
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.topbar-usuario {
+  max-width: 22rem;
 }
 
 .content {

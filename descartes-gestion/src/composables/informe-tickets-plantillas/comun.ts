@@ -56,7 +56,7 @@ export function cabecera(
     <div class="legacy-header-top">
       <h1>${esc(titulo)}</h1>
       <div class="legacy-rango">
-        <span>Fecha</span><b>${esc(fecha(data.fechaDesde))} 00:00</b><b>${esc(fecha(data.fechaHasta))} 23:59</b>
+        <span>Fecha</span><b>${esc(fecha(data.fechaDesde, true))} 00:00</b><b>${esc(fecha(data.fechaHasta, true))} 23:59</b>
       </div>
       ${logo}
     </div>
@@ -109,20 +109,36 @@ export function tablaIvaDoble(resumen: InformeTicketsResumen): string {
   </fieldset>`
 }
 
+function filaPago(
+  resumen: InformeTicketsResumen,
+  perfilPorcentajes: InformeTicketsResumen,
+  clave: string,
+  etiqueta: string,
+): string {
+  const pago = resumen.perfilPago?.[clave]
+  const perfil = perfilPorcentajes.perfilPago?.[clave]
+  return `<tr>
+    <td>${etiqueta}</td>
+    <td class="n">${num(pago?.conteo, 1)}</td>
+    <td class="n">${num(pago?.importe)}</td>
+    <td class="n">${num(perfil?.pje)}%</td>
+  </tr>`
+}
+
 export function tablaPagos(
   resumen: InformeTicketsResumen,
   perfilPorcentajes: InformeTicketsResumen = resumen,
+  dosColumnas = false,
 ): string {
-  const filas = PERFIL.map(([clave, etiqueta]) => {
-    const pago = resumen.perfilPago?.[clave]
-    const perfil = perfilPorcentajes.perfilPago?.[clave]
-    return `<tr>
-      <td>${etiqueta}</td>
-      <td class="n">${num(pago?.conteo, 1)}</td>
-      <td class="n">${num(pago?.importe)}</td>
-      <td class="n">${num(perfil?.pje)}%</td>
-    </tr>`
-  }).join('')
+  if (dosColumnas) {
+    const columna = (items: readonly (readonly [string, string])[]) =>
+      `<table><tbody>${items.map(([clave, etiqueta]) => filaPago(resumen, perfilPorcentajes, clave, etiqueta)).join('')}</tbody></table>`
+    return `<fieldset class="legacy-box pagos-box pagos-doble">
+      <legend>Formas de Pago</legend>
+      <div>${columna(PERFIL.slice(0, 3))}${columna(PERFIL.slice(3))}</div>
+    </fieldset>`
+  }
+  const filas = PERFIL.map(([clave, etiqueta]) => filaPago(resumen, perfilPorcentajes, clave, etiqueta)).join('')
   return `<fieldset class="legacy-box pagos-box">
     <legend>Formas de Pago</legend>
     <table><tbody>${filas}</tbody>
@@ -193,13 +209,13 @@ export const ESTILOS_LEGACY = `
 .legacy-report>tbody>tr>td{padding:0 14mm;vertical-align:top}
 .legacy-report>tfoot>tr>td{padding:0 14mm 8mm;vertical-align:bottom}
 .legacy-header{border-bottom:2px solid var(--legacy-granate);padding-bottom:2mm;margin-bottom:6mm}
-.legacy-header-top{display:grid;grid-template-columns:1fr 70mm 25mm;align-items:start;gap:4mm}
+.legacy-header-top{display:grid;grid-template-columns:minmax(0,1fr) auto 22mm;align-items:start;gap:3mm}
 .legacy-header h1{font-size:11pt;font-style:italic;color:var(--legacy-verde);margin:2mm 0 0;border-bottom:1px solid var(--legacy-granate);padding-bottom:1mm}
-.legacy-rango{display:grid;grid-template-columns:20mm 24mm 24mm;gap:1mm;color:#fff;font-size:7pt;font-style:italic}
+.legacy-rango{display:grid;grid-template-columns:14mm 27mm 27mm;gap:1mm;color:#fff;font-size:7pt;font-style:italic}
 .legacy-rango span,.legacy-rango b{background:var(--legacy-verde);padding:1px 3px;font-weight:400;white-space:nowrap}
 .legacy-logo{width:25mm;max-height:17mm;object-fit:contain;justify-self:end}
 .legacy-impresion{margin-top:3mm;font-size:8pt}
-.legacy-footer{border-top:2px solid var(--legacy-granate);height:3mm;margin-top:6mm}
+.legacy-footer{border-top:2px solid var(--legacy-granate);height:3mm;margin-top:4mm}
 .legacy-tienda{font-size:9pt;font-weight:700;font-style:italic;color:var(--legacy-verde);margin:0 0 2mm}
 .legacy-resumen{width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:8pt}
 .legacy-resumen td{padding:1px 3mm}
@@ -216,13 +232,14 @@ export const ESTILOS_LEGACY = `
 .legacy-box td{padding:1px 2px;white-space:nowrap}
 .legacy-box .n{text-align:right}
 .legacy-box tfoot td{border-top:3px double #111}
-.legacy-cierre{display:grid;grid-template-columns:36% 25% 38%;gap:1%;margin:3mm 2mm 4mm;break-inside:avoid}
+.legacy-cierre{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr) minmax(0,1.5fr);gap:2mm;margin:3mm 0 4mm;break-inside:avoid}
 .perfil-box dl{display:grid;grid-template-columns:1fr auto;gap:1px 4px;margin:0}
 .perfil-box dt,.perfil-box dd{margin:0;white-space:nowrap}
 .perfil-box dd{text-align:right}
-.perfil-dia{display:grid;grid-template-columns:1fr auto;gap:2mm;font-size:7pt}
+.perfil-dia{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:1mm;font-size:6.7pt;height:100%}
 .perfil-dia legend{grid-column:1/-1}
-.perfil-dia .primer-ultimo{border-left:1px solid #222;padding-left:2mm}
+.perfil-dia .primer-ultimo{border-left:1px solid #222;padding-left:1.2mm}
+.pagos-doble>div{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1mm}
 .perfil-dia dd{font-variant-numeric:tabular-nums}
 .iva-doble>div{display:grid;grid-template-columns:1fr 1fr;gap:1mm}
 .legacy-dia{break-inside:avoid;border-bottom:3px solid #111;padding-bottom:1mm;margin-bottom:3mm}
@@ -231,7 +248,8 @@ export const ESTILOS_LEGACY = `
 .n{text-align:right;font-variant-numeric:tabular-nums}
 @media print{
   @page{size:A4 portrait;margin:0}
-  body{margin:0!important;padding:0!important}
+  body{margin:0!important;padding:0!important;background:#fff}
+  .legacy-report{width:auto;min-height:0}
   .legacy-box,.legacy-total{break-inside:avoid}
 }
 `
@@ -260,7 +278,13 @@ export function documento(
   opciones: OpcionesPlantillaTickets,
 ): string {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(titulo)}</title>
-  <style>${ESTILOS_LEGACY}</style></head><body>
+  <style>${ESTILOS_LEGACY}
+  @media screen{
+    html,body{background:#e2e8f0}
+    body{margin:0;padding:6mm 0}
+    .legacy-report{width:210mm;min-height:297mm;margin:0 auto;background:#fff;box-shadow:0 6px 18px rgb(15 23 42 / 25%)}
+  }
+  </style></head><body>
   ${pagina(data, titulo, cuerpo, opciones)}
   </body></html>`
 }

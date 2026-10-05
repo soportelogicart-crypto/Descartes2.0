@@ -1,6 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { generarFacturasAutomatico, previewGeneracionFacturas } from '@/api/facturacion'
+import { computed, nextTick, onMounted, ref } from 'vue'
+import {
+  enviarFacturasGeneracionEmail,
+  generarFacturasAutomatico,
+  previewGeneracionFacturas,
+} from '@/api/facturacion'
 import { api } from '@/api/client'
 import type {
   FacturaGeneracionGrupoPreview,
@@ -9,6 +13,12 @@ import type {
   FacturasGeneracionResponse,
 } from '@/types/facturacion'
 import { extractApiError } from '@/composables/useMantenimiento'
+import {
+  pdfsFacturasDesdePlantilla,
+  prepararImpresionFacturas,
+  type PrepImpresionFacturas,
+} from '@/composables/useImpresionFacturaDocumento'
+import FacturasImpresionA4Modal from '@/components/facturacion/FacturasImpresionA4Modal.vue'
 import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
@@ -39,6 +49,9 @@ const mensaje = ref<string | null>(null)
 const preview = ref<FacturasGeneracionPreviewResponse | null>(null)
 const generadas = ref<FacturaManualGenerada[]>([])
 const emails = ref<FacturasGeneracionResponse['emails'] | null>(null)
+const a4Open = ref(false)
+const a4Prep = ref<PrepImpresionFacturas | null>(null)
+const a4ModalRef = ref<{ capturarHtmlFolio: () => Promise<string> } | null>(null)
 const tiendas = ref<Opt[]>([])
 const puestos = ref<Opt[]>([])
 
@@ -329,6 +342,8 @@ async function ejecutar() {
   generating.value = true
   error.value = null
   mensaje.value = null
+  emails.value = null
+  let generadasOk = false
   try {
     const p = params()
     const result = await generarFacturasAutomatico({
@@ -355,23 +370,89 @@ async function ejecutar() {
       fpagoHasta: p.fpagoHasta !== undefined ? String(p.fpagoHasta) : undefined,
     })
     generadas.value = result.facturas
-    emails.value = result.emails
     mensaje.value = `Generadas ${result.totales.facturas} ${docLabel} · ${result.totales.albaranes} albaranes · ${result.totales.importe.toFixed(2)} €`
     if (result.omitidosImporteMinimo > 0) {
       mensaje.value += ` · omitidos ${result.omitidosImporteMinimo} por importe mínimo`
     }
-    if (form.value.tipoFacturacion === 'facturas') {
-      mensaje.value += ` · emails: ${result.emails.enviadas} enviados, ${result.emails.omitidas} omitidos`
-      if (result.emails.errores > 0) {
-        mensaje.value += `, ${result.emails.errores} con error`
-      }
-    }
     preview.value = null
+    generadasOk = true
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudieron generar las facturas')
-  } finally {
-    generating.value = false
   }
+
+  if (generadasOk && form.value.tipoFacturacion === 'facturas' && generadas.value.length) {
+    try {
+      mensaje.value = (mensaje.value ?? '') + ' · preparando el correo con la plantilla…'
+      const envio = await enviarGeneradasConPlantilla(generadas.value)
+      emails.value = envio
+      mensaje.value = (mensaje.value ?? '').replace(' · preparando el correo con la plantilla…', '')
+      mensaje.value += ` · emails: ${envio.enviadas} enviados, ${envio.omitidas} omitidos`
+      if (envio.errores > 0) {
+        mensaje.value += `, ${envio.errores} con error`
+        const aviso = envio.detalles.find((d) => d.estado === 'error')?.motivo
+        if (aviso) error.value = aviso
+      }
+    } catch (e: unknown) {
+      error.value =
+        extractApiError(e, 'No se pudo enviar el correo con la plantilla') +
+        ' Las facturas sí se han creado.'
+    }
+  }
+
+  generating.value = false
+}
+
+async function esperarHtmlFolio(): Promise<string> {
+  for (let i = 0; i < 40; i++) {
+    await nextTick()
+    const html = (await a4ModalRef.value?.capturarHtmlFolio()) || ''
+    if (html) return html
+    await new Promise((r) => setTimeout(r, 50))
+  }
+  return ''
+}
+
+/** Solo los clientes con envío automático llevan PDF; el resto se omite en el servidor. */
+async function enviarGeneradasConPlantilla(facturas: FacturaManualGenerada[]) {
+  const fiscales = facturas.filter((f) => !f.prefactura)
+  const conEnvio = fiscales.filter((f) => f.facturasEmail)
+  let pdfs: Record<string, string> = {}
+  if (conEnvio.length) {
+    const prep = await prepararImpresionFacturas(
+      conEnvio.map((f) => ({
+        empresa: f.empresa,
+        facturaTipo: f.facturaTipo,
+        factura: f.factura,
+      })),
+      {
+        puestoCodigo: String(puestoContexto.puestoCodigo ?? ''),
+        origenDocumento: 'generacion',
+      }
+    )
+    try {
+      pdfs = await pdfsFacturasDesdePlantilla(prep, async (doc) => {
+        a4Prep.value = { ...prep, documentos: [doc] }
+        a4Open.value = true
+        return esperarHtmlFolio()
+      })
+    } finally {
+      a4Open.value = false
+      a4Prep.value = null
+    }
+  }
+  if (fiscales.length === 0) {
+    return { candidatas: 0, enviadas: 0, omitidas: 0, errores: 0, detalles: [] }
+  }
+  return enviarFacturasGeneracionEmail({
+    facturas: fiscales.map((f) => ({
+      empresa: f.empresa,
+      facturaTipo: f.facturaTipo,
+      factura: f.factura,
+      cliente: f.cliente,
+    })),
+    pdfs,
+    plantilla: true,
+  })
 }
 
 onMounted(async () => {
@@ -763,6 +844,16 @@ onMounted(async () => {
       :codigo-actual="String(form[buscarCampo] ?? '')"
       @seleccionar="onLupaSeleccionado"
       @cerrar="buscarOpen = false"
+    />
+
+    <FacturasImpresionA4Modal
+      ref="a4ModalRef"
+      :open="a4Open"
+      oculto
+      :documentos="a4Prep?.documentos ?? []"
+      :impresora-nombre="a4Prep?.impresoraNombre || ''"
+      @cerrar="a4Open = false"
+      @imprimir="a4Open = false"
     />
   </section>
 </template>

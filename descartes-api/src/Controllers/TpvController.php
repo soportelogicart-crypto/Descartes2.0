@@ -10,6 +10,7 @@ use Descartes\Api\Services\Tpv\TpvClienteService;
 use Descartes\Api\Services\Tpv\TpvContextoService;
 use Descartes\Api\Services\Tpv\TpvTecladoService;
 use Descartes\Api\Services\Tpv\TpvTicketEsperaService;
+use Descartes\Api\Services\Ventas\VentaConsultaService;
 use Descartes\Api\Services\Ventas\VentaEmailService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -23,6 +24,7 @@ final class TpvController
   private TpvClienteService $clientes;
   private TpvTicketEsperaService $ticketsEspera;
   private VentaEmailService $ventaEmail;
+  private VentaConsultaService $ventas;
 
   public function __construct(
     TpvContextoService $contexto,
@@ -30,7 +32,8 @@ final class TpvController
     TpvArticuloService $articulos,
     TpvClienteService $clientes,
     TpvTicketEsperaService $ticketsEspera,
-    VentaEmailService $ventaEmail
+    VentaEmailService $ventaEmail,
+    VentaConsultaService $ventas
   ) {
     $this->contexto = $contexto;
     $this->teclado = $teclado;
@@ -38,6 +41,25 @@ final class TpvController
     $this->clientes = $clientes;
     $this->ticketsEspera = $ticketsEspera;
     $this->ventaEmail = $ventaEmail;
+    $this->ventas = $ventas;
+  }
+
+  public function listVentas(Request $request, Response $response): Response
+  {
+    return $this->json($response, 200, $this->ventas->listar($request->getQueryParams()));
+  }
+
+  public function getVenta(Request $request, Response $response, array $args): Response
+  {
+    $item = $this->ventas->obtener(
+      (string) ($args['empresa'] ?? ''),
+      (string) ($args['tipo'] ?? ''),
+      (int) ($args['albaran'] ?? 0)
+    );
+    if ($item === null) {
+      return ErrorResponse::json($response, 404, 'Venta no encontrada', 'NO_ENCONTRADO');
+    }
+    return $this->json($response, 200, $item);
   }
 
   public function ping(Request $request, Response $response): Response
@@ -57,7 +79,8 @@ final class TpvController
         (string) ($args['empresa'] ?? ''),
         (string) ($args['tipo'] ?? ''),
         (int) ($args['albaran'] ?? 0),
-        (string) ($body['email'] ?? '')
+        (string) ($body['email'] ?? ''),
+        isset($body['pdf']) ? (string) $body['pdf'] : null
       ));
     } catch (\InvalidArgumentException $e) {
       return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');

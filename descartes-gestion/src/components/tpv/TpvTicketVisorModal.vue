@@ -56,14 +56,14 @@ watch(
                 @click="emit('seleccionar', i)"
               >
                 <td class="c-pos">{{ i + 1 }}</td>
-                <td class="c-cant">{{ l.cantidad }}</td>
+                <td class="c-cant">{{ l.articulo === 'NO' ? '—' : l.cantidad }}</td>
                 <td class="c-desc">
-                  <span class="desc">{{ l.descripcion || l.articulo }}</span>
-                  <span class="cod">{{ l.articulo }}</span>
+                  <span class="desc">{{ l.descripcion || (l.articulo === 'NO' ? 'Nota' : l.articulo) }}</span>
+                  <span class="cod">{{ l.articulo === 'NO' ? 'Nota' : l.articulo }}</span>
                 </td>
-                <td class="c-num">{{ l.precio.toFixed(2) }}</td>
-                <td class="c-dto">{{ l.pjeDto ? `${l.pjeDto.toFixed(2)}%` : '—' }}</td>
-                <td class="c-num">{{ l.importe.toFixed(2) }}</td>
+                <td class="c-num">{{ l.articulo === 'NO' ? '—' : l.precio.toFixed(2) }}</td>
+                <td class="c-dto">{{ l.articulo === 'NO' || !l.pjeDto ? '—' : `${l.pjeDto.toFixed(2)}%` }}</td>
+                <td class="c-num">{{ l.articulo === 'NO' ? '—' : l.importe.toFixed(2) }}</td>
               </tr>
               <tr v-if="!lineas.length" class="vacia">
                 <td colspan="6">El ticket no tiene líneas</td>

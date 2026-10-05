@@ -16,7 +16,9 @@ use Descartes\Api\Controllers\OfertaClienteController;
 use Descartes\Api\Controllers\OfertaProveedorController;
 use Descartes\Api\Controllers\ProveedorController;
 use Descartes\Api\Controllers\RolController;
+use Descartes\Api\Controllers\TipoDescuentoController;
 use Descartes\Api\Middleware\AuthMiddleware;
+use Descartes\Api\Services\PermissionService;
 use Descartes\Api\Middleware\PermissionMiddleware;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
@@ -50,7 +52,24 @@ return function (App $app): void {
     };
   };
 
-  $app->group('/api/mantenimiento', function (RouteCollectorProxy $group) use ($setPermiso, $setPermisoModulo) {
+  // Quien mantiene clientes puede consultar los códigos; quien mantiene la tabla, también.
+  $verTiposDescuento = function (ServerRequestInterface $request, RequestHandlerInterface $handler) use ($app) {
+    $usuario = $request->getAttribute('usuario') ?? $_SESSION['usuario'] ?? [];
+    if (!is_array($usuario)) {
+      $usuario = [];
+    }
+    /** @var PermissionService $permisos */
+    $permisos = $app->getContainer()->get(PermissionService::class);
+    $modulo = $permisos->puede($usuario, 'tipos-descuento', 'ver') ? 'tipos-descuento' : 'clientes';
+
+    return $handler->handle(
+      $request
+        ->withAttribute('permisoModulo', $modulo)
+        ->withAttribute('permisoAccion', 'ver')
+    );
+  };
+
+  $app->group('/api/mantenimiento', function (RouteCollectorProxy $group) use ($setPermiso, $setPermisoModulo, $verTiposDescuento) {
     $group->get('/empresas', [EmpresaClienteController::class, 'get'])
       ->add($setPermisoModulo('empresas', 'ver'));
     $group->put('/empresas', [EmpresaClienteController::class, 'put'])
@@ -206,6 +225,19 @@ return function (App $app): void {
       ->add($setPermisoModulo('facturacion', 'editar'));
     $group->post('/documento-plantillas/{id}/activar', [DocumentoPlantillasController::class, 'activar'])
       ->add($setPermisoModulo('facturacion', 'editar'));
+
+    $group->get('/tipos-descuento', [TipoDescuentoController::class, 'list'])
+      ->add($verTiposDescuento);
+    $group->get('/tipos-descuento/por-codigo/{tipoDescuento}', [TipoDescuentoController::class, 'porCodigo'])
+      ->add($verTiposDescuento);
+    $group->get('/tipos-descuento/detalle', [TipoDescuentoController::class, 'get'])
+      ->add($setPermisoModulo('tipos-descuento', 'ver'));
+    $group->post('/tipos-descuento', [TipoDescuentoController::class, 'create'])
+      ->add($setPermisoModulo('tipos-descuento', 'crear'));
+    $group->put('/tipos-descuento', [TipoDescuentoController::class, 'update'])
+      ->add($setPermisoModulo('tipos-descuento', 'editar'));
+    $group->delete('/tipos-descuento', [TipoDescuentoController::class, 'delete'])
+      ->add($setPermisoModulo('tipos-descuento', 'eliminar'));
 
     $group->get('/{entidad}', [MantenimientoController::class, 'list'])->add($setPermiso('ver'));
     $group->get('/{entidad}/{codigo}', [MantenimientoController::class, 'get'])->add($setPermiso('ver'));

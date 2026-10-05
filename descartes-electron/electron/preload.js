@@ -7,6 +7,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('descartes', {
   isElectron: true,
   platform: process.platform,
+  reenfocar: () => ipcRenderer.send('ventana:reenfocar'),
 
   getEquipoConfig: () => ipcRenderer.invoke('equipo:get'),
   setEquipoConfig: (payload) => ipcRenderer.invoke('equipo:set', payload),
@@ -21,6 +22,7 @@ contextBridge.exposeInMainWorld('descartes', {
   listPrinters: () => ipcRenderer.invoke('peripheral:listPrinters'),
   printTicket: (payload) => ipcRenderer.invoke('peripheral:printTicket', payload),
   printHtml: (payload) => ipcRenderer.invoke('peripheral:printHtml', payload),
+  htmlToPdf: (payload) => ipcRenderer.invoke('peripheral:htmlToPdf', payload),
   printLabel: (payload) => ipcRenderer.invoke('peripheral:printLabel', payload),
   openCashDrawer: () => ipcRenderer.invoke('peripheral:openCashDrawer'),
   readCashDrawer: (payload) => ipcRenderer.invoke('peripheral:readCashDrawer', payload || {}),

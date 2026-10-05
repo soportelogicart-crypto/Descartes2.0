@@ -45,11 +45,11 @@ final class ListadosController
     try {
       return $this->json($response, 200, $this->stock->generar($request->getQueryParams()));
     } catch (InvalidArgumentException $e) {
-      return ErrorResponse::json($response, 400, $e->getMessage());
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
     } catch (\Throwable $e) {
       $this->logger->error('listados.stock', ['error' => $e->getMessage()]);
 
-      return ErrorResponse::json($response, 500, 'No se pudo generar el listado de stock');
+      return ErrorResponse::json($response, 500, 'No se pudo generar el listado de stock', 'ERROR_INTERNO');
     }
   }
 
@@ -60,7 +60,7 @@ final class ListadosController
     } catch (\Throwable $e) {
       $this->logger->error('listados.stock-minimos', ['error' => $e->getMessage()]);
 
-      return ErrorResponse::json($response, 500, 'No se pudo generar el listado de stock bajo mínimos');
+      return ErrorResponse::json($response, 500, 'No se pudo generar el listado de stock bajo mínimos', 'ERROR_INTERNO');
     }
   }
 
@@ -69,11 +69,11 @@ final class ListadosController
     try {
       return $this->json($response, 200, $this->informeIva->generar($request->getQueryParams()));
     } catch (InvalidArgumentException $e) {
-      return ErrorResponse::json($response, 400, $e->getMessage());
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
     } catch (\Throwable $e) {
       $this->logger->error('listados.informe-iva', ['error' => $e->getMessage()]);
 
-      return ErrorResponse::json($response, 500, 'No se pudo generar el informe de IVA');
+      return ErrorResponse::json($response, 500, 'No se pudo generar el informe de IVA', 'ERROR_INTERNO');
     }
   }
 
@@ -90,11 +90,11 @@ final class ListadosController
         ->withHeader('Content-Length', (string) strlen($pdf))
         ->withStatus(200);
     } catch (InvalidArgumentException $e) {
-      return ErrorResponse::json($response, 400, $e->getMessage());
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
     } catch (\Throwable $e) {
       $this->logger->error('listados.informe-iva.pdf', ['error' => $e->getMessage()]);
 
-      return ErrorResponse::json($response, 500, 'No se pudo generar el PDF del informe de IVA');
+      return ErrorResponse::json($response, 500, 'No se pudo generar el PDF del informe de IVA', 'ERROR_INTERNO');
     }
   }
 
@@ -103,11 +103,11 @@ final class ListadosController
     try {
       return $this->json($response, 200, $this->informeTickets->generar($request->getQueryParams()));
     } catch (InvalidArgumentException $e) {
-      return ErrorResponse::json($response, 400, $e->getMessage());
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
     } catch (\Throwable $e) {
       $this->logger->error('listados.informe-tickets', ['error' => $e->getMessage()]);
 
-      return ErrorResponse::json($response, 500, 'No se pudo generar el informe de tickets');
+      return ErrorResponse::json($response, 500, 'No se pudo generar el informe de tickets', 'ERROR_INTERNO');
     }
   }
 
@@ -116,11 +116,11 @@ final class ListadosController
     try {
       return $this->json($response, 200, $this->extractoClientes->generar($request->getQueryParams()));
     } catch (InvalidArgumentException $e) {
-      return ErrorResponse::json($response, 400, $e->getMessage());
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
     } catch (\Throwable $e) {
       $this->logger->error('listados.extracto-clientes', ['error' => $e->getMessage()]);
 
-      return ErrorResponse::json($response, 500, 'No se pudo generar el extracto de clientes');
+      return ErrorResponse::json($response, 500, 'No se pudo generar el extracto de clientes', 'ERROR_INTERNO');
     }
   }
 

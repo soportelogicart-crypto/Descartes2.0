@@ -63,6 +63,7 @@ return function (App $app): void {
   $container->set(ProveedoresContactosRepository::class, static fn (ContainerInterface $c) => new ProveedoresContactosRepository($c->get(PDO::class)));
   $container->set(ProveedoresEstadisticaRepository::class, static fn (ContainerInterface $c) => new ProveedoresEstadisticaRepository($c->get(PDO::class)));
   $container->set(CampanasRepository::class, static fn (ContainerInterface $c) => new CampanasRepository($c->get(PDO::class)));
+  $container->set(\Descartes\Api\Services\TipoDescuentoService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\TipoDescuentoService($c->get(PDO::class)));
   $container->set(OfertasClientesRepository::class, static fn (ContainerInterface $c) => new OfertasClientesRepository($c->get(PDO::class)));
   $container->set(CodigoPostalRepository::class, static fn (ContainerInterface $c) => new CodigoPostalRepository($c->get(PDO::class)));
   $container->set(ArticuloService::class, static fn (ContainerInterface $c) => new ArticuloService(
@@ -120,9 +121,11 @@ return function (App $app): void {
     $c->get(PDO::class),
     $c->get(\Descartes\Api\Services\Ventas\RedsysLogTarjetaService::class)
   ));
+  $container->set(\Descartes\Api\Services\UsuarioCorreoService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\UsuarioCorreoService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Ventas\VentaEmailService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\VentaEmailService(
     $c->get(\Descartes\Api\Services\Ventas\VentaConsultaService::class),
-    $c->get(PDO::class)
+    $c->get(PDO::class),
+    $c->get(\Descartes\Api\Services\UsuarioCorreoService::class)
   ));
   $container->set(\Descartes\Api\Services\Compras\AlbaranCompraConsultaService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Compras\AlbaranCompraConsultaService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Compras\AlbaranCompraEscrituraService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Compras\AlbaranCompraEscrituraService(
@@ -165,6 +168,7 @@ return function (App $app): void {
     $c->get(\Descartes\Api\Services\Compras\AlbaranCompraConsultaService::class)
   ));
   $container->set(\Descartes\Api\Services\Ventas\ArqueoService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\ArqueoService($c->get(PDO::class)));
+  $container->set(\Descartes\Api\Services\Ventas\SituacionVentasService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\SituacionVentasService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Ventas\DesgloseArqueoVentasService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\DesgloseArqueoVentasService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Ventas\DispositivoPuestoService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\DispositivoPuestoService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Ventas\FidelizacionService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\FidelizacionService(
@@ -209,7 +213,8 @@ return function (App $app): void {
   $container->set(\Descartes\Api\Services\Facturacion\ImpresionRecibosService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\ImpresionRecibosService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Facturacion\FacturaEmailService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\FacturaEmailService(
     $c->get(PDO::class),
-    $c->get(\Descartes\Api\Services\Facturacion\ImpresionFacturasService::class)
+    $c->get(\Descartes\Api\Services\Facturacion\ImpresionFacturasService::class),
+    $c->get(\Descartes\Api\Services\UsuarioCorreoService::class)
   ));
   $container->set(\Descartes\Api\Services\Facturacion\ConexionContableService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\ConexionContableService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Facturacion\TraspasoContableService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\TraspasoContableService(
@@ -252,8 +257,9 @@ return function (App $app): void {
   $app->addBodyParsingMiddleware();
   $errorMiddleware = $app->addErrorMiddleware(true, true, true);
   $logger = $container->get(LoggerInterface::class);
+  // No `static`: Slim enlaza el manejador al contenedor y con un closure estático falla.
   $errorMiddleware->setDefaultErrorHandler(
-    static function (
+    function (
       $request,
       $exception,
       bool $displayErrorDetails,

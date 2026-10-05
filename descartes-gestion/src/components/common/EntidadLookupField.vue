@@ -85,9 +85,11 @@ async function resolverEtiqueta(codigoRaw: string) {
     return
   }
   try {
-    const { data } = await api.get(
-      `/api/mantenimiento/${props.entidad}/${encodeURIComponent(c)}`
-    )
+    const url =
+      props.entidad === 'tipos-descuento'
+        ? `/api/mantenimiento/tipos-descuento/por-codigo/${encodeURIComponent(c)}`
+        : `/api/mantenimiento/${props.entidad}/${encodeURIComponent(c)}`
+    const { data } = await api.get(url)
     etiqueta.value = etiquetaDesdeDetalle(props.entidad, (data ?? {}) as Record<string, unknown>)
   } catch {
     etiqueta.value = ''

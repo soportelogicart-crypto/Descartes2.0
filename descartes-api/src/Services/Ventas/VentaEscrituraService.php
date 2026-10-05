@@ -463,6 +463,7 @@ final class VentaEscrituraService
     /** @var list<string> */
     $avisosFidelizacion = [];
     $resultadoValeFidelizacion = null;
+    $resultadoPuntosCanje = null;
     $puntosFidelizacion = null;
     // Contado/ticket: forma de pago elegida (legacy Frame1/DbList2: CobroDeArqueo).
     $fpagoBody = trim((string) ($body['fpago1'] ?? ''));
@@ -470,10 +471,12 @@ final class VentaEscrituraService
     if ($fpago1 === '') {
       $fpago1 = 'EU';
     }
+    /** @var array{empresa: string, tipo: string, albaran: int, ticketNegativo: int, albaranTicketNegativo: int}|null $conversion */
+    $conversion = null;
 
     $this->pdo->beginTransaction();
     try {
-      if (!empty($body['aplicarValeFidelizacion']) && in_array($opcion, ['T', 'F'], true)) {
+      if (!$esTicketAFactura && !empty($body['aplicarValeFidelizacion']) && in_array($opcion, ['T', 'F'], true)) {
         $clienteVale = trim((string) ($actual['cliente'] ?? ''));
         if ($clienteVale !== '' && strtoupper($clienteVale) !== 'ZZZZZZZZZ') {
           $disponible = $this->vales->fidelizacionDisponible($empresa, $clienteVale, true);
@@ -505,6 +508,26 @@ final class VentaEscrituraService
         }
       }
 
+      $resultadoPuntosCanje = null;
+      if (!$esTicketAFactura && !empty($body['aplicarPuntosFidelizacion']) && in_array($opcion, ['T', 'A', 'F'], true)) {
+        $clientePuntos = trim((string) ($actual['cliente'] ?? ''));
+        $canje = $this->fidelizacion->canjeDisponible($empresa, $clientePuntos, $importe);
+        if (!empty($canje['aplica'])) {
+          $dtoYa = (float) ($actual['descuentoFidelizacion'] ?? 0);
+          $totalesPuntos = $this->calcularTotales((array) ($actual['lineas'] ?? []), [
+            'empresa' => $empresa,
+            'cliente' => $clientePuntos,
+            'pjeIva1' => $actual['pjeIva1'] ?? 0,
+            'importeDtoFidelizacion' => round($dtoYa + (float) $canje['euros'], 2),
+          ]);
+          $this->actualizarTotalesFidelizacion($empresa, $tipoActual, $albaran, $totalesPuntos);
+          $this->fidelizacion->descontarPuntos($clientePuntos, (int) $canje['puntosUsables']);
+          $resultadoPuntosCanje = $canje;
+          $actual = $this->consulta->obtenerFicha($empresa, $tipoActual, $albaran) ?? $actual;
+          $importe = (float) ($actual['importe'] ?? 0);
+        }
+      }
+
       if ($opcion === 'T') {
         $factura = $this->nextContadorEmpresa($empresa, 'UltTicket');
         $this->pdo->prepare(
@@ -526,9 +549,22 @@ final class VentaEscrituraService
           't' => $tipoActual,
           'a' => $albaran,
         ]);
+      } elseif ($opcion === 'F' && $esTicketAFactura) {
+        // El ticket ya cobrado se conserva. Un ticket negativo lo compensa y la factura
+        // de contado queda como documento fiscal, sin volver a cobrar ni a mover stock.
+        $conversion = $this->convertirTicketCobradoAFactura(
+          $empresa,
+          $tipoActual,
+          $albaran,
+          $actual,
+          $fpago1,
+          $puesto,
+          $sesion,
+          $ahora
+        );
       } elseif ($opcion === 'F') {
-        // Legacy FacturaCliente / TransformacionTicketaFactura → CreaFactura.
-        $albaranTicketOrigen = $esTicketAFactura ? $albaran : 0;
+        // Legacy FacturaCliente → CreaFactura.
+        $albaranTicketOrigen = 0;
         $creada = $this->crearRegistroFactura(
           $empresa,
           $tipoActual,
@@ -624,6 +660,10 @@ final class VentaEscrituraService
         );
       }
 
+      $resultadoFid = ['avisos' => [], 'aplicado' => false, 'puntos' => 0, 'acumulados' => 0.0];
+      if ($conversion !== null) {
+        // El ticket original ya sumó puntos. Los dos documentos nuevos no vuelven a sumar.
+      } else {
       $resultadoFid = $this->fidelizacion->procesarAlCierre(
         $empresa,
         $actual,
@@ -635,10 +675,17 @@ final class VentaEscrituraService
 
       if (in_array($opcion, ['T', 'F', 'A'], true)) {
         $this->actualizarFechaUltimaVentaArticulos($empresa, $tipoActual, $albaran, $actual);
+        $puntosCompra = $esTicketAFactura ? 0.0 : max(0, $importe);
+        if (!$esTicketAFactura) {
+          $elegible = $this->fidelizacionVales->importeElegibleDocumento($empresa, $tipoActual, $albaran);
+          if ($elegible !== null) {
+            $puntosCompra = $elegible;
+          }
+        }
         $puntosFidelizacion = $this->fidelizacionVales->puntosCliente(
           $empresa,
           trim((string) ($actual['cliente'] ?? '')),
-          $esTicketAFactura ? 0.0 : max(0, $importe)
+          $puntosCompra
         );
         if ($puntosFidelizacion !== null) {
           $this->pdo->prepare(
@@ -665,21 +712,50 @@ final class VentaEscrituraService
         }
       }
 
+      if ($puntosFidelizacion === null && (int) ($resultadoFid['puntos'] ?? 0) > 0) {
+        $puntosFidelizacion = [
+          'compra' => (int) $resultadoFid['puntos'],
+          'acumulados' => (float) ($resultadoFid['acumulados'] ?? 0),
+        ];
+        $this->pdo->prepare(
+          'UPDATE AlbaranesVentasCab
+           SET PuntosFidelizacionCompra = :compra,
+               PuntosFidelizacionAcumulados = :acumulados
+           WHERE Empresa = :e AND Tipo = :t AND Albaran = :a'
+        )->execute([
+          'compra' => $puntosFidelizacion['compra'],
+          'acumulados' => $puntosFidelizacion['acumulados'],
+          'e' => $empresa,
+          't' => $tipoActual,
+          'a' => $albaran,
+        ]);
+      }
+      }
+
       $this->pdo->commit();
     } catch (\Throwable $e) {
       $this->pdo->rollBack();
       throw $e;
     }
 
-    $detalle = $this->consulta->obtenerFicha($empresa, $tipoActual, $albaran);
+    $detalle = $conversion !== null
+      ? $this->consulta->obtenerFicha($conversion['empresa'], $conversion['tipo'], $conversion['albaran'])
+      : $this->consulta->obtenerFicha($empresa, $tipoActual, $albaran);
     if ($detalle === null) {
       throw new \RuntimeException('No se pudo releer tras finalizar');
+    }
+    if ($conversion !== null) {
+      $detalle['ticketNegativo'] = $conversion['ticketNegativo'];
+      $detalle['albaranTicketNegativo'] = $conversion['albaranTicketNegativo'];
     }
     if ($avisosFidelizacion !== []) {
       $detalle['avisosFidelizacion'] = $avisosFidelizacion;
     }
     if ($resultadoValeFidelizacion !== null) {
       $detalle['valeFidelizacion'] = $resultadoValeFidelizacion;
+    }
+    if ($resultadoPuntosCanje !== null) {
+      $detalle['puntosCanje'] = $resultadoPuntosCanje;
     }
     if ($puntosFidelizacion !== null) {
       $detalle['fidelizacionPuntos'] = $puntosFidelizacion;
@@ -759,6 +835,356 @@ final class VentaEscrituraService
    * @param array<string, mixed> $body { nroLins?: list<int>, observacion?: string }
    * @return array<string, mixed> ficha del abono creado
    */
+  /**
+   * Ticket ya cobrado → ticket negativo que lo compensa + factura de contado.
+   * Caja y stock no cambian: el negativo y la factura usan la misma forma de pago
+   * y no vuelven a rebajar existencias.
+   *
+   * @param array<string, mixed> $actual
+   * @return array{empresa: string, tipo: string, albaran: int, ticketNegativo: int, albaranTicketNegativo: int}
+   */
+  private function convertirTicketCobradoAFactura(
+    string $empresa,
+    string $tipo,
+    int $albaran,
+    array $actual,
+    string $fpago,
+    string $puesto,
+    int $sesion,
+    string $ahora
+  ): array {
+    if ((float) ($actual['importe'] ?? 0) <= 0) {
+      throw new \InvalidArgumentException('Solo se puede pasar a factura un ticket de venta, no uno negativo');
+    }
+    $ya = $this->facturaDeTicketConvertido($empresa, $albaran);
+    if ($ya !== null) {
+      throw new \InvalidArgumentException("Este ticket ya se pasó a la factura {$ya}");
+    }
+
+    $numeroTicket = (int) ($actual['factura'] ?? 0);
+    $albaranNegativo = $this->reservarAlbaranEnTransaccion($empresa);
+    $this->copiarDocumentoVenta($empresa, $tipo, $albaran, 'A', $albaranNegativo, true);
+    $ticketNegativo = $this->nextContadorEmpresa($empresa, 'UltTicket');
+    $notaNegativo = "Anulación del ticket T-{$numeroTicket} por paso a factura";
+    $this->pdo->prepare(
+      'UPDATE AlbaranesVentasCab SET
+          FacturaTipo = \'T\', Factura = :factura, Estado = NULL,
+          Fecha = CONVERT(datetime, :fecha, 120),
+          FechaCobro = CONVERT(datetime, :fechaCobro, 120),
+          Fpago1 = :fpago, ImpFpago1 = Importe,
+          Sesion = :sesion, RebajeStock = 0, Impreso = 0,
+          EmpresaFacturacion = :empresaFacturacion,
+          AlbaranOrigenAbono = :origen,
+          Observaciones = :obs
+       WHERE Empresa = :e AND Tipo = \'A\' AND Albaran = :a'
+    )->execute([
+      'factura' => $ticketNegativo,
+      'fecha' => $ahora,
+      'fechaCobro' => $ahora,
+      'fpago' => $fpago,
+      'sesion' => $sesion,
+      'empresaFacturacion' => $empresa,
+      'origen' => $albaran,
+      'obs' => $notaNegativo,
+      'e' => $empresa,
+      'a' => $albaranNegativo,
+    ]);
+    $importeNegativo = -abs((float) ($actual['importe'] ?? 0));
+    $this->acumularArqueoTrasFinalizar(
+      $empresa,
+      $puesto,
+      $sesion,
+      'T',
+      $fpago,
+      $importeNegativo,
+      ['tipo' => 'A', 'albaran' => $albaranNegativo]
+    );
+
+    $albaranFactura = $this->reservarAlbaranEnTransaccion($empresa);
+    $this->copiarDocumentoVenta($empresa, $tipo, $albaran, 'A', $albaranFactura, false);
+    $creada = $this->crearRegistroFactura(
+      $empresa,
+      'A',
+      $albaranFactura,
+      $actual,
+      $fpago,
+      $ahora,
+      $albaran,
+      true
+    );
+    $this->pdo->prepare(
+      'UPDATE AlbaranesVentasCab SET
+          FacturaTipo = :facturaTipo, Factura = :factura, Estado = \'F\',
+          Fecha = CONVERT(datetime, :fecha, 120),
+          FechaCobro = CONVERT(datetime, :fechaCobro, 120),
+          Fpago1 = :fpago, ImpFpago1 = Importe,
+          Sesion = :sesion, RebajeStock = 0, Impreso = 0,
+          EmpresaFacturacion = :empresaFacturacion,
+          Observaciones = :obs
+       WHERE Empresa = :e AND Tipo = \'A\' AND Albaran = :a'
+    )->execute([
+      'facturaTipo' => $creada['facturaTipo'],
+      'factura' => $creada['factura'],
+      'fecha' => $ahora,
+      'fechaCobro' => $ahora,
+      'fpago' => $fpago,
+      'sesion' => $sesion,
+      'empresaFacturacion' => $empresa,
+      'obs' => "Factura del ticket T-{$numeroTicket}",
+      'e' => $empresa,
+      'a' => $albaranFactura,
+    ]);
+    $this->acumularArqueoTrasFinalizar(
+      $empresa,
+      $puesto,
+      $sesion,
+      'F',
+      $fpago,
+      abs((float) ($actual['importe'] ?? 0)),
+      ['tipo' => 'A', 'albaran' => $albaranFactura]
+    );
+
+    $this->anotarObservaciones(
+      $empresa,
+      $tipo,
+      $albaran,
+      "Pasado a factura {$creada['facturaTipo']}-{$creada['factura']} (ticket negativo T-{$ticketNegativo})"
+    );
+
+    return [
+      'empresa' => $empresa,
+      'tipo' => 'A',
+      'albaran' => $albaranFactura,
+      'ticketNegativo' => $ticketNegativo,
+      'albaranTicketNegativo' => $albaranNegativo,
+    ];
+  }
+
+  private function facturaDeTicketConvertido(string $empresa, int $albaran): ?int
+  {
+    try {
+      $st = $this->pdo->prepare(
+        'SELECT TOP 1 Factura FROM Facturas
+         WHERE Empresa = :e AND ISNULL(TrasformacionTicketFactura, 0) = 1
+           AND AlbaranTicketTransformado = :a'
+      );
+      $st->execute(['e' => $empresa, 'a' => $albaran]);
+      $n = $st->fetchColumn();
+      return $n === false || (int) $n <= 0 ? null : (int) $n;
+    } catch (\Throwable $e) {
+      return null;
+    }
+  }
+
+  /** Copia cabecera y líneas. En negativo invierte cantidades e importes y no rebaja stock. */
+  private function copiarDocumentoVenta(
+    string $empresa,
+    string $tipoOrigen,
+    int $albaranOrigen,
+    string $tipoDestino,
+    int $albaranDestino,
+    bool $negativo
+  ): void {
+    $signo = $negativo ? -1 : 1;
+    $this->copiarFila(
+      'AlbaranesVentasCab',
+      'Empresa = :e AND Tipo = :t AND Albaran = :a',
+      ['e' => $empresa, 't' => $tipoOrigen, 'a' => $albaranOrigen],
+      [
+        'Tipo' => [$tipoDestino, null],
+        'Albaran' => [$albaranDestino, null],
+        'FacturaTipo' => [null, 'literal-null'],
+        'Factura' => [0, null],
+        'Estado' => [null, 'literal-null'],
+        'Sesion' => [0, null],
+        'RebajeStock' => [0, null],
+        'Impreso' => [0, null],
+        'AlbaranOrigenAbono' => [0, null],
+        'Importe' => ["[Importe] * {$signo}", 'expr'],
+        'ImporteDtos' => ["[ImporteDtos] * {$signo}", 'expr'],
+        'ImpFpago1' => ["[ImpFpago1] * {$signo}", 'expr'],
+        'ImpFpago2' => ["[ImpFpago2] * {$signo}", 'expr'],
+        'PagoaCuenta' => ["[PagoaCuenta] * {$signo}", 'expr'],
+        'ImporteBase1' => ["[ImporteBase1] * {$signo}", 'expr'],
+        'ImporteBase2' => ["[ImporteBase2] * {$signo}", 'expr'],
+        'ImporteBase3' => ["[ImporteBase3] * {$signo}", 'expr'],
+        'ImporteBase4' => ["[ImporteBase4] * {$signo}", 'expr'],
+        'ImporteBase5' => ["[ImporteBase5] * {$signo}", 'expr'],
+        'ImporteBase6' => ["[ImporteBase6] * {$signo}", 'expr'],
+        'ImporteIva1' => ["[ImporteIva1] * {$signo}", 'expr'],
+        'ImporteIva2' => ["[ImporteIva2] * {$signo}", 'expr'],
+        'ImporteIva3' => ["[ImporteIva3] * {$signo}", 'expr'],
+        'ImporteIva4' => ["[ImporteIva4] * {$signo}", 'expr'],
+        'ImporteIva5' => ["[ImporteIva5] * {$signo}", 'expr'],
+        'ImporteIva6' => ["[ImporteIva6] * {$signo}", 'expr'],
+        'ImporteRec1' => ["[ImporteRec1] * {$signo}", 'expr'],
+        'ImporteRec2' => ["[ImporteRec2] * {$signo}", 'expr'],
+        'ImporteRec3' => ["[ImporteRec3] * {$signo}", 'expr'],
+        'ImporteRec4' => ["[ImporteRec4] * {$signo}", 'expr'],
+        'ImporteRec5' => ["[ImporteRec5] * {$signo}", 'expr'],
+        'ImporteRec6' => ["[ImporteRec6] * {$signo}", 'expr'],
+        'TicketSI_IdentificativoTBAI' => [null, 'literal-null'],
+        'TicketSI_IdentificativoTBAIQR' => [null, 'literal-null'],
+        'TicketSI_Estado' => [null, 'literal-null'],
+        'TicketSI_QR' => [null, 'literal-null'],
+        'TicketSI_FechaServidor' => [null, 'literal-null'],
+        'Firma' => [null, 'literal-null'],
+        'FirmaFacturaAnterior' => [null, 'literal-null'],
+        'PuntosFidelizacionCompra' => [0, null],
+        'PuntosFidelizacionAcumulados' => [0, null],
+        'ImporteDtoFidelizacion' => [0, null],
+        'FidelizacionCalculada' => [0, null],
+        'ImporteFidelizacion' => [0, null],
+      ]
+    );
+    $this->copiarFila(
+      'AlbaranesVentasLin',
+      'Empresa = :e AND Tipo = :t AND Albaran = :a',
+      ['e' => $empresa, 't' => $tipoOrigen, 'a' => $albaranOrigen],
+      [
+        'Tipo' => [$tipoDestino, null],
+        'Albaran' => [$albaranDestino, null],
+        'Cantidad' => ["[Cantidad] * {$signo}", 'expr'],
+        'Importe' => ["[Importe] * {$signo}", 'expr'],
+        'RebajeStock' => [0, null],
+      ]
+    );
+    try {
+      $this->pdo->prepare(
+        'UPDATE AlbaranesVentasLin SET RebajeStock = 0
+         WHERE Empresa = :e AND Tipo = :t AND Albaran = :a'
+      )->execute(['e' => $empresa, 't' => $tipoDestino, 'a' => $albaranDestino]);
+    } catch (\Throwable $e) {
+      // La línea puede no tener la columna; la cabecera ya queda con RebajeStock = 0.
+    }
+  }
+
+  /** UltAlbaranVen dentro de la transacción de finalizar, sin abrir otra. */
+  private function reservarAlbaranEnTransaccion(string $empresa): int
+  {
+    $n = $this->nextContadorEmpresa($empresa, 'UltAlbaranVen');
+    $ocupado = $this->pdo->prepare(
+      'SELECT 1 FROM AlbaranesVentasCab WHERE Empresa = :e AND Tipo = \'A\' AND Albaran = :a'
+    );
+    $ocupado->execute(['e' => $empresa, 'a' => $n]);
+    if ($ocupado->fetchColumn() === false) {
+      return $n;
+    }
+    $max = $this->pdo->prepare(
+      'SELECT ISNULL(MAX(Albaran), 0) + 1 FROM AlbaranesVentasCab WITH (UPDLOCK, ROWLOCK)
+       WHERE Empresa = :e AND Tipo = \'A\''
+    );
+    $max->execute(['e' => $empresa]);
+    $n = (int) $max->fetchColumn();
+    $this->pdo->prepare('UPDATE Empresas_Ges SET UltAlbaranVen = :n WHERE Codigo = :e')
+      ->execute(['n' => $n, 'e' => $empresa]);
+    return $n;
+  }
+
+  private function anotarObservaciones(string $empresa, string $tipo, int $albaran, string $nota): void
+  {
+    $limite = 240;
+    try {
+      $st = $this->pdo->prepare(
+        'SELECT CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_NAME = :tabla AND COLUMN_NAME = :columna'
+      );
+      $st->execute(['tabla' => 'AlbaranesVentasCab', 'columna' => 'Observaciones']);
+      $len = $st->fetchColumn();
+      if ($len !== false && $len !== null && (int) $len > 0) {
+        $limite = (int) $len;
+      }
+    } catch (\Throwable $e) {
+      $limite = 240;
+    }
+    $limite = max(1, $limite);
+    $prefijo = $nota . ' | ';
+    if (strlen($prefijo) > $limite) {
+      $prefijo = substr($nota, 0, $limite);
+    }
+    $this->pdo->prepare(
+      "UPDATE AlbaranesVentasCab SET Observaciones = LEFT(:prefijo + ISNULL(CAST(Observaciones AS nvarchar(4000)), N''), {$limite})
+       WHERE Empresa = :e AND Tipo = :t AND Albaran = :a"
+    )->execute([
+      'prefijo' => $prefijo,
+      'e' => $empresa,
+      't' => $tipo,
+      'a' => $albaran,
+    ]);
+  }
+
+  /** NULL sin tipo se interpreta como int y no entra en columnas image o fecha. */
+  private function sqlNullSegunTipo(string $tipo): string
+  {
+    return match ($tipo) {
+      'image' => 'CAST(NULL AS image)',
+      'datetime', 'datetime2', 'smalldatetime', 'date' => 'CAST(NULL AS datetime)',
+      'ntext' => 'CAST(NULL AS ntext)',
+      'text' => 'CAST(NULL AS text)',
+      'nvarchar', 'nchar', 'varchar', 'char' => 'CAST(NULL AS nvarchar(100))',
+      'bit' => 'CAST(NULL AS bit)',
+      'float', 'real' => 'CAST(NULL AS float)',
+      default => 'CAST(NULL AS int)',
+    };
+  }
+
+  /**
+   * @param array<string, mixed> $where
+   * @param array<string, array{0: mixed, 1: ?string}> $reemplazos
+   */
+  private function copiarFila(string $tabla, string $whereSql, array $where, array $reemplazos): void
+  {
+    if (!in_array($tabla, ['AlbaranesVentasCab', 'AlbaranesVentasLin'], true)) {
+      throw new \InvalidArgumentException('Tabla no copiable');
+    }
+    $cols = $this->pdo->query(
+      "SELECT c.name AS name, c.is_identity AS identidad, c.is_computed AS calculada, ty.name AS tipo
+       FROM sys.columns c
+       INNER JOIN sys.types ty ON c.user_type_id = ty.user_type_id
+       WHERE c.object_id = OBJECT_ID('{$tabla}')
+       ORDER BY c.column_id"
+    );
+    if ($cols === false) {
+      throw new \RuntimeException("No se pudo leer la estructura de {$tabla}");
+    }
+    $nombres = [];
+    $select = [];
+    $params = $where;
+    $i = 0;
+    while ($col = $cols->fetch(PDO::FETCH_ASSOC)) {
+      $nombre = (string) $col['name'];
+      $tipo = strtolower((string) $col['tipo']);
+      if ((int) $col['identidad'] === 1 || (int) ($col['calculada'] ?? 0) === 1 || $tipo === 'timestamp' || $tipo === 'rowversion') {
+        continue;
+      }
+      $nombres[] = '[' . $nombre . ']';
+      if (!array_key_exists($nombre, $reemplazos)) {
+        $select[] = '[' . $nombre . ']';
+        continue;
+      }
+      [$valor, $modo] = $reemplazos[$nombre];
+      if ($modo === 'expr') {
+        $select[] = (string) $valor;
+        continue;
+      }
+      if ($modo === 'literal-null' || $valor === null) {
+        $select[] = $this->sqlNullSegunTipo($tipo);
+        continue;
+      }
+      $marca = ':cp' . $i;
+      $i++;
+      $select[] = $marca;
+      $params[substr($marca, 1)] = $valor;
+    }
+    if ($nombres === []) {
+      throw new \RuntimeException("{$tabla} no tiene columnas copiables");
+    }
+    $sql = 'INSERT INTO [' . $tabla . '] (' . implode(', ', $nombres) . ')
+            SELECT ' . implode(', ', $select) . '
+            FROM [' . $tabla . '] WHERE ' . $whereSql;
+    $this->pdo->prepare($sql)->execute($params);
+  }
+
   public function crearAbonoDesdeAlbaran(string $empresa, string $tipo, int $albaran, array $body = []): array
   {
     $origen = $this->consulta->obtenerFicha($empresa, $tipo, $albaran);
@@ -1751,7 +2177,8 @@ final class VentaEscrituraService
     array $actual,
     string $fpago,
     string $fecha,
-    int $albaranTicketTransformado = 0
+    int $albaranTicketTransformado = 0,
+    bool $forzarContado = false
   ): array {
     $cabStmt = $this->pdo->prepare(
       'SELECT Cliente, SujetoPasivo, Importe, ImporteDtos, PjeDto, PagoaCuenta,
@@ -1787,7 +2214,7 @@ final class VentaEscrituraService
 
     $metaFpago = $this->metaFormaPagoFactura($fpagoCodigo);
     // Legacy: Agrupacion=3 + CobroDeArqueo → Estado G + FacturaContadoDiferida; resto Estado F.
-    $contadoDiferida = $metaFpago['agrupacion'] === 3 && $metaFpago['cobroDeArqueo'];
+    $contadoDiferida = !$forzarContado && $metaFpago['agrupacion'] === 3 && $metaFpago['cobroDeArqueo'];
     $estado = $contadoDiferida ? 'G' : 'F';
 
     $importe = (float) ($cab['Importe'] ?? 0);

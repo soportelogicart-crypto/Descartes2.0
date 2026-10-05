@@ -47,6 +47,13 @@ return function (App $app): void {
       ->add($setPermiso('facturacion-generacion', 'ver'));
     $group->post('/generar', [FacturacionController::class, 'generarAutomatico'])
       ->add($setPermiso('facturacion-generacion', 'crear'));
+    $group->post('/generar/email', [FacturacionController::class, 'emailGeneracion'])
+      ->add($setPermiso('facturacion-generacion', 'crear'));
+    $group->get(
+      '/generar/documento/{empresa}/{facturaTipo}/{factura}',
+      [FacturacionController::class, 'documentoImpresion']
+    )
+      ->add($setPermiso('facturacion-generacion', 'ver'));
 
     $group->get('/impresion', [FacturacionController::class, 'listImpresion'])
       ->add($setPermiso('facturacion-impresion', 'ver'));

@@ -838,6 +838,8 @@ final class GeneracionFacturasManualService
       'sujetoPasivo' => $sujetoPasivo,
     ]);
 
+    $correoCliente = $this->emailCliente($cliente);
+
     $recibos = $esPrefactura
       ? []
       : $this->recibos->generar($empresaFacturacion, $facturaTipo, $factura);
@@ -887,7 +889,8 @@ final class GeneracionFacturasManualService
       'factura' => $factura,
       'cliente' => $cliente,
       'razonSocial' => trim((string) ($primero['RazonSocial'] ?? '')),
-      'email' => $this->emailCliente($cliente),
+      'email' => $correoCliente['email'],
+      'facturasEmail' => $correoCliente['facturasEmail'],
       'importe' => round($importe, 2),
       'estado' => $estado,
       'prefactura' => $esPrefactura,
@@ -896,25 +899,36 @@ final class GeneracionFacturasManualService
     ];
   }
 
-  private function emailCliente(string $codigo): string
+  /** @return array{email: string, facturasEmail: bool} */
+  private function emailCliente(string $codigo): array
   {
+    $vacio = ['email' => '', 'facturasEmail' => false];
     $codigo = trim($codigo);
     if ($codigo === '') {
-      return '';
+      return $vacio;
     }
     try {
       $stmt = $this->pdo->prepare(
-        "SELECT TOP 1 ISNULL(
-            NULLIF(LTRIM(RTRIM(EmailFacturacion)), ''),
-            LTRIM(RTRIM(ISNULL(Email, '')))
-          ) AS EmailDestino
+        "SELECT TOP 1
+            ISNULL(FacturasEmail, 0) AS FacturasEmail,
+            ISNULL(
+              NULLIF(LTRIM(RTRIM(EmailFacturacion)), ''),
+              LTRIM(RTRIM(ISNULL(Email, '')))
+            ) AS EmailDestino
          FROM Clientes
-         WHERE Codigo = :codigo"
+         WHERE RTRIM(Codigo) = :codigo"
       );
       $stmt->execute(['codigo' => $codigo]);
-      return trim((string) ($stmt->fetchColumn() ?: ''));
+      $row = $stmt->fetch(PDO::FETCH_ASSOC);
+      if ($row === false) {
+        return $vacio;
+      }
+      return [
+        'email' => trim((string) ($row['EmailDestino'] ?? '')),
+        'facturasEmail' => !empty($row['FacturasEmail']),
+      ];
     } catch (\Throwable $e) {
-      return '';
+      return $vacio;
     }
   }
 

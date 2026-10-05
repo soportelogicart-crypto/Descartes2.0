@@ -1,4 +1,5 @@
 import { obtenerFacturaDocumento } from '@/api/facturacion'
+import { getDescartesBridge } from '@/bridge/electron'
 import { imprimirTicketTermica } from '@/composables/impresionTicketTermica'
 import {
   facturaAPreviewDatos,
@@ -45,7 +46,7 @@ type ContextoEmpresa = {
  */
 export async function prepararImpresionFacturas(
   facturas: FacturaClave[],
-  opciones: { puestoCodigo: string; origenDocumento?: 'impresion' | 'manual' }
+  opciones: { puestoCodigo: string; origenDocumento?: 'impresion' | 'manual' | 'generacion' }
 ): Promise<PrepImpresionFacturas> {
   const puestoCodigo = opciones.puestoCodigo.trim()
   if (facturas.length === 0) {
@@ -103,6 +104,39 @@ export async function prepararImpresionFacturas(
     impresoraNombre: impresora?.nombre ?? '',
     impresoraId: impresora?.id ?? null,
   }
+}
+
+export function claveFacturaTexto(c: FacturaClave): string {
+  return `${c.empresa}|${c.facturaTipo}|${c.factura}`
+}
+
+/**
+ * PDF de cada factura con su plantilla, para adjuntarlo al email.
+ * `renderizar` pinta un documento y devuelve el HTML del folio.
+ */
+export async function pdfsFacturasDesdePlantilla(
+  prep: PrepImpresionFacturas,
+  renderizar: (doc: FacturaImpresionPreparada) => Promise<string>
+): Promise<Record<string, string>> {
+  const bridge = getDescartesBridge()
+  if (!bridge?.htmlToPdf) {
+    throw new Error(
+      'Para adjuntar la factura con la plantilla hay que actualizar Descartes (versión de escritorio).'
+    )
+  }
+  const pdfs: Record<string, string> = {}
+  for (const doc of prep.documentos) {
+    const html = await renderizar(doc)
+    if (!html) {
+      throw new Error(`No hay plantilla configurada para ${doc.titulo}`)
+    }
+    const res = await bridge.htmlToPdf({ html })
+    if (!res.ok || !res.pdfBase64) {
+      throw new Error(res.message || `No se pudo generar el PDF de ${doc.titulo}`)
+    }
+    pdfs[claveFacturaTexto(doc.clave)] = res.pdfBase64
+  }
+  return pdfs
 }
 
 /** Imprime las facturas en térmica con la plantilla de ticket del diseñador. */

@@ -47,6 +47,14 @@ function filasTicket(ticket: InformeTicketsFila): string {
 
 function cabeceraTabla(): string {
   return `<table class="desglose-tabla">
+    <colgroup>
+      <col style="width:11%"/><col style="width:12%"/>
+      <col style="width:6%"/><col style="width:8%"/>
+      <col style="width:6%"/><col style="width:8%"/>
+      <col style="width:9%"/><col style="width:6%"/>
+      <col style="width:8%"/><col style="width:7%"/>
+      <col style="width:8%"/><col style="width:11%"/>
+    </colgroup>
     <thead><tr>
       <th>Ticket</th><th>Fecha</th><th colspan="2">F.Pago 1</th><th colspan="2">F.Pago 2</th>
       <th>Base</th><th>% Iva</th><th>Iva</th><th>% Recar</th><th>Recargo</th><th>Importe</th>
@@ -69,7 +77,7 @@ function cajasDia(
   perfilTienda: InformeTicketsResumen,
 ): string {
   return `<div class="desglose-dia-cajas legacy-dia">
-    <div>${tablaIvaDoble(resumen)}${tablaPagos(resumen, perfilTienda)}</div>
+    <div>${tablaIvaDoble(resumen)}${tablaPagos(resumen, perfilTienda, true)}</div>
     ${perfilDia(resumen)}
   </div>`
 }
@@ -98,14 +106,10 @@ function cuerpo(data: InformeTicketsResult): string {
 }
 
 const ESTILOS = `
-.desglose-tabla{width:100%;border-collapse:collapse;font-size:7.2pt;margin-bottom:2mm}
-.desglose-tabla th{background:var(--legacy-verde);color:#fff;padding:1px 3px;white-space:nowrap}
-.desglose-tabla td{padding:1.5mm 3px 0;white-space:nowrap;vertical-align:top}
-.desglose-tabla td:nth-child(1){width:9%}
-.desglose-tabla td:nth-child(2){width:10%}
-.desglose-tabla td:nth-child(3),.desglose-tabla td:nth-child(5){width:6%}
-.desglose-tabla td:nth-child(4),.desglose-tabla td:nth-child(6){width:8%}
-.desglose-dia-cajas{display:grid;grid-template-columns:70% 30%;gap:0;margin:1mm 1mm 0}
+.desglose-tabla{width:100%;border-collapse:collapse;table-layout:fixed;font-size:7pt;margin-bottom:2mm}
+.desglose-tabla th{background:var(--legacy-verde);color:#fff;padding:1px 2px;white-space:nowrap;overflow:hidden}
+.desglose-tabla td{padding:1.2mm 2px 0;white-space:nowrap;overflow:hidden;vertical-align:top}
+.desglose-dia-cajas{display:grid;grid-template-columns:minmax(0,1.85fr) minmax(0,1fr);gap:1.5mm;margin:1mm 0 0}
 .desglose-dia-cajas>div>.legacy-box{border-right:0}
 .desglose-dia-cajas .iva-doble{border-bottom:0}
 .desglose-tabla .total-dia td{font-weight:700;padding-top:2mm}

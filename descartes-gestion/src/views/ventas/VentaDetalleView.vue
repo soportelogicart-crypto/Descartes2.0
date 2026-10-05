@@ -10,6 +10,10 @@ import {
   finalizarVenta,
   obtenerVenta,
   obtenerVendedorPuesto,
+  ofertasLinea,
+  porcentajesOfertaLinea,
+  puntosCanjeDisponible,
+  type OfertaLinea,
 } from '@/api/ventas'
 import { crearAlbaranPeriodico, eliminarAlbaranPeriodico } from '@/api/facturacion'
 import { buscarArticulos, resolverArticulo } from '@/api/articulos'
@@ -30,6 +34,8 @@ import { usePlantillaPeriodicaStore } from '@/stores/plantillaPeriodica'
 import { useVentasCopiaOtraVentaStore } from '@/stores/ventasCopiaOtraVenta'
 import {
   imprimirA4Preparado,
+  pdfBase64DesdeHtmlPlantilla,
+  pdfBase64TicketVenta,
   prepararOImprimirVenta,
   type PrepImpresionA4,
 } from '@/composables/useImpresionVentaDocumento'
@@ -41,6 +47,9 @@ import EntidadBuscarModal from '@/components/common/EntidadBuscarModal.vue'
 import DecimalInput from '@/components/common/DecimalInput.vue'
 import VentaToolbar from '@/components/ventas/VentaToolbar.vue'
 import VentaCabeceraForm from '@/components/ventas/VentaCabeceraForm.vue'
+import DatosFacturaTicketForm, {
+  type DatosFacturaTicket,
+} from '@/components/ventas/DatosFacturaTicketForm.vue'
 import VentaImpresionA4Modal from '@/components/ventas/VentaImpresionA4Modal.vue'
 import VentaPostFinalizacionModal from '@/components/ventas/VentaPostFinalizacionModal.vue'
 
@@ -105,6 +114,19 @@ const otraVentaOpen = ref(false)
 const otraVentaElegirAlbaranOpen = ref(false)
 const otraVentaAlbaranSeleccionado = ref<VentaAlbaranFacturaResumen | null>(null)
 const finalizarOpen = ref(false)
+/** Ticket cerrado → factura: datos fiscales que se completan en el mismo diálogo. */
+const datosFacturaFinal = ref<DatosFacturaTicket>({
+  cliente: '',
+  razonSocial: '',
+  nif: '',
+  direccion: '',
+  codigoPostal: '',
+  poblacion: '',
+  provincia: '',
+})
+const buscarClienteFacturaOpen = ref(false)
+const aplicarPuntosFinal = ref(false)
+const puntosCanjeFinal = ref<{ puntos: number; puntosUsables: number; euros: number } | null>(null)
 const abonoOpen = ref(false)
 const abonoNroLins = ref<number[]>([])
 const abonoObservacion = ref('')
@@ -401,7 +423,9 @@ const tiposFinalDisponibles = computed(() => {
 })
 
 const mostrarSelectorFpago = computed(
-  () => clienteContado.value || tipoFinal.value === 'T' || tipoFinal.value === 'F' || esTicketCerrado.value
+  () =>
+    !esTicketCerrado.value &&
+    (clienteContado.value || tipoFinal.value === 'T' || tipoFinal.value === 'F')
 )
 
 function lineaVacia(): VentaLinea {
@@ -541,9 +565,13 @@ const docKind = computed<DocKind | null>(() => {
 const docAviso = computed(() => {
   const kind = docKind.value
   if (kind === 'ticket') {
-    return puedePasarAFactura.value
+    const convertida = Number(ficha.value?.facturaConversion) || 0
+    if (convertida > 0) {
+      return `Este ticket ya se pasó a la factura ${convertida}. Puede imprimirlo.`
+    }
+    return tieneDatosFactura.value
       ? 'Las líneas no se pueden cambiar. Puede pasarlo a factura o imprimirlo.'
-      : `${faltanteDatosFactura() ?? 'Faltan datos fiscales.'} Pulse Modificar y luego A factura.`
+      : `${faltanteDatosFactura() ?? 'Faltan datos fiscales.'} Pulse A factura para completarlos.`
   }
   if (kind === 'factura') {
     return esFacturaContado.value
@@ -569,6 +597,7 @@ const mostrarFinalizarToolbar = computed(() => {
   if (esPlantillaConsulta.value) return false
   if (modoEdicion.value && esTicketCerrado.value) return false
   if (!esConsultaRecuperada.value || modoEdicion.value) return true
+  if (esTicketCerrado.value && (Number(ficha.value?.facturaConversion) || 0) > 0) return false
   return docKind.value === 'ticket' || docKind.value === 'albaran'
 })
 
@@ -580,8 +609,53 @@ const etiquetaFinalizarToolbar = computed(() => {
 })
 const puedePasarAFactura = computed(() => {
   if (!esTicketCerrado.value || !puedeEditar.value || modoEdicion.value) return false
-  return tieneDatosFactura.value
+  return (Number(ficha.value?.facturaConversion) || 0) <= 0
 })
+
+const datosFacturaFinalOk = computed(() => {
+  const d = datosFacturaFinal.value
+  const nif = d.nif.toUpperCase().replace(/[\s.\-]/g, '')
+  return (
+    d.cliente.trim() !== '' &&
+    d.razonSocial.trim() !== '' &&
+    nif.length >= 7 &&
+    !/^[0X]+$/.test(nif)
+  )
+})
+
+function rellenarDatosFacturaFinal() {
+  const f = ficha.value
+  const t = (v: unknown) => String(v ?? '').trim()
+  const cliente = t(f?.cliente)
+  datosFacturaFinal.value = {
+    cliente: cliente.toUpperCase() === CLIENTE_SIN_NOMBRE ? '' : cliente,
+    razonSocial: t(f?.razonSocial),
+    nif: t(f?.nif),
+    direccion: t(f?.direccionEnvio),
+    codigoPostal: t(f?.codigoPostalEnvio),
+    poblacion: t(f?.poblacionEnvio),
+    provincia: t(f?.provinciaEnvio),
+  }
+}
+
+async function onClienteFacturaSeleccionado(sel: { codigo: string; etiqueta: string }) {
+  buscarClienteFacturaOpen.value = false
+  try {
+    const { cli } = await cargarDatosCliente(sel.codigo)
+    const t = (v: unknown) => String(v ?? '').trim()
+    datosFacturaFinal.value = {
+      cliente: t(cli.codigo ?? sel.codigo),
+      razonSocial: t(cli.nombre ?? sel.etiqueta),
+      nif: t(cli.nif),
+      direccion: t(cli.direccion),
+      codigoPostal: t(cli.codigoPostal),
+      poblacion: t(cli.poblacion),
+      provincia: t(cli.provincia),
+    }
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo cargar el cliente')
+  }
+}
 const puedeFinalizar = computed(
   () =>
     !esPlantillaConsulta.value &&
@@ -729,14 +803,16 @@ const totales = computed(() => {
     iva += cuota
     importe += preciosIvaIncluido.value && pjeDtoCabecera === 0 ? total : base + cuota
   }
+  const descuentoFidelizacion = Math.round(Number(ficha.value?.descuentoFidelizacion ?? 0) * 100) / 100
   return {
     bruto: Math.round(bruto * 100) / 100,
     descuento: Math.round(descuentoCabecera * 100) / 100,
+    descuentoFidelizacion,
     iva: Math.round(iva * 100) / 100,
     importe:
       docKind.value === 'factura' && ficha.value?.importeFactura != null
         ? Number(ficha.value.importeFactura)
-        : Math.round(importe * 100) / 100,
+        : Math.round(Math.max(0, importe - descuentoFidelizacion) * 100) / 100,
     base: Math.round(baseTotal * 100) / 100,
     pjeRetIrpf: Number(ficha.value?.pjeRetIrpf ?? 0),
     basRetIrpf: Number(ficha.value?.basRetIrpf ?? 0),
@@ -963,6 +1039,7 @@ async function cargar() {
     // Tras alta de cabecera el layout remonta (:key=path). Tambien reabrir borradores sin lineas
     // o documentos sin cliente (estado inconsistente).
     modoEdicion.value = !bloqueadoDoc && (forzarEdicion || sinArticulos || sinCliente)
+    consumirPostVentaPendiente(data)
     if (modoEdicion.value) {
       if (!lineas.value.length) lineas.value = [lineaVacia()]
       if (sinCliente) {
@@ -1403,25 +1480,99 @@ async function aplicarArticuloEnLinea(
   } else {
     linea.cantidad = redondear2(linea.cantidad)
   }
-  let pjeIva = Number(linea.pjeIva) > 0 ? Number(linea.pjeIva) : 21
-  const impuestoCodigo = String(art.impuestoCodigo ?? '').trim()
-  if (impuestoCodigo) {
-    try {
-      const { data: imp } = await api.get(
-        `/api/mantenimiento/impuestos/${encodeURIComponent(impuestoCodigo)}`
-      )
-      const pct = Number(imp.porcentajeIVA ?? imp.pjeIva ?? 0)
-      if (pct > 0) pjeIva = pct
-    } catch {
-      /* mantener default */
-    }
-  }
-  linea.pjeIva = pjeIva
+  linea.pjeIva = await pjeIvaArticulo(art, Number(linea.pjeIva) > 0 ? Number(linea.pjeIva) : 21)
+  linea.regalo = false
+  const oferta = await ofertaDeLinea(codigo)
+  linea.pjeDto = oferta.pjeDto
   linea.importe = importeLinea(linea)
   if (index === lineas.value.length - 1) {
     lineas.value.push(lineaVacia())
   }
+  if (oferta.regalo) {
+    await insertarLineaRegalo(index + 1, oferta.regalo.articulo, oferta.regalo.cantidad)
+  }
   enfocarTrasResolverArticulo(index)
+}
+
+async function pjeIvaArticulo(art: Record<string, unknown>, porDefecto: number): Promise<number> {
+  const impuestoCodigo = String(art.impuestoCodigo ?? '').trim()
+  if (!impuestoCodigo) return porDefecto
+  try {
+    const { data: imp } = await api.get(
+      `/api/mantenimiento/impuestos/${encodeURIComponent(impuestoCodigo)}`
+    )
+    const pct = Number(imp.porcentajeIVA ?? imp.pjeIva ?? 0)
+    return pct > 0 ? pct : porDefecto
+  } catch {
+    return porDefecto
+  }
+}
+
+/** Artículo regalo de la oferta: va al precio de tarifa con el 100 % de descuento. */
+async function insertarLineaRegalo(posicion: number, articulo: string, cantidad: number) {
+  try {
+    const { data: art } = await api.get<Record<string, unknown>>(
+      `/api/mantenimiento/articulos/${encodeURIComponent(articulo)}`
+    )
+    const linea: VentaLinea = {
+      articulo: String(art.codigo ?? articulo).trim(),
+      descripcion: String(art.descripcion ?? '').trim(),
+      cantidad: redondear2(cantidad),
+      precio: redondear2(precioSegunTarifa(art, ficha.value?.tarifa)),
+      pjeDto: 100,
+      importe: 0,
+      pjeIva: await pjeIvaArticulo(art, 21),
+      regalo: true,
+    }
+    lineas.value.splice(posicion, 0, linea)
+  } catch (e: unknown) {
+    error.value = extractApiError(e, `No se pudo añadir el artículo regalo ${articulo}`)
+  }
+}
+
+async function ofertaDeLinea(articulo: string): Promise<OfertaLinea> {
+  const sinOferta: OfertaLinea = { pjeDto: 0, regalo: null }
+  const cliente = String(ficha.value?.cliente ?? '').trim()
+  const empresa = String(ficha.value?.empresa ?? '').trim()
+  if (!cliente || !empresa || cliente.toUpperCase() === 'ZZZZZZZZZ') return sinOferta
+  try {
+    const map = await ofertasLinea({
+      cliente,
+      empresa,
+      fecha: String(ficha.value?.fecha ?? ''),
+      articulos: [articulo],
+    })
+    return map[articulo.trim()] ?? sinOferta
+  } catch {
+    return sinOferta
+  }
+}
+
+async function aplicarOfertasEnLineasVenta() {
+  const cliente = String(ficha.value?.cliente ?? '').trim()
+  const empresa = String(ficha.value?.empresa ?? '').trim()
+  const arts = lineas.value
+    .map((l) => String(l.articulo ?? '').trim())
+    .filter((c) => c !== '' && c.toUpperCase() !== 'NO')
+  if (!empresa || arts.length === 0) return
+  try {
+    const map = await porcentajesOfertaLinea({
+      cliente,
+      empresa,
+      fecha: String(ficha.value?.fecha ?? ''),
+      articulos: arts,
+    })
+    for (const linea of lineas.value) {
+      const codigo = String(linea.articulo ?? '').trim()
+      // pjeDto 100: regalo de una venta ya grabada (la marca regalo no se guarda).
+      if (!codigo || codigo.toUpperCase() === 'NO' || linea.regalo || linea.pjeDto >= 100) continue
+      if (!(codigo in map)) continue
+      linea.pjeDto = map[codigo]
+      linea.importe = importeLinea(linea)
+    }
+  } catch {
+    /* se conserva el descuento que ya tenía la línea */
+  }
 }
 
 function enfocarTrasResolverArticulo(index: number) {
@@ -1831,6 +1982,7 @@ async function aplicarClienteEnFicha(
     tarifa: cli.tarifa != null && cli.tarifa !== '' ? Number(cli.tarifa) : null,
   }
   await resolverFormaPagoContado(fpagoCli)
+  await aplicarOfertasEnLineasVenta()
 }
 
 async function onClienteSeleccionado(
@@ -1934,6 +2086,18 @@ function onCancelar() {
 
 function confirmarCancelarVentaNueva() {
   confirmCancelarAlta.value = false
+  // KeepAlive conserva esta vista al volver al grid. Si esNuevo sigue a true,
+  // la siguiente «Nueva venta» reabre el borrador descartado.
+  esNuevo.value = false
+  modoEdicion.value = false
+  pasoAlta.value = 'tienda'
+  ficha.value = null
+  lineas.value = []
+  clienteContado.value = false
+  formaPagoCliente.value = ''
+  agenteCliente.value = ''
+  error.value = null
+  mensaje.value = null
   router.push('/ventas')
 }
 
@@ -2058,8 +2222,8 @@ async function onFinalizar() {
     }
   }
   if (esTicketCerrado.value) {
-    // Legacy TransformacionTicketaFactura: solo Factura.
     tipoFinal.value = 'F'
+    rellenarDatosFacturaFinal()
   } else if (esPlantillaAlta.value) {
     tipoFinal.value = 'P'
   } else {
@@ -2078,6 +2242,19 @@ async function onFinalizar() {
   } else {
     fpagoFinal.value = formasPagoContado.value[0]?.codigo ?? preferida ?? ''
   }
+  aplicarPuntosFinal.value = false
+  puntosCanjeFinal.value = null
+  const clienteFinal = String(ficha.value.cliente ?? '').trim()
+  const importeFinal = Number(totales.value.importe ?? ficha.value.importe ?? 0)
+  if (clienteFinal && importeFinal > 0 && !esPlantillaAlta.value) {
+    try {
+      const canje = await puntosCanjeDisponible(ficha.value.empresa, clienteFinal, importeFinal)
+      puntosCanjeFinal.value = canje.aplica ? canje : null
+      aplicarPuntosFinal.value = canje.aplica
+    } catch {
+      puntosCanjeFinal.value = null
+    }
+  }
   finalizarOpen.value = true
 }
 
@@ -2085,8 +2262,9 @@ function onImprimir() {
   if (!puedeImprimir.value || !ficha.value) return
   error.value = null
   mensaje.value = null
+  postVentaError.value = null
   if (docKind.value === 'presupuesto') {
-    void onElegirFormatoImpresion('a4')
+    formatoImpresionOpen.value = true
     return
   }
   formatoImpresionOpen.value = true
@@ -2169,6 +2347,35 @@ async function onImprimirA4Confirmado() {
   }
 }
 
+function consumirPostVentaPendiente(venta: VentaDetalle) {
+  const raw = sessionStorage.getItem('descartes-post-venta')
+  if (!raw) return
+  try {
+    const pendiente = JSON.parse(raw) as {
+      empresa?: string
+      tipo?: string
+      albaran?: number
+      mensaje?: string
+      opcion?: string
+      ts?: number
+    }
+    const reciente = Date.now() - Number(pendiente.ts || 0) < 30_000
+    const misma =
+      pendiente.empresa === venta.empresa &&
+      pendiente.tipo === venta.tipo &&
+      Number(pendiente.albaran) === venta.albaran
+    if (!reciente || !misma) {
+      if (!reciente) sessionStorage.removeItem('descartes-post-venta')
+      return
+    }
+    sessionStorage.removeItem('descartes-post-venta')
+    mensaje.value = String(pendiente.mensaje || '')
+    abrirAccionesPostVenta(venta, String(pendiente.opcion || 'F'))
+  } catch {
+    sessionStorage.removeItem('descartes-post-venta')
+  }
+}
+
 function abrirAccionesPostVenta(venta: VentaDetalle, opcionElegida: string) {
   const op = String(opcionElegida).toUpperCase()
   const etiqueta = TIPOS_FINAL.find((t) => t.codigo === op)?.label ?? 'Documento'
@@ -2197,14 +2404,64 @@ async function imprimirTrasFinalizar() {
   }
 }
 
+/** Ticket, factura, albarán y presupuesto salen con la plantilla del puesto. */
+async function pdfPlantillaParaEmail(venta: VentaDetalle): Promise<string | undefined> {
+  const ft = String(venta.facturaTipo ?? '').trim().toUpperCase()
+  const pue = String(puesto.puestoCodigo || venta.puesto || '').trim()
+  if (ft === 'T' && Number(venta.factura) > 0) {
+    return pdfBase64TicketVenta(venta, { puestoCodigo: pue })
+  }
+  const res = await prepararOImprimirVenta(venta, { puestoCodigo: pue, formato: 'a4' })
+  if (res.kind !== 'a4') {
+    throw new Error('No se pudo preparar la plantilla del documento')
+  }
+  const abierto = a4Open.value
+  const prep = a4Prep.value
+  try {
+    a4Prep.value = res.prep
+    a4Open.value = true
+    await nextTick()
+    const html = (await a4ModalRef.value?.capturarHtmlFolio()) || ''
+    return await pdfBase64DesdeHtmlPlantilla(html)
+  } finally {
+    a4Open.value = abierto
+    a4Prep.value = prep
+  }
+}
+
 async function enviarTrasFinalizar(email: string) {
   const venta = ficha.value
   if (!venta || postVentaEnviando.value) return
   postVentaEnviando.value = true
   postVentaError.value = null
   try {
-    const res = await enviarVentaPorEmail(venta.empresa, venta.tipo, venta.albaran, email)
+    const pdf = await pdfPlantillaParaEmail(venta)
+    const res = await enviarVentaPorEmail(venta.empresa, venta.tipo, venta.albaran, email, 'ventas', pdf)
     postVentaOpen.value = false
+    mensaje.value = `${res.documento} enviado a ${res.destinatario}`
+  } catch (e: unknown) {
+    postVentaError.value = extractApiError(e, 'No se pudo enviar el documento por email')
+  } finally {
+    postVentaEnviando.value = false
+  }
+}
+
+async function enviarDesdeImpresion(email: string) {
+  const venta = ficha.value
+  if (!venta || postVentaEnviando.value) return
+  postVentaEnviando.value = true
+  postVentaError.value = null
+  try {
+    const pdf = await pdfPlantillaParaEmail(venta)
+    const res = await enviarVentaPorEmail(
+      venta.empresa,
+      venta.tipo,
+      venta.albaran,
+      email,
+      'ventas',
+      pdf
+    )
+    formatoImpresionOpen.value = false
     mensaje.value = `${res.documento} enviado a ${res.destinatario}`
   } catch (e: unknown) {
     postVentaError.value = extractApiError(e, 'No se pudo enviar el documento por email')
@@ -2224,6 +2481,9 @@ async function confirmarFinalizar() {
     error.value = 'Seleccione una forma de pago de contado'
     return
   }
+  if (esTicketCerrado.value && !datosFacturaFinalOk.value) {
+    return
+  }
   const opcion = tipoFinal.value
   finalizarOpen.value = false
   loading.value = true
@@ -2234,6 +2494,7 @@ async function confirmarFinalizar() {
     albaran: ficha.value.albaran,
   }
   const eraNueva = esNuevo.value
+  const ticketOrigen = Number(ficha.value.factura) || 0
   try {
     if (eraNueva) {
       // Aqui se graba por primera vez: la API asigna el numero de albaran.
@@ -2260,18 +2521,34 @@ async function confirmarFinalizar() {
         payload
       )
       aplicarDetalle(saved)
+    } else if (esTicketCerrado.value) {
+      const d = datosFacturaFinal.value
+      const saved = await actualizarVenta(ficha.value.empresa, ficha.value.tipo, ficha.value.albaran, {
+        ...payloadDesdeFicha(),
+        cliente: d.cliente.trim(),
+        razonSocial: d.razonSocial.trim(),
+        nif: d.nif.trim(),
+        direccionEnvio: d.direccion.trim(),
+        codigoPostalEnvio: d.codigoPostal.trim(),
+        poblacionEnvio: d.poblacion.trim(),
+        provinciaEnvio: d.provincia.trim(),
+      })
+      aplicarDetalle(saved)
     }
     const done = await finalizarVenta(
       ficha.value.empresa,
       ficha.value.tipo,
       ficha.value.albaran,
       opcion,
-      mostrarSelectorFpago.value ? fpagoFinal.value : undefined
+      mostrarSelectorFpago.value ? fpagoFinal.value : undefined,
+      { aplicarPuntosFidelizacion: aplicarPuntosFinal.value }
     )
     aplicarDetalle(done)
     modoEdicion.value = false
-    if (String(done.facturaTipo ?? '').toUpperCase() === 'F' && opcion === 'F') {
-      mensaje.value = `Ticket pasado a factura ${done.factura ?? ''}`
+    if (done.ticketNegativo) {
+      mensaje.value =
+        `Ticket ${ticketOrigen} compensado con el ticket negativo ${done.ticketNegativo}. ` +
+        `Factura ${done.factura ?? ''}.`
     } else {
       mensaje.value = `Documento tipificado como ${
         TIPOS_FINAL.find((t) => t.codigo === (done.facturaTipo || opcion))?.label ??
@@ -2279,8 +2556,19 @@ async function confirmarFinalizar() {
         opcion
       }`
     }
+    if (done.fidelizacionPuntos && !done.fidelizacionPuntos.fechaInicio) {
+      mensaje.value +=
+        `. Puntos de esta venta: ${done.fidelizacionPuntos.compra}. ` +
+        `Acumulados: ${done.fidelizacionPuntos.acumulados}.`
+    }
+    if (done.puntosCanje) {
+      mensaje.value +=
+        ` Descuento por puntos: ${done.puntosCanje.euros.toFixed(2).replace('.', ',')} € ` +
+        `(${done.puntosCanje.puntosUsables} puntos).`
+    }
     if (
       prev.albaran > 0 &&
+      !done.ticketNegativo &&
       (prev.empresa !== done.empresa || prev.tipo !== done.tipo || prev.albaran !== done.albaran)
     ) {
       busqueda.quitar(prev)
@@ -2289,13 +2577,26 @@ async function confirmarFinalizar() {
     // Venta recien creada: no navegar. La ruta /ventas/nuevo cambiaria de instancia
     // (KeepAlive va por fullPath) y se perderia el dialogo de impresion / email.
     if (!eraNueva) {
+      if (done.ticketNegativo) {
+        sessionStorage.setItem(
+          'descartes-post-venta',
+          JSON.stringify({
+            empresa: done.empresa,
+            tipo: done.tipo,
+            albaran: done.albaran,
+            mensaje: mensaje.value,
+            opcion: 'F',
+            ts: Date.now(),
+          })
+        )
+      }
       router.replace(destinoVenta(done.empresa, done.tipo, done.albaran))
     }
     if (esPlantillaAlta.value) {
       plantillaPeriodicaForm.ultimaGeneracion = new Date().toISOString().slice(0, 10)
       plantillaPeriodicaOpen.value = true
       mensaje.value = 'Documento listo. Indique la periodicidad y pulse Crear plantilla.'
-    } else {
+    } else if (!done.ticketNegativo) {
       abrirAccionesPostVenta(done, opcion)
     }
   } catch (e: unknown) {
@@ -2854,6 +3155,15 @@ onActivated(() => {
     />
 
     <EntidadBuscarModal
+      :open="buscarClienteFacturaOpen"
+      entidad="clientes"
+      titulo="Buscar cliente para la factura"
+      :codigo-actual="datosFacturaFinal.cliente"
+      @seleccionar="onClienteFacturaSeleccionado"
+      @cerrar="buscarClienteFacturaOpen = false"
+    />
+
+    <EntidadBuscarModal
       :open="buscarArticuloOpen"
       entidad="articulos"
       titulo="Buscar articulo"
@@ -2873,7 +3183,7 @@ onActivated(() => {
 
     <Teleport to="body">
       <div v-if="finalizarOpen" class="overlay" @click.self="finalizarOpen = false">
-        <div class="modal-tipo">
+        <div class="modal-tipo" :class="{ 'modal-ticket-factura': esTicketCerrado }">
           <h3>
             {{
               esTicketCerrado
@@ -2886,9 +3196,16 @@ onActivated(() => {
           <p v-if="esPlantillaAlta && !esTicketCerrado" class="ok">
             Elija Presupuesto (recomendado) o Albarán. A continuación registrará la periodicidad.
           </p>
-          <p v-else-if="esTicketCerrado">
-            Se convertira el ticket {{ ficha?.factura }} en factura (legacy TransformacionTicketaFactura).
-          </p>
+          <template v-else-if="esTicketCerrado">
+            <p>
+              El ticket {{ ficha?.factura }} se conserva. Se creará un ticket negativo que lo compensa
+              y una factura de contado con la misma forma de pago. No se vuelve a cobrar ni se mueve el stock.
+            </p>
+            <DatosFacturaTicketForm
+              v-model="datosFacturaFinal"
+              @buscar-cliente="buscarClienteFacturaOpen = true"
+            />
+          </template>
           <p v-else>Que tipo de documento es?</p>
           <p v-if="clienteContado && !esTicketCerrado" class="ok">
             Cliente de contado (forma de pago
@@ -2918,7 +3235,19 @@ onActivated(() => {
               No hay formas de pago configuradas con cobro de arqueo.
             </p>
           </div>
-          <p v-if="tipoFinal === 'F'" class="warn">Factura: el documento quedara bloqueado.</p>
+          <p v-if="tipoFinal === 'F' && !esTicketCerrado" class="warn">Factura: el documento quedara bloqueado.</p>
+          <div v-if="puntosCanjeFinal && tipoFinal !== 'P' && !esTicketCerrado" class="vale-puntos">
+            <strong>Vale descuento por puntos</strong>
+            <span>
+              El cliente tiene {{ puntosCanjeFinal.puntos }} puntos. Puede descontar
+              {{ puntosCanjeFinal.euros.toFixed(2).replace('.', ',') }} €
+              ({{ puntosCanjeFinal.puntosUsables }} puntos) en esta venta.
+            </span>
+            <label>
+              <input v-model="aplicarPuntosFinal" type="checkbox" />
+              Aplicar el descuento
+            </label>
+          </div>
           <p v-if="tipoFinal === 'T'" class="ok">
             Al finalizar podrá imprimir el ticket o enviarlo por email.
           </p>
@@ -2930,7 +3259,7 @@ onActivated(() => {
             <button
               type="button"
               class="primary"
-              :disabled="mostrarSelectorFpago && !fpagoFinal"
+              :disabled="(mostrarSelectorFpago && !fpagoFinal) || (esTicketCerrado && !datosFacturaFinalOk)"
               @click="confirmarFinalizar"
             >
               Aceptar
@@ -2989,7 +3318,12 @@ onActivated(() => {
       :etiqueta-a4="docKind === 'factura' ? 'Factura' : etiquetaA4Impresion"
       :etiqueta-secundaria="docKind === 'factura' ? 'Albarán' : 'Ticket'"
       :valor-secundario="docKind === 'factura' ? 'albaran' : 'ticket'"
+      :mostrar-secundaria="docKind !== 'presupuesto'"
+      :email-inicial="ficha?.email"
+      :procesando="postVentaEnviando"
+      :error="postVentaError"
       @elegir="onElegirFormatoImpresion"
+      @email="enviarDesdeImpresion"
       @cancelar="formatoImpresionOpen = false"
     />
 
@@ -3384,6 +3718,14 @@ tr.comentario td input {
   min-width: 18rem;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
 }
+.modal-ticket-factura {
+  width: min(42rem, 94vw);
+}
+.modal-ticket-factura p {
+  margin: 0 0 0.6rem;
+  font-size: 0.85rem;
+  color: #475569;
+}
 .modal-abono {
   background: #fff;
   border-radius: 10px;
@@ -3473,6 +3815,23 @@ tr.comentario td input {
   display: flex;
   gap: 0.5rem;
   align-items: center;
+}
+.vale-puntos {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.75rem 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #16a34a;
+  border-radius: 6px;
+  background: #f0fdf4;
+  color: #14532d;
+}
+.vale-puntos label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
 }
 .fpago-final {
   margin: 0.5rem 0 0.75rem;

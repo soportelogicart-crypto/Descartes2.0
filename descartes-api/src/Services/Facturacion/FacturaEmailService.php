@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Descartes\Api\Services\Facturacion;
 
+use Descartes\Api\Services\UsuarioCorreoService;
 use PDO;
 use PHPMailer\PHPMailer\PHPMailer;
 
@@ -18,11 +19,13 @@ final class FacturaEmailService
 {
   private PDO $pdo;
   private ImpresionFacturasService $impresion;
+  private UsuarioCorreoService $correo;
 
-  public function __construct(PDO $pdo, ImpresionFacturasService $impresion)
+  public function __construct(PDO $pdo, ImpresionFacturasService $impresion, UsuarioCorreoService $correo)
   {
     $this->pdo = $pdo;
     $this->impresion = $impresion;
+    $this->correo = $correo;
   }
 
   /**
@@ -35,7 +38,7 @@ final class FacturaEmailService
    *   detalles: list<array<string, mixed>>
    * }
    */
-  public function enviarGeneradas(array $facturas): array
+  public function enviarGeneradas(array $facturas, array $pdfs = [], bool $exigirPlantilla = false): array
   {
     $resultado = [
       'candidatas' => count($facturas),
@@ -99,12 +102,17 @@ final class FacturaEmailService
       }
 
       try {
+        $pdf = $this->pdfAdjunto($pdfs, "{$empresa}|{$tipo}|{$numero}");
+        if ($exigirPlantilla && $pdf === null) {
+          throw new \RuntimeException('Falta el PDF de la plantilla');
+        }
         $this->enviarUna(
           $empresa,
           $tipo,
           $numero,
           $destinatario,
-          (string) $datosCliente['razonSocial']
+          (string) $datosCliente['razonSocial'],
+          $pdf
         );
         $resultado['enviadas']++;
         $resultado['detalles'][] = $base + [
@@ -137,7 +145,7 @@ final class FacturaEmailService
    *   detalles: list<array<string, mixed>>
    * }
    */
-  public function enviarSolicitadas(array $facturas, ?string $emailForzado = null): array
+  public function enviarSolicitadas(array $facturas, ?string $emailForzado = null, array $pdfs = []): array
   {
     $forzado = trim((string) $emailForzado);
     if ($forzado !== '' && !filter_var($forzado, FILTER_VALIDATE_EMAIL)) {
@@ -197,7 +205,8 @@ final class FacturaEmailService
       }
 
       try {
-        $this->enviarUna($empresa, $tipo, $numero, $destinatario, $razon);
+        $pdf = $this->pdfAdjunto($pdfs, "{$empresa}|{$tipo}|{$numero}");
+        $this->enviarUna($empresa, $tipo, $numero, $destinatario, $razon, $pdf);
         $resultado['enviadas']++;
         $resultado['detalles'][] = $base + [
           'estado' => 'enviada',
@@ -233,7 +242,7 @@ final class FacturaEmailService
           ) AS EmailDestino,
           RTRIM(ISNULL(RazonSocial, '')) AS RazonSocial
        FROM Clientes
-       WHERE Codigo = :codigo"
+       WHERE RTRIM(Codigo) = :codigo"
     );
     $stmt->execute(['codigo' => $codigo]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -247,16 +256,31 @@ final class FacturaEmailService
     ];
   }
 
+  /** PDF de la plantilla generado por el programa (base64), si viene y es válido. */
+  private function pdfAdjunto(array $pdfs, string $clave): ?string
+  {
+    $b64 = $pdfs[$clave] ?? null;
+    if (!is_string($b64) || $b64 === '') {
+      return null;
+    }
+    $pdf = base64_decode($b64, true);
+    if ($pdf === false || !str_starts_with($pdf, '%PDF')) {
+      return null;
+    }
+    return $pdf;
+  }
+
   private function enviarUna(
     string $empresa,
     string $tipo,
     int $numero,
     string $destinatario,
-    string $razonSocial
+    string $razonSocial,
+    ?string $pdfPlantilla = null
   ): void {
     $etiqueta = $tipo === 'A' ? 'Factura rectificativa' : 'Factura';
     $referencia = "{$etiqueta} {$numero}";
-    $pdf = $this->impresion->informePdf([
+    $pdf = $pdfPlantilla ?? $this->impresion->informePdf([
       'facturas' => [[
         'empresa' => $empresa,
         'facturaTipo' => $tipo,
@@ -265,8 +289,9 @@ final class FacturaEmailService
       'marcarImpresa' => false,
     ]);
 
-    $mail = $this->crearMailer();
+    $mail = $this->correo->crearMailer();
     $mail->addAddress($destinatario, $razonSocial);
+    $this->correo->anadirCopia($mail, $destinatario);
     $mail->Subject = $referencia;
     $mail->isHTML(true);
     $mail->Body = '<div style="font-family:Arial,sans-serif">'
@@ -291,40 +316,9 @@ final class FacturaEmailService
     }
   }
 
-  private function crearMailer(): PHPMailer
-  {
-    $host = trim((string) ($_ENV['MAIL_HOST'] ?? ''));
-    $from = trim((string) ($_ENV['MAIL_FROM_ADDRESS'] ?? ''));
-
-    $mail = new PHPMailer(true);
-    $mail->CharSet = PHPMailer::CHARSET_UTF8;
-    $mail->isSMTP();
-    $mail->Host = $host;
-    $mail->Port = max(1, (int) ($_ENV['MAIL_PORT'] ?? 587));
-    $usuario = trim((string) ($_ENV['MAIL_USERNAME'] ?? ''));
-    $mail->SMTPAuth = $usuario !== '';
-    if ($mail->SMTPAuth) {
-      $mail->Username = $usuario;
-      $mail->Password = (string) ($_ENV['MAIL_PASSWORD'] ?? '');
-    }
-    $seguridad = strtolower(trim((string) ($_ENV['MAIL_ENCRYPTION'] ?? 'tls')));
-    if ($seguridad === 'tls' || $seguridad === 'ssl') {
-      $mail->SMTPSecure = $seguridad;
-    } else {
-      $mail->SMTPAutoTLS = false;
-    }
-    $mail->setFrom($from, trim((string) ($_ENV['MAIL_FROM_NAME'] ?? 'Descartes')));
-    return $mail;
-  }
-
   private function errorConfiguracionCorreo(): ?string
   {
-    $host = trim((string) ($_ENV['MAIL_HOST'] ?? ''));
-    $from = trim((string) ($_ENV['MAIL_FROM_ADDRESS'] ?? ''));
-    if ($host === '' || !filter_var($from, FILTER_VALIDATE_EMAIL)) {
-      return 'Correo no configurado: defina MAIL_HOST y MAIL_FROM_ADDRESS en descartes-api/.env';
-    }
-    return null;
+    return $this->correo->errorConfiguracion();
   }
 
   private function marcarEnviada(string $empresa, string $tipo, int $numero): void

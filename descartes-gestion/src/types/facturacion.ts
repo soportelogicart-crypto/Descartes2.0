@@ -48,6 +48,8 @@ export type FacturaManualGenerada = {
   cliente: string
   razonSocial?: string
   email?: string
+  /** Cliente con envío automático de facturas activado. */
+  facturasEmail?: boolean
   importe: number
   estado: string
   prefactura?: boolean
@@ -181,6 +183,7 @@ export type FacturaImpresionItem = {
   cliente: string
   razonSocial: string
   nif: string
+  email?: string
   importe: number
   fpago: string
   impresa: boolean
@@ -200,7 +203,7 @@ export type FacturaDocumento = {
   estado: string
   facturaContadoDiferida: boolean
   tipoCobro: 'diferida' | 'contado'
-  formaPago: { codigo: string; descripcion: string }
+  formaPago: { codigo: string; descripcion: string; tipo?: string; nota?: string }
   cliente: {
     codigo: string
     razonSocial: string
@@ -215,6 +218,8 @@ export type FacturaDocumento = {
     cuentaBancaria: string
     iban: string
     swift: string
+    /** Agencia bancaria del cliente, o Banco si la agencia está vacía. */
+    banco?: string
   }
   lineas: Array<{
     albaran: number

@@ -9,7 +9,7 @@ import type {
   TpvNivelResumen,
   TpvTicketEspera,
 } from '@/types/tpv'
-import type { VentaDetalle } from '@/types/ventas'
+import type { VentaDetalle, VentaResumen } from '@/types/ventas'
 
 export async function pingTpv(): Promise<{ ok: boolean; modulo: string }> {
   const { data } = await api.get<{ ok: boolean; modulo: string }>('/api/tpv/ping')
@@ -114,6 +114,20 @@ export async function anularVentaTpv(empresa: string, tipo: string, albaran: num
   await api.delete(
     `/api/tpv/ventas/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}`
   )
+}
+
+export async function listarVentasTpv(params: Record<string, string | number | undefined>) {
+  const { data } = await api.get<{ items: VentaResumen[]; total: number }>('/api/tpv/ventas', {
+    params,
+  })
+  return data
+}
+
+export async function obtenerVentaTpv(empresa: string, tipo: string, albaran: number) {
+  const { data } = await api.get<VentaDetalle>(
+    `/api/tpv/ventas/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}`
+  )
+  return data
 }
 
 export async function obtenerTicketsEsperaTpv(

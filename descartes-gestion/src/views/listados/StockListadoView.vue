@@ -402,7 +402,18 @@ async function imprimir() {
     const res = await imprimirListadoHtml({
       titulo: def.value?.titulo ?? 'Stock',
       metaLineas: metaImpresion(),
-      thead: ['Código', 'Descripción / nombre', 'Unidades', 'Artículos'],
+      thead: [
+        'Código',
+        def.value?.agruparPor === 'articulo' ? 'Descripción' : 'Nombre',
+        'Unidades',
+        'Artículos',
+      ],
+      columnas: [
+        { ancho: '16%', alineacion: 'left' },
+        { ancho: '54%', alineacion: 'left' },
+        { ancho: '15%', alineacion: 'right' },
+        { ancho: '15%', alineacion: 'right' },
+      ],
       filas: filas.map((r) => [r.grupoCodigo, r.grupoNombre, formatoUnidades(r.unidades), r.numArticulos]),
       pie: resultado.value
         ? [`Total unidades: ${formatoUnidades(resultado.value.totales.unidades)}`, `${filas.length} filas`]

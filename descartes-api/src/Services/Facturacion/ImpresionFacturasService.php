@@ -40,7 +40,11 @@ final class ImpresionFacturasService
         f.Empresa, f.FacturaTipo, f.Factura, f.Fecha, f.Cliente, f.Importe, f.Fpago,
         ISNULL(f.Impresa, 0) AS Impresa, f.Estado,
         ISNULL(f.FacturaContadoDiferida, 0) AS FacturaContadoDiferida,
-        c.RazonSocial, c.NIF
+        c.RazonSocial, c.NIF,
+        ISNULL(
+          NULLIF(LTRIM(RTRIM(c.EmailFacturacion)), ''),
+          LTRIM(RTRIM(ISNULL(c.Email, '')))
+        ) AS EmailDestino
       FROM Facturas f
       INNER JOIN Clientes c ON c.Codigo = f.Cliente
       WHERE {$where}
@@ -67,6 +71,7 @@ final class ImpresionFacturasService
         'cliente' => trim((string) ($r['Cliente'] ?? '')),
         'razonSocial' => trim((string) ($r['RazonSocial'] ?? '')),
         'nif' => trim((string) ($r['NIF'] ?? '')),
+        'email' => trim((string) ($r['EmailDestino'] ?? '')),
         'importe' => $imp,
         'fpago' => trim((string) ($r['Fpago'] ?? '')),
         'impresa' => !empty($r['Impresa']),
@@ -194,6 +199,8 @@ final class ImpresionFacturasService
       'formaPago' => [
         'codigo' => trim((string) ($c['Fpago'] ?? '')),
         'descripcion' => trim((string) ($c['FpagoDescripcion'] ?? '')),
+        'tipo' => trim((string) ($c['FpagoTipo'] ?? '')),
+        'nota' => trim((string) ($c['FpagoNota'] ?? '')),
       ],
       'cliente' => [
         'codigo' => trim((string) ($c['Cliente'] ?? '')),
@@ -206,9 +213,10 @@ final class ImpresionFacturasService
         'provincia' => trim((string) ($c['Provincia'] ?? '')),
         'pais' => trim((string) ($c['Pais'] ?? '')),
         'telefono' => trim((string) ($c['Telefono1'] ?? '')),
-        'cuentaBancaria' => trim((string) ($c['CuentaBancaria'] ?? '')),
+        'cuentaBancaria' => self::enmascararCuentaBancaria((string) ($c['CuentaBancaria'] ?? '')),
         'iban' => trim((string) ($c['IBAN'] ?? '')),
         'swift' => trim((string) ($c['Swift'] ?? '')),
+        'banco' => self::nombreEntidadBancaria($c),
       ],
       'lineas' => $lineas,
       'vencimientos' => $vencimientos,
@@ -449,8 +457,8 @@ final class ImpresionFacturasService
         f.PjeRec1, f.PjeRec2, f.PjeRec3, f.PjeRec4, f.PjeRec5, f.PjeRec6,
         f.ImporteRec1, f.ImporteRec2, f.ImporteRec3, f.ImporteRec4, f.ImporteRec5, f.ImporteRec6,
         c.RazonSocial, c.RazonSocial2, c.NIF, c.Direccion, c.Poblacion, c.CodigoPostal, c.Provincia,
-        c.Pais, c.Telefono1, c.CuentaBancaria, c.IBAN, c.Swift,
-        fp.Descripcion AS FpagoDescripcion,
+        c.Pais, c.Telefono1, c.CuentaBancaria, c.IBAN, c.Swift, c.Agencia, c.Banco,
+        fp.Descripcion AS FpagoDescripcion, fp.Tipo AS FpagoTipo, fp.Nota AS FpagoNota,
         e.Nombre AS EmpNombre, e.NombreFiscal AS EmpNombreFiscal, e.NIF AS EmpNif,
         e.Direccion AS EmpDireccion, e.Poblacion AS EmpPoblacion,
         e.CodigoPostal AS EmpCodigoPostal, e.Provincia AS EmpProvincia
@@ -730,6 +738,29 @@ final class ImpresionFacturasService
     );
     $stmt->execute(['e' => $empresa, 'ft' => $facturaTipo, 'f' => $factura]);
     return $stmt->rowCount() > 0;
+  }
+
+  /** Agencia del cliente; si está vacía, el campo Banco. */
+  private static function nombreEntidadBancaria(array $c): string
+  {
+    $agencia = trim((string) ($c['Agencia'] ?? ''));
+    if ($agencia !== '') {
+      return $agencia;
+    }
+    return trim((string) ($c['Banco'] ?? ''));
+  }
+
+  /** Sustituye los 4 últimos dígitos de la cuenta del cliente. */
+  private static function enmascararCuentaBancaria(string $valor): string
+  {
+    $texto = trim($valor);
+    if ($texto === '' || str_contains($texto, 'XXXX')) {
+      return $texto;
+    }
+    if (!preg_match('/^(\d{5,})(.*)$/u', $texto, $m)) {
+      return $texto;
+    }
+    return substr($m[1], 0, -4) . 'XXXX' . $m[2];
   }
 
   private function fmtFecha(mixed $v): string

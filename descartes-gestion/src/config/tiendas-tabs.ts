@@ -177,7 +177,7 @@ export const tiendaTabs: TiendaTab[] = [
             span: 2,
             maxLength: 20,
           }),
-          cb('bloqueoFidelizacion', 'Bloqueo fidelizacion'),
+          cb('bloqueoFidelizacion', 'No hace puntos de fidelización'),
           inline('pjeRetIrpf', '% Ret. IRPF', { type: 'number' }),
           inline('ctbRetIrpf', 'Cta. retencion IRPF', { type: 'number' }),
           inline('centroCoste', 'Centro de coste', { span: 2 }),

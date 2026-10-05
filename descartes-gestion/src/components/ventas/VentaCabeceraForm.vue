@@ -37,6 +37,7 @@ const props = defineProps<{
   totales: {
     bruto: number
     descuento: number
+    descuentoFidelizacion?: number
     iva: number
     importe: number
     pjeRetIrpf?: number
@@ -431,6 +432,10 @@ onUnmounted(() => {
         <div><span>Bruto</span><strong>{{ totales.bruto.toFixed(2) }}</strong></div>
         <div><span>Dto</span><strong>{{ totales.descuento.toFixed(2) }}</strong></div>
         <div><span>IVA</span><strong>{{ totales.iva.toFixed(2) }}</strong></div>
+        <div v-if="Number(totales.descuentoFidelizacion || 0) > 0" class="fid">
+          <span>Dto. fidelización</span>
+          <strong>-{{ Number(totales.descuentoFidelizacion).toFixed(2) }}</strong>
+        </div>
         <div class="imp"><span>Importe</span><strong>{{ totales.importe.toFixed(2) }}</strong></div>
         <template v-if="Number(totales.impRetIrpf || 0) !== 0">
           <div>
@@ -1184,6 +1189,9 @@ select:disabled {
   text-align: right;
 }
 
+.totales-box .fid strong {
+  color: #15803d;
+}
 .totales-box .imp strong {
   font-size: 0.9rem;
   color: #0f172a;

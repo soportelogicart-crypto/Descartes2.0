@@ -27,6 +27,7 @@ const moduloPorSlugArticulos: Record<string, string> = {
   secciones: 'secciones',
   subsecciones: 'subsecciones',
   articulos: 'articulos',
+  'tipos-descuento': 'tipos-descuento',
 }
 
 const moduloPorSlugClientes: Record<string, string> = {

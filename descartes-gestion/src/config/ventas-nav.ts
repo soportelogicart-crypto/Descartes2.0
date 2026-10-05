@@ -12,6 +12,12 @@ export type VentasMenuItem = {
  */
 export const ventasMenuItems: VentasMenuItem[] = [
   { id: 'ventas-listado', titulo: 'Ventas', ruta: '/ventas', modulo: 'ventas' },
+  {
+    id: 'situacion',
+    titulo: 'Situación de ventas',
+    ruta: '/ventas/situacion',
+    modulo: 'ventas-situacion',
+  },
   { id: 'arqueo', titulo: 'Arqueo de caja', ruta: '/ventas/arqueo', modulo: 'ventas-arqueo' },
   {
     id: 'arqueo-desglose',

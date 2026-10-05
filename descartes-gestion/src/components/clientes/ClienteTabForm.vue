@@ -71,9 +71,45 @@ function conAltaCuentaCtb(field: ClienteField) {
   return field.key === 'cuentaCtb2' && Boolean(props.mostrarCrearCuentaCtb)
 }
 
+/** Sin tarjeta, el resto del apartado Fidelizacion no aplica: se muestra vacio y bloqueado. */
+const CAMPOS_SEGUN_TARJETA = new Set([
+  'fechaAltaFidelizacion',
+  'pjeFidelizacion',
+  'tipoDescuentoFidelizacion',
+  'acumuladoFidelizacion',
+  'acumuladoPuntos',
+])
+
+function sinTarjetaFidelizacion() {
+  return String(props.modelValue.tarjetaFidelizacion ?? '').trim() === ''
+}
+
+function vacioPorFaltaDeTarjeta(field: ClienteField) {
+  return CAMPOS_SEGUN_TARJETA.has(field.key) && sinTarjetaFidelizacion()
+}
+
+function pjeFidelizacionDistintoDeCero() {
+  const valor = props.modelValue.pjeFidelizacion
+  if (valor == null || valor === '') return false
+  const numero = Number(valor)
+  return Number.isFinite(numero) && numero !== 0
+}
+
+function tituloCampo(field: ClienteField): string | undefined {
+  if (vacioPorFaltaDeTarjeta(field)) {
+    return 'Sin tarjeta de fidelizacion'
+  }
+  if (field.key === 'tipoDescuentoFidelizacion' && pjeFidelizacionDistintoDeCero()) {
+    return 'Desactivado mientras % Fidelizacion sea distinto de 0'
+  }
+  return undefined
+}
+
 function isReadOnly(field: ClienteField) {
   if (props.readonly || field.readOnly) return true
   if (field.key === 'codigo' && props.codigoReadOnly) return true
+  if (vacioPorFaltaDeTarjeta(field)) return true
+  if (field.key === 'tipoDescuentoFidelizacion' && pjeFidelizacionDistintoDeCero()) return true
   const motor = props.motorFidelizacion ?? 'NINGUNO'
   if (field.key === 'pjeFidelizacion' || field.key === 'acumuladoFidelizacion') {
     return motor !== 'EUROS'
@@ -97,6 +133,7 @@ function etiquetaMotorFidelizacion() {
 }
 
 function displayValue(field: ClienteField) {
+  if (vacioPorFaltaDeTarjeta(field)) return ''
   if (field.key === 'riesgoPendiente') {
     const pendiente = riesgoPendienteCliente(props.modelValue)
     return pendiente === null ? '' : pendiente
@@ -109,6 +146,7 @@ function displayValue(field: ClienteField) {
 }
 
 function numberModel(field: ClienteField): number | null {
+  if (vacioPorFaltaDeTarjeta(field)) return null
   if (field.key === 'riesgoPendiente') return riesgoPendienteCliente(props.modelValue)
   const value = props.modelValue[field.key]
   if (value == null || value === '') return null
@@ -204,6 +242,7 @@ function colsClass(section: ClienteSection) {
                 field.layout ?? 'inline',
                 camposInvalidos?.includes(field.key) ? 'campo-invalido' : '',
               ]"
+              :title="tituloCampo(field)"
             >
             <template v-if="field.layout === 'checkbox'">
               <input
@@ -248,7 +287,11 @@ function colsClass(section: ClienteSection) {
 
               <EntidadLookupField
                 v-else-if="entidadDesdeOptionsSource(field.optionsSource)"
-                :model-value="(modelValue[field.key] as string | number | null) ?? null"
+                :model-value="
+                  vacioPorFaltaDeTarjeta(field)
+                    ? null
+                    : ((modelValue[field.key] as string | number | null) ?? null)
+                "
                 :entidad="entidadDesdeOptionsSource(field.optionsSource)!"
                 :readonly="isReadOnly(field)"
                 :max-length="field.maxLength"

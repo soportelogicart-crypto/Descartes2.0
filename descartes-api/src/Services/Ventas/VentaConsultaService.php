@@ -213,6 +213,7 @@ final class VentaConsultaService
     $this->enriquecerDatosImpresion($detalle);
     $this->enriquecerFacturaAbono($detalle);
     $this->enriquecerAlbaranesFactura($detalle);
+    $this->enriquecerConversionTicket($detalle);
 
     return $detalle;
   }
@@ -228,7 +229,10 @@ final class VentaConsultaService
     $detalle['clienteCuentaBancaria'] = null;
     $detalle['clienteIban'] = null;
     $detalle['clienteSwift'] = null;
+    $detalle['clienteBanco'] = null;
     $detalle['formaPagoDescripcion'] = null;
+    $detalle['formaPagoTipo'] = null;
+    $detalle['formaPagoNota'] = null;
     $detalle['vencimientos'] = [];
     $detalle['pjeRetIrpf'] = 0.0;
     $detalle['basRetIrpf'] = 0.0;
@@ -240,7 +244,7 @@ final class VentaConsultaService
     if ($cliente !== '') {
       try {
         $st = $this->pdo->prepare(
-          'SELECT TOP 1 CuentaBancaria, IBAN, Swift
+          'SELECT TOP 1 CuentaBancaria, IBAN, Swift, Agencia, Banco
            FROM Clientes WHERE Codigo = :cliente'
         );
         $st->execute(['cliente' => $cliente]);
@@ -249,6 +253,8 @@ final class VentaConsultaService
           $detalle['clienteCuentaBancaria'] = trim((string) ($row['CuentaBancaria'] ?? ''));
           $detalle['clienteIban'] = trim((string) ($row['IBAN'] ?? ''));
           $detalle['clienteSwift'] = trim((string) ($row['Swift'] ?? ''));
+          $agencia = trim((string) ($row['Agencia'] ?? ''));
+          $detalle['clienteBanco'] = $agencia !== '' ? $agencia : trim((string) ($row['Banco'] ?? ''));
         }
       } catch (\Throwable $e) {
         // Los datos bancarios no deben impedir abrir la ficha.
@@ -264,7 +270,7 @@ final class VentaConsultaService
 
     try {
       $st = $this->pdo->prepare(
-        'SELECT TOP 1 fp.Descripcion, f.PjeRetIrpf, f.BasRetIrpf, f.ImpRetIrpf,
+        'SELECT TOP 1 fp.Descripcion, fp.Tipo, fp.Nota, f.PjeRetIrpf, f.BasRetIrpf, f.ImpRetIrpf,
                 f.Importe, f.PagoACuenta
          FROM Facturas f
          LEFT JOIN FormasPago fp ON fp.Codigo = f.Fpago
@@ -274,6 +280,8 @@ final class VentaConsultaService
       $facturaRow = $st->fetch(PDO::FETCH_ASSOC);
       if ($facturaRow !== false) {
         $detalle['formaPagoDescripcion'] = trim((string) ($facturaRow['Descripcion'] ?? '')) ?: null;
+        $detalle['formaPagoTipo'] = trim((string) ($facturaRow['Tipo'] ?? '')) ?: null;
+        $detalle['formaPagoNota'] = trim((string) ($facturaRow['Nota'] ?? '')) ?: null;
         $detalle['pjeRetIrpf'] = round((float) ($facturaRow['PjeRetIrpf'] ?? 0), 4);
         $detalle['basRetIrpf'] = round((float) ($facturaRow['BasRetIrpf'] ?? 0), 2);
         $detalle['impRetIrpf'] = round((float) ($facturaRow['ImpRetIrpf'] ?? 0), 2);
@@ -729,6 +737,32 @@ final class VentaConsultaService
     }
 
     return $empresa;
+  }
+
+  /** Factura creada al compensar este ticket con un ticket negativo. */
+  private function enriquecerConversionTicket(array &$detalle): void
+  {
+    $detalle['facturaConversion'] = null;
+    $ft = strtoupper(trim((string) ($detalle['facturaTipo'] ?? '')));
+    $albaran = (int) ($detalle['albaran'] ?? 0);
+    $empresa = trim((string) ($detalle['empresa'] ?? ''));
+    if ($ft !== 'T' || $albaran <= 0 || $empresa === '') {
+      return;
+    }
+    try {
+      $st = $this->pdo->prepare(
+        'SELECT TOP 1 Factura FROM Facturas
+         WHERE Empresa = :e AND ISNULL(TrasformacionTicketFactura, 0) = 1
+           AND AlbaranTicketTransformado = :a'
+      );
+      $st->execute(['e' => $empresa, 'a' => $albaran]);
+      $n = $st->fetchColumn();
+      if ($n !== false && (int) $n > 0) {
+        $detalle['facturaConversion'] = (int) $n;
+      }
+    } catch (\Throwable $e) {
+      $detalle['facturaConversion'] = null;
+    }
   }
 
   /**

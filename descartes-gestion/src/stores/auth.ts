@@ -9,6 +9,7 @@ export interface Usuario {
   codigo: string
   nombre: string
   rolCodigo: string | null
+  rolNombre?: string | null
 }
 
 export const useAuthStore = defineStore('auth', () => {

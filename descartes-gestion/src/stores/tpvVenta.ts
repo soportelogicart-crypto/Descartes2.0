@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import {
   anularVentaTpv,
+  buscarArticulosTpv,
   obtenerContextoTpv,
   obtenerPrecioArticuloTpv,
   obtenerTicketsEsperaTpv,
@@ -13,9 +14,12 @@ import {
   actualizarVenta,
   crearVenta,
   finalizarVenta,
+  ofertasLinea,
+  porcentajesOfertaLinea,
   reservarAlbaran,
+  type OfertaLinea,
 } from '@/api/ventas'
-import { extractApiError } from '@/composables/extractApiError'
+import { extractApiError, isApiNotFound } from '@/composables/extractApiError'
 import {
   CLIENTE_RAPIDO_TPV,
   type TpvArticuloPrecio,
@@ -56,6 +60,8 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
   const aviso = ref<string | null>(null)
   const pendientePrecio = ref<TpvPrecioPendiente | null>(null)
   const ticketsEspera = ref<TpvTicketEspera[]>([])
+  /** Documento abierto solo para consultarlo: no se graba ni se anula. */
+  const enConsulta = ref(false)
 
   const total = computed(() => lineas.value.reduce((sum, l) => sum + l.importe, 0))
 
@@ -83,6 +89,12 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
   function limpiarAvisos() {
     error.value = null
     aviso.value = null
+  }
+
+  function rechazarConsulta(): boolean {
+    if (!enConsulta.value) return false
+    error.value = 'Está consultando un documento. Ciérrelo antes de vender.'
+    return true
   }
 
   function lineasParaPayload(): VentaLinea[] {
@@ -294,6 +306,64 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
     pendientePrecio.value = null
   }
 
+  function mostrarConsulta(detalle: VentaDetalle): boolean {
+    if (!enConsulta.value && (lineas.value.length > 0 || ventaGrabada.value)) {
+      error.value = 'Ponga primero la venta actual en espera o anúlela'
+      return false
+    }
+    cargarVentaRecuperada(detalle)
+    enConsulta.value = true
+    aviso.value = null
+    return true
+  }
+
+  function cerrarConsulta() {
+    lineas.value = []
+    venta.value = null
+    reserva.value = null
+    cliente.value = null
+    pendientePrecio.value = null
+    enConsulta.value = false
+  }
+
+  /**
+   * Copia el documento en consulta a un ticket nuevo. El original no se
+   * modifica: se reserva otro albarán y se graban las mismas líneas y el
+   * mismo cliente para poder cambiarlas y cobrarlas.
+   */
+  async function repetirVentaConsultada(): Promise<boolean> {
+    if (!enConsulta.value || !venta.value) return false
+    const detalle = venta.value
+    const copia = lineas.value
+      .filter((l) => {
+        const art = l.articulo.trim()
+        if (art.toUpperCase() === 'NO') return l.descripcion.trim() !== ''
+        return art !== '' && l.cantidad !== 0
+      })
+      .map((l) => ({ ...l }))
+    if (!copia.length) {
+      error.value = 'No hay líneas para repetir'
+      return false
+    }
+    const cli = cliente.value ? { ...cliente.value } : null
+    cerrarConsulta()
+    const abierto = await abrirTicket()
+    if (!abierto) {
+      mostrarConsulta(detalle)
+      return false
+    }
+    cliente.value = cli
+    lineas.value = copia
+    try {
+      await persistirLineas()
+      aviso.value = 'Venta repetida. Puede modificarla y cobrarla.'
+      return true
+    } catch (e: unknown) {
+      error.value = extractApiError(e, 'No se pudo repetir la venta')
+      return false
+    }
+  }
+
   async function cargarTicketsEspera(): Promise<boolean> {
     const c = contexto.value
     if (!c) return false
@@ -311,6 +381,7 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
   }
 
   async function ponerEnEspera(): Promise<boolean> {
+    if (rechazarConsulta()) return false
     const c = contexto.value
     const v = venta.value
     if (!c || !v || lineas.value.length === 0) {
@@ -362,6 +433,74 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
     }
   }
 
+  async function ofertaArticulo(articulo: string): Promise<OfertaLinea> {
+    const sinOferta: OfertaLinea = { pjeDto: 0, regalo: null }
+    const empresa = String(contexto.value?.empresa ?? '').trim()
+    const cli = codigoCliente.value
+    if (!empresa || !cli || cli === CLIENTE_RAPIDO_TPV) return sinOferta
+    try {
+      const map = await ofertasLinea({
+        cliente: cli,
+        empresa,
+        articulos: [articulo],
+      })
+      return map[articulo.trim()] ?? sinOferta
+    } catch {
+      return sinOferta
+    }
+  }
+
+  /** Artículo regalo de la oferta: va al precio de tarifa con el 100 % de descuento. */
+  async function anadirRegalo(regalo: OfertaLinea['regalo']) {
+    if (!regalo || !contexto.value) return
+    const existente = lineas.value.find((l) => l.regalo && l.articulo === regalo.articulo)
+    if (existente) {
+      existente.cantidad += regalo.cantidad
+      return
+    }
+    try {
+      const tarifa = contexto.value.tarifa > 0 ? contexto.value.tarifa : 1
+      const art = await obtenerPrecioArticuloTpv(regalo.articulo, {
+        tarifa,
+        empresa: contexto.value.empresa,
+      })
+      lineas.value.push({
+        articulo: art.codigo,
+        descripcion: art.descripcion,
+        cantidad: regalo.cantidad,
+        precio: art.precio,
+        pjeDto: 100,
+        importe: 0,
+        pjeIva: art.iva ?? 21,
+        regalo: true,
+      })
+    } catch (e: unknown) {
+      error.value = extractApiError(e, `No se pudo añadir el artículo regalo ${regalo.articulo}`)
+    }
+  }
+
+  async function aplicarOfertasEnLineas() {
+    const empresa = String(contexto.value?.empresa ?? '').trim()
+    const arts = lineas.value.map((l) => l.articulo).filter((c) => c.trim() !== '')
+    if (!empresa || arts.length === 0) return
+    try {
+      const map = await porcentajesOfertaLinea({
+        cliente: codigoCliente.value,
+        empresa,
+        articulos: arts,
+      })
+      for (const linea of lineas.value) {
+        const codigo = linea.articulo.trim()
+        // pjeDto 100: regalo de un ticket recuperado (la marca regalo no se guarda).
+        if (!codigo || linea.regalo || linea.pjeDto >= 100 || !(codigo in map)) continue
+        linea.pjeDto = map[codigo]
+        linea.importe = importeLinea(linea.cantidad, linea.precio, linea.pjeDto)
+      }
+    } catch {
+      /* la línea se añade igual, sin el porcentaje de la oferta */
+    }
+  }
+
   /** Alta de línea a partir de un artículo ya resuelto (botón táctil, tecleo o pistola). */
   async function anadirResuelto(art: TpvArticuloPrecio, unidades: number) {
     if (art.bloqueado) {
@@ -370,7 +509,19 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
     }
 
     const pjeIva = art.iva ?? 21
-    const existente = lineas.value.find((l) => l.articulo === art.codigo)
+
+    // Sin PVP cada pulsación pide el precio y crea otra línea: no se reutiliza el anterior.
+    if (art.precio <= 0) {
+      pendientePrecio.value = {
+        articulo: art.codigo,
+        descripcion: art.descripcion,
+        cantidad: unidades,
+        pjeIva,
+      }
+      return
+    }
+
+    const existente = lineas.value.find((l) => !l.regalo && l.articulo === art.codigo)
     if (existente) {
       existente.cantidad += unidades
       existente.importe = importeLinea(
@@ -382,53 +533,107 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
       return
     }
 
-    // Artículo sin PVP en la tarifa: el cajero introduce el precio antes de crear la línea.
-    if (art.precio <= 0) {
-      pendientePrecio.value = {
-        articulo: art.codigo,
-        descripcion: art.descripcion,
-        cantidad: unidades,
-        pjeIva,
-      }
-      return
-    }
-
+    const oferta = await ofertaArticulo(art.codigo)
     lineas.value.push({
       articulo: art.codigo,
       descripcion: art.descripcion,
       cantidad: unidades,
       precio: art.precio,
-      pjeDto: 0,
-      importe: importeLinea(unidades, art.precio),
+      pjeDto: oferta.pjeDto,
+      importe: importeLinea(unidades, art.precio, oferta.pjeDto),
       pjeIva,
     })
+    await anadirRegalo(oferta.regalo)
     await persistirLineas()
   }
 
-  /** Entrada manual o por pistola: resuelve código, Alternativo o EAN. */
-  async function anadirPorCodigo(query: string, cantidad = 1) {
-    const q = String(query ?? '').trim()
-    if (!q) return
+  /**
+   * Línea de nota (artículo NO): no lleva precio, no mueve stock y cada una
+   * es una línea distinta. El texto se escribe después con DESCRIP.
+   */
+  async function anadirNota(): Promise<boolean> {
+    if (rechazarConsulta()) return false
     if (!contexto.value || !reserva.value) {
       error.value = 'Pulse NUEVA VENTA para abrir un ticket'
-      return
+      return false
+    }
+    limpiarAvisos()
+    lineas.value.push({
+      articulo: 'NO',
+      descripcion: '',
+      cantidad: 0,
+      precio: 0,
+      pjeDto: 0,
+      importe: 0,
+      pjeIva: 0,
+    })
+    try {
+      await persistirLineas()
+      return true
+    } catch (e: unknown) {
+      lineas.value.pop()
+      error.value = extractApiError(e, 'No se pudo añadir la nota')
+      return false
+    }
+  }
+
+  /** Un código de barras no encontrado no debe buscarse como texto. */
+  function pareceCodigoBarras(q: string): boolean {
+    return /^\d{8,}$/.test(q)
+  }
+
+  /**
+   * Entrada manual o por pistola. Primero código, Alternativo o EAN.
+   * Si no existe y el texto no es un código de barras, busca por descripción.
+   */
+  async function anadirPorCodigo(
+    query: string,
+    cantidad = 1
+  ): Promise<'anadido' | 'nota' | 'elegir' | 'error'> {
+    if (rechazarConsulta()) return 'error'
+    const q = String(query ?? '').trim()
+    if (!q) return 'error'
+    if (!contexto.value || !reserva.value) {
+      error.value = 'Pulse NUEVA VENTA para abrir un ticket'
+      return 'error'
+    }
+    if (q.toUpperCase() === 'NO') {
+      return (await anadirNota()) ? 'nota' : 'error'
     }
     limpiarAvisos()
     guardando.value = true
+    const tarifa = contexto.value.tarifa > 0 ? contexto.value.tarifa : 1
     try {
-      const tarifa = contexto.value.tarifa > 0 ? contexto.value.tarifa : 1
       const art = await resolverArticuloTpv(q, { tarifa })
-      // Un EAN de paquete aporta varias unidades por lectura.
       const unidades = (cantidad > 0 ? cantidad : 1) * (art.unidadesPaquete || 1)
       await anadirResuelto(art, unidades)
+      return 'anadido'
     } catch (e: unknown) {
-      error.value = extractApiError(e, `No se pudo añadir el artículo "${q}"`)
+      if (!isApiNotFound(e) || pareceCodigoBarras(q) || q.length < 2) {
+        error.value = extractApiError(e, `No se pudo añadir el artículo "${q}"`)
+        return 'error'
+      }
     } finally {
       guardando.value = false
+    }
+
+    try {
+      const items = await buscarArticulosTpv(q, { tarifa, limite: 30, ambito: 'articulo' })
+      if (items.length === 1) {
+        await anadirArticulo(items[0].codigo, cantidad > 0 ? cantidad : 1)
+        return 'anadido'
+      }
+      if (items.length > 1) return 'elegir'
+      error.value = `No se ha encontrado ningún artículo con "${q}"`
+      return 'error'
+    } catch (e: unknown) {
+      error.value = extractApiError(e, 'No se pudo buscar el artículo')
+      return 'error'
     }
   }
 
   async function anadirArticulo(codigo: string, cantidad = 1) {
+    if (rechazarConsulta()) return
     if (!contexto.value || !reserva.value) {
       error.value = 'Pulse NUEVA VENTA para abrir un ticket'
       return
@@ -451,6 +656,7 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
   }
 
   async function confirmarPrecioPendiente(precio: number) {
+    if (rechazarConsulta()) return
     const pend = pendientePrecio.value
     if (!pend) return
     if (!(precio > 0)) {
@@ -461,15 +667,17 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
     guardando.value = true
     limpiarAvisos()
     try {
+      const oferta = await ofertaArticulo(pend.articulo)
       lineas.value.push({
         articulo: pend.articulo,
         descripcion: pend.descripcion,
         cantidad: pend.cantidad,
         precio,
-        pjeDto: 0,
-        importe: importeLinea(pend.cantidad, precio),
+        pjeDto: oferta.pjeDto,
+        importe: importeLinea(pend.cantidad, precio, oferta.pjeDto),
         pjeIva: pend.pjeIva,
       })
+      await anadirRegalo(oferta.regalo)
       await persistirLineas()
     } catch (e: unknown) {
       error.value = extractApiError(e, 'No se pudo añadir el artículo')
@@ -483,6 +691,7 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
   }
 
   async function cambiarPrecioLinea(indice: number, precio: number) {
+    if (rechazarConsulta()) return
     const lin = lineas.value[indice]
     if (!lin) return
     if (!(precio > 0)) {
@@ -503,6 +712,7 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
   }
 
   async function cambiarCantidad(indice: number, delta: number) {
+    if (rechazarConsulta()) return
     const lin = lineas.value[indice]
     if (!lin) return
     const nueva = lin.cantidad + delta
@@ -524,7 +734,24 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
     }
   }
 
+  async function cambiarDescripcionLinea(indice: number, descripcion: string) {
+    if (rechazarConsulta()) return
+    const lin = lineas.value[indice]
+    if (!lin) return
+    lin.descripcion = descripcion.trim().slice(0, 50)
+    guardando.value = true
+    limpiarAvisos()
+    try {
+      await persistirLineas()
+    } catch (e: unknown) {
+      error.value = extractApiError(e, 'No se pudo cambiar la descripción')
+    } finally {
+      guardando.value = false
+    }
+  }
+
   async function cambiarDescuentoLinea(indice: number, pjeDto: number) {
+    if (rechazarConsulta()) return
     const lin = lineas.value[indice]
     if (!lin) return
     if (!Number.isFinite(pjeDto) || pjeDto < 0 || pjeDto > 100) {
@@ -550,6 +777,7 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
    * existe queda pendiente y se graba al crearla con la primera línea.
    */
   async function asignarCliente(cli: TpvCliente | null) {
+    if (rechazarConsulta()) return
     if (!contexto.value) {
       error.value = 'Caja no abierta'
       return
@@ -563,6 +791,7 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
       aviso.value = `El cliente tiene tarifa ${cli.tarifa} y la caja aplica la ${tarifaPuesto}: revise los precios`
     }
 
+    await aplicarOfertasEnLineas()
     if (!venta.value) return
 
     guardando.value = true
@@ -587,8 +816,9 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
   async function cobrar(
     tipoDocumento: string,
     formaPago = '',
-    opciones: { aplicarValeFidelizacion?: boolean } = {}
+    opciones: { aplicarValeFidelizacion?: boolean; aplicarPuntosFidelizacion?: boolean } = {}
   ): Promise<VentaDetalle | null> {
+    if (rechazarConsulta()) return null
     const tipo = String(tipoDocumento ?? '').trim().toUpperCase()
     if (!['T', 'A', 'P', 'F'].includes(tipo)) {
       error.value = 'Seleccione el tipo de documento'
@@ -635,6 +865,7 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
   }
 
   async function quitarLinea(indice: number) {
+    if (rechazarConsulta()) return
     if (indice < 0 || indice >= lineas.value.length) return
     lineas.value.splice(indice, 1)
     if (lineas.value.length === 0 && venta.value) {
@@ -679,6 +910,10 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
    * elimina el documento completo en el backend antes de limpiar la pantalla.
    */
   async function anularVentaActual(): Promise<boolean> {
+    if (enConsulta.value) {
+      cerrarConsulta()
+      return true
+    }
     guardando.value = true
     limpiarAvisos()
     try {
@@ -720,6 +955,7 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
     ticketListo,
     numeroTicket,
     ventaGrabada,
+    enConsulta,
     abrirCaja,
     abrirTicket,
     cerrarTicket,
@@ -727,11 +963,16 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
     ponerEnEspera,
     recuperarEnEspera,
     cargarVentaRecuperada,
+    mostrarConsulta,
+    cerrarConsulta,
+    repetirVentaConsultada,
     anadirArticulo,
+    anadirNota,
     anadirPorCodigo,
     confirmarPrecioPendiente,
     cancelarPrecioPendiente,
     cambiarPrecioLinea,
+    cambiarDescripcionLinea,
     cambiarCantidad,
     cambiarDescuentoLinea,
     quitarLinea,

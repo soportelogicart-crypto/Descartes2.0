@@ -342,7 +342,7 @@ defineEmits<{
         :disabled="loading || puedeFinalizar === false"
         :title="
           esTicketCerrado
-            ? 'Pasar ticket a factura'
+            ? 'Crear ticket negativo y factura de contado'
             : etiquetaFinalizar || 'Finalizar: tipificar cuando el albaran tenga lineas'
         "
         @click="$emit('finalizar')"

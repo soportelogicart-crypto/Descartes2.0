@@ -22,11 +22,44 @@ function redondear2(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100
 }
 
-/** En factura solo se muestran los 16 primeros dígitos de la cuenta del cliente. */
+/** Oculta los 4 últimos dígitos. Si ya contiene XXXX, no la toca. */
 export function cuentaBancariaEnmascarada(valor: string | null | undefined): string {
-  const cuenta = String(valor ?? '').replace(/\s+/g, '')
-  if (cuenta.length <= 4) return cuenta
-  return `${cuenta.slice(0, -4)}XXXX`
+  const texto = String(valor ?? '').trim()
+  if (!texto || texto.includes('XXXX')) return texto
+  let pendientes = 4
+  const chars = [...texto]
+  for (let i = chars.length - 1; i >= 0 && pendientes > 0; i--) {
+    if (/\d/.test(chars[i])) {
+      chars[i] = 'X'
+      pendientes--
+    }
+  }
+  if (pendientes > 0) return texto
+  return chars.join('')
+}
+
+/**
+ * Datos bancarios del cliente en facturas.
+ * Transferencia (FormasPago.Tipo = X): solo el texto de Clasificación → Nota, sin enmascarar.
+ * Resto: el IBAN del cliente con los 4 últimos dígitos ocultos y el nombre de la entidad.
+ */
+export function datosBancariosCliente(datos: {
+  formaPagoTipo?: string | null
+  formaPagoNota?: string | null
+  cuentaBancaria?: string | null
+  iban?: string | null
+  banco?: string | null
+}): { cuentaBancaria: string; iban: string; banco: string } {
+  const tipo = String(datos.formaPagoTipo ?? '').trim().toUpperCase()
+  if (tipo === 'X') {
+    return { cuentaBancaria: String(datos.formaPagoNota ?? '').trim(), iban: '', banco: '' }
+  }
+  const iban = String(datos.iban ?? '').trim() || String(datos.cuentaBancaria ?? '').trim()
+  return {
+    cuentaBancaria: cuentaBancariaEnmascarada(iban),
+    iban: '',
+    banco: String(datos.banco ?? '').trim(),
+  }
 }
 
 /** Mapea una venta real a los datos de plantilla (preview / ticket / A4). */
@@ -68,6 +101,13 @@ export function ventaAPreviewDatos(
       : String(venta.albaran || '')
 
   const nLit = Math.max(0, Math.min(9, Number(extras.literalTicket ?? 3) || 0))
+  const banco = datosBancariosCliente({
+    formaPagoTipo: venta.formaPagoTipo,
+    formaPagoNota: venta.formaPagoNota,
+    cuentaBancaria: venta.clienteCuentaBancaria,
+    iban: venta.clienteIban,
+    banco: venta.clienteBanco,
+  })
   const lits = (extras.literalesPuesto ?? []).slice(0, nLit)
   const lineas: DocumentoPreviewLinea[] = []
   for (const l of venta.lineas ?? []) {
@@ -150,9 +190,10 @@ export function ventaAPreviewDatos(
       pais: String(venta.paisEnvio ?? ''),
       cif: String(venta.nif ?? ''),
       telefono: String(venta.telefono ?? ''),
-      cuentaBancaria: cuentaBancariaEnmascarada(venta.clienteCuentaBancaria),
-      iban: String(venta.clienteIban ?? ''),
+      cuentaBancaria: banco.cuentaBancaria,
+      iban: banco.iban,
       swift: String(venta.clienteSwift ?? ''),
+      banco: banco.banco,
     },
     documento: {
       numero: numDoc,

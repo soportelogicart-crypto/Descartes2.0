@@ -46,6 +46,10 @@ return function (App $app): void {
       ->add($setPermiso('tpv', 'ver'));
     $group->get('/tickets-en-espera', [TpvController::class, 'listarTicketsEspera'])
       ->add($setPermiso('tpv', 'ver'));
+    $group->get('/ventas', [TpvController::class, 'listVentas'])
+      ->add($setPermiso('tpv', 'ver'));
+    $group->get('/ventas/{empresa}/{tipo}/{albaran}', [TpvController::class, 'getVenta'])
+      ->add($setPermiso('tpv', 'ver'));
     $group->post('/ventas/{empresa}/{tipo}/{albaran}/en-espera', [TpvController::class, 'ponerTicketEnEspera'])
       ->add($setPermiso('tpv', 'editar'));
     $group->post('/ventas/{empresa}/{tipo}/{albaran}/recuperar', [TpvController::class, 'recuperarTicketEspera'])

@@ -8,7 +8,9 @@ import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
 import { useGridRenderLimit } from '@/composables/useGridRenderLimit'
 import {
   imprimirFacturasPreparadas,
+  pdfsFacturasDesdePlantilla,
   prepararImpresionFacturas,
+  type FacturaImpresionPreparada,
   type PrepImpresionFacturas,
 } from '@/composables/useImpresionFacturaDocumento'
 import { useVentanaPreviewDocumento } from '@/composables/previewDocumentoVentana'
@@ -305,7 +307,7 @@ function soloImprimir() {
 function quererEmail() {
   preguntaEmailOpen.value = false
   const sel = seleccionados.value
-  emailDestino.value = ''
+  emailDestino.value = sel.length === 1 ? String(sel[0].email ?? '').trim() : ''
   emailOpen.value = true
   error.value = null
   if (sel.length === 0) {
@@ -314,11 +316,46 @@ function quererEmail() {
   }
 }
 
-function resumenEmail(r: { enviadas: number; omitidas: number; errores: number }) {
+function resumenEmail(r: {
+  enviadas: number
+  omitidas: number
+  errores: number
+  detalles?: Array<{ estado: string; destinatario?: string; motivo?: string }>
+}) {
+  const enviada = r.detalles?.find((d) => d.estado === 'enviada')
+  if (r.enviadas === 1 && enviada?.destinatario) {
+    return `Factura enviada a ${enviada.destinatario}`
+  }
   const partes = [`Enviadas ${r.enviadas}`]
   if (r.omitidas) partes.push(`${r.omitidas} sin email`)
-  if (r.errores) partes.push(`${r.errores} error(es)`)
+  if (r.errores) partes.push(`${r.errores} con error`)
   return partes.join(' · ')
+}
+
+function motivoEnvio(r: {
+  detalles?: Array<{ estado: string; motivo?: string }>
+}) {
+  return r.detalles?.find((d) => d.estado !== 'enviada')?.motivo ?? ''
+}
+
+/** Pinta cada factura con su plantilla (fuera de pantalla) y la convierte a PDF. */
+async function pdfsPlantilla(
+  claves: { empresa: string; facturaTipo: string; factura: number }[]
+): Promise<Record<string, string>> {
+  const prep = await prepararImpresionFacturas(claves, {
+    puestoCodigo: String(puestoContexto.puestoCodigo ?? ''),
+  })
+  try {
+    return await pdfsFacturasDesdePlantilla(prep, async (doc: FacturaImpresionPreparada) => {
+      a4Prep.value = { ...prep, documentos: [doc] }
+      a4Open.value = true
+      await nextTick()
+      return (await a4ModalRef.value?.capturarHtmlFolio()) || ''
+    })
+  } finally {
+    a4Open.value = false
+    a4Prep.value = null
+  }
 }
 
 async function confirmarEmail() {
@@ -326,18 +363,12 @@ async function confirmarEmail() {
   if (sel.length === 0) return
   const email = emailDestino.value.trim()
   error.value = null
-  // Abrir la ventana de preview en este clic (si no, el navegador la bloquea).
-  const abierta = preview.abrir(
-    sel.length === 1 ? `Factura ${sel[0].facturaTipo}-${sel[0].factura}` : 'Facturas'
-  )
-  if (!abierta) {
-    error.value = 'Permita las ventanas emergentes para previsualizar la factura'
-    return
-  }
-  emailOpen.value = false
-  saving.value = true
   mensaje.value = null
+  saving.value = true
   try {
+    const pdfs = await pdfsPlantilla(
+      sel.map((r) => ({ empresa: r.empresa, facturaTipo: r.facturaTipo, factura: r.factura }))
+    )
     const result = await enviarFacturasImpresionEmail({
       facturas: sel.map((r) => ({
         empresa: r.empresa,
@@ -346,18 +377,23 @@ async function confirmarEmail() {
         cliente: r.cliente,
       })),
       email: email || undefined,
+      pdfs,
     })
-    mensaje.value = resumenEmail(result)
-    if (result.errores > 0) {
-      error.value = result.detalles.find((d) => d.estado === 'error')?.motivo ?? 'Error al enviar'
+    if (result.enviadas < 1) {
+      error.value = motivoEnvio(result) || 'No se ha enviado el correo'
+      return
     }
+    mensaje.value = resumenEmail(result)
+    const aviso = motivoEnvio(result)
+    if (aviso) error.value = aviso
   } catch (e: unknown) {
-    preview.cerrar()
     error.value = extractApiError(e, 'No se pudieron enviar las facturas')
-    saving.value = false
     return
+  } finally {
+    saving.value = false
   }
-  await cargarPreview(true)
+  emailOpen.value = false
+  await cargarPreview(false)
 }
 
 /** Previsualiza con la plantilla del diseñador activa en una ventana aparte. */
@@ -487,9 +523,6 @@ onMounted(async () => {
         </p>
       </div>
       <div class="toolbar-actions">
-        <button type="button" class="btn" :disabled="loading || loadingOpts" @click="buscar">
-          {{ loading ? 'Buscando…' : 'Buscar' }}
-        </button>
         <button
           type="button"
           class="btn primary"
@@ -640,6 +673,10 @@ onMounted(async () => {
               </select>
             </div>
           </fieldset>
+
+          <button type="submit" class="btn primary btn-buscar" :disabled="loading || loadingOpts">
+            {{ loading ? 'Buscando…' : 'Buscar' }}
+          </button>
 
           <div class="resumen">
             <div>
@@ -792,6 +829,7 @@ onMounted(async () => {
             }}</span>
             <input v-model="emailDestino" type="email" placeholder="cliente@ejemplo.com" />
           </label>
+          <p v-if="error" class="error">{{ error }}</p>
           <div class="modal-actions">
             <button type="button" class="btn" :disabled="saving" @click="emailOpen = false">
               Cancelar
@@ -865,6 +903,10 @@ onMounted(async () => {
   background: #0f172a;
   color: #fff;
   border-color: #0f172a;
+}
+.btn-buscar {
+  width: 100%;
+  flex-shrink: 0;
 }
 .layout {
   display: grid;

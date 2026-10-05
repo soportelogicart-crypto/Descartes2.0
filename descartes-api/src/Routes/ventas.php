@@ -7,6 +7,7 @@ use Descartes\Api\Controllers\VentasController;
 use Descartes\Api\Middleware\AuthMiddleware;
 use Descartes\Api\Middleware\PermissionMiddleware;
 use Descartes\Api\Services\Listados\ListadosPermisosModulo;
+use Descartes\Api\Services\PermissionService;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Slim\App;
@@ -32,9 +33,25 @@ return function (App $app): void {
     );
   };
 
-  $app->group('/api/ventas', function (RouteCollectorProxy $group) use ($setPermiso, $permisoAbcSubmenu) {
+  $verDescuentoOferta = function (ServerRequestInterface $request, RequestHandlerInterface $handler) use ($app) {
+    $usuario = $request->getAttribute('usuario') ?? $_SESSION['usuario'] ?? [];
+    if (!is_array($usuario)) {
+      $usuario = [];
+    }
+    /** @var PermissionService $permisos */
+    $permisos = $app->getContainer()->get(PermissionService::class);
+    $modulo = $permisos->puede($usuario, 'ventas', 'ver') ? 'ventas' : 'tpv';
+
+    return $handler->handle(
+      $request->withAttribute('permisoModulo', $modulo)->withAttribute('permisoAccion', 'ver')
+    );
+  };
+
+  $app->group('/api/ventas', function (RouteCollectorProxy $group) use ($setPermiso, $permisoAbcSubmenu, $verDescuentoOferta) {
     $group->get('/codigos-postales/{codigo}', [CodigoPostalController::class, 'lookup'])
       ->add($setPermiso('ventas', 'ver'));
+    $group->get('/descuento-oferta', [VentasController::class, 'descuentoOferta'])
+      ->add($verDescuentoOferta);
     $group->get('/albaranes', [VentasController::class, 'listVentas'])
       ->add($setPermiso('ventas', 'ver'));
     $group->get('/autorizacion-tarjeta/{empresa}/buscar', [VentasController::class, 'buscarAutorizacionTarjeta'])
@@ -67,6 +84,8 @@ return function (App $app): void {
     $group->get('/albaranes/{empresa}/{tipo}/{albaran}/pdf', [VentasController::class, 'pdfVenta'])
       ->add($setPermiso('ventas', 'ver'));
 
+    $group->get('/situacion', [VentasController::class, 'getSituacionVentas'])
+      ->add($setPermiso('ventas-situacion', 'ver'));
     $group->get('/arqueos', [VentasController::class, 'getArqueo'])
       ->add($setPermiso('ventas-arqueo', 'ver'));
     $group->get('/arqueos/desglose', [VentasController::class, 'getArqueoDesglose'])
@@ -114,6 +133,16 @@ return function (App $app): void {
       ->add($setPermiso('clientes', 'ver'));
     $group->put('/fidelizacion/configuracion', [VentasController::class, 'seleccionarModeloFidelizacion'])
       ->add($setPermiso('clientes', 'editar'));
+    $group->put('/fidelizacion/tiendas', [VentasController::class, 'marcarTiendaSinPuntos'])
+      ->add($setPermiso('clientes', 'editar'));
+    $group->put('/fidelizacion/semestre', [VentasController::class, 'guardarSemestreFidelizacion'])
+      ->add($setPermiso('clientes', 'editar'));
+    $group->put('/fidelizacion/puntos', [VentasController::class, 'guardarPuntosFidelizacion'])
+      ->add($setPermiso('clientes', 'editar'));
+    $group->get('/fidelizacion/arbol-exclusion', [VentasController::class, 'arbolExclusionFidelizacion'])
+      ->add($setPermiso('clientes', 'ver'));
+    $group->get('/fidelizacion/puntos-canje', [VentasController::class, 'puntosCanjeDisponible'])
+      ->add($verDescuentoOferta);
     // Cualquier usuario autenticado puede disparar la tarea idempotente al abrir el programa.
     $group->get('/fidelizacion/automatico/estado', [VentasController::class, 'estadoAutomaticoFidelizacion']);
     $group->post('/fidelizacion/automatico/generar', [VentasController::class, 'generarAutomaticamenteFidelizacion']);

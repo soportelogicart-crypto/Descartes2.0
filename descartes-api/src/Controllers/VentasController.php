@@ -14,8 +14,11 @@ use Descartes\Api\Services\Ventas\ArqueoService;
 use Descartes\Api\Services\Ventas\CobroPagoConsultaService;
 use Descartes\Api\Services\Ventas\DesgloseArqueoVentasService;
 use Descartes\Api\Services\Ventas\DispositivoPuestoService;
+use Descartes\Api\Services\Ventas\FidelizacionService;
 use Descartes\Api\Services\Ventas\FidelizacionValesSemestreService;
+use Descartes\Api\Services\TipoDescuentoService;
 use Descartes\Api\Services\Ventas\PedidoClienteService;
+use Descartes\Api\Services\Ventas\SituacionVentasService;
 use Descartes\Api\Services\Ventas\ValeService;
 use Descartes\Api\Services\Ventas\VentaConsultaService;
 use Descartes\Api\Services\Ventas\VentaEmailService;
@@ -36,12 +39,15 @@ final class VentasController
   private AnulacionConsultaService $anulaciones;
   private CobroPagoConsultaService $cobrosPagos;
   private ValeService $vales;
+  private FidelizacionService $fidelizacion;
   private FidelizacionValesSemestreService $fidelizacionVales;
   private PedidoClienteService $pedidos;
   private AbcVentasService $abcVentas;
   private VentaEmailService $ventaEmail;
   private AutorizacionTarjetaService $autorizacionesTarjeta;
   private PermissionService $permissions;
+  private TipoDescuentoService $tiposDescuento;
+  private SituacionVentasService $situacionVentas;
   private LoggerInterface $logger;
 
   public function __construct(
@@ -54,12 +60,15 @@ final class VentasController
     AnulacionConsultaService $anulaciones,
     CobroPagoConsultaService $cobrosPagos,
     ValeService $vales,
+    FidelizacionService $fidelizacion,
     FidelizacionValesSemestreService $fidelizacionVales,
     PedidoClienteService $pedidos,
     AbcVentasService $abcVentas,
     VentaEmailService $ventaEmail,
     AutorizacionTarjetaService $autorizacionesTarjeta,
     PermissionService $permissions,
+    TipoDescuentoService $tiposDescuento,
+    SituacionVentasService $situacionVentas,
     LoggerInterface $logger
   ) {
     $this->ventas = $ventas;
@@ -71,13 +80,39 @@ final class VentasController
     $this->anulaciones = $anulaciones;
     $this->cobrosPagos = $cobrosPagos;
     $this->vales = $vales;
+    $this->fidelizacion = $fidelizacion;
     $this->fidelizacionVales = $fidelizacionVales;
     $this->pedidos = $pedidos;
     $this->abcVentas = $abcVentas;
     $this->ventaEmail = $ventaEmail;
     $this->autorizacionesTarjeta = $autorizacionesTarjeta;
     $this->permissions = $permissions;
+    $this->tiposDescuento = $tiposDescuento;
+    $this->situacionVentas = $situacionVentas;
     $this->logger = $logger;
+  }
+
+  public function descuentoOferta(Request $request, Response $response): Response
+  {
+    $query = $request->getQueryParams();
+    $articulos = $query['articulos'] ?? $query['articulo'] ?? '';
+    if (!is_array($articulos)) {
+      $articulos = explode(',', (string) $articulos);
+    }
+    try {
+      $items = $this->tiposDescuento->porcentajesLinea(
+        (string) ($query['cliente'] ?? ''),
+        (string) ($query['empresa'] ?? ''),
+        (string) ($query['fecha'] ?? ''),
+        $articulos
+      );
+
+      return $this->json($response, 200, ['items' => $items]);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, 'No se pudo calcular el descuento de la oferta', 'ERROR');
+    }
   }
 
   public function listVentas(Request $request, Response $response): Response
@@ -116,7 +151,8 @@ final class VentasController
         (string) ($args['empresa'] ?? ''),
         (string) ($args['tipo'] ?? ''),
         (int) ($args['albaran'] ?? 0),
-        (string) ($body['email'] ?? '')
+        (string) ($body['email'] ?? ''),
+        isset($body['pdf']) ? (string) $body['pdf'] : null
       );
       $this->audit('ventas.email', 'Documento de venta enviado por email', [
         'empresa' => $args['empresa'] ?? null,
@@ -334,6 +370,17 @@ final class VentasController
       return $this->runtimeError($response, $e);
     } catch (\Throwable $e) {
       return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function getSituacionVentas(Request $request, Response $response): Response
+  {
+    try {
+      return $this->json($response, 200, $this->situacionVentas->consultar($request->getQueryParams()));
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR_INTERNO');
     }
   }
 
@@ -717,6 +764,100 @@ final class VentasController
         $response,
         200,
         $this->fidelizacionVales->configuracion(trim((string) ($q['empresa'] ?? '')))
+      );
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    }
+  }
+
+  public function guardarSemestreFidelizacion(Request $request, Response $response): Response
+  {
+    $body = (array) ($request->getParsedBody() ?? []);
+    try {
+      return $this->json(
+        $response,
+        200,
+        $this->fidelizacionVales->guardarConfiguracion(
+          trim((string) ($body['codigo'] ?? '')),
+          $body
+        )
+      );
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    }
+  }
+
+  public function guardarPuntosFidelizacion(Request $request, Response $response): Response
+  {
+    $body = (array) ($request->getParsedBody() ?? []);
+    try {
+      return $this->json(
+        $response,
+        200,
+        $this->fidelizacion->guardarConfiguracionPuntos(
+          trim((string) ($body['codigo'] ?? '')),
+          $body
+        )
+      );
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    }
+  }
+
+  public function arbolExclusionFidelizacion(Request $request, Response $response): Response
+  {
+    $q = $request->getQueryParams();
+    try {
+      return $this->json(
+        $response,
+        200,
+        $this->fidelizacion->arbolExclusion(
+          trim((string) ($q['nivel'] ?? '')),
+          trim((string) ($q['codigo'] ?? ''))
+        )
+      );
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, 'No se pudo cargar el árbol de artículos', 'ERROR');
+    }
+  }
+
+  public function puntosCanjeDisponible(Request $request, Response $response): Response
+  {
+    $q = $request->getQueryParams();
+    try {
+      return $this->json(
+        $response,
+        200,
+        $this->fidelizacion->canjeDisponible(
+          trim((string) ($q['empresa'] ?? '')),
+          trim((string) ($q['cliente'] ?? '')),
+          (float) ($q['importe'] ?? 0)
+        )
+      );
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, 'No se pudieron consultar los puntos', 'ERROR');
+    }
+  }
+
+  public function marcarTiendaSinPuntos(Request $request, Response $response): Response
+  {
+    $body = (array) ($request->getParsedBody() ?? []);
+    try {
+      return $this->json(
+        $response,
+        200,
+        $this->fidelizacionVales->marcarSinPuntos(
+          trim((string) ($body['empresa'] ?? '')),
+          filter_var($body['sinPuntos'] ?? false, FILTER_VALIDATE_BOOL)
+        )
       );
     } catch (\InvalidArgumentException $e) {
       return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');

@@ -14,6 +14,7 @@ import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
 import { useGridRenderLimit } from '@/composables/useGridRenderLimit'
 import {
   imprimirFacturasPreparadas,
+  pdfsFacturasDesdePlantilla,
   prepararImpresionFacturas,
   type PrepImpresionFacturas,
 } from '@/composables/useImpresionFacturaDocumento'
@@ -551,6 +552,19 @@ async function confirmarEmail() {
   accionFactura.value = true
   error.value = null
   try {
+    const prep = await prepararFacturasA4(sel)
+    let pdfs: Record<string, string>
+    try {
+      a4Oculto.value = true
+      pdfs = await pdfsFacturasDesdePlantilla(prep, async (doc) => {
+        a4Prep.value = { ...prep, documentos: [doc] }
+        a4Open.value = true
+        return esperarHtmlFolio()
+      })
+    } finally {
+      a4Open.value = false
+      a4Prep.value = null
+    }
     const result = await enviarFacturasManualEmail({
       facturas: sel.map((f) => ({
         empresa: f.empresa,
@@ -559,12 +573,17 @@ async function confirmarEmail() {
         cliente: f.cliente,
       })),
       email: email || undefined,
+      pdfs,
     })
+    if (result.enviadas < 1) {
+      error.value =
+        result.detalles.find((d) => d.estado !== 'enviada')?.motivo || 'No se ha enviado el correo'
+      return
+    }
     emailOpen.value = false
     mensaje.value = resumenEmail(result)
-    if (result.errores > 0) {
-      error.value = result.detalles.find((d) => d.estado === 'error')?.motivo ?? 'Error al enviar'
-    }
+    const aviso = result.detalles.find((d) => d.estado !== 'enviada')?.motivo
+    if (aviso) error.value = aviso
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudieron enviar las facturas')
   } finally {
@@ -980,6 +999,7 @@ onMounted(async () => {
           <span>{{ emailFacturas.length === 1 ? 'Dirección de email' : 'Email (opcional, el mismo para todas)' }}</span>
           <input v-model="emailDestino" type="email" placeholder="cliente@ejemplo.com" />
         </label>
+        <p v-if="error" class="error">{{ error }}</p>
         <div class="modal-actions">
           <button type="button" class="btn" :disabled="accionFactura" @click="emailOpen = false">
             Cancelar

@@ -9,9 +9,14 @@ import {
 } from '@/composables/previewDocumentoVentana'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import {
+  aplicarApaisadoHtml,
+  ESTILO_LISTADO_APAISADO,
   ESTILOS_LISTADO_A4,
+  orientacionDocumentoHtml,
+  orientacionPorContenido,
   type ListadoAlineacion,
   type ListadoColumnaImpresion,
+  type ListadoOrientacion,
 } from '@/composables/listadoPrintStyles'
 
 const MAX_FILAS_IMPRESION = 2500
@@ -93,6 +98,8 @@ export function construirListadoHtml(opciones: {
   filas: (string | number)[][]
   pie?: string[]
   columnas?: ListadoColumnaImpresion[]
+  /** Sin indicar: apaisado si las columnas no caben en A4 vertical. */
+  orientacion?: ListadoOrientacion
 }): string {
   const esc = (s: string) =>
     s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -139,8 +146,11 @@ export function construirListadoHtml(opciones: {
     ? `<p class="listado-subtitulo">${esc(opciones.subtitulo)}</p>`
     : ''
   const fechaImpresion = new Date().toLocaleString('es-ES')
+  const orientacion =
+    opciones.orientacion ?? orientacionPorContenido(opciones.thead, opciones.filas)
+  const estiloApaisado = orientacion === 'horizontal' ? ESTILO_LISTADO_APAISADO : ''
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(opciones.titulo)}</title>
-<style>${ESTILOS_LISTADO_A4}</style></head><body><main class="folio">
+<style>${ESTILOS_LISTADO_A4}${estiloApaisado}</style></head><body><main class="folio">
 <header class="listado-cabecera">
   <div><h1 class="listado-titulo">${esc(opciones.titulo)}</h1>${subt}</div>
   <div class="listado-meta">${meta}<p><strong>Impresión:</strong> ${esc(fechaImpresion)}</p></div>
@@ -152,7 +162,8 @@ ${pie}</main></body></html>`
 /** Envía el HTML del listado a la impresora (Electron o diálogo del sistema). */
 export async function enviarListadoHtmlAImpresora(
   html: string,
-  ventanaPreview?: Window | null
+  ventanaPreview?: Window | null,
+  opciones?: { apaisado?: boolean }
 ): Promise<ResultadoImpresion> {
   const bridge = getDescartesBridge()
   if (bridge?.printHtml) {
@@ -171,7 +182,7 @@ export async function enviarListadoHtmlAImpresora(
 
     let ultimoError = 'No se pudo imprimir'
     for (const intento of intentos) {
-      const res = await bridge.printHtml({ html, ...intento })
+      const res = await bridge.printHtml({ html, landscape: opciones?.apaisado === true, ...intento })
       if (res.ok) {
         return {
           ok: true,
@@ -201,6 +212,8 @@ export async function imprimirListadoHtml(opciones: {
   filas?: (string | number)[][]
   pie?: string[]
   columnas?: ListadoColumnaImpresion[]
+  /** Sin indicar se decide midiendo las columnas (tabla o HTML completo). */
+  orientacion?: ListadoOrientacion
   filenameFallback?: string
   /** Si false, imprime directo sin ventana de previsualización. */
   preview?: boolean
@@ -208,8 +221,10 @@ export async function imprimirListadoHtml(opciones: {
   html?: string
 }): Promise<ResultadoImpresion> {
   let html: string
+  let orientacion: ListadoOrientacion
   if (opciones.html) {
-    html = opciones.html
+    orientacion = opciones.orientacion ?? orientacionDocumentoHtml(opciones.html)
+    html = orientacion === 'horizontal' ? aplicarApaisadoHtml(opciones.html) : opciones.html
   } else {
     const thead = opciones.thead ?? []
     const filasRaw = opciones.filas ?? []
@@ -218,9 +233,11 @@ export async function imprimirListadoHtml(opciones: {
     if (filasRaw.length > MAX_FILAS_IMPRESION) {
       pie.push(`Impresión limitada a ${MAX_FILAS_IMPRESION} filas (${filasRaw.length} en pantalla)`)
     }
-    html = construirListadoHtml({ ...opciones, thead, filas, pie })
+    orientacion = opciones.orientacion ?? orientacionPorContenido(thead, filas)
+    html = construirListadoHtml({ ...opciones, thead, filas, pie, orientacion })
   }
 
+  const apaisado = orientacion === 'horizontal'
   const usarPreview = opciones.preview !== false
 
   if (usarPreview) {
@@ -238,7 +255,7 @@ export async function imprimirListadoHtml(opciones: {
       return { ok: false, message: 'Popup bloqueado: se descargó HTML para abrir manualmente' }
     }
 
-    const ejecutar = () => enviarListadoHtmlAImpresora(html, ventana)
+    const ejecutar = () => enviarListadoHtmlAImpresora(html, ventana, { apaisado })
     impresionDesdePreview.set(ventana, ejecutar)
     previewActiva = { ventana, ejecutar }
 
@@ -254,5 +271,5 @@ export async function imprimirListadoHtml(opciones: {
     }
   }
 
-  return enviarListadoHtmlAImpresora(html)
+  return enviarListadoHtmlAImpresora(html, null, { apaisado })
 }

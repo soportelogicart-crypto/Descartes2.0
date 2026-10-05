@@ -635,7 +635,7 @@ final class ArqueoService
       $dif = (float) ($l['diferencia'] ?? ($l['entrado'] - $l['acumulado']));
       $rows .= '<tr>'
         . '<td>' . $esc($l['formaPago']) . '</td>'
-        . '<td>' . $esc($l['descripcion'] ?? '') . '</td>'
+        . '<td class="desc">' . $esc($l['descripcion'] ?? '') . '</td>'
         . '<td class="num">' . number_format((float) $l['acumulado'], 2, '.', '') . '</td>'
         . '<td class="num">' . number_format((float) $l['entrado'], 2, '.', '') . '</td>'
         . '<td class="num">' . number_format($dif, 2, '.', '') . '</td>'
@@ -648,8 +648,9 @@ final class ArqueoService
 body{font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#111;padding:18px}
 h1{font-size:18px;margin:0 0 8px}
 .meta{margin:2px 0;color:#333}
-table{width:100%;border-collapse:collapse;margin-top:12px}
+table{width:auto;border-collapse:collapse;margin-top:12px}
 th,td{border-bottom:1px solid #ccc;padding:5px 6px;text-align:left}
+td.desc,th.desc{max-width:42mm;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 th{background:#f1f5f9}
 .num{text-align:right}
 .tot{margin-top:12px;font-weight:700}
@@ -660,7 +661,7 @@ th{background:#f1f5f9}
 <p class="meta">Empresa ' . $esc($empresa) . ' · Puesto ' . $esc($puesto) . ' · Sesion ' . $esc((string) $sesion) . '</p>
 <p class="meta">Estado: ' . $esc($estado) . ' · Cajero arqueo: ' . $esc($data['cajeroArqueo'] ?? '—') . '</p>
 <p class="meta">Inicio: ' . $esc($data['fechaInicio'] ?? '—') . ' · Fin: ' . $esc($data['fechaFin'] ?? '—') . '</p>
-<table><thead><tr><th>Forma</th><th>Descripcion</th><th class="num">Acumulado</th><th class="num">Entrado</th><th class="num">Diferencia</th></tr></thead>
+<table><thead><tr><th>Forma</th><th class="desc">Descripcion</th><th class="num">Acumulado</th><th class="num">Entrado</th><th class="num">Diferencia</th></tr></thead>
 <tbody>' . $rows . '</tbody></table>
 <p class="tot">Totales — Acumulado ' . number_format((float) ($data['totalAcumulado'] ?? 0), 2, '.', '')
       . ' · Entrado ' . number_format((float) ($data['totalEntrado'] ?? 0), 2, '.', '')
@@ -701,7 +702,7 @@ th{background:#f1f5f9}
     $pdf->table(
       ['Forma', 'Descripcion', 'Acumulado', 'Entrado', 'Diferencia'],
       $rows,
-      [50.0, 180.0, 80.0, 80.0, 80.0]
+      [46.0, 120.0, 72.0, 72.0, 72.0]
     );
     $pdf->spacer(12);
     $pdf->text(

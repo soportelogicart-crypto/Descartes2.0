@@ -248,10 +248,18 @@ function exportarExcel() {
 
 async function imprimir() {
   if (!data.value || !defListado.value) return
-  const periodo = `Fecha ${form.value.fechaDesde || '…'} - ${form.value.fechaHasta || '…'}`
+  const fechaEs = (iso: string) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso.trim())
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : iso
+  }
+  const desde = form.value.fechaDesde || data.value.fechaDesde
+  const hasta =
+    form.value.fechaHasta || data.value.fechaHasta || new Date().toISOString().slice(0, 10)
+  const periodo = `Fecha ${desde ? fechaEs(desde) : '…'} - ${fechaEs(hasta)}`
   const html = construirHtmlInformeAbcCompras(data.value, {
     tituloCabecera: defListado.value.titulo,
     periodo,
+    etiquetaUnidades: etiquetaColUnidades.value,
   })
   const res = await imprimirListadoHtml({
     titulo: defListado.value.titulo,

@@ -31,6 +31,8 @@ final class MigrationService
     '016-fidelizacion-vales-semestre.sql',
     '017-fidelizacion-automatizacion.sql',
     '018-tarjeta-fidelizacion-dni.sql',
+    '019-permisos-situacion-ventas.sql',
+    '020-usuario-correo.sql',
   ];
 
   /**

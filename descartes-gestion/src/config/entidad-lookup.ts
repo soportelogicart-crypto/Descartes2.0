@@ -23,6 +23,7 @@ export type EntidadLookupId =
   | 'roles'
   | 'usuarios'
   | 'tipos-calculo-fidelizacion'
+  | 'tipos-descuento'
 
 export type OptionsSourceLookup =
   | 'macrofamilias'
@@ -45,6 +46,7 @@ export type OptionsSourceLookup =
   | 'cuentas-ultimo-nivel'
   | 'cuentas-banco'
   | 'tipos-calculo-fidelizacion'
+  | 'tipos-descuento'
 
 const SOURCE_TO_ENTIDAD: Record<OptionsSourceLookup, EntidadLookupId> = {
   macrofamilias: 'macrofamilias',
@@ -67,6 +69,7 @@ const SOURCE_TO_ENTIDAD: Record<OptionsSourceLookup, EntidadLookupId> = {
   'cuentas-ultimo-nivel': 'cuentas-ultimo-nivel',
   'cuentas-banco': 'cuentas-banco',
   'tipos-calculo-fidelizacion': 'tipos-calculo-fidelizacion',
+  'tipos-descuento': 'tipos-descuento',
 }
 
 const DEFAULT_MAX_LENGTH: Partial<Record<EntidadLookupId, number>> = {
@@ -90,6 +93,7 @@ const DEFAULT_MAX_LENGTH: Partial<Record<EntidadLookupId, number>> = {
   'cuentas-ultimo-nivel': 10,
   'cuentas-banco': 10,
   'tipos-calculo-fidelizacion': 10,
+  'tipos-descuento': 6,
 }
 
 export function entidadDesdeOptionsSource(source: string | undefined): EntidadLookupId | null {
@@ -115,6 +119,9 @@ export function etiquetaDesdeDetalle(entidad: EntidadLookupId, data: Record<stri
   }
   if (entidad === 'tipos-calculo-fidelizacion') {
     return String(data.nombre ?? data.descripcion ?? '').trim()
+  }
+  if (entidad === 'tipos-descuento') {
+    return String(data.descripcion ?? '').trim()
   }
   if (entidad === 'almacenes') {
     return String(data.descripcion ?? '').trim()

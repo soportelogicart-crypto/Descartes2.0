@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
 
-const props = defineProps<{
-  open: boolean
-  documento: string
-  emailInicial?: string | null
-  procesando?: boolean
-  error?: string | null
-}>()
+const props = withDefaults(
+  defineProps<{
+    open: boolean
+    documento: string
+    titulo?: string
+    emailInicial?: string | null
+    procesando?: boolean
+    error?: string | null
+  }>(),
+  { titulo: 'VENTA FINALIZADA' }
+)
 
 const emit = defineEmits<{
   imprimir: []
@@ -44,7 +48,7 @@ function enviar() {
   <Teleport to="body">
     <div v-if="open" class="overlay">
       <section class="ventana" role="dialog" aria-modal="true" aria-labelledby="post-venta-titulo">
-        <header id="post-venta-titulo">VENTA FINALIZADA</header>
+        <header id="post-venta-titulo">{{ titulo }}</header>
         <div class="cuerpo">
           <strong>{{ documento }}</strong>
           <p>¿Qué desea hacer con el documento?</p>

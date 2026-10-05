@@ -45,6 +45,8 @@ export type DocumentoPreviewDatos = {
     cuentaBancaria: string
     iban: string
     swift: string
+    /** Nombre de la entidad (agencia o banco del cliente). */
+    banco?: string
   }
   documento: {
     numero: string

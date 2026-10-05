@@ -329,10 +329,11 @@ function paymentTerminalCancel(payload = {}) {
  * payload: { html, impresora?, impresoraId?, silent? }
  */
 async function printHtml(payload) {
+  const landscape = Boolean(payload && payload.landscape)
   return printHtmlSized(payload || {}, {
     widthMm: 210,
     heightMm: 297,
-    landscape: false,
+    landscape,
     copies: 1,
     tmpPrefix: 'descartes-a4',
     errorLabel: 'A4',
@@ -532,10 +533,76 @@ async function printHtmlSized(payload, opts) {
   }
 }
 
+/**
+ * HTML A4 → PDF en base64, con el mismo aspecto que la impresión.
+ * @param {{ html?: string, landscape?: boolean, pageWidthMm?: number, pageHeightMm?: number }} payload
+ */
+async function htmlToPdf(payload) {
+  const fs = require('fs')
+  const os = require('os')
+  const path = require('path')
+  const { BrowserWindow: BW } = require('electron')
+
+  const html = payload && typeof payload.html === 'string' ? payload.html : ''
+  if (!html.trim()) {
+    return { ok: false, message: 'html es obligatorio' }
+  }
+  const landscape = Boolean(payload && payload.landscape)
+  const anchoCustom = Number(payload && payload.pageWidthMm)
+  const altoCustom = Number(payload && payload.pageHeightMm)
+  const paginaCustom = anchoCustom > 0 && altoCustom > 0
+  const widthMm = paginaCustom ? anchoCustom : landscape ? 297 : 210
+  const heightMm = paginaCustom ? altoCustom : landscape ? 210 : 297
+  const pxPerMm = 96 / 25.4
+  const tmpPath = path.join(
+    os.tmpdir(),
+    `descartes-pdf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.html`
+  )
+  fs.writeFileSync(tmpPath, html, 'utf8')
+
+  let win = null
+  try {
+    win = new BW({
+      show: false,
+      width: Math.round(widthMm * pxPerMm),
+      height: Math.round(heightMm * pxPerMm),
+      webPreferences: { sandbox: true, offscreen: false },
+    })
+    await win.loadFile(tmpPath)
+    await win.webContents.executeJavaScript(
+      'Promise.resolve(document.fonts ? document.fonts.ready : null).then(function () { return true })'
+    )
+    await new Promise((r) => setTimeout(r, 350))
+    const buffer = await win.webContents.printToPDF({
+      pageSize: paginaCustom
+        ? { width: Math.round(widthMm * 1000), height: Math.round(heightMm * 1000) }
+        : 'A4',
+      landscape: paginaCustom ? false : landscape,
+      printBackground: true,
+      margins: { top: 0, bottom: 0, left: 0, right: 0 },
+    })
+    return { ok: true, pdfBase64: Buffer.from(buffer).toString('base64') }
+  } catch (err) {
+    return { ok: false, message: String(err && err.message ? err.message : err) }
+  } finally {
+    try {
+      if (win && !win.isDestroyed()) win.destroy()
+    } catch {
+      /* ignore */
+    }
+    try {
+      fs.unlinkSync(tmpPath)
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 module.exports = {
   listPrinters,
   printTicket,
   printHtml,
+  htmlToPdf,
   printLabel,
   openCashDrawer,
   readCashDrawer,

@@ -40,6 +40,7 @@ const ImpuestosView = vista(() => import('@/views/mantenimiento/ImpuestosView.vu
 const FormasPagoView = vista(() => import('@/views/mantenimiento/FormasPagoView.vue'))
 const ProveedoresView = vista(() => import('@/views/mantenimiento/ProveedoresView.vue'))
 const OfertaProveedoresView = vista(() => import('@/views/mantenimiento/OfertaProveedoresView.vue'))
+const TiposDescuentoView = vista(() => import('@/views/mantenimiento/TiposDescuentoView.vue'))
 const ModuloPlaceholderView = vista(() => import('@/views/ModuloPlaceholderView.vue'))
 const ComprasAlbaranesListView = vista(() => import('@/views/compras/ComprasAlbaranesListView.vue'))
 const CompraAlbaranDetalleView = vista(() => import('@/views/compras/CompraAlbaranDetalleView.vue'))
@@ -51,6 +52,7 @@ const EtiquetasColaView = vista(() => import('@/views/etiquetas/EtiquetasColaVie
 const VentasListView = vista(() => import('@/views/ventas/VentasListView.vue'))
 const VentaDetalleView = vista(() => import('@/views/ventas/VentaDetalleView.vue'))
 const ArqueoView = vista(() => import('@/views/ventas/ArqueoView.vue'))
+const SituacionVentasView = vista(() => import('@/views/ventas/SituacionVentasView.vue'))
 const ArqueoDesgloseView = vista(() => import('@/views/ventas/ArqueoDesgloseView.vue'))
 const AnulacionesView = vista(() => import('@/views/ventas/AnulacionesView.vue'))
 const CobrosPagosView = vista(() => import('@/views/ventas/CobrosPagosView.vue'))
@@ -70,6 +72,7 @@ const TraspasoContableView = vista(() => import('@/views/facturacion/TraspasoCon
 const ConfiguracionHubView = vista(() => import('@/views/configuracion/ConfiguracionHubView.vue'))
 const DatafonoConfiguracionView = vista(() => import('@/views/configuracion/DatafonoConfiguracionView.vue'))
 const FidelizacionConfigView = vista(() => import('@/views/configuracion/FidelizacionConfigView.vue'))
+const CorreoConfigView = vista(() => import('@/views/configuracion/CorreoConfigView.vue'))
 const DocumentosPlantillasView = vista(() => import('@/views/configuracion/DocumentosPlantillasView.vue'))
 const TpvVentaView = vista(() => import('@/views/tpv/TpvVentaView.vue'))
 const ListadosHubView = vista(() => import('@/views/listados/ListadosHubView.vue'))
@@ -119,6 +122,12 @@ const router = createRouter({
           name: 'configuracion-fidelizacion',
           component: FidelizacionConfigView,
           meta: { titulo: 'Fidelización', modulo: 'clientes', accion: 'ver' },
+        },
+        {
+          path: 'configuracion/correo',
+          name: 'configuracion-correo',
+          component: CorreoConfigView,
+          meta: { titulo: 'Correo' },
         },
         {
           path: 'configuracion/documentos',
@@ -286,6 +295,12 @@ const router = createRouter({
           name: 'ventas-nuevo',
           component: VentaDetalleView,
           meta: { titulo: 'Nueva venta', modulo: 'ventas', accion: 'crear' },
+        },
+        {
+          path: 'ventas/situacion',
+          name: 'ventas-situacion',
+          component: SituacionVentasView,
+          meta: { titulo: 'Situación de ventas', modulo: 'ventas-situacion', accion: 'ver' },
         },
         {
           path: 'ventas/arqueo',
@@ -488,6 +503,12 @@ const router = createRouter({
         {
           path: 'mantenimiento/tipos-calculo-fidelizacion',
           redirect: '/configuracion/fidelizacion',
+        },
+        {
+          path: 'mantenimiento/tipos-descuento',
+          name: 'tipos-descuento',
+          component: TiposDescuentoView,
+          meta: { titulo: 'Tipo de descuento', modulo: 'tipos-descuento', accion: 'ver' },
         },
         { path: 'mantenimiento/:entidad', name: 'mantenimiento', component: EntidadView },
       ],

@@ -255,8 +255,8 @@ export type InformeTicketsResumen = {
 }
 
 export type InformeTicketsResult = {
-  fechaDesde: string
-  fechaHasta: string
+  fechaDesde: string | null
+  fechaHasta: string | null
   empresa: string
   puesto: string
   vendedor: string
@@ -308,8 +308,8 @@ export type InformeTicketsResult = {
 }
 
 export async function generarInformeTickets(params: {
-  fechaDesde: string
-  fechaHasta: string
+  fechaDesde?: string
+  fechaHasta?: string
   formato?: string
   divisa?: string
   empresa?: string

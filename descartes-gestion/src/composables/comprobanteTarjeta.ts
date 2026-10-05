@@ -66,7 +66,9 @@ export function autorizacionDesdeXmlRedsys(xml: string, importeEsperado?: number
   return {
     pedidoRedsys: pedido,
     identificadorRts: xmlTag(body, ['identificadorRTS']),
-    autorizacion: xmlTag(body, ['codigoAutorizacion', 'codrespauto']) || c.aut,
+    // El mismo AUT que se imprime en el ticket: la devolución lo compara con lo que teclea el cajero.
+    // codrespauto es el código de respuesta ("00"), no una autorización.
+    autorizacion: c.aut || xmlTag(body, ['codigoAutorizacion']),
     clr: c.clr,
     tarjeta: c.tarjeta,
     importe: c.importe,
@@ -224,4 +226,11 @@ export function lineasComprobanteTarjeta(c: ComprobanteTarjetaDatos): string[] {
   }
   if (c.reciboCliente) lines.push(centrarTicket('** RECIBO PARA EL CLIENTE **'))
   return lines
+}
+
+/** Justificante independiente que se imprime después del ticket del cliente. */
+export function textoComprobanteEstablecimiento(c: ComprobanteTarjetaDatos): string {
+  const lineas = lineasComprobanteTarjeta({ ...c, reciboCliente: false })
+  lineas.push('', centrarTicket('** COPIA PARA EL ESTABLECIMIENTO **'))
+  return lineas.join('\n')
 }

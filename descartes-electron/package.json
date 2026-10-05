@@ -1,6 +1,6 @@
 {
   "name": "descartes-electron",
-  "version": "0.1.3",
+  "version": "0.1.5",
   "private": true,
   "description": "Shell Electron fino para Descartes 2.0 (UI en servidor + perifericos locales)",
   "author": "Descartes",
@@ -11,6 +11,7 @@
     "dev": "electron . --dev",
     "dev:tools": "electron . --dev --devtools",
     "icon": "node scripts/generate-icon.js",
+    "qa:listados-pdf": "electron scripts/generar-listados-pdf-qa.cjs",
     "dist": "npm run icon && electron-builder --win nsis",
     "dist:dir": "npm run icon && electron-builder --win dir"
   },
@@ -62,6 +63,9 @@
       "shortcutName": "Descartes 2.0",
       "artifactName": "Descartes-2.0-Setup-${version}.${ext}"
     },
-    "asar": true
+    "asar": true,
+    "asarUnpack": [
+      "electron/redsys/**"
+    ]
   }
 }

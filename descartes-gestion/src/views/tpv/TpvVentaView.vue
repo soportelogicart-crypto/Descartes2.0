@@ -6,19 +6,25 @@ import {
   guardarBotonTeclado,
   obtenerNivelTeclado,
   obtenerNivelesTeclado,
+  obtenerVentaTpv,
 } from '@/api/tpv'
 import {
   enviarVentaPorEmail,
   registrarAutorizacionTarjetaAlbaran,
+  puntosCanjeDisponible,
   valeFidelizacionDisponible,
 } from '@/api/ventas'
 import TpvDevolucionDatafonoModal from '@/components/tpv/TpvDevolucionDatafonoModal.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import TpvAbonoModal from '@/components/tpv/TpvAbonoModal.vue'
+import TpvTicketFacturaModal from '@/components/tpv/TpvTicketFacturaModal.vue'
+import TpvArticuloBuscarModal from '@/components/tpv/TpvArticuloBuscarModal.vue'
 import TpvBotonConfigModal from '@/components/tpv/TpvBotonConfigModal.vue'
 import TpvClienteModal from '@/components/tpv/TpvClienteModal.vue'
 import TpvCobroModal from '@/components/tpv/TpvCobroModal.vue'
 import TpvCodigoModal from '@/components/tpv/TpvCodigoModal.vue'
+import TpvConsultaVentasModal from '@/components/tpv/TpvConsultaVentasModal.vue'
+import TpvDescripcionModal from '@/components/tpv/TpvDescripcionModal.vue'
 import TpvDescuentoModal from '@/components/tpv/TpvDescuentoModal.vue'
 import TpvOtrasFuncionesModal from '@/components/tpv/TpvOtrasFuncionesModal.vue'
 import TpvPrecioModal from '@/components/tpv/TpvPrecioModal.vue'
@@ -38,6 +44,9 @@ import { createBarcodeScanWatcher } from '@/composables/useBarcodeScanWatcher'
 import { extractApiError } from '@/composables/extractApiError'
 import {
   imprimirA4Preparado,
+  imprimirCopiaEstablecimientoDatafono,
+  pdfBase64DesdeHtmlPlantilla,
+  pdfBase64TicketVenta,
   prepararOImprimirVenta,
   type PrepImpresionA4,
 } from '@/composables/useImpresionVentaDocumento'
@@ -46,6 +55,7 @@ import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { useTpvVentaStore } from '@/stores/tpvVenta'
 import type {
+  TpvArticuloPrecio,
   TpvBoton,
   TpvBotonAsignacion,
   TpvCliente,
@@ -55,7 +65,7 @@ import type {
   TpvTicketEspera,
 } from '@/types/tpv'
 import { CLIENTE_RAPIDO_TPV } from '@/types/tpv'
-import type { VentaDetalle } from '@/types/ventas'
+import type { VentaDetalle, VentaResumen } from '@/types/ventas'
 
 const router = useRouter()
 const { puede } = usePermisos()
@@ -78,6 +88,7 @@ const seleccion = ref(-1)
 const cantidadTecleada = ref('')
 const editandoPrecioLinea = ref(-1)
 const editandoDescuentoLinea = ref(-1)
+const editandoDescripcionLinea = ref(-1)
 const codigoManual = ref('')
 const inputCodigo = ref<HTMLInputElement | null>(null)
 const cobroAbierto = ref(false)
@@ -85,8 +96,14 @@ const cobrandoDatafono = ref(false)
 const operacionDatafono = ref<OperacionCobroDatafono | null>(null)
 const confirmarAnulacion = ref(false)
 const abonoAbierto = ref(false)
+const ticketFacturaAbierto = ref(false)
 const codigoTecladoAbierto = ref(false)
+const buscarArticuloAbierto = ref(false)
+const buscarArticuloInicial = ref('')
+const buscarArticuloCantidad = ref(1)
 const otrasFuncionesAbierto = ref(false)
+const consultaVentasAbierta = ref(false)
+const consultaVentasError = ref<string | null>(null)
 const ticketsEsperaAbierto = ref(false)
 const visorTicketAbierto = ref(false)
 const configurandoBotones = ref(false)
@@ -108,6 +125,7 @@ type CobroPendienteTrasDevolucion = {
   datos: { tipoDocumento: string; formaPago: string; entregado: number }
   importeDatafono: number
   aplicarValeFidelizacion: boolean
+  aplicarPuntosFidelizacion: boolean
 }
 
 const cobroPendienteTrasDevolucion = ref<CobroPendienteTrasDevolucion | null>(null)
@@ -186,7 +204,8 @@ async function onDevolucionDatafonoConfirmada(ctx: DevolucionDatafonoContexto) {
   await finalizarVentaTrasCobro(
     pending.datos,
     pending.importeDatafono,
-    pending.aplicarValeFidelizacion
+    pending.aplicarValeFidelizacion,
+    pending.aplicarPuntosFidelizacion
   )
 }
 
@@ -212,7 +231,18 @@ const cabecera = computed(() => {
   return `TPV · Tienda ${c.empresa} · Puesto ${c.puesto} · Sesion ${c.sesion}`
 })
 
+function etiquetaDocumentoConsulta(venta: VentaDetalle): string {
+  const ft = String(venta.facturaTipo ?? '').trim().toUpperCase()
+  const factura = Number(venta.factura ?? 0)
+  if (ft === 'T' && factura > 0) return `Consulta · Ticket T-${factura}`
+  if (ft === 'F' && factura > 0) return `Consulta · Factura F-${factura}`
+  if (ft === 'A' && factura > 0) return `Consulta · Abono A-${factura}`
+  if (ft === 'R') return `Consulta · Presupuesto ${venta.albaran}`
+  return `Consulta · Albarán ${venta.tipo}-${venta.albaran}`
+}
+
 const etiquetaTicket = computed(() => {
+  if (tpv.enConsulta && tpv.venta) return etiquetaDocumentoConsulta(tpv.venta)
   if (tpv.numeroTicket === null) return 'Sin ticket'
   return tpv.ventaGrabada ? `Ticket ${tpv.numeroTicket}` : `Ticket ${tpv.numeroTicket} (propuesto)`
 })
@@ -355,6 +385,9 @@ async function abrirCaja() {
 
 /** Cierra el borrador actual de forma segura y propone un número nuevo. */
 async function nuevaVenta() {
+  if (tpv.enConsulta) tpv.cerrarConsulta()
+  // Ya hay número reservado: otra pulsación consumiría otro albarán.
+  if (tpv.ticketListo) return
   if (
     tpv.lineas.length > 0 &&
     !window.confirm('Se anulará el ticket en curso sin cobrar. ¿Iniciar una venta nueva?')
@@ -432,6 +465,45 @@ function cancelarAbono() {
   void foco()
 }
 
+function abrirTicketFactura() {
+  ticketFacturaAbierto.value = true
+}
+
+function cancelarTicketFactura() {
+  ticketFacturaAbierto.value = false
+  void foco()
+}
+
+async function onTicketConvertido(payload: {
+  factura: VentaDetalle
+  ticketNegativo: VentaDetalle | null
+}) {
+  ticketFacturaAbierto.value = false
+  ultimoReceiptDatafono.value = null
+  const negativo = payload.ticketNegativo?.factura
+  cobrado.value =
+    `Ticket compensado con el negativo T-${negativo ?? '?'}. Factura ${payload.factura.factura ?? ''}.`
+  if (payload.ticketNegativo) {
+    try {
+      const res = await prepararOImprimirVenta(payload.ticketNegativo, {
+        puestoCodigo: puestoStore.puestoCodigo ?? '',
+        formato: 'ticket',
+      })
+      if (res.kind !== 'ticket') {
+        errorImpresion.value = 'El ticket negativo no salió por la impresora de tickets'
+      }
+    } catch (e: unknown) {
+      errorImpresion.value = extractApiError(
+        e,
+        'La factura está creada, pero no se pudo imprimir el ticket negativo'
+      )
+    }
+  }
+  ultimoTicket.value = payload.factura
+  ultimoTipoDocumento.value = 'F'
+  await prepararDocumentoA4(payload.factura)
+}
+
 /** En caja táctil no hay teclado físico para teclear un código a mano. */
 async function onCodigoTecleado(codigo: string) {
   codigoTecladoAbierto.value = false
@@ -449,14 +521,18 @@ async function foco() {
   if (
     modalPrecio.value.open ||
     editandoDescuentoLinea.value >= 0 ||
+    editandoDescripcionLinea.value >= 0 ||
     cobroAbierto.value ||
     devolucionDatafonoAbierto.value ||
     cobrandoDatafono.value ||
     confirmarAnulacion.value ||
     abonoAbierto.value ||
+    ticketFacturaAbierto.value ||
     codigoTecladoAbierto.value ||
+    buscarArticuloAbierto.value ||
     otrasFuncionesAbierto.value ||
     ticketsEsperaAbierto.value ||
+    consultaVentasAbierta.value ||
     visorTicketAbierto.value ||
     botonConfigurando.value !== null ||
     postVentaOpen.value ||
@@ -477,13 +553,56 @@ function onCodigoInput() {
   barcodeWatcher.onInput(codigoManual.value)
 }
 
+function esLineaNota(indice: number): boolean {
+  return String(tpv.lineas[indice]?.articulo ?? '').trim().toUpperCase() === 'NO'
+}
+
 async function anadirCodigo(codigo: string) {
   const cantidad = Number(cantidadTecleada.value) || 1
   cantidadTecleada.value = ''
-  await tpv.anadirPorCodigo(codigo, cantidad)
+  const resultado = await tpv.anadirPorCodigo(codigo, cantidad)
+  if (resultado === 'elegir') {
+    buscarArticuloCantidad.value = cantidad
+    buscarArticuloInicial.value = codigo
+    buscarArticuloAbierto.value = true
+    return
+  }
+  if (resultado === 'nota') {
+    seleccion.value = tpv.lineas.length - 1
+    editandoDescripcionLinea.value = seleccion.value
+    return
+  }
   const i = tpv.lineas.length - 1
   if (i >= 0 && !tpv.pendientePrecio) seleccion.value = i
   await foco()
+}
+
+function abrirBuscarArticulo() {
+  if (!tpv.ticketListo) return
+  buscarArticuloCantidad.value = Number(cantidadTecleada.value) || 1
+  buscarArticuloInicial.value = codigoManual.value.trim()
+  buscarArticuloAbierto.value = true
+}
+
+async function onArticuloBuscado(art: TpvArticuloPrecio) {
+  buscarArticuloAbierto.value = false
+  codigoManual.value = ''
+  cantidadTecleada.value = ''
+  await tpv.anadirArticulo(art.codigo, buscarArticuloCantidad.value)
+  const i = tpv.lineas.length - 1
+  if (i >= 0 && !tpv.pendientePrecio) seleccion.value = i
+  await foco()
+}
+
+function cancelarBuscarArticulo() {
+  buscarArticuloAbierto.value = false
+  void foco()
+}
+
+async function anadirNota() {
+  if (!(await tpv.anadirNota())) return
+  seleccion.value = tpv.lineas.length - 1
+  editandoDescripcionLinea.value = seleccion.value
 }
 
 async function onCodigoIntro() {
@@ -495,6 +614,7 @@ async function onCodigoIntro() {
 }
 
 async function onBoton(b: TpvBoton) {
+  if (tpv.enConsulta) return
   if (b.tipo === 'nivel' && b.nivelDestino) {
     stackNiveles.value.push({
       nivel: b.nivelDestino,
@@ -543,6 +663,7 @@ async function volverAlInicio() {
 }
 
 function pulsarDigito(d: string) {
+  if (tpv.enConsulta) return
   if (cantidadTecleada.value.length >= 4) return
   cantidadTecleada.value = (cantidadTecleada.value + d).replace(/^0+(?=\d)/, '')
   void foco()
@@ -568,6 +689,10 @@ async function borrarLinea() {
 
 async function cambiarCantidad(delta: number) {
   if (!lineaSeleccionada.value) return
+  if (esLineaNota(seleccion.value)) {
+    tpv.error = 'Una nota no tiene cantidad. Use DESCRIP. para escribir el texto'
+    return
+  }
   await tpv.cambiarCantidad(seleccion.value, delta)
   if (seleccion.value >= tpv.lineas.length) {
     seleccion.value = tpv.lineas.length - 1
@@ -582,11 +707,36 @@ function onSeleccionarLinea(indice: number) {
 
 function abrirPrecioLinea() {
   if (!lineaSeleccionada.value) return
+  if (esLineaNota(seleccion.value)) {
+    tpv.error = 'Una nota no tiene precio. Use DESCRIP. para escribir el texto'
+    return
+  }
   editandoPrecioLinea.value = seleccion.value
+}
+
+function abrirDescripcionLinea() {
+  if (!lineaSeleccionada.value) return
+  editandoDescripcionLinea.value = seleccion.value
+}
+
+async function onDescripcionConfirmada(descripcion: string) {
+  const indice = editandoDescripcionLinea.value
+  editandoDescripcionLinea.value = -1
+  await tpv.cambiarDescripcionLinea(indice, descripcion)
+  await foco()
+}
+
+function onDescripcionCancelada() {
+  editandoDescripcionLinea.value = -1
+  void foco()
 }
 
 function abrirDescuentoLinea() {
   // Sin feedback el cajero no distingue "no tengo permiso" de "no hay línea marcada".
+  if (lineaSeleccionada.value && esLineaNota(seleccion.value)) {
+    tpv.error = 'Una nota no admite descuento'
+    return
+  }
   if (!tpv.lineas.length) {
     tpv.error = 'Añada un artículo antes de aplicar un descuento'
     return
@@ -646,15 +796,29 @@ function abrirCobro() {
   cobroAbierto.value = true
 }
 
+function abrirAccionesConsulta() {
+  const venta = tpv.venta
+  if (!tpv.enConsulta || !venta) return
+  ultimoTicket.value = venta
+  const ft = String(venta.facturaTipo ?? '').trim().toUpperCase()
+  ultimoTipoDocumento.value = ft === 'T' ? 'T' : ft === 'F' || ft === 'A' ? 'F' : 'A'
+  ultimoDocumento.value = etiquetaDocumentoConsulta(venta).replace(/^Consulta · /, '')
+  ultimoReceiptDatafono.value = null
+  postVentaError.value = null
+  postVentaOpen.value = true
+}
+
 async function finalizarVentaTrasCobro(
   datos: { tipoDocumento: string; formaPago: string; entregado: number },
   importeDatafono: number,
-  aplicarValeFidelizacion: boolean
+  aplicarValeFidelizacion: boolean,
+  aplicarPuntosFidelizacion: boolean
 ) {
   const contexto = tpv.contexto
   const forma = contexto?.formasPago.find((item) => item.codigo === datos.formaPago)
   const cerrada = await tpv.cobrar(datos.tipoDocumento, datos.formaPago, {
     aplicarValeFidelizacion,
+    aplicarPuntosFidelizacion,
   })
   if (!cerrada) return
 
@@ -662,7 +826,8 @@ async function finalizarVentaTrasCobro(
     ultimoReceiptDatafono.value &&
     importeDatafono > 0.005 &&
     contexto &&
-    forma?.datafono
+    forma?.datafono &&
+    forma.chipAcumuladoMenu
   ) {
     try {
       const auth = autorizacionDesdeXmlRedsys(
@@ -712,10 +877,22 @@ async function finalizarVentaTrasCobro(
         ? `. Vale de fidelización aplicado: ${aplicado} €. Saldo restante: ${saldo} €.`
         : `. Vale de fidelización aplicado: ${aplicado} €. Vale agotado.`
   }
+  if (cerrada.puntosCanje) {
+    const euros = cerrada.puntosCanje.euros.toFixed(2).replace('.', ',')
+    cobrado.value += `. Puntos usados: ${cerrada.puntosCanje.puntosUsables} (${euros} €).`
+  }
   if (cerrada.fidelizacionPuntos) {
-    const compra = cerrada.fidelizacionPuntos.compra.toFixed(2).replace('.', ',')
-    const acumulados = cerrada.fidelizacionPuntos.acumulados.toFixed(2).replace('.', ',')
-    cobrado.value += `. Puntos de esta compra: ${compra}. Acumulados del semestre: ${acumulados}.`
+    const compra = Number(cerrada.fidelizacionPuntos.compra)
+    const acumulados = Number(cerrada.fidelizacionPuntos.acumulados)
+    const compraTxt = cerrada.fidelizacionPuntos.fechaInicio
+      ? compra.toFixed(2).replace('.', ',')
+      : String(compra)
+    const acumTxt = cerrada.fidelizacionPuntos.fechaInicio
+      ? acumulados.toFixed(2).replace('.', ',')
+      : String(acumulados)
+    cobrado.value += cerrada.fidelizacionPuntos.fechaInicio
+      ? `. Puntos de esta compra: ${compraTxt}. Acumulados del semestre: ${acumTxt}.`
+      : `. Puntos de esta venta: ${compraTxt}. Acumulados: ${acumTxt}.`
   }
 
   postVentaError.value = null
@@ -738,7 +915,9 @@ async function onCobroConfirmado(datos: {
   const requierePago = datos.tipoDocumento === 'T' || datos.tipoDocumento === 'F'
   const totalCobro = Number(tpv.venta?.importe ?? tpv.total)
   let aplicarValeFidelizacion = false
+  let aplicarPuntosFidelizacion = false
   let descuentoValePrevisto = 0
+  let descuentoPuntosPrevisto = 0
   if (requierePago && totalCobro > 0.005 && contexto && tpv.cliente?.codigo) {
     try {
       const disponible = await valeFidelizacionDisponible(contexto.empresa, tpv.cliente.codigo)
@@ -754,9 +933,27 @@ async function onCobroConfirmado(datos: {
       tpv.error = extractApiError(e, 'No se pudo consultar el vale de fidelización')
       return
     }
+    try {
+      const puntos = await puntosCanjeDisponible(
+        contexto.empresa,
+        tpv.cliente.codigo,
+        totalCobro - descuentoValePrevisto
+      )
+      if (puntos.aplica && puntos.euros > 0) {
+        const euros = puntos.euros.toFixed(2).replace('.', ',')
+        aplicarPuntosFidelizacion = window.confirm(
+          `Tiene ${puntos.puntos} puntos de fidelización. ` +
+            `¿Usar ${puntos.puntosUsables} (${euros} €) en esta compra?`
+        )
+        descuentoPuntosPrevisto = aplicarPuntosFidelizacion ? puntos.euros : 0
+      }
+    } catch {
+      aplicarPuntosFidelizacion = false
+    }
   }
-  const importeDatafono = totalCobro - descuentoValePrevisto
-  if (requierePago && forma?.datafono && Math.abs(importeDatafono) > 0.005) {
+  const importeDatafono = totalCobro - descuentoValePrevisto - descuentoPuntosPrevisto
+  const datafonoIntegrado = Boolean(forma?.datafono && forma.chipAcumuladoMenu)
+  if (requierePago && datafonoIntegrado && Math.abs(importeDatafono) > 0.005) {
     if (!contexto || !tpv.venta) {
       tpv.error = 'No se puede identificar la venta para iniciar el datáfono'
       return
@@ -766,6 +963,7 @@ async function onCobroConfirmado(datos: {
         datos,
         importeDatafono,
         aplicarValeFidelizacion,
+        aplicarPuntosFidelizacion,
       }
       devolucionAlbaranOrigen.value = Number(tpv.venta.albaranOrigenAbono ?? 0)
       cobroAbierto.value = false
@@ -777,7 +975,12 @@ async function onCobroConfirmado(datos: {
     if (!ok) return
   }
 
-  await finalizarVentaTrasCobro(datos, importeDatafono, aplicarValeFidelizacion)
+  await finalizarVentaTrasCobro(
+    datos,
+    importeDatafono,
+    aplicarValeFidelizacion,
+    aplicarPuntosFidelizacion
+  )
 }
 
 async function imprimirTrasCobro() {
@@ -789,13 +992,43 @@ async function imprimirTrasCobro() {
   }
 }
 
+async function pdfPlantillaParaEmail(venta: VentaDetalle): Promise<string | undefined> {
+  const ft = String(venta.facturaTipo ?? '').trim().toUpperCase()
+  if (ft === 'T' && Number(venta.factura) > 0) {
+    return pdfBase64TicketVenta(venta, {
+      puestoCodigo: puestoStore.puestoCodigo ?? '',
+      receiptDatafono: ultimoReceiptDatafono.value,
+    })
+  }
+  const res = await prepararOImprimirVenta(venta, {
+    puestoCodigo: puestoStore.puestoCodigo ?? '',
+    formato: 'a4',
+  })
+  if (res.kind !== 'a4') {
+    throw new Error('No se pudo preparar la plantilla del documento')
+  }
+  const abierto = a4Open.value
+  const prep = a4Prep.value
+  try {
+    a4Prep.value = res.prep
+    a4Open.value = true
+    await nextTick()
+    const html = (await a4ModalRef.value?.capturarHtmlFolio()) || ''
+    return await pdfBase64DesdeHtmlPlantilla(html)
+  } finally {
+    a4Open.value = abierto
+    a4Prep.value = prep
+  }
+}
+
 async function enviarTrasCobro(email: string) {
   const venta = ultimoTicket.value
   if (!venta || postVentaEnviando.value) return
   postVentaEnviando.value = true
   postVentaError.value = null
   try {
-    const res = await enviarVentaPorEmail(venta.empresa, venta.tipo, venta.albaran, email, 'tpv')
+    const pdf = await pdfPlantillaParaEmail(venta)
+    const res = await enviarVentaPorEmail(venta.empresa, venta.tipo, venta.albaran, email, 'tpv', pdf)
     postVentaOpen.value = false
     cobrado.value = `${res.documento} enviado a ${res.destinatario}`
   } catch (e: unknown) {
@@ -845,6 +1078,17 @@ async function imprimirDocumentoA4() {
   try {
     const html = (await a4ModalRef.value?.capturarHtmlFolio()) || ''
     await imprimirA4Preparado(a4Prep.value, html, ultimoTicket.value)
+    try {
+      await imprimirCopiaEstablecimientoDatafono(ultimoTicket.value, {
+        puestoCodigo: puestoStore.puestoCodigo ?? '',
+        receiptDatafono: ultimoReceiptDatafono.value,
+      })
+    } catch (error) {
+      errorImpresion.value = extractApiError(
+        error,
+        'El documento se imprimió, pero no la copia del establecimiento'
+      )
+    }
     preview.cerrar()
     a4Open.value = false
   } catch (e: unknown) {
@@ -895,18 +1139,24 @@ async function reimprimirUltimo() {
 const otrasFunciones = computed<TpvFuncionExtra[]>(() => [
   {
     id: 'espera',
-    etiqueta: 'PONER EN ESPERA',
+    etiqueta: 'TICKET EN ESPERA',
     ayuda: 'Guardar la venta actual para continuarla después',
     deshabilitada: !tpv.ventaGrabada || !tpv.lineas.length || tpv.guardando,
     tono: 'activo',
   },
   {
     id: 'recuperar-espera',
-    etiqueta: 'RECUPERAR TICKET',
+    etiqueta: 'RECUPERAR TICKET EN ESPERA',
     ayuda: tpv.lineas.length
       ? 'Ponga primero la venta actual en espera o anúlela'
       : 'Continuar una venta guardada',
     deshabilitada: tpv.lineas.length > 0 || tpv.guardando,
+  },
+  {
+    id: 'consulta',
+    etiqueta: 'CONSULTA TICKETS',
+    ayuda: 'Buscar un ticket, albarán, factura o presupuesto y verlo',
+    deshabilitada: tpv.guardando,
   },
   {
     id: 'abono',
@@ -914,6 +1164,12 @@ const otrasFunciones = computed<TpvFuncionExtra[]>(() => [
     ayuda: 'Devolver un documento ya cobrado',
     deshabilitada: tpv.loading || tpv.guardando,
     tono: 'aviso',
+  },
+  {
+    id: 'ticket-factura',
+    etiqueta: 'TICKET A FACTURA',
+    ayuda: 'Compensar un ticket ya cobrado y crear la factura de contado',
+    deshabilitada: tpv.loading || tpv.guardando,
   },
   {
     id: 'codigo',
@@ -953,9 +1209,16 @@ async function onOtraFuncion(id: string) {
       ticketsEsperaAbierto.value = true
       await tpv.cargarTicketsEspera()
       return
+    case 'consulta':
+      consultaVentasError.value = null
+      consultaVentasAbierta.value = true
+      return
     case 'abono':
       abrirAbono()
       break
+    case 'ticket-factura':
+      abrirTicketFactura()
+      return
     case 'codigo':
       codigoTecladoAbierto.value = true
       return
@@ -967,6 +1230,58 @@ async function onOtraFuncion(id: string) {
       break
   }
   await foco()
+}
+
+async function verConsulta(venta: VentaResumen) {
+  if (!tpv.enConsulta && (tpv.lineas.length > 0 || tpv.ventaGrabada)) {
+    consultaVentasError.value = 'Ponga primero la venta actual en espera o anúlela'
+    return
+  }
+  consultaVentasError.value = null
+  try {
+    const detalle = await obtenerVentaTpv(venta.empresa, venta.tipo, venta.albaran)
+    if (!tpv.mostrarConsulta(detalle)) {
+      consultaVentasError.value = tpv.error
+      return
+    }
+    ultimoTicket.value = detalle
+    ultimoReceiptDatafono.value = null
+    consultaVentasAbierta.value = false
+    seleccion.value = Math.max(0, tpv.lineas.length - 1)
+    cantidadTecleada.value = ''
+    codigoManual.value = ''
+    cobrado.value = null
+  } catch (e: unknown) {
+    consultaVentasError.value = extractApiError(e, 'No se pudo abrir el documento')
+  }
+}
+
+function cerrarConsultaVentas() {
+  consultaVentasAbierta.value = false
+  consultaVentasError.value = null
+  void foco()
+}
+
+async function repetirVenta() {
+  const ok = await tpv.repetirVentaConsultada()
+  if (!ok) {
+    await foco()
+    return
+  }
+  seleccion.value = Math.max(0, tpv.lineas.length - 1)
+  cantidadTecleada.value = ''
+  codigoManual.value = ''
+  cobrado.value = null
+  await foco()
+}
+
+function cerrarConsultaPantalla() {
+  tpv.cerrarConsulta()
+  seleccion.value = -1
+  cantidadTecleada.value = ''
+  codigoManual.value = ''
+  cobrado.value = null
+  void foco()
 }
 
 async function recuperarTicketEspera(ticket: TpvTicketEspera) {
@@ -1038,6 +1353,11 @@ function mantenerFoco(evento: MouseEvent) {
 }
 
 async function salir() {
+  if (tpv.enConsulta) {
+    tpv.cerrarConsulta()
+    await router.push({ name: 'home' })
+    return
+  }
   if (
     (tpv.lineas.length > 0 || tpv.ventaGrabada) &&
     !window.confirm('Hay una venta sin cobrar. ¿Anularla y salir del TPV?')
@@ -1069,7 +1389,7 @@ onMounted(() => {
   <section class="tpv">
     <header class="tpv-titulo">
       <span class="txt">{{ cabecera }}</span>
-      <span class="ticket-num" :class="{ 'sin-num': tpv.numeroTicket === null }">
+      <span class="ticket-num" :class="{ 'sin-num': tpv.numeroTicket === null, consulta: tpv.enConsulta }">
         {{ etiquetaTicket }}
       </span>
       <span class="cliente-num">{{ etiquetaCliente }}</span>
@@ -1105,7 +1425,7 @@ onMounted(() => {
             <button
               type="button"
               class="btn-tpv"
-              :disabled="!lineaSeleccionada || tpv.guardando"
+              :disabled="!lineaSeleccionada || tpv.guardando || tpv.enConsulta"
               @click="cambiarCantidad(1)"
             >
               CANT +
@@ -1113,7 +1433,7 @@ onMounted(() => {
             <button
               type="button"
               class="btn-tpv"
-              :disabled="!lineaSeleccionada || tpv.guardando"
+              :disabled="!lineaSeleccionada || tpv.guardando || tpv.enConsulta"
               @click="cambiarCantidad(-1)"
             >
               CANT −
@@ -1121,7 +1441,7 @@ onMounted(() => {
             <button
               type="button"
               class="btn-tpv borrar-linea"
-              :disabled="!lineaSeleccionada || tpv.guardando"
+              :disabled="!lineaSeleccionada || tpv.guardando || tpv.enConsulta"
               @click="borrarLinea"
             >
               BORRAR LINEA
@@ -1130,7 +1450,7 @@ onMounted(() => {
             <button
               type="button"
               class="btn-tpv"
-              :disabled="!lineaSeleccionada || tpv.guardando"
+              :disabled="!lineaSeleccionada || tpv.guardando || tpv.enConsulta"
               @click="abrirPrecioLinea"
             >
               PRECIO
@@ -1138,7 +1458,7 @@ onMounted(() => {
             <button
               type="button"
               class="btn-tpv"
-              :disabled="!tpv.ticketListo || tpv.guardando"
+              :disabled="!tpv.ticketListo || tpv.guardando || tpv.enConsulta"
               :title="etiquetaLineaMarcada"
               @click="abrirDescuentoLinea"
             >
@@ -1148,7 +1468,7 @@ onMounted(() => {
               type="button"
               class="btn-tpv cliente"
               :class="{ 'con-cliente': !!tpv.cliente }"
-              :disabled="!tpv.ticketListo || tpv.guardando"
+              :disabled="!tpv.ticketListo || tpv.guardando || tpv.enConsulta"
               :title="etiquetaCliente"
               @click="clienteAbierto = true"
             >
@@ -1158,15 +1478,33 @@ onMounted(() => {
             <button
               type="button"
               class="btn-tpv nueva"
-              :disabled="tpv.loading || tpv.guardando"
-              @click="nuevaVenta"
+              :class="{ 'en-curso': tpv.ticketListo && !tpv.enConsulta, repetir: tpv.enConsulta }"
+              :disabled="
+                tpv.enConsulta
+                  ? !tpv.venta || tpv.guardando
+                  : tpv.ticketListo || tpv.loading || tpv.guardando
+              "
+              :title="
+                tpv.enConsulta
+                  ? 'Abrir una venta nueva con las mismas líneas'
+                  : tpv.ticketListo
+                    ? 'Ya hay una venta abierta'
+                    : 'Abrir una venta'
+              "
+              @click="tpv.enConsulta ? repetirVenta() : nuevaVenta()"
             >
-              NUEVA VENTA
+              {{
+                tpv.enConsulta
+                  ? 'REPETIR VENTA'
+                  : tpv.ticketListo
+                    ? 'VENTA ABIERTA'
+                    : 'NUEVA VENTA'
+              }}
             </button>
             <button
               type="button"
               class="btn-tpv anular"
-              :disabled="!tpv.ticketListo || tpv.loading || tpv.guardando"
+              :disabled="tpv.enConsulta || !tpv.ticketListo || tpv.loading || tpv.guardando"
               @click="pedirAnularVenta"
             >
               ANULAR VENTA
@@ -1175,6 +1513,7 @@ onMounted(() => {
               type="button"
               class="btn-tpv otras"
               :class="{ activo: configurandoBotones }"
+              :disabled="tpv.enConsulta"
               @click="otrasFuncionesAbierto = true"
             >
               OTRAS FUNCIONES
@@ -1183,12 +1522,36 @@ onMounted(() => {
             <button
               type="button"
               class="btn-tpv cobrar"
-              :disabled="!puedeCobrar"
-              @click="abrirCobro"
+              :class="{ consulta: tpv.enConsulta }"
+              :disabled="tpv.enConsulta ? !tpv.venta : !puedeCobrar"
+              @click="tpv.enConsulta ? abrirAccionesConsulta() : abrirCobro()"
             >
-              COBRAR
+              {{ tpv.enConsulta ? 'IMPRIMIR / EMAIL' : 'COBRAR' }}
             </button>
-            <button type="button" class="btn-tpv salir" @click="salir">SALIR</button>
+            <button
+              type="button"
+              class="btn-tpv salir"
+              :title="tpv.enConsulta ? 'Quitar el documento de la pantalla' : 'Salir del TPV'"
+              @click="tpv.enConsulta ? cerrarConsultaPantalla() : salir()"
+            >
+              SALIR
+            </button>
+            <button
+              type="button"
+              class="btn-tpv"
+              :disabled="!lineaSeleccionada || tpv.guardando || tpv.enConsulta"
+              @click="abrirDescripcionLinea"
+            >
+              DESCRIP.
+            </button>
+            <button
+              type="button"
+              class="btn-tpv"
+              :disabled="!tpv.ticketListo || tpv.guardando || tpv.enConsulta"
+              @click="anadirNota"
+            >
+              NOTA
+            </button>
           </div>
 
           <div class="numerico">
@@ -1203,20 +1566,21 @@ onMounted(() => {
                 :key="d"
                 type="button"
                 class="btn-tpv num"
+                :disabled="tpv.enConsulta"
                 @click="pulsarDigito(d)"
               >
                 {{ d }}
               </button>
-              <button type="button" class="btn-tpv num aux" @click="limpiarCantidad">C</button>
-              <button type="button" class="btn-tpv num" @click="pulsarDigito('0')">0</button>
-              <button type="button" class="btn-tpv num aux" @click="borrarDigito">←</button>
+              <button type="button" class="btn-tpv num aux" :disabled="tpv.enConsulta" @click="limpiarCantidad">C</button>
+              <button type="button" class="btn-tpv num" :disabled="tpv.enConsulta" @click="pulsarDigito('0')">0</button>
+              <button type="button" class="btn-tpv num aux" :disabled="tpv.enConsulta" @click="borrarDigito">←</button>
             </div>
           </div>
         </div>
 
         <div class="col-articulos">
           <div class="barra-codigo">
-            <label for="tpv-codigo">CODIGO / EAN</label>
+            <label for="tpv-codigo">CODIGO / DESCRIPCION</label>
             <input
               id="tpv-codigo"
               ref="inputCodigo"
@@ -1224,15 +1588,30 @@ onMounted(() => {
               type="text"
               autocomplete="off"
               spellcheck="false"
-              :disabled="!tpv.ticketListo"
-              :placeholder="tpv.ticketListo ? 'Codigo o pistola, Intro' : 'Pulse NUEVA VENTA'"
+              :disabled="!tpv.ticketListo || tpv.enConsulta"
+              :placeholder="
+                tpv.enConsulta
+                  ? 'Consulta: el documento no se modifica'
+                  : tpv.ticketListo
+                    ? 'Codigo, descripcion o pistola'
+                    : 'Pulse NUEVA VENTA'
+              "
               @input="onCodigoInput"
               @keydown.enter.prevent="onCodigoIntro"
             />
             <button
               type="button"
               class="btn-tpv"
-              :disabled="!tpv.ticketListo || tpv.guardando"
+              :disabled="!tpv.ticketListo || tpv.guardando || tpv.enConsulta"
+              title="Buscar por descripción"
+              @click="abrirBuscarArticulo"
+            >
+              BUSCAR
+            </button>
+            <button
+              type="button"
+              class="btn-tpv"
+              :disabled="!tpv.ticketListo || tpv.guardando || tpv.enConsulta"
               title="Teclear el código sin teclado físico"
               @click="codigoTecladoAbierto = true"
             >
@@ -1385,6 +1764,7 @@ onMounted(() => {
     <VentaPostFinalizacionModal
       :open="postVentaOpen"
       :documento="ultimoDocumento"
+      :titulo="tpv.enConsulta ? 'DOCUMENTO RECUPERADO' : 'VENTA FINALIZADA'"
       :email-inicial="ultimoTicket?.email"
       :procesando="postVentaEnviando"
       :error="postVentaError"
@@ -1402,6 +1782,14 @@ onMounted(() => {
       :precio-inicial="modalPrecio.precioInicial"
       @confirmar="onPrecioConfirmado"
       @cancelar="onPrecioCancelado"
+    />
+
+    <TpvDescripcionModal
+      :open="editandoDescripcionLinea >= 0"
+      :articulo="tpv.lineas[editandoDescripcionLinea]?.articulo ?? ''"
+      :descripcion="tpv.lineas[editandoDescripcionLinea]?.descripcion ?? ''"
+      @confirmar="onDescripcionConfirmada"
+      @cancelar="onDescripcionCancelada"
     />
 
     <TpvDescuentoModal
@@ -1429,6 +1817,21 @@ onMounted(() => {
       :empresa="tpv.contexto?.empresa ?? ''"
       @creado="onAbonoCreado"
       @cancelar="cancelarAbono"
+    />
+
+    <TpvTicketFacturaModal
+      :open="ticketFacturaAbierto"
+      :empresa="tpv.contexto?.empresa ?? ''"
+      @convertido="onTicketConvertido"
+      @cancelar="cancelarTicketFactura"
+    />
+
+    <TpvArticuloBuscarModal
+      :open="buscarArticuloAbierto"
+      :tarifa="tpv.contexto?.tarifa || 1"
+      :inicial="buscarArticuloInicial"
+      @seleccionar="onArticuloBuscado"
+      @cancelar="cancelarBuscarArticulo"
     />
 
     <TpvCodigoModal
@@ -1460,6 +1863,14 @@ onMounted(() => {
       :cargando="tpv.cargandoTicketsEspera"
       @recuperar="recuperarTicketEspera"
       @cerrar="cerrarTicketsEspera"
+    />
+
+    <TpvConsultaVentasModal
+      :open="consultaVentasAbierta"
+      :empresa="tpv.contexto?.empresa ?? ''"
+      :aviso="consultaVentasError"
+      @ver="verConsulta"
+      @cerrar="cerrarConsultaVentas"
     />
 
     <TpvBotonConfigModal
@@ -1522,6 +1933,12 @@ onMounted(() => {
   border-style: dashed;
   color: #94a3b8;
   font-weight: 400;
+}
+
+.ticket-num.consulta {
+  background: #dbeafe;
+  border-color: #60a5fa;
+  color: #1e3a8a;
 }
 
 .cliente-num {
@@ -1756,7 +2173,7 @@ onMounted(() => {
 /* Cabe en una fila: la columna de artículos es la ancha de las dos. */
 .barra-codigo {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
@@ -1925,6 +2342,26 @@ onMounted(() => {
   border-color: #1d4ed8;
 }
 
+/* Estado, no tecla: se lee el nombre y no se puede pulsar otra vez. */
+.nueva.repetir {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+
+.nueva.repetir:hover:not(:disabled) {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
+.nueva.en-curso:disabled {
+  opacity: 1;
+  background: #059669;
+  border-color: #059669;
+  color: #fff;
+  cursor: default;
+}
+
 .anular,
 .borrar-linea {
   background: #fff1f2;
@@ -1978,6 +2415,16 @@ onMounted(() => {
 .cobrar:hover:not(:disabled) {
   background: #047857;
   border-color: #047857;
+}
+
+.cobrar.consulta {
+  background: #2563eb;
+  border-color: #2563eb;
+}
+
+.cobrar.consulta:hover:not(:disabled) {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
 }
 
 .salir {

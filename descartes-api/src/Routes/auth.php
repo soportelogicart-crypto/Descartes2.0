@@ -12,6 +12,9 @@ return function (App $app): void {
     $group->post('/login', [AuthController::class, 'login']);
     $group->post('/logout', [AuthController::class, 'logout'])->add(AuthMiddleware::class);
     $group->get('/me', [AuthController::class, 'me'])->add(AuthMiddleware::class);
+    $group->get('/correo', [AuthController::class, 'getCorreo'])->add(AuthMiddleware::class);
+    $group->put('/correo', [AuthController::class, 'putCorreo'])->add(AuthMiddleware::class);
+    $group->post('/correo/probar', [AuthController::class, 'probarCorreo'])->add(AuthMiddleware::class);
   });
 
   // Errores del frontend (sin auth estricto: tambien fallos de login).

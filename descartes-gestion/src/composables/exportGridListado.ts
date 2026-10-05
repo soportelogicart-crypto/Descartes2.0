@@ -81,7 +81,7 @@ export async function exportarGridImprimir(opciones: {
     filas: filasGridATexto(opciones.columnas, filas, opciones.optionsMap),
     columnas: opciones.columnas.map((c) => ({
       alineacion:
-        c.type === 'number' ? 'right' : c.type === 'checkbox' ? 'center' : 'left',
+        c.type === 'number' ? ('right' as const) : c.type === 'checkbox' ? ('center' as const) : ('left' as const),
     })),
     pie: [`${filas.length} fila(s)`],
     filenameFallback: `${opciones.slugArchivo ?? 'listado'}.html`,

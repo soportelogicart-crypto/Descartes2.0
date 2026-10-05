@@ -58,6 +58,8 @@ export type PrintHtmlPayload = {
   impresora?: string
   impresoraId?: number
   silent?: boolean
+  /** A4 apaisado. El Electron instalado anterior a 0.1.4 lo ignora. */
+  landscape?: boolean
 }
 
 export type PrintHtmlResult = {
@@ -171,6 +173,13 @@ export type DescartesBridge = {
   }>
   printTicket: (payload: unknown) => Promise<{ ok: boolean; stub?: boolean; message?: string }>
   printHtml: (payload: PrintHtmlPayload) => Promise<PrintHtmlResult>
+  /** Electron anterior a esta versión no lo tiene. */
+  htmlToPdf?: (payload: {
+    html: string
+    landscape?: boolean
+    pageWidthMm?: number
+    pageHeightMm?: number
+  }) => Promise<{ ok: boolean; pdfBase64?: string; message?: string }>
   printLabel: (payload: PrintLabelPayload) => Promise<PrintLabelResult>
   openCashDrawer: () => Promise<{ ok: boolean; stub?: boolean; message?: string }>
   readCashDrawer: (payload?: {
@@ -191,6 +200,8 @@ export type DescartesBridge = {
   paymentTerminalCancel: (
     payload: Pick<PaymentTerminalPayload, 'driver' | 'terminal' | 'operationId'>
   ) => Promise<PaymentTerminalResult>
+  /** Solo en instaladores recientes. */
+  reenfocar?: () => void
 }
 
 declare global {

@@ -99,3 +99,69 @@ body {
   .folio { width: auto; min-height: 0; padding: 0; }
 }
 `
+
+export type ListadoOrientacion = 'vertical' | 'horizontal'
+
+export const ESTILO_LISTADO_APAISADO =
+  '@page { size: A4 landscape; } @media screen { .folio { width: 297mm; min-height: 210mm; } }'
+
+/** A4 vertical menos los márgenes de `@page`, con un 5 % de holgura. */
+const ANCHO_UTIL_VERTICAL_MM = 188 * 0.95
+/** Con más columnas las cabeceras numéricas se parten aunque el contenido quepa. */
+const MAX_COLUMNAS_VERTICAL = 10
+const MM_POR_CARACTER = 1.4
+const MM_RELLENO_CELDA = 3.2
+/** El texto con espacios se parte en varias líneas; a partir de aquí no ensancha la columna. */
+const MAX_CARACTERES_TEXTO = 28
+const MAX_FILAS_MUESTRA = 400
+
+function anchoColumnaMm(cabecera: string, valores: string[]): number {
+  const palabraCabecera = Math.max(0, ...cabecera.split(/\s+/).map((p) => p.length))
+  let contenido = 0
+  for (const v of valores) {
+    const t = v.trim()
+    const largo = /\s/.test(t) ? Math.min(t.length, MAX_CARACTERES_TEXTO) : t.length
+    if (largo > contenido) contenido = largo
+  }
+  return Math.max(palabraCabecera, contenido, 3) * MM_POR_CARACTER + MM_RELLENO_CELDA
+}
+
+/** Apaisado cuando la suma estimada de columnas no cabe en A4 vertical. */
+export function orientacionPorContenido(
+  thead: string[],
+  filas: (string | number)[][],
+): ListadoOrientacion {
+  if (thead.length > MAX_COLUMNAS_VERTICAL) return 'horizontal'
+  const muestra = filas.slice(0, MAX_FILAS_MUESTRA)
+  const total = thead.reduce(
+    (suma, cab, i) => suma + anchoColumnaMm(cab, muestra.map((f) => String(f[i] ?? ''))),
+    0,
+  )
+  return total > ANCHO_UTIL_VERTICAL_MM ? 'horizontal' : 'vertical'
+}
+
+/** Mide la tabla más ancha de un documento HTML ya montado (informes ABC, etc.). */
+export function orientacionDocumentoHtml(html: string): ListadoOrientacion {
+  if (/size\s*:\s*A4\s+landscape/i.test(html)) return 'horizontal'
+  if (typeof DOMParser === 'undefined') return 'vertical'
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  for (const tabla of Array.from(doc.querySelectorAll('table'))) {
+    const filas = Array.from(tabla.querySelectorAll('tr'))
+    const cabecera = tabla.querySelector('thead tr:last-child') ?? filas[0]
+    if (!cabecera) continue
+    const thead = Array.from(cabecera.children).map((c) => c.textContent ?? '')
+    if (thead.length < 2) continue
+    const cuerpo = filas
+      .filter((tr) => tr !== cabecera && tr.children.length === thead.length)
+      .slice(0, MAX_FILAS_MUESTRA)
+      .map((tr) => Array.from(tr.children).map((c) => c.textContent ?? ''))
+    if (orientacionPorContenido(thead, cuerpo) === 'horizontal') return 'horizontal'
+  }
+  return 'vertical'
+}
+
+export function aplicarApaisadoHtml(html: string): string {
+  if (/size\s*:\s*A4\s+landscape/i.test(html)) return html
+  const estilo = `<style>${ESTILO_LISTADO_APAISADO}</style>`
+  return html.includes('</head>') ? html.replace('</head>', `${estilo}</head>`) : estilo + html
+}

@@ -41,3 +41,10 @@ Convención: `[X]` hecho, `[ ]` pendiente.
 
 - [X] T050 Composable export grid filtrado (`exportGridListado` + `MantenimientoListadoButton`)
 - [X] T051 Sustituir `window.print()` en botones Listado de entidades
+
+## Fase 7 — QA PDF
+
+- [X] T060 Generador repetible de PDF con datos controlados por familia
+- [X] T061 Documentar matriz PDF, orientación, paginación y referencias legacy
+- [ ] T062 Validar con datos reales todas las familias
+- [ ] T063 Validar en papel un informe vertical y uno horizontal

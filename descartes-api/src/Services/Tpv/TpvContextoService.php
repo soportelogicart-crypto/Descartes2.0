@@ -118,7 +118,7 @@ final class TpvContextoService
   {
     $stmt = $this->pdo->query(
       'SELECT Codigo, Descripcion, Abreviacion, AbrirCajon, CopiasTicket,
-              Datafono, EMV, Agrupacion
+              Datafono, ChipAcumuladoMenu, EMV, Agrupacion
        FROM FormasPago
        WHERE ISNULL(CobroDeArqueo, 0) = 1 AND ISNULL(Baja, 0) = 0
        ORDER BY ISNULL(OrdenAparicionVenta, 999), Codigo'
@@ -141,6 +141,9 @@ final class TpvContextoService
         'abrirCajon' => (int) ($row['AbrirCajon'] ?? 0) === 1,
         'copiasTicket' => (int) ($row['CopiasTicket'] ?? 0),
         'datafono' => (int) ($row['Datafono'] ?? 0) !== 0,
+        // Legacy: Datafono clasifica el pago como tarjeta; ChipAcumuladoMenu
+        // distingue el terminal integrado del externo.
+        'chipAcumuladoMenu' => (int) ($row['ChipAcumuladoMenu'] ?? 0) !== 0,
         'emv' => (int) ($row['EMV'] ?? 0) !== 0,
         'agrupacion' => (int) ($row['Agrupacion'] ?? 0),
       ];

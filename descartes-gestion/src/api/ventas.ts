@@ -10,12 +10,69 @@ import type {
   Paged,
   PedidoDetalle,
   PedidoResumen,
+  SituacionVentasResponse,
   Vale,
   VentaDetalle,
   VentaPayload,
   VentaResumen,
 } from '@/types/ventas'
 import type { PaymentTerminalPayload, PaymentTerminalResult } from '@/bridge/electron'
+
+export type OfertaLinea = {
+  pjeDto: number
+  regalo: { articulo: string; cantidad: number } | null
+}
+
+/** Porcentaje y regalo de la oferta del cliente para cada artículo. */
+export async function ofertasLinea(params: {
+  cliente: string
+  empresa: string
+  fecha?: string
+  articulos: string[]
+}): Promise<Record<string, OfertaLinea>> {
+  const articulos = [...new Set(params.articulos.map((c) => c.trim()).filter((c) => c && c.toUpperCase() !== 'NO'))]
+  if (!params.cliente.trim() || articulos.length === 0) return {}
+  const { data } = await api.get<{
+    items: {
+      articulo: string
+      pjeDto: number
+      regalo?: { articulo: string; cantidad: number } | null
+    }[]
+  }>(
+    '/api/ventas/descuento-oferta',
+    {
+      params: {
+        cliente: params.cliente.trim(),
+        empresa: params.empresa.trim(),
+        fecha: (params.fecha ?? '').slice(0, 10),
+        articulos: articulos.join(','),
+      },
+    }
+  )
+  const map: Record<string, OfertaLinea> = {}
+  for (const item of data.items ?? []) {
+    const regaloArt = String(item.regalo?.articulo ?? '').trim()
+    const regaloCant = Number(item.regalo?.cantidad) || 0
+    map[String(item.articulo).trim()] = {
+      pjeDto: Number(item.pjeDto) || 0,
+      regalo: regaloArt && regaloCant > 0 ? { articulo: regaloArt, cantidad: regaloCant } : null,
+    }
+  }
+  return map
+}
+
+/** Porcentaje de la oferta del cliente para cada artículo. Sin oferta, 0. */
+export async function porcentajesOfertaLinea(params: {
+  cliente: string
+  empresa: string
+  fecha?: string
+  articulos: string[]
+}): Promise<Record<string, number>> {
+  const ofertas = await ofertasLinea(params)
+  const map: Record<string, number> = {}
+  for (const [codigo, oferta] of Object.entries(ofertas)) map[codigo] = oferta.pjeDto
+  return map
+}
 
 export async function listarVentas(params: Record<string, string | number | undefined>) {
   const { data } = await api.get<Paged<VentaResumen>>('/api/ventas/albaranes', { params })
@@ -154,7 +211,7 @@ export async function finalizarVenta(
   albaran: number,
   nuevoTipo: string,
   fpago1?: string,
-  opciones: { aplicarValeFidelizacion?: boolean } = {}
+  opciones: { aplicarValeFidelizacion?: boolean; aplicarPuntosFidelizacion?: boolean } = {}
 ) {
   const { data } = await api.post<VentaDetalle>(
     `/api/ventas/albaranes/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}/finalizar`,
@@ -210,13 +267,28 @@ export async function enviarVentaPorEmail(
   tipo: string,
   albaran: number,
   email: string,
-  canal: 'ventas' | 'tpv' = 'ventas'
+  canal: 'ventas' | 'tpv' = 'ventas',
+  pdf?: string
 ): Promise<{ destinatario: string; documento: string }> {
   const { data } = await api.post<{ destinatario: string; documento: string }>(
     canal === 'tpv'
       ? `/api/tpv/ventas/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}/email`
       : `/api/ventas/albaranes/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}/email`,
-    { email }
+    { email, ...(pdf ? { pdf } : {}) }
+  )
+  return data
+}
+
+export async function obtenerSituacionVentas(params: {
+  modo: 'sesion' | 'fechas'
+  puesto?: string
+  sesion?: number
+  fechaDesde?: string
+  fechaHasta?: string
+}) {
+  const { data } = await api.get<SituacionVentasResponse>(
+    '/api/ventas/situacion',
+    { params }
   )
   return data
 }
@@ -450,18 +522,58 @@ export type FidelizacionValesSemestreResultado = {
   importeTotal: number
 }
 
+/** Nivel del árbol: M macrofamilia, F familia, S subfamilia, A artículo. */
+export type FidelizacionNivelExclusion = 'M' | 'F' | 'S' | 'A'
+
+export type FidelizacionExclusion = {
+  tipo: FidelizacionNivelExclusion
+  codigo: string
+  descripcion: string
+}
+
+export type FidelizacionNodoArbol = FidelizacionExclusion & {
+  hijos: boolean
+}
+
+export type FidelizacionPuntosConfig = {
+  porcentaje: number
+  importeMinimo: number
+  exclusiones: FidelizacionExclusion[]
+  multiplo: number
+  valorPunto: number
+}
+
+export type FidelizacionCanje = {
+  aplica: boolean
+  puntos: number
+  puntosUsables: number
+  euros: number
+  multiplo: number
+  valorPunto: number
+}
+
 export type FidelizacionModelo = {
   codigo: string
   nombre: string
   motor: string
   factor: number
-  configuracion: { pjeCanje?: number; mesesCaducidad?: number }
+  configuracion: {
+    pjeCanje?: number
+    mesesCaducidad?: number
+  } & Partial<FidelizacionPuntosConfig>
+}
+
+export type FidelizacionTiendaPuntos = {
+  codigo: string
+  nombre: string
+  sinPuntos: boolean
 }
 
 export type FidelizacionConfiguracion = {
   empresa: string
   seleccionado: string
   modelos: FidelizacionModelo[]
+  tiendas: FidelizacionTiendaPuntos[]
 }
 
 export async function obtenerConfiguracionFidelizacion(empresa: string) {
@@ -469,6 +581,53 @@ export async function obtenerConfiguracionFidelizacion(empresa: string) {
     '/api/ventas/fidelizacion/configuracion',
     { params: { empresa } }
   )
+  return data
+}
+
+export async function guardarSemestreFidelizacion(payload: {
+  codigo: string
+  pjeCanje: number
+  exclusiones: FidelizacionExclusion[]
+}) {
+  const { data } = await api.put<{ pjeCanje: number; exclusiones: FidelizacionExclusion[] }>(
+    '/api/ventas/fidelizacion/semestre',
+    payload
+  )
+  return data
+}
+
+export async function guardarPuntosFidelizacion(payload: {
+  codigo: string
+  porcentaje: number
+  importeMinimo: number
+  exclusiones: FidelizacionExclusion[]
+  multiplo: number
+  valorPunto: number
+}) {
+  const { data } = await api.put<FidelizacionPuntosConfig>('/api/ventas/fidelizacion/puntos', payload)
+  return data
+}
+
+/** Sin nivel: macrofamilias. Con nivel y código: hijos de ese nodo. */
+export async function arbolExclusionFidelizacion(nivel = '', codigo = '') {
+  const { data } = await api.get<FidelizacionNodoArbol[]>('/api/ventas/fidelizacion/arbol-exclusion', {
+    params: { nivel, codigo },
+  })
+  return data
+}
+
+export async function puntosCanjeDisponible(empresa: string, cliente: string, importe: number) {
+  const { data } = await api.get<FidelizacionCanje>('/api/ventas/fidelizacion/puntos-canje', {
+    params: { empresa, cliente, importe },
+  })
+  return data
+}
+
+export async function marcarTiendaSinPuntos(empresa: string, sinPuntos: boolean) {
+  const { data } = await api.put<FidelizacionTiendaPuntos>('/api/ventas/fidelizacion/tiendas', {
+    empresa,
+    sinPuntos,
+  })
   return data
 }
 
