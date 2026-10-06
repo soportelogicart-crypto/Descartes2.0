@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Descartes\Api\Services\Instalacion;
 
+use Descartes\Api\Config\CatalogoInstalaciones;
 use Descartes\Api\Config\Database;
 use Descartes\Api\Config\InstalacionConfig;
 use InvalidArgumentException;
@@ -27,13 +28,20 @@ final class InstalacionService
   }
 
   /**
+   * @param array<string, mixed>|null $configForzada Instalación concreta. Null = la de por defecto.
    * @return array<string, mixed>
    */
-  public function obtenerEstado(): array
+  public function obtenerEstado(?array $configForzada = null): array
   {
-    $configurado = InstalacionConfig::isConfigured();
-    $config = Database::resolveConfig();
-    $origen = $configurado ? 'instalacion' : 'env';
+    if ($configForzada !== null) {
+      $configurado = true;
+      $config = Database::prepareConfig($configForzada);
+      $origen = 'cliente';
+    } else {
+      $configurado = InstalacionConfig::isConfigured();
+      $config = Database::resolveConfig();
+      $origen = $configurado ? 'instalacion' : 'env';
+    }
 
     $migraciones = $this->migrations->estado($config);
     $adminListo = false;
@@ -51,7 +59,7 @@ final class InstalacionService
       }
     }
 
-    $primeraVez = !$configurado;
+    $primeraVez = $configForzada === null && !$configurado;
     $requiereAccion = !$configurado
       || !$migraciones['conexionOk']
       || !$esquemaOk
@@ -136,6 +144,36 @@ final class InstalacionService
   }
 
   /**
+   * Comprueba una conexión y no escribe ningún fichero.
+   *
+   * @param array<string, mixed> $body
+   * @return array<string, mixed>
+   */
+  public function probarSinGuardar(array $body): array
+  {
+    $config = $this->normalizarConfig($body);
+    $estado = $this->migrations->estado($config);
+    if (!$estado['conexionOk']) {
+      return [
+        'ok' => false,
+        'guardado' => false,
+        'mensaje' => $estado['errorConexion'] ?? 'No se pudo conectar',
+      ];
+    }
+
+    return [
+      'ok' => true,
+      'guardado' => false,
+      'mensaje' => 'Conexión correcta. Aún no se ha guardado.',
+      'migraciones' => [
+        'pendientes' => $estado['pendientes'],
+        'aplicadas' => $estado['aplicadas'],
+        'total' => $estado['total'],
+      ],
+    ];
+  }
+
+  /**
    * @param array<string, mixed> $body
    * @return array<string, mixed>
    */
@@ -150,6 +188,35 @@ final class InstalacionService
     }
 
     InstalacionConfig::save($config);
+    return $this->aplicarSobre($config, false);
+  }
+
+  /**
+   * Actualiza solo el fichero de esa instalación y prepara esa base.
+   *
+   * @param array<string, mixed> $body
+   * @return array<string, mixed>
+   */
+  public function configurarEnCatalogo(string $id, array $body): array
+  {
+    $config = $this->normalizarConfig($body);
+    $prueba = $this->migrations->estado($config);
+    if (!$prueba['conexionOk']) {
+      throw new InvalidArgumentException(
+        $prueba['errorConexion'] ?? 'No se pudo conectar a la base de datos'
+      );
+    }
+
+    CatalogoInstalaciones::actualizarConexion($id, $config);
+    return $this->aplicarSobre($config, true);
+  }
+
+  /**
+   * @param array<string, mixed> $config
+   * @return array<string, mixed>
+   */
+  private function aplicarSobre(array $config, bool $esCatalogo): array
+  {
     $resultado = $this->migrations->aplicarTodasIdempotentes($config);
     if (!$resultado['ok']) {
       throw new RuntimeException(
@@ -167,7 +234,7 @@ final class InstalacionService
 
     $admin = $this->bootstrap->asegurarUsuarioAdministrador($pdo);
 
-    $estado = $this->obtenerEstado();
+    $estado = $esCatalogo ? $this->obtenerEstado($config) : $this->obtenerEstado();
     $estado['diagnostico'] = $this->diagnosticoEsquema($pdo, $config);
     $estado['mensaje'] = $this->mensajeExito($resultado['aplicadas'], $admin, $reparacion, $estado['diagnostico']);
     $estado['ultimaEjecucion'] = [
@@ -179,10 +246,13 @@ final class InstalacionService
     return $estado;
   }
 
-  /** @return array<string, mixed> */
-  public function aplicarMigracionesActivas(): array
+  /**
+   * @param array<string, mixed>|null $configForzada
+   * @return array<string, mixed>
+   */
+  public function aplicarMigracionesActivas(?array $configForzada = null): array
   {
-    $config = Database::resolveConfig();
+    $config = $configForzada !== null ? Database::prepareConfig($configForzada) : Database::resolveConfig();
     $resultado = $this->migrations->aplicarTodasIdempotentes($config);
     if (!$resultado['ok']) {
       throw new RuntimeException(
@@ -198,7 +268,7 @@ final class InstalacionService
     }
     $admin = $this->bootstrap->asegurarUsuarioAdministrador($pdo);
 
-    $estado = $this->obtenerEstado();
+    $estado = $configForzada !== null ? $this->obtenerEstado($config) : $this->obtenerEstado();
     $estado['diagnostico'] = $this->diagnosticoEsquema($pdo, $config);
     $estado['ultimaEjecucion'] = [
       'aplicadas' => $resultado['aplicadas'],

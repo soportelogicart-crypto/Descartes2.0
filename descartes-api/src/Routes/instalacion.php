@@ -18,5 +18,10 @@ return function (App $app): void {
     $group->post('/configurar', [InstalacionController::class, 'configurar']);
     $group->post('/migrar', [InstalacionController::class, 'migrar'])
       ->add(AuthMiddleware::class);
+    $group->get('/clientes', [InstalacionController::class, 'listarClientes'])
+      ->add(AuthMiddleware::class);
+    $group->post('/clientes', [InstalacionController::class, 'crearCliente']);
+    $group->post('/clientes/{id}/clave', [InstalacionController::class, 'regenerarClaveCliente'])
+      ->add(AuthMiddleware::class);
   });
 };

@@ -44,5 +44,6 @@ descartes-electron/node_modules/
 descartes-gestion/node_modules/
 descartes-api/vendor/
 descartes-api/var/instalacion.json
+descartes-api/var/clientes/*.json
 descartes-api/storage/logs/*
 !descartes-api/storage/logs/.gitignore

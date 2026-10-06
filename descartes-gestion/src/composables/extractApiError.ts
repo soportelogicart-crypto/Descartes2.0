@@ -23,6 +23,11 @@ export function extractApiError(e: unknown, fallback: string): string {
     return data.error
   }
 
+  const status = (e as { response?: { status?: number } }).response?.status
+  if (status !== undefined && status >= 500 && (typeof data !== 'object' || data === null)) {
+    return 'No se pudo contactar con la API. Compruebe que Apache (XAMPP) está en marcha.'
+  }
+
   if (!err.response) {
     const msg = String(err.message ?? '')
     if (err.code === 'ERR_NETWORK' || msg === 'Network Error') {

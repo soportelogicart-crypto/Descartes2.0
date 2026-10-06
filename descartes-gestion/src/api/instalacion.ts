@@ -31,6 +31,8 @@ export interface InstalacionEstado {
   esquemaOk?: boolean
   diagnostico?: InstalacionDiagnostico | null
   requiereAccion: boolean
+  /** `default` si este PC no está unido a una instalación concreta. */
+  instalacionId?: string
   mensaje?: string
   acceso: {
     usuario: string
@@ -121,6 +123,25 @@ export async function probarInstalacion(form: InstalacionForm): Promise<{
 export async function configurarInstalacion(form: InstalacionForm): Promise<InstalacionEstado> {
   const { data } = await api.post<InstalacionEstado>('/api/instalacion/configurar', payloadDesdeForm(form))
   return recordarInstalacionEstado(data)
+}
+
+export async function crearInstalacionCliente(
+  id: string,
+  form: InstalacionForm
+): Promise<{ id: string; clave: string; server: string; database: string }> {
+  const { data } = await api.post('/api/instalacion/clientes', {
+    id,
+    ...payloadDesdeForm(form),
+  })
+  return data
+}
+
+/** La clave anterior deja de valer: los demás PC unidos necesitan la nueva. */
+export async function regenerarClaveInstalacion(
+  id: string
+): Promise<{ id: string; clave: string }> {
+  const { data } = await api.post(`/api/instalacion/clientes/${encodeURIComponent(id)}/clave`)
+  return data
 }
 
 export async function migrarInstalacionActiva(): Promise<InstalacionEstado> {

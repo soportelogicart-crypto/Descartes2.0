@@ -15,6 +15,10 @@ function equipoPath() {
   return path.join(configDir(), 'equipo.json')
 }
 
+function vinculoPath() {
+  return path.join(configDir(), 'instalacion-vinculo.json')
+}
+
 function defaultEquipoId() {
   return (os.hostname() || 'EQUIPO').toUpperCase().replace(/[^A-Z0-9._-]/g, '-').slice(0, 50)
 }
@@ -149,6 +153,49 @@ function readDatafonoInterno() {
   return readEquipoInterno().datafono
 }
 
+function readVinculo() {
+  const file = vinculoPath()
+  if (!fs.existsSync(file)) {
+    return { id: '', clave: '' }
+  }
+  try {
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'))
+    return {
+      id: String(data.id || '').trim().toLowerCase(),
+      clave: String(data.clave || '').trim(),
+    }
+  } catch {
+    return { id: '', clave: '' }
+  }
+}
+
+function writeVinculo({ id, clave }) {
+  const limpio = {
+    id: String(id || '').trim().toLowerCase(),
+    clave: String(clave || '').trim(),
+  }
+  if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(limpio.id) || limpio.id === 'default') {
+    throw new Error('Identificador de instalación no válido')
+  }
+  if (!limpio.clave) {
+    throw new Error('Indique la clave de la instalación')
+  }
+  const dir = configDir()
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true })
+  }
+  fs.writeFileSync(vinculoPath(), JSON.stringify(limpio, null, 2), 'utf8')
+  return { id: limpio.id, unido: true }
+}
+
+function clearVinculo() {
+  const file = vinculoPath()
+  if (fs.existsSync(file)) {
+    fs.unlinkSync(file)
+  }
+  return { id: '', clave: '', unido: false }
+}
+
 function clearEquipo() {
   const file = equipoPath()
   if (fs.existsSync(file)) {
@@ -165,4 +212,7 @@ module.exports = {
   readDatafonoInterno,
   clearEquipo,
   equipoPath,
+  readVinculo,
+  writeVinculo,
+  clearVinculo,
 }

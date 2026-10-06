@@ -3,12 +3,19 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   configurarInstalacion,
+  crearInstalacionCliente,
   getInstalacionEstado,
+  olvidarInstalacionEstado,
   probarInstalacion,
   type InstalacionEstado,
   type InstalacionDiagnostico,
   type TipoConexionBd,
 } from '@/api/instalacion'
+import {
+  guardarVinculoInstalacion,
+  quitarVinculoInstalacion,
+  vinculoEnMemoria,
+} from '@/api/vinculoInstalacion'
 import { extractApiError } from '@/composables/extractApiError'
 import { useAuthStore } from '@/stores/auth'
 
@@ -31,6 +38,13 @@ const mensaje = ref<string | null>(null)
 const error = ref<string | null>(null)
 const probando = ref(false)
 const guardando = ref(false)
+const unidoA = ref(vinculoEnMemoria()?.id ?? '')
+const unionId = ref('')
+const unionClave = ref('')
+const nuevaId = ref('')
+const claveNueva = ref<string | null>(null)
+const uniendo = ref(false)
+const creando = ref(false)
 
 type FeedbackTipo = 'ok' | 'error' | 'info' | 'loading' | null
 const feedbackTipo = ref<FeedbackTipo>(null)
@@ -40,6 +54,7 @@ const diagnostico = ref<InstalacionDiagnostico | null>(null)
 const mostrarDiagnostico = ref(false)
 
 const esPrimeraVez = computed(() => estado.value?.primeraVez ?? !estado.value?.configurado)
+const editandoUna = computed(() => unidoA.value !== '')
 const diagnosticoActual = computed(() => diagnostico.value ?? estado.value?.diagnostico ?? null)
 const necesitaActualizarEsquema = computed(
   () => estado.value?.conexionOk === true && estado.value?.esquemaOk === false
@@ -64,6 +79,86 @@ function validarFormulario(): string | null {
   if (!form.user.trim()) return 'Indique el usuario de SQL Server'
   if (!form.password) return 'Indique la contrasena de SQL Server'
   return null
+}
+
+async function cerrarSesion() {
+  try {
+    await auth.logout()
+  } catch {
+    auth.usuario = null
+    auth.permisos = {}
+    auth.cargado = false
+  }
+}
+
+async function onUnirPc() {
+  error.value = null
+  uniendo.value = true
+  try {
+    await cerrarSesion()
+    await guardarVinculoInstalacion(unionId.value, unionClave.value)
+    olvidarInstalacionEstado()
+    window.location.reload()
+  } catch (e: unknown) {
+    error.value = e instanceof Error ? e.message : extractApiError(e, 'No se pudo unir este PC')
+    mostrarFeedback('error', error.value)
+    uniendo.value = false
+  }
+}
+
+async function onQuitarUnion() {
+  error.value = null
+  uniendo.value = true
+  try {
+    await cerrarSesion()
+    await quitarVinculoInstalacion()
+    olvidarInstalacionEstado()
+    window.location.reload()
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo quitar la instalación de este PC')
+    mostrarFeedback('error', error.value)
+    uniendo.value = false
+  }
+}
+
+async function onGuardarPc() {
+  const id = unionId.value.trim()
+  const clave = unionClave.value.trim()
+  if (!id && !clave) {
+    await onQuitarUnion()
+    return
+  }
+  await onUnirPc()
+}
+
+async function onCrearInstalacion() {
+  const validacion = validarFormulario()
+  if (!nuevaId.value.trim()) {
+    error.value = 'Indique el identificador de la instalación nueva'
+    mostrarFeedback('error', error.value)
+    return
+  }
+  if (validacion) {
+    error.value = validacion
+    mostrarFeedback('error', validacion)
+    return
+  }
+  creando.value = true
+  error.value = null
+  claveNueva.value = null
+  try {
+    const creada = await crearInstalacionCliente(nuevaId.value, form)
+    await guardarVinculoInstalacion(creada.id, creada.clave)
+    await cerrarSesion()
+    olvidarInstalacionEstado()
+    window.location.reload()
+    return
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo crear la instalación')
+    mostrarFeedback('error', error.value)
+  } finally {
+    creando.value = false
+  }
 }
 
 async function cargarEstado() {
@@ -93,7 +188,10 @@ async function onProbar() {
   }
 
   probando.value = true
-  mostrarFeedback('loading', 'Comprobando conexion y guardando configuracion…')
+  mostrarFeedback(
+    'loading',
+    editandoUna.value ? 'Comprobando conexión…' : 'Comprobando conexion y guardando configuracion…'
+  )
   try {
     const res = await probarInstalacion(form)
     if (res.ok) {
@@ -155,6 +253,13 @@ async function irAlLogin() {
 }
 
 onMounted(() => {
+  const vinculo = vinculoEnMemoria()
+  unidoA.value = vinculo?.id ?? ''
+  unionId.value = vinculo?.id ?? ''
+  unionClave.value = vinculo?.clave ?? ''
+  void auth.fetchMe().catch(() => {
+    auth.cargado = true
+  })
   void cargarEstado()
 })
 </script>
@@ -184,8 +289,34 @@ onMounted(() => {
       <div class="card-scroll">
         <h1>{{ esPrimeraVez ? 'Bienvenido a Descartes' : 'Conexion a la base de datos' }}</h1>
         <p class="intro">
-          Paso 1: comprobar. Paso 2: conectar y preparar tablas (usuario ADM).
+          Cada PC elige su base. La de producción es la que no tiene identificador. Un identificador
+          solo afecta al PC donde se guarda. Cambiarlo aquí no cambia el otro PC.
         </p>
+
+        <fieldset class="tipo-conexion vinculo">
+          <legend>Este PC</legend>
+          <p class="hint">
+            <template v-if="editandoUna">
+              Ahora usa «{{ unidoA }}». Para dejarlo en producción, borre los dos campos y pulse
+              Guardar en este PC.
+            </template>
+            <template v-else>
+              Ahora usa la base de producción. Para una base de prueba, escriba su identificador y
+              su clave.
+            </template>
+          </p>
+          <label>
+            Identificador de este PC
+            <input v-model="unionId" autocomplete="off" placeholder="vacío = producción" />
+          </label>
+          <label>
+            Clave
+            <input v-model="unionClave" autocomplete="off" placeholder="la que salió al crear" />
+          </label>
+          <button type="button" class="secundario" :disabled="uniendo" @click="onGuardarPc">
+            {{ uniendo ? 'Guardando…' : 'Guardar en este PC' }}
+          </button>
+        </fieldset>
 
         <fieldset class="tipo-conexion">
           <legend>Tipo de conexion</legend>
@@ -225,6 +356,30 @@ onMounted(() => {
           Confiar en certificado del servidor
         </label>
 
+        <fieldset class="tipo-conexion vinculo">
+          <legend>Nueva instalación</legend>
+          <p class="hint">
+            Solo la primera vez. Escriba el identificador, por ejemplo prueba. La clave sale en este
+            PC y se puede copiar. El otro PC sigue en producción hasta que usted le ponga otro
+            identificador.
+          </p>
+          <label>
+            Identificador
+            <input v-model="nuevaId" autocomplete="off" placeholder="demo" />
+          </label>
+          <button
+            type="button"
+            class="secundario"
+            :disabled="creando || guardando"
+            @click="onCrearInstalacion"
+          >
+            {{ creando ? 'Creando…' : 'Crear instalación' }}
+          </button>
+          <p v-if="claveNueva" class="clave-nueva">
+            Clave de <strong>{{ nuevaId }}</strong>: <code>{{ claveNueva }}</code>
+          </p>
+        </fieldset>
+
         <details
           v-if="mostrarDiagnostico && diagnosticoActual"
           class="diagnostico"
@@ -258,6 +413,9 @@ onMounted(() => {
       </div>
 
       <div class="acciones">
+        <p v-if="!editandoUna" class="hint acciones-aviso">
+          Comprobar y Conectar cambian la base de producción, la de todos los PC sin identificador.
+        </p>
         <button type="button" class="secundario" :disabled="probando || guardando" @click="onProbar">
           {{ probando ? 'Comprobando…' : 'Comprobar' }}
         </button>
@@ -271,9 +429,10 @@ onMounted(() => {
 
 <style scoped>
 .instalacion {
-  min-height: 100vh;
+  min-height: 100%;
   display: grid;
-  place-items: center;
+  align-content: start;
+  justify-items: center;
   padding: 1rem;
   background: #f1f5f9;
 }
@@ -315,6 +474,22 @@ h1 {
   font-size: 0.88rem;
   color: #64748b;
   line-height: 1.45;
+}
+
+.vinculo {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.clave-nueva {
+  margin: 0;
+  padding: 0.55rem 0.65rem;
+  background: #ecfdf5;
+  border: 1px solid #6ee7b7;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  word-break: break-all;
 }
 
 
@@ -459,8 +634,9 @@ input[type='password'] {
   background: #fff;
 }
 
-.acciones button {
-  flex: 1 1 8rem;
+.acciones-aviso {
+  flex: 1 1 100%;
+  margin: 0;
 }
 
 button {

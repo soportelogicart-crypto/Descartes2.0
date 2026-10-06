@@ -3,8 +3,8 @@
 declare(strict_types=1);
 
 /**
- * Reserva para multi-cliente (Principio III). v1: la conexion activa sale de
- * Database::resolveConfig() en cada peticion (var/instalacion.json o .env).
+ * La conexión por instalación está en CatalogoInstalaciones (var/clientes)
+ * y, si la petición no trae identificador, en var/instalacion.json.
  */
 return [
   'default' => 'default',

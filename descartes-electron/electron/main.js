@@ -150,6 +150,9 @@ function registerIpc() {
   ipcMain.handle('equipo:set', (_event, payload) => localConfig.writeEquipo(payload || {}))
   ipcMain.handle('equipo:setDatafono', (_event, payload) => localConfig.writeDatafono(payload || {}))
   ipcMain.handle('equipo:clear', () => localConfig.clearEquipo())
+  ipcMain.handle('instalacion:get', () => localConfig.readVinculo())
+  ipcMain.handle('instalacion:set', (_event, payload) => localConfig.writeVinculo(payload || {}))
+  ipcMain.handle('instalacion:clear', () => localConfig.clearVinculo())
   ipcMain.handle('logos:empresa', (_event, codigo) => logos.resolveEmpresa(codigo))
   ipcMain.handle('logos:guardar', (event, codigo) => {
     const win = BrowserWindow.fromWebContents(event.sender)

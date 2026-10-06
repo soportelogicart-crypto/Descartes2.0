@@ -1,28 +1,9 @@
 const { Menu, app, BrowserWindow } = require('electron')
 
-function isLoginUrl(url) {
-  try {
-    const { pathname } = new URL(url)
-    return pathname === '/login' || pathname.endsWith('/login')
-  } catch {
-    return /\/login(\?|#|$)/.test(String(url || ''))
-  }
-}
-
-function isInstalacionUrl(url) {
-  try {
-    const { pathname } = new URL(url)
-    return pathname === '/instalacion' || pathname.endsWith('/instalacion')
-  } catch {
-    return /\/instalacion(\?|#|$)/.test(String(url || ''))
-  }
-}
-
-function rutaConexion(url) {
-  if (isLoginUrl(url) || isInstalacionUrl(url)) {
-    return '/instalacion'
-  }
-  return '/configuracion/base-datos'
+function rutaConexion() {
+  // Siempre la pantalla pública. La de dentro del menú exige sesión y, si
+  // esa comprobación falla, devuelve al login y Conexión no llega a abrirse.
+  return '/instalacion'
 }
 
 function navegarEnVentana(win, path) {
@@ -41,7 +22,7 @@ function buildDescartesMenu(getFocusedWindow) {
           click: (_item, focusedWindow) => {
             const win = focusedWindow || getFocusedWindow()
             if (!win) return
-            navegarEnVentana(win, rutaConexion(win.webContents.getURL()))
+            navegarEnVentana(win, rutaConexion())
           },
         },
         { type: 'separator' },

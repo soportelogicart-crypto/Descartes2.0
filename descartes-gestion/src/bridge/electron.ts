@@ -146,6 +146,10 @@ export type DescartesBridge = {
   }) => Promise<DescartesEquipoConfig>
   setDatafonoConfig: (payload: DatafonoLocalConfig) => Promise<DescartesEquipoConfig>
   clearEquipoConfig: () => Promise<DescartesEquipoConfig>
+  /** Identificador y clave de la instalación de este PC. Vacío si usa la de por defecto. */
+  getVinculoInstalacion?: () => Promise<{ id: string; clave: string }>
+  setVinculoInstalacion?: (payload: { id: string; clave: string }) => Promise<{ id: string; unido: boolean }>
+  clearVinculoInstalacion?: () => Promise<{ id: string; clave: string; unido: boolean }>
   getHostname: () => Promise<string>
   /** Logo de la tienda desde la carpeta local `logos`. Vacío si no hay fichero. */
   logoEmpresa: (codigo: string) => Promise<{

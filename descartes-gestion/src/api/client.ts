@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { reportClientError } from './clientLogger'
+import { vinculoEnMemoria } from './vinculoInstalacion'
 
 const baseURL = import.meta.env.VITE_API_BASE_URL || ''
 
@@ -11,13 +12,32 @@ export const api = axios.create({
   },
 })
 
+api.interceptors.request.use((config) => {
+  const vinculo = vinculoEnMemoria()
+  if (vinculo) {
+    config.headers.set('X-Cliente-Id', vinculo.id)
+    config.headers.set('X-Cliente-Clave', vinculo.clave)
+  }
+  return config
+})
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     const url = String(error.config?.url ?? '')
     const status = error.response?.status as number | undefined
 
-    if (status === 401 && !url.includes('/auth/login')) {
+    const codigoAuth = error.response?.data?.codigo
+    const falloDeInstalacion =
+      codigoAuth === 'INSTALACION_NO_AUTORIZADA' || codigoAuth === 'SESION_OTRA_INSTALACION'
+    // /auth/me lo resuelve quien llama. Si redirigimos aquí, Conexión (pública)
+    // vuelve al login en cuanto comprueba la sesión y no se puede abrir.
+    if (
+      status === 401 &&
+      !url.includes('/auth/login') &&
+      !url.includes('/auth/me') &&
+      !falloDeInstalacion
+    ) {
       window.location.href = `${import.meta.env.BASE_URL}login`.replace(/\/{2,}/g, '/')
       return Promise.reject(error)
     }
