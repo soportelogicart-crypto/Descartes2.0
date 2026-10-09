@@ -397,6 +397,19 @@ async function printHtmlSized(payload, opts) {
     return { ok: false, stub: false, message: resolved.error }
   }
 
+  // 0x80 = PRINTER_STATUS_OFFLINE. Windows acepta el trabajo y lo deja en cola sin papel.
+  const elegida = printers.find((p) => p.name === resolved.name)
+  const status = elegida && elegida.status != null ? Number(elegida.status) : 0
+  if (opts.errorLabel === 'etiqueta' && (status & 0x80) !== 0) {
+    return {
+      ok: false,
+      stub: false,
+      impresora: resolved.name,
+      message:
+        `«${resolved.name}» está desconectada. Enciéndala o compruebe la red. No se ha enviado la etiqueta.`,
+    }
+  }
+
   const silent = payload && Object.prototype.hasOwnProperty.call(payload, 'silent')
     ? Boolean(payload.silent)
     : true

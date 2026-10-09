@@ -731,6 +731,10 @@ final class FidelizacionService
     if (!$config['configurado'] || $config['valorPunto'] <= 0 || $config['multiplo'] < 1) {
       return $vacio;
     }
+    $socio = $this->cargarSocio($cliente);
+    if ($socio === null || !$this->socioElegible('PUNTOS', $socio)) {
+      return $vacio;
+    }
     $stmt = $this->pdo->prepare(
       'SELECT ISNULL([AcumuladoPuntos], 0) FROM [Clientes] WHERE RTRIM([Codigo]) = :cliente'
     );
@@ -767,6 +771,39 @@ final class FidelizacionService
     if ($puntos > 0) {
       $this->actualizarAcumuladoPuntos(trim($cliente), -$puntos);
     }
+  }
+
+  /**
+   * Devuelve al cliente los puntos gastados en una venta que se abona.
+   * Los euros son la parte del descuento que no era un vale de fidelización.
+   */
+  public function devolverPuntos(string $empresa, string $cliente, float $euros): int
+  {
+    $cliente = trim($cliente);
+    if ($cliente === '' || strcasecmp($cliente, 'ZZZZZZZZZ') === 0 || $euros < 0.005) {
+      return 0;
+    }
+    $politica = $this->cargarPoliticaTienda($empresa);
+    if ($politica === null || !empty($politica['bloqueo']) || trim((string) $politica['tipoCalculo']) === '') {
+      return 0;
+    }
+    $tipo = $this->cargarTipoCalculo((string) $politica['tipoCalculo']);
+    if ($tipo === null || strtoupper((string) ($tipo['motor'] ?? '')) !== 'PUNTOS') {
+      return 0;
+    }
+    $config = $this->configPuntos($tipo);
+    if (!$config['configurado'] || $config['valorPunto'] <= 0) {
+      return 0;
+    }
+    $puntos = (int) round($euros / $config['valorPunto']);
+    $multiplo = max(1, (int) $config['multiplo']);
+    $puntos = (int) (round($puntos / $multiplo) * $multiplo);
+    if ($puntos < 1) {
+      return 0;
+    }
+    $this->actualizarAcumuladoPuntos($cliente, $puntos);
+
+    return $puntos;
   }
 
   private function numeroConfig(mixed $value, string $campo): float

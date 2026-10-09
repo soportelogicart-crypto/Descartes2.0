@@ -188,6 +188,10 @@ const tiendaSelectRef = ref<HTMLSelectElement | null>(null)
 const albaranInputRef = ref<HTMLInputElement | null>(null)
 const proveedorInputRef = ref<HTMLInputElement | null>(null)
 const lineasPanelRef = ref<HTMLElement | null>(null)
+const masDatosRef = ref<HTMLDetailsElement | null>(null)
+
+/** Intro tras el proveedor: proyecto, observaciones y los editables de Más datos. */
+const ORDEN_CABECERA = ['proyecto', 'observaciones', 'transporte', 'bruto', 'coeficiente'] as const
 
 const mostrarProveedor = computed(() => !esNuevo.value || pasoAlta.value !== 'tienda')
 const mostrarExtras = computed(() => !esNuevo.value || pasoAlta.value === 'listo')
@@ -270,13 +274,13 @@ const puedeGenerarVenta = computed(
 const mensajeConfirmConvertirVenta = computed(() => {
   const n = ficha.value?.lineas?.filter((l) => String(l.articulo ?? '').trim()).length ?? 0
   const cli = clienteVentaNombre.value || clienteVentaCodigo.value
-  return `Se generará un albarán de venta para el cliente ${cli} con ${n} línea(s) a PVP de tarifa. ¿Continuar?`
+  return `Se generará una venta para el cliente ${cli} con ${n} línea(s) a PVP de tarifa. El tipo y la forma de pago se eligen después, en la venta, con Imprimir. ¿Continuar?`
 })
 
 const mensajeVentaCreada = computed(() => {
   const v = ventaCreadaRef.value
   if (!v) return 'Venta generada.'
-  return `Venta ${v.tipo}-${v.albaran} creada. ¿Abrirla ahora?`
+  return `Venta ${v.tipo}-${v.albaran} creada. Ábrala y pulse Imprimir para elegir ticket, albarán o factura y, si toca cobrar, la forma de pago.`
 })
 
 const puedeAbonar = computed(
@@ -345,7 +349,7 @@ const avisoConsulta = computed(() => {
   if (esNuevo.value || modoEdicion.value) return ''
   if (ficha.value?.trasCtb) return 'Traspasado a contabilidad. Solo lectura.'
   if (ficha.value?.actualizado) {
-    return 'Stock actualizado. Use Albarán cliente para generar venta, o Recuperar para modificar.'
+    return 'Stock actualizado. Use Venta cliente para generar la venta, o Recuperar para modificar.'
   }
   if (soloLecturaMotivo.value) return `Solo lectura — ${soloLecturaMotivo.value}`
   return ''
@@ -852,7 +856,6 @@ function onEmpresaNuevoChange() {
 
 
 function onKeyEnter(e: KeyboardEvent) {
-  if (!esNuevo.value || pasoAlta.value === 'listo') return
   if (
     buscarProveedorOpen.value ||
     buscarArticuloOpen.value ||
@@ -869,12 +872,58 @@ function onKeyEnter(e: KeyboardEvent) {
     return
   }
   const t = e.target
-  if (t instanceof HTMLElement) {
-    const tag = t.tagName
-    if (tag === 'TEXTAREA' || (tag === 'INPUT' && t.closest('.lineas-panel, .lineas-panel'))) return
+  if (!(t instanceof HTMLElement)) return
+  if (t.closest('.lineas-panel')) return
+  const nav = t.getAttribute('data-cabecera-nav')
+  if (nav) {
+    e.preventDefault()
+    irSiguienteCabecera(nav)
+    return
   }
+  if (t === proveedorInputRef.value) {
+    e.preventDefault()
+    const codigo = form.value.proveedor.trim()
+    if (codigo) void confirmarProveedorPorCodigo(codigo)
+    else abrirBuscarProveedor()
+    return
+  }
+  if (!esNuevo.value || pasoAlta.value === 'listo') return
+  if (t.tagName === 'TEXTAREA') return
   e.preventDefault()
   void onIntroCabecera()
+}
+
+function onKeyF3(e: KeyboardEvent) {
+  if (!lineasEditables.value) return
+  const t = e.target
+  if (t instanceof HTMLElement && t.closest('.lineas-panel')) return
+  e.preventDefault()
+  focusLineaArticulo(0)
+}
+
+function focoCabecera(clave: string) {
+  if (clave === 'transporte' || clave === 'bruto' || clave === 'coeficiente') {
+    if (masDatosRef.value) masDatosRef.value.open = true
+  }
+  void nextTick(() => {
+    const el = document.querySelector<HTMLInputElement>(`[data-cabecera-nav="${clave}"]`)
+    if (!el || el.readOnly || el.disabled) {
+      irSiguienteCabecera(clave)
+      return
+    }
+    el.focus()
+    el.select()
+  })
+}
+
+function irSiguienteCabecera(actual: string) {
+  const i = ORDEN_CABECERA.indexOf(actual as (typeof ORDEN_CABECERA)[number])
+  const siguiente = i >= 0 ? ORDEN_CABECERA[i + 1] : undefined
+  if (!siguiente) {
+    focusLineaArticulo(0)
+    return
+  }
+  focoCabecera(siguiente)
 }
 
 async function onIntroCabecera() {
@@ -1766,7 +1815,7 @@ async function aplicarProveedorEnForm(
     pasoAlta.value = 'listo'
     mensaje.value = null
     await nextTick()
-    void focusLineaArticulo(0)
+    focoCabecera('proyecto')
   }
 }
 
@@ -2023,7 +2072,7 @@ watch(
 </script>
 
 <template>
-  <section class="compra-detalle" tabindex="-1" @keydown.enter="onKeyEnter">
+  <section class="compra-detalle" tabindex="-1" @keydown.enter="onKeyEnter" @keydown.f3="onKeyF3">
     <VentaToolbar
       :puede-crear="puedeCrear && !modoPendientesStock"
       :puede-editar="puedeEditar && !!ficha && !bloqueado"
@@ -2036,8 +2085,8 @@ watch(
       :puede-recuperar="puedeRecuperar && !modoPendientesStock"
       :puede-actualizar-stock="puedeActualizarStock"
       :puede-generar-albaran="puedeGenerarVenta && !modoPendientesStock"
-      generar-albaran-label="Albarán cliente"
-      generar-albaran-title="Generar albarán de venta al cliente desde este albarán de compra actualizado"
+      generar-albaran-label="Venta cliente"
+      generar-albaran-title="Generar una venta al cliente desde este albarán de compra actualizado"
       :puede-buscar="true"
       buscar-label="Listado"
       :buscar-title="
@@ -2088,8 +2137,8 @@ watch(
       </button>
     </div>
     <p v-else-if="esNuevo && pasoAlta === 'listo'" class="ok">
-      Introduzca los artículos: código + <strong>Intro</strong> (o F4 / … para buscar). El número de
-      albarán se asigna al pulsar <strong>Guardar</strong>.
+      Intro avanza por proyecto, observaciones y Más datos. <strong>F3</strong> salta a las líneas.
+      El número de albarán se asigna al pulsar <strong>Guardar</strong>.
     </p>
     <p v-else-if="modoEdicion && !esNuevo" class="ok">
       Editando. <strong>Guardar</strong> actualiza la cabecera. Las líneas se graban al pulsar
@@ -2213,18 +2262,34 @@ watch(
               </label>
               <label class="field">
                 <span class="label">Proyecto</span>
-                <input v-model="form.proyecto" maxlength="15" :readonly="!camposEditables" />
+                <input
+                  v-model="form.proyecto"
+                  data-cabecera-nav="proyecto"
+                  maxlength="15"
+                  :readonly="!camposEditables"
+                  title="Intro: siguiente campo. F3: líneas"
+                />
               </label>
               <label class="field span-2">
                 <span class="label">Observaciones</span>
-                <input v-model="form.observaciones" :readonly="!camposEditables" />
+                <input
+                  v-model="form.observaciones"
+                  data-cabecera-nav="observaciones"
+                  :readonly="!camposEditables"
+                  title="Intro: Más datos. F3: líneas"
+                />
               </label>
             </div>
             <p v-if="ficha?.albaranDevolucion" class="cab-dev-flag">Albarán de devolución / abono</p>
           </section>
         </div>
 
-        <details v-if="mostrarExtras" class="detalles-adicionales" :open="!cabeceraCompacta">
+        <details
+          v-if="mostrarExtras"
+          ref="masDatosRef"
+          class="detalles-adicionales"
+          :open="!cabeceraCompacta"
+        >
           <summary>Más datos de la compra</summary>
           <section class="section">
             <h3>Transporte y márgenes</h3>
@@ -2234,7 +2299,9 @@ watch(
                 <DecimalInput
                   v-if="camposEditables"
                   v-model="form.importeTransporte"
+                  data-cabecera-nav="transporte"
                   :empty-as-null="false"
+                  title="Intro: siguiente. F3: líneas"
                   @update:model-value="onImporteTransporteInput"
                 />
                 <input v-else class="num" :value="fmtNum(form.importeTransporte)" readonly />
@@ -2244,7 +2311,9 @@ watch(
                 <DecimalInput
                   v-if="camposEditables"
                   v-model="form.brutoConTransporte"
+                  data-cabecera-nav="bruto"
                   :empty-as-null="false"
+                  title="Intro: siguiente. F3: líneas"
                   @update:model-value="onBrutoConTransporteInput"
                 />
                 <input v-else class="num" :value="fmtNum(form.brutoConTransporte)" readonly />
@@ -2254,7 +2323,9 @@ watch(
                 <DecimalInput
                   v-if="camposEditables"
                   v-model="form.coeficienteTransporte"
+                  data-cabecera-nav="coeficiente"
                   :empty-as-null="false"
+                  title="Intro: líneas. F3: líneas"
                   @update:model-value="onCoeficienteTransporteInput"
                 />
                 <input v-else class="num" :value="fmtNum(form.coeficienteTransporte, 4)" readonly />

@@ -502,7 +502,7 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
   }
 
   /** Alta de línea a partir de un artículo ya resuelto (botón táctil, tecleo o pistola). */
-  async function anadirResuelto(art: TpvArticuloPrecio, unidades: number) {
+  async function anadirResuelto(art: TpvArticuloPrecio, unidades: number, pedirPrecio = false) {
     if (art.bloqueado) {
       error.value = `Artículo ${art.codigo} no disponible`
       return
@@ -510,8 +510,8 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
 
     const pjeIva = art.iva ?? 21
 
-    // Sin PVP cada pulsación pide el precio y crea otra línea: no se reutiliza el anterior.
-    if (art.precio <= 0) {
+    // Sin PVP (o botón legacy con H_PRECIO "0") cada pulsación pide el precio y crea otra línea.
+    if (art.precio <= 0 || pedirPrecio) {
       pendientePrecio.value = {
         articulo: art.codigo,
         descripcion: art.descripcion,
@@ -551,7 +551,7 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
    * Línea de nota (artículo NO): no lleva precio, no mueve stock y cada una
    * es una línea distinta. El texto se escribe después con DESCRIP.
    */
-  async function anadirNota(): Promise<boolean> {
+  async function anadirNota(texto = ''): Promise<boolean> {
     if (rechazarConsulta()) return false
     if (!contexto.value || !reserva.value) {
       error.value = 'Pulse NUEVA VENTA para abrir un ticket'
@@ -560,7 +560,7 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
     limpiarAvisos()
     lineas.value.push({
       articulo: 'NO',
-      descripcion: '',
+      descripcion: texto,
       cantidad: 0,
       precio: 0,
       pjeDto: 0,
@@ -632,7 +632,7 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
     }
   }
 
-  async function anadirArticulo(codigo: string, cantidad = 1) {
+  async function anadirArticulo(codigo: string, cantidad = 1, pedirPrecio = false) {
     if (rechazarConsulta()) return
     if (!contexto.value || !reserva.value) {
       error.value = 'Pulse NUEVA VENTA para abrir un ticket'
@@ -647,7 +647,7 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
         tarifa,
         empresa: contexto.value.empresa,
       })
-      await anadirResuelto(art, unidades)
+      await anadirResuelto(art, unidades, pedirPrecio)
     } catch (e: unknown) {
       error.value = extractApiError(e, 'No se pudo añadir el artículo')
     } finally {
@@ -816,7 +816,12 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
   async function cobrar(
     tipoDocumento: string,
     formaPago = '',
-    opciones: { aplicarValeFidelizacion?: boolean; aplicarPuntosFidelizacion?: boolean } = {}
+    opciones: {
+      aplicarValeFidelizacion?: boolean
+      aplicarPuntosFidelizacion?: boolean
+      valeCodigo?: number
+      fpago2?: string
+    } = {}
   ): Promise<VentaDetalle | null> {
     if (rechazarConsulta()) return null
     const tipo = String(tipoDocumento ?? '').trim().toUpperCase()

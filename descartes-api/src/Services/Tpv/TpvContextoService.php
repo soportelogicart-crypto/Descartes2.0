@@ -33,7 +33,7 @@ final class TpvContextoService
     }
 
     $stmt = $this->pdo->prepare(
-      'SELECT Puesto, Teclado, Tarifa, ImpresoraTickets, ImpresoraTicketsF,
+      'SELECT Puesto, NivelBar, Teclado, Tarifa, ImpresoraTickets, ImpresoraTicketsF,
               Datafono, TerminalDatafono
        FROM Puestos WHERE RTRIM(Puesto) = :p'
     );
@@ -43,10 +43,16 @@ final class TpvContextoService
       throw new \InvalidArgumentException("No existe el puesto {$puesto}");
     }
 
-    $tecladoCodigo = (int) ($row['Teclado'] ?? 0);
+    // Legacy (frmVenta): la plantilla táctil es Puestos.NivelBar con Format(n, "000").
+    // Puestos.Teclado es el teclado físico (tabla Teclados); solo se usa si NivelBar está vacío.
+    $nivelBar = trim((string) ($row['NivelBar'] ?? ''));
+    $tecladoCodigo = ctype_digit($nivelBar) ? (int) $nivelBar : 0;
+    if ($tecladoCodigo <= 0) {
+      $tecladoCodigo = (int) ($row['Teclado'] ?? 0);
+    }
     if ($tecladoCodigo <= 0) {
       throw new \InvalidArgumentException(
-        "El puesto {$puesto} no tiene teclado táctil asignado. Indique el número de teclado en "
+        "El puesto {$puesto} no tiene teclado táctil asignado. Indique el teclado (p. ej. 001) en "
           . 'Mantenimiento → Puestos → Datos Generales → Asignación.'
       );
     }
@@ -118,7 +124,7 @@ final class TpvContextoService
   {
     $stmt = $this->pdo->query(
       'SELECT Codigo, Descripcion, Abreviacion, AbrirCajon, CopiasTicket,
-              Datafono, ChipAcumuladoMenu, EMV, Agrupacion
+              Datafono, ChipAcumuladoMenu, EMV, Agrupacion, Vales
        FROM FormasPago
        WHERE ISNULL(CobroDeArqueo, 0) = 1 AND ISNULL(Baja, 0) = 0
        ORDER BY ISNULL(OrdenAparicionVenta, 999), Codigo'
@@ -130,8 +136,10 @@ final class TpvContextoService
       if ($codigo === '') {
         continue;
       }
+      $esVale = (int) ($row['Vales'] ?? 0) !== 0;
       $etiqueta = trim((string) ($row['Abreviacion'] ?? ''));
-      if ($etiqueta === '') {
+      // Una abreviatura numérica (p. ej. "1") no se reconoce en el botón del TPV.
+      if ($etiqueta === '' || $esVale || preg_match('/^\d+$/', $etiqueta) === 1) {
         $etiqueta = trim((string) ($row['Descripcion'] ?? $codigo));
       }
       $items[] = [
@@ -146,6 +154,7 @@ final class TpvContextoService
         'chipAcumuladoMenu' => (int) ($row['ChipAcumuladoMenu'] ?? 0) !== 0,
         'emv' => (int) ($row['EMV'] ?? 0) !== 0,
         'agrupacion' => (int) ($row['Agrupacion'] ?? 0),
+        'vales' => (int) ($row['Vales'] ?? 0) !== 0,
       ];
     }
 

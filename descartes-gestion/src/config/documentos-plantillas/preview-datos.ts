@@ -63,6 +63,8 @@ export type DocumentoPreviewDatos = {
     portes: string
     observaciones: string
     formaPago: string
+    /** Cobros del ticket. Si hay más de uno, cada línea lleva su importe. */
+    pagos?: { codigo: string; importe: number }[]
     codigoBarras: string
     pagina: string
   }

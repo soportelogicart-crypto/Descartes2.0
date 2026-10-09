@@ -82,6 +82,8 @@ const pasoAlta = ref<'tienda' | 'proveedor' | 'listo'>('listo')
 const tiendaSelectRef = ref<HTMLSelectElement | null>(null)
 const pedidoInputRef = ref<HTMLInputElement | null>(null)
 const proveedorInputRef = ref<HTMLInputElement | null>(null)
+const vendedorInputRef = ref<HTMLInputElement | null>(null)
+const observacionesInputRef = ref<HTMLInputElement | null>(null)
 const lineasPanelRef = ref<HTMLElement | null>(null)
 
 type FormLinea = {
@@ -130,6 +132,10 @@ const soloLecturaMotivo = computed(() => {
 const mostrarProveedor = computed(() => !esNuevo.value || pasoAlta.value !== 'tienda')
 const mostrarExtras = computed(() => !esNuevo.value || pasoAlta.value === 'listo')
 const cabeceraCompacta = computed(() => !esNuevo.value && !modoEdicion.value)
+/** Con las líneas en pantalla la cabecera se pliega; el usuario puede reabrirla. */
+const lineasEnPantalla = computed(() => (esNuevo.value ? pasoAlta.value === 'listo' : !!ficha.value))
+const cabeceraForzada = ref(false)
+const cabeceraOculta = computed(() => lineasEnPantalla.value && !cabeceraForzada.value)
 
 const cabeceraEditables = computed(() => (esNuevo.value || modoEdicion.value) && !bloqueado.value)
 const camposEditables = cabeceraEditables
@@ -212,6 +218,36 @@ function fmtFecha(iso: string | null | undefined) {
 
 function fmtNum(n: number | null | undefined, dec = 2) {
   return Number(n ?? 0).toFixed(dec)
+}
+
+function roundN(n: number, dec = 2) {
+  const f = 10 ** dec
+  return Math.round((n + Number.EPSILON) * f) / f
+}
+
+/** Igual que el albarán de compra: último precio sin transporte, luego con transporte, base y medio. */
+function precioInicialArticulo(art: Record<string, unknown>): number {
+  const st = Number(art.precioUltimoST ?? 0)
+  if (st > 0) return roundN(st, 2)
+  const ult = Number(art.precioUltimo ?? 0)
+  if (ult > 0) return roundN(ult, 2)
+  const base = Number(art.precioBase ?? 0)
+  if (base > 0) return roundN(base, 2)
+  const medio = Number(art.precioMedio ?? 0)
+  if (medio > 0) return roundN(medio, 2)
+  return 0
+}
+
+function mostrarCabecera() {
+  cabeceraForzada.value = true
+}
+
+function ocultarCabecera() {
+  cabeceraForzada.value = false
+}
+
+function onLineasFocusIn() {
+  if (lineasEnPantalla.value) cabeceraForzada.value = false
 }
 
 function esRutaNuevo(): boolean {
@@ -585,9 +621,39 @@ async function aplicarProveedorEnForm(r: { codigo: string; etiqueta: string }) {
   if (esNuevo.value && (pasoAlta.value === 'proveedor' || pasoAlta.value === 'tienda')) {
     pasoAlta.value = 'listo'
     mensaje.value = null
+    await aplicarVendedorPuesto()
     await nextTick()
-    void focusLineaArticulo(0)
+    enfocarCampo(vendedorInputRef.value)
   }
+}
+
+/** Vendedor por defecto = trabajador del puesto (Mantenimiento → Puestos → Vendedor). */
+async function aplicarVendedorPuesto() {
+  if (form.value.vendedor.trim()) return
+  if (!puesto.vendedorCodigo) {
+    await puesto.cargarVendedorPuesto()
+  }
+  form.value.vendedor = (puesto.vendedorCodigo || '').trim().slice(0, 4)
+}
+
+function enfocarCampo(el: HTMLInputElement | null) {
+  if (!el) return
+  el.focus()
+  el.select()
+}
+
+function onEnterVendedor(e: KeyboardEvent) {
+  if (!camposEditables.value) return
+  e.preventDefault()
+  e.stopPropagation()
+  enfocarCampo(observacionesInputRef.value)
+}
+
+function onEnterObservaciones(e: KeyboardEvent) {
+  if (!camposEditables.value) return
+  e.preventDefault()
+  e.stopPropagation()
+  void focusLineaArticulo(0)
 }
 
 async function onProveedorSeleccionado(r: EntidadBuscarResultado) {
@@ -633,16 +699,15 @@ function abrirBuscarArticulo(idx: number) {
 
 async function onArticuloSeleccionado(r: EntidadBuscarResultado) {
   const idx = lineaArticuloIdx.value
-  const linea = form.value.lineas[idx]
-  if (!linea) return
-  linea.articulo = r.codigo
-  const parts = r.etiqueta.split(/\s*[-–]\s*/)
-  linea.descripcion = parts.length > 1 ? parts.slice(1).join(' - ').trim() : r.etiqueta
+  if (!form.value.lineas[idx]) return
   buscarArticuloOpen.value = false
-  if (idx === form.value.lineas.length - 1) {
-    form.value.lineas.push(lineaVacia())
+  error.value = null
+  try {
+    const art = await resolverArticulo(r.codigo)
+    await aplicarArticuloResuelto(idx, art)
+  } catch (err: unknown) {
+    error.value = extractApiError(err, 'Artículo no encontrado')
   }
-  await nextTick()
 }
 
 async function aplicarArticuloResuelto(idx: number, art: Awaited<ReturnType<typeof resolverArticulo>>) {
@@ -650,8 +715,8 @@ async function aplicarArticuloResuelto(idx: number, art: Awaited<ReturnType<type
   if (!linea) return
   linea.articulo = art.codigo
   linea.descripcion = String(art.descripcion ?? '').trim()
-  const precio = Number(art.precioUltimo ?? art.precioMedio ?? art.precioVen1 ?? 0)
-  if (precio > 0 && !linea.precioPed) linea.precioPed = precio
+  const precioIni = precioInicialArticulo(art)
+  if (precioIni > 0) linea.precioPed = precioIni
   const uds = Number(art.unidadesPaquete)
   if (uds > 0 && (!linea.cantidadPed || linea.cantidadPed === 1)) {
     linea.cantidadPed = uds
@@ -885,6 +950,10 @@ watch(
   { immediate: true }
 )
 
+watch(lineasEnPantalla, (visibles, antes) => {
+  if (visibles && !antes) cabeceraForzada.value = false
+})
+
 </script>
 
 <template>
@@ -972,8 +1041,17 @@ watch(
     <p v-if="loading && !ficha && !esNuevo" class="msg">Cargando...</p>
 
     <template v-if="ficha || esNuevo">
-      <div class="ficha-compra-body">
-      <div class="tab-form">
+      <div class="ficha-compra-body" :class="{ 'con-lineas-amplias': cabeceraOculta }">
+      <div v-if="cabeceraOculta" class="cabecera-resumen">
+        <span>{{ form.empresa || '—' }}</span>
+        <span>{{ esNuevo ? 'Pedido nuevo' : `Pedido ${ficha?.pedido ?? ''}` }}</span>
+        <span class="resumen-prov" :title="form.razonSocial">
+          {{ form.proveedor }} {{ form.razonSocial }}
+        </span>
+        <strong class="resumen-imp">{{ fmtNum(importeMostrado) }}</strong>
+        <button type="button" class="btn-cabecera" @click="mostrarCabecera">Cabecera</button>
+      </div>
+      <div v-show="!cabeceraOculta" class="tab-form">
         <div class="doc-row">
           <section class="section grow">
             <h3>Documento</h3>
@@ -1086,15 +1164,22 @@ watch(
               <label class="field">
                 <span class="label">Vendedor</span>
                 <input
+                  ref="vendedorInputRef"
                   v-model="form.vendedor"
                   maxlength="4"
                   :readonly="!camposEditables"
                   title="Vendedor del proveedor"
+                  @keydown.enter="onEnterVendedor"
                 />
               </label>
               <label class="field span-2">
                 <span class="label">Observaciones</span>
-                <input v-model="form.observaciones" :readonly="!camposEditables" />
+                <input
+                  ref="observacionesInputRef"
+                  v-model="form.observaciones"
+                  :readonly="!camposEditables"
+                  @keydown.enter="onEnterObservaciones"
+                />
               </label>
             </div>
           </section>
@@ -1112,6 +1197,14 @@ watch(
             </div>
           </section>
         </details>
+        <button
+          v-if="lineasEnPantalla"
+          type="button"
+          class="btn-cabecera btn-ocultar-cab"
+          @click="ocultarCabecera"
+        >
+          Ocultar cabecera
+        </button>
       </div>
 
       <div
@@ -1119,6 +1212,7 @@ watch(
         ref="lineasPanelRef"
         class="lineas-panel"
         :class="{ 'lineas-bloqueadas': !lineasEditables }"
+        @focusin="onLineasFocusIn"
       >
         <div class="lineas-head">
           <h3>Líneas</h3>
@@ -1403,6 +1497,42 @@ watch(
   width: 100%;
   box-sizing: border-box;
 }
+.cabecera-resumen {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: 960px;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid #c5cdd8;
+  border-radius: 6px;
+  background: #f8fafc;
+  font-size: 0.78rem;
+  color: #334155;
+}
+.resumen-prov {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.resumen-imp {
+  font-variant-numeric: tabular-nums;
+}
+.btn-cabecera {
+  flex: 0 0 auto;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid #64748b;
+  border-radius: 4px;
+  background: #fff;
+  color: #1e293b;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-ocultar-cab {
+  align-self: flex-start;
+}
 .tab-form {
   background: #f8fafc;
   border: 1px solid #c5cdd8;
@@ -1686,6 +1816,9 @@ td input {
   border: 1px solid #e2e8f0;
   border-radius: 4px;
   max-height: min(50vh, 28rem);
+}
+.con-lineas-amplias .grid-wrap {
+  max-height: calc(100vh - 14rem);
 }
 table {
   width: 100%;

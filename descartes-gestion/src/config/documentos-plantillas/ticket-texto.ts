@@ -168,9 +168,17 @@ export function lineasTotalesTicket(
     tipo: 'doble',
     texto: padLinea('TOTAL', importeCorto(d.totales.importe), ANCHO_TICKET_GRANDE),
   })
-  const fp = str(d, 'documento.formaPago')
-  if (fp) {
-    out.push(g(fp.toUpperCase().startsWith('ENTREGA') ? fp : `ENTREGA ${fp}`, importeCorto(d.totales.importe)))
+  const pagos = (d.documento.pagos ?? []).filter((p) => Math.abs(p.importe) > 0.004)
+  if (pagos.length > 1) {
+    for (const p of pagos) {
+      out.push(g(`ENTREGA ${p.codigo}`, importeCorto(p.importe)))
+    }
+  } else {
+    const fp = str(d, 'documento.formaPago')
+    if (fp) {
+      const importe = pagos.length === 1 ? pagos[0].importe : d.totales.importe
+      out.push(g(fp.toUpperCase().startsWith('ENTREGA') ? fp : `ENTREGA ${fp}`, importeCorto(importe)))
+    }
   }
   if (d.fidelizacion) {
     out.push({ tipo: 'grande', texto: '' })

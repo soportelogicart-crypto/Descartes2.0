@@ -192,6 +192,66 @@ const etiquetaGrupo = computed(() => {
   return m?.[1] ?? 'Grupo'
 })
 
+const TITULO_GRUPO: Record<string, string> = {
+  familia: 'FAMILIA',
+  subfamilia: 'SUBFAMILIA',
+  macrofamilia: 'MACROFAMILIA',
+  agrupacion: 'AGRUPACIÓN',
+  proveedor: 'PROVEEDOR',
+}
+
+const tituloGrupo = computed(() => TITULO_GRUPO[def.value?.agruparPor ?? ''] ?? 'GRUPO')
+const esDetalle = computed(() => resultado.value?.detalle === true)
+const mostrarGrupos = computed(() => esDetalle.value && def.value?.agruparPor !== 'articulo')
+
+type FilaDetalle =
+  | { tipo: 'grupo'; clave: string; texto: string }
+  | { tipo: 'articulo'; clave: string; row: StockListadoFila }
+  | { tipo: 'total'; clave: string; etiqueta: string; unidades: number }
+
+const filasDetalle = computed((): FilaDetalle[] => {
+  const data = resultado.value
+  if (!data?.detalle) return []
+  const items = data.items
+  if (!mostrarGrupos.value) {
+    return items.map((row, i) => ({
+      tipo: 'articulo' as const,
+      clave: `a-${row.articulo ?? ''}-${i}`,
+      row,
+    }))
+  }
+  const out: FilaDetalle[] = []
+  let i = 0
+  while (i < items.length) {
+    const codigo = items[i].grupoCodigo
+    const nombre = items[i].grupoNombre
+    const titulo = tituloGrupo.value
+    out.push({
+      tipo: 'grupo',
+      clave: `g-${codigo}-${i}`,
+      texto: `${titulo} ${codigo} ${nombre}`.replace(/\s+/g, ' ').trim(),
+    })
+    let suma = 0
+    const inicio = i
+    while (i < items.length && items[i].grupoCodigo === codigo) {
+      const row = items[i]
+      out.push({ tipo: 'articulo', clave: `a-${codigo}-${row.articulo ?? ''}-${i}`, row })
+      suma += row.unidades
+      i++
+    }
+    out.push({
+      tipo: 'total',
+      clave: `t-${codigo}-${inicio}`,
+      etiqueta: `TOTAL ${titulo}`,
+      unidades: suma,
+    })
+  }
+  return out
+})
+
+const { gridEl: gridDetalleEl, visibles: visiblesDetalle, onScrollGrid: onScrollDetalle } =
+  useGridRenderLimit(filasDetalle)
+
 type CampoRango = `${string}Desde` | `${string}Hasta`
 
 const buscarOpen = ref(false)
@@ -300,13 +360,18 @@ function paramsConsulta(): StockListadoParams {
     ultCompraHasta: trimOpt(form.value.ultCompraHasta),
     ubicacionDesde: trimOpt(form.value.ubicacionDesde),
     ubicacionHasta: trimOpt(form.value.ubicacionHasta),
+    imArticulos: def.value?.variant === 'articulos' ? 'si' : form.value.imArticulos,
   }
 }
 
 function metaImpresion(): string[] {
   const lines: string[] = [def.value?.titulo ?? 'Stock']
-  if (form.value.anoDesde.trim()) lines.push(`Año: ${form.value.anoDesde}`)
+  const ano = resultado.value?.ano
+  if (ano) lines.push(`Año: ${ano}`)
+  else if (form.value.anoDesde.trim()) lines.push(`Año: ${form.value.anoDesde}`)
   if (form.value.mesDesde.trim()) lines.push(`Mes: ${form.value.mesDesde}`)
+  const alm = resultado.value?.almacen
+  if (alm) lines.push(`Almacén: ${alm} ${resultado.value?.almacenNombre ?? ''}`.trim())
   const u = auth.usuario?.nombre
   if (u) lines.push(`Usuario: ${u}`)
   lines.push(`Generado: ${new Date().toLocaleString('es-ES')}`)
@@ -316,6 +381,10 @@ function metaImpresion(): string[] {
 function formatoUnidades(n: number): string {
   const r = Math.round(n * 10000) / 10000
   return r.toLocaleString('es-ES', { maximumFractionDigits: 4 })
+}
+
+function formatoImporte(n: number): string {
+  return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 function focusablesPanel(formEl: HTMLElement): HTMLElement[] {
@@ -359,6 +428,8 @@ async function generar() {
       mensaje.value = 'Sin datos con los filtros actuales.'
     } else if (data.truncado) {
       mensaje.value = `Se muestran las primeras ${data.limite} filas. Acote intervalos si necesita el listado completo.`
+    } else if (data.detalle) {
+      mensaje.value = `${data.items.length} artículo(s). Stock: ${formatoUnidades(data.totales.unidades)}`
     } else {
       mensaje.value = `${data.items.length} fila(s). Total unidades: ${formatoUnidades(data.totales.unidades)}`
     }
@@ -379,15 +450,50 @@ function filasParaExport(): StockListadoFila[] {
 
 function exportarExcel() {
   const filas = filasParaExport()
-  if (!filas.length) return
-  const cab = ['Código', etiquetaGrupo.value, 'Unidades', 'N.º artículos']
-  const lines = [cab.map(escCsv).join(';')]
-  for (const r of filas) {
+  if (!filas.length || !resultado.value) return
+  const lines: string[] = []
+  if (resultado.value.detalle) {
     lines.push(
-      [r.grupoCodigo, r.grupoNombre, numCsv(r.unidades, 4), r.numArticulos].map(escCsv).join(';'),
+      ['Artículo', 'Descripción', 'P.Medio', 'Stock', 'Uni', 'Emp. Uni', 'Valor PM', 'Valor PU']
+        .map(escCsv)
+        .join(';'),
     )
-  }
-  if (resultado.value) {
+    for (const fila of filasDetalle.value) {
+      if (fila.tipo === 'grupo') {
+        lines.push([fila.texto, '', '', '', '', '', '', ''].map(escCsv).join(';'))
+      } else if (fila.tipo === 'total') {
+        lines.push(['', fila.etiqueta, '', numCsv(fila.unidades, 4), '', '', '', ''].map(escCsv).join(';'))
+      } else {
+        const r = fila.row
+        lines.push(
+          [
+            r.articulo ?? '',
+            r.descripcion ?? '',
+            numCsv(r.precioMedio ?? 0, 2),
+            numCsv(r.unidades, 4),
+            r.unidad ?? '',
+            r.unidadEmpaquetado ?? '',
+            numCsv(r.valorPm ?? 0, 2),
+            numCsv(r.valorPu ?? 0, 2),
+          ]
+            .map(escCsv)
+            .join(';'),
+        )
+      }
+    }
+    lines.push(
+      ['', 'TOTAL ALMACEN', '', numCsv(resultado.value.totales.unidades, 4), '', '', '', '']
+        .map(escCsv)
+        .join(';'),
+    )
+  } else {
+    const cab = ['Código', etiquetaGrupo.value, 'Unidades', 'N.º artículos']
+    lines.push(cab.map(escCsv).join(';'))
+    for (const r of filas) {
+      lines.push(
+        [r.grupoCodigo, r.grupoNombre, numCsv(r.unidades, 4), r.numArticulos ?? 0].map(escCsv).join(';'),
+      )
+    }
     lines.push('')
     lines.push(['TOTAL', '', numCsv(resultado.value.totales.unidades, 4), ''].map(escCsv).join(';'))
   }
@@ -399,24 +505,57 @@ async function imprimir() {
   const filas = filasParaExport()
   if (!filas.length) return
   try {
+    const detalle = resultado.value?.detalle === true
+    const filasImpresion: (string | number)[][] = detalle
+      ? [
+          ...filasDetalle.value.map((fila) => {
+            if (fila.tipo === 'grupo') return [fila.texto, '', '', '', '', '', '']
+            if (fila.tipo === 'total') return [fila.etiqueta, '', formatoUnidades(fila.unidades), '', '', '', '']
+            const r = fila.row
+            return [
+              `${r.articulo ?? ''} ${r.descripcion ?? ''}`.trim(),
+              formatoImporte(r.precioMedio ?? 0),
+              formatoUnidades(r.unidades),
+              r.unidad ?? '',
+              r.unidadEmpaquetado ?? '',
+              formatoImporte(r.valorPm ?? 0),
+              formatoImporte(r.valorPu ?? 0),
+            ]
+          }),
+          ['TOTAL ALMACEN', '', formatoUnidades(resultado.value?.totales.unidades ?? 0), '', '', '', ''],
+        ]
+      : filas.map((r) => [r.grupoCodigo, r.grupoNombre, formatoUnidades(r.unidades), r.numArticulos ?? 0])
     const res = await imprimirListadoHtml({
       titulo: def.value?.titulo ?? 'Stock',
       metaLineas: metaImpresion(),
-      thead: [
-        'Código',
-        def.value?.agruparPor === 'articulo' ? 'Descripción' : 'Nombre',
-        'Unidades',
-        'Artículos',
-      ],
-      columnas: [
-        { ancho: '16%', alineacion: 'left' },
-        { ancho: '54%', alineacion: 'left' },
-        { ancho: '15%', alineacion: 'right' },
-        { ancho: '15%', alineacion: 'right' },
-      ],
-      filas: filas.map((r) => [r.grupoCodigo, r.grupoNombre, formatoUnidades(r.unidades), r.numArticulos]),
+      orientacion: detalle ? 'horizontal' : undefined,
+      thead: detalle
+        ? ['Artículo', 'P.Medio', 'Stock', 'Uni', 'Emp. Uni', 'Valor PM', 'Valor PU']
+        : [
+            'Código',
+            def.value?.agruparPor === 'articulo' ? 'Descripción' : 'Nombre',
+            'Unidades',
+            'Artículos',
+          ],
+      columnas: detalle
+        ? [
+            { ancho: '34%', alineacion: 'left' },
+            { ancho: '11%', alineacion: 'right' },
+            { ancho: '11%', alineacion: 'right' },
+            { ancho: '8%', alineacion: 'left' },
+            { ancho: '10%', alineacion: 'left' },
+            { ancho: '13%', alineacion: 'right' },
+            { ancho: '13%', alineacion: 'right' },
+          ]
+        : [
+            { ancho: '16%', alineacion: 'left' },
+            { ancho: '54%', alineacion: 'left' },
+            { ancho: '15%', alineacion: 'right' },
+            { ancho: '15%', alineacion: 'right' },
+          ],
+      filas: filasImpresion,
       pie: resultado.value
-        ? [`Total unidades: ${formatoUnidades(resultado.value.totales.unidades)}`, `${filas.length} filas`]
+        ? [`Total stock: ${formatoUnidades(resultado.value.totales.unidades)}`, `${filas.length} filas`]
         : undefined,
       filenameFallback: 'stock.html',
     })
@@ -640,7 +779,64 @@ function volverAlSelector() {
           Se muestran como máximo {{ resultado.limite }} filas; acote intervalos.
         </p>
 
-        <div v-if="tieneDatos" ref="gridEl" class="grid-wrap" @scroll.passive="onScrollGrid">
+        <p v-if="esDetalle && (resultado?.ano || resultado?.almacen)" class="contexto-stock">
+          <span v-if="resultado?.ano">Año {{ resultado.ano }}</span>
+          <span v-if="resultado?.almacen">Almacén {{ resultado.almacen }} {{ resultado.almacenNombre }}</span>
+        </p>
+
+        <div
+          v-if="tieneDatos && esDetalle"
+          ref="gridDetalleEl"
+          class="grid-wrap"
+          @scroll.passive="onScrollDetalle"
+        >
+          <table class="grid">
+            <thead>
+              <tr>
+                <th>Artículo</th>
+                <th class="num">P.Medio</th>
+                <th class="num">Stock</th>
+                <th>Uni</th>
+                <th>Emp. Uni</th>
+                <th class="num">Valor PM</th>
+                <th class="num">Valor PU</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template v-for="fila in visiblesDetalle" :key="fila.clave">
+                <tr v-if="fila.tipo === 'grupo'" class="fila-grupo">
+                  <td colspan="7">{{ fila.texto }}</td>
+                </tr>
+                <tr v-else-if="fila.tipo === 'total'" class="fila-total">
+                  <td colspan="2">{{ fila.etiqueta }}</td>
+                  <td class="num">{{ formatoUnidades(fila.unidades) }}</td>
+                  <td colspan="4" />
+                </tr>
+                <tr v-else-if="fila.tipo === 'articulo'">
+                  <td>
+                    <span class="cod-art">{{ fila.row.articulo }}</span>
+                    {{ fila.row.descripcion }}
+                  </td>
+                  <td class="num">{{ formatoImporte(fila.row.precioMedio ?? 0) }}</td>
+                  <td class="num">{{ formatoUnidades(fila.row.unidades) }}</td>
+                  <td>{{ fila.row.unidad }}</td>
+                  <td>{{ fila.row.unidadEmpaquetado }}</td>
+                  <td class="num">{{ formatoImporte(fila.row.valorPm ?? 0) }}</td>
+                  <td class="num">{{ formatoImporte(fila.row.valorPu ?? 0) }}</td>
+                </tr>
+              </template>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="2"><strong>TOTAL ALMACEN</strong></td>
+                <td class="num"><strong>{{ formatoUnidades(resultado!.totales.unidades) }}</strong></td>
+                <td colspan="4" />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div v-else-if="tieneDatos" ref="gridEl" class="grid-wrap" @scroll.passive="onScrollGrid">
           <table class="grid">
             <thead>
               <tr>
@@ -712,6 +908,33 @@ function volverAlSelector() {
 
 .stock-form-view {
   --stock-col-etiq: 6.25rem;
+}
+
+.contexto-stock {
+  display: flex;
+  gap: 1.25rem;
+  margin: 0 0 0.4rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.cod-art {
+  display: inline-block;
+  min-width: 4.5rem;
+  margin-right: 0.35rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.fila-grupo td {
+  background: #e2e8f0;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.fila-total td {
+  font-weight: 700;
+  border-top: 1px solid #94a3b8;
 }
 
 .layout-stock {

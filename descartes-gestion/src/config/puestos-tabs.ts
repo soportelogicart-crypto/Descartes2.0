@@ -207,7 +207,8 @@ export const puestoTabs: PuestoTab[] = [
         columns: 4,
         fields: [
           { key: 'tarifa', label: 'Tarifa', type: 'number', layout: 'inline' },
-          { key: 'teclado', label: 'Teclado', type: 'number', layout: 'inline' },
+          { key: 'nivelBar', label: 'Teclado', maxLength: 3, layout: 'inline' },
+          { key: 'teclado', label: 'Teclado fisico', type: 'number', layout: 'inline' },
           {
             key: 'trabajadorCodigo',
             label: 'Vendedor',
@@ -299,7 +300,8 @@ export function puestoVacio(): Record<string, unknown> {
     caracteresPorLinea: 56,
     lineasDeSalto: 0,
     tarifa: 0,
-    teclado: 1,
+    teclado: 0,
+    nivelBar: '001',
   }
 }
 

@@ -30,13 +30,15 @@ return function (App $app): void {
       ->add($setPermiso('tpv', 'ver'));
     $group->get('/contexto', [TpvController::class, 'getContexto'])
       ->add($setPermiso('tpv', 'ver'));
-    $group->get('/teclados/{general}/niveles', [TpvController::class, 'getNivelesTeclado'])
-      ->add($setPermiso('tpv', 'ver'));
     $group->get('/teclados/{general}/niveles/{nivel}', [TpvController::class, 'getNivelTeclado'])
       ->add($setPermiso('tpv', 'ver'));
-    $group->put('/teclados/{general}/niveles/{nivel}/botones/{tecla}', [TpvController::class, 'guardarBotonTeclado'])
+    $group->put('/teclados/{general}/niveles/{nivel}/posiciones/{posicion}', [TpvController::class, 'guardarBotonTeclado'])
       ->add($setPermiso('tpv', 'editar'));
-    $group->delete('/teclados/{general}/niveles/{nivel}/botones/{tecla}', [TpvController::class, 'borrarBotonTeclado'])
+    $group->get('/teclados/{general}/niveles/{nivel}/posiciones/{posicion}/subniveles', [TpvController::class, 'contarSubnivelesTeclado'])
+      ->add($setPermiso('tpv', 'editar'));
+    $group->delete('/teclados/{general}/niveles/{nivel}/posiciones/{posicion}', [TpvController::class, 'borrarBotonTeclado'])
+      ->add($setPermiso('tpv', 'editar'));
+    $group->post('/teclados/{general}/niveles/{nivel}/intercambio', [TpvController::class, 'intercambiarBotonesTeclado'])
       ->add($setPermiso('tpv', 'editar'));
     $group->get('/articulos/resolver', [TpvController::class, 'resolverArticulo'])
       ->add($setPermiso('tpv', 'ver'));

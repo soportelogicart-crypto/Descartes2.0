@@ -50,6 +50,7 @@ final class StockListadoService
     if ($ocultarCero === null) {
       $ocultarCero = $stockFiltro === 'superior_0';
     }
+    $detalle = $agrupar === 'articulo' || !$this->imArticulosNo($query);
 
     [$groupCod, $groupNom, $groupBySql] = $this->groupExpressions($agrupar);
 
@@ -118,13 +119,7 @@ final class StockListadoService
       $articuloSql = "RTRIM(ISNULL(s.[Codigo], ''))";
     }
 
-    $sql = "SELECT TOP " . (self::LIMITE_FILAS + 1) . "
-              {$groupCod} AS grupoCodigo,
-              {$groupNom} AS grupoNombre,
-              SUM(det.[unidades]) AS unidades,
-              COUNT(DISTINCT det.[articulo]) AS numArticulos
-            FROM (
-              SELECT
+    $interno = "SELECT
                 {$articuloSql} AS articulo,
                 RTRIM(ISNULL(a.[Descripcion], '')) AS descripcion,
                 RTRIM(ISNULL(a.[Familia], '')) AS familiaCodigo,
@@ -137,49 +132,175 @@ final class StockListadoService
                 RTRIM(ISNULL(ag.[Descripcion], '')) AS agrupacionNombre,
                 RTRIM(ISNULL(a.[UltProveedor], '')) AS proveedorCodigo,
                 RTRIM(ISNULL(p.[RazonSocial], '')) AS proveedorNombre,
+                ISNULL(a.[PrecioMedio], 0) AS precioMedio,
+                ISNULL(a.[PrecioUltimo], 0) AS precioUltimo,
+                RTRIM(ISNULL(a.[UnidadStock], '')) AS unidad,
+                RTRIM(ISNULL(a.[UnidadEmpaquetado], '')) AS unidadEmpaquetado,
                 (
                   ISNULL(s.[Entradas], 0) - ISNULL(s.[Salidas], 0) - ISNULL(s.[Ventas], 0)
                   + ISNULL(s.[TraspasosEntradas], 0) - ISNULL(s.[TraspasosSalidas], 0)
                 ) AS unidades
               {$fromJoin}
-              {$whereSql}
-            ) det
-            GROUP BY {$groupBySql}
-            {$having}
-            ORDER BY {$groupCod}";
+              {$whereSql}";
+
+    if ($detalle) {
+      $articuloGrupo = "RTRIM(ISNULL(det.[articulo], ''))";
+      $groupByDetalle = $agrupar === 'articulo' ? $groupBySql : "{$groupBySql}, {$articuloGrupo}";
+      $orderDetalle = $agrupar === 'articulo' ? $groupCod : "{$groupCod}, {$articuloGrupo}";
+      $sql = "SELECT TOP " . (self::LIMITE_FILAS + 1) . "
+                {$groupCod} AS grupoCodigo,
+                {$groupNom} AS grupoNombre,
+                {$articuloGrupo} AS articulo,
+                MAX(RTRIM(ISNULL(det.[descripcion], ''))) AS descripcion,
+                MAX(det.[precioMedio]) AS precioMedio,
+                MAX(det.[precioUltimo]) AS precioUltimo,
+                MAX(RTRIM(ISNULL(det.[unidad], ''))) AS unidad,
+                MAX(RTRIM(ISNULL(det.[unidadEmpaquetado], ''))) AS unidadEmpaquetado,
+                SUM(det.[unidades]) AS unidades
+              FROM (
+                {$interno}
+              ) det
+              GROUP BY {$groupByDetalle}
+              {$having}
+              ORDER BY {$orderDetalle}";
+    } else {
+      $sql = "SELECT TOP " . (self::LIMITE_FILAS + 1) . "
+                {$groupCod} AS grupoCodigo,
+                {$groupNom} AS grupoNombre,
+                SUM(det.[unidades]) AS unidades,
+                COUNT(DISTINCT det.[articulo]) AS numArticulos
+              FROM (
+                {$interno}
+              ) det
+              GROUP BY {$groupBySql}
+              {$having}
+              ORDER BY {$groupCod}";
+    }
 
     $stmt = $this->pdo->prepare($sql);
     $stmt->execute($params);
 
     $items = [];
     $totalUnidades = 0.0;
+    $totalValorPm = 0.0;
+    $totalValorPu = 0.0;
     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
       $unidades = round((float) ($row['unidades'] ?? 0), 4);
       $totalUnidades += $unidades;
-      $items[] = [
-        'grupoCodigo' => (string) ($row['grupoCodigo'] ?? ''),
-        'grupoNombre' => (string) ($row['grupoNombre'] ?? ''),
-        'unidades' => $unidades,
-        'numArticulos' => (int) ($row['numArticulos'] ?? 0),
-      ];
+      if ($detalle) {
+        $precioMedio = round((float) ($row['precioMedio'] ?? 0), 4);
+        $precioUltimo = round((float) ($row['precioUltimo'] ?? 0), 4);
+        $valorPm = round($unidades * $precioMedio, 2);
+        $valorPu = round($unidades * $precioUltimo, 2);
+        $totalValorPm += $valorPm;
+        $totalValorPu += $valorPu;
+        $items[] = [
+          'grupoCodigo' => (string) ($row['grupoCodigo'] ?? ''),
+          'grupoNombre' => (string) ($row['grupoNombre'] ?? ''),
+          'articulo' => (string) ($row['articulo'] ?? ''),
+          'descripcion' => (string) ($row['descripcion'] ?? ''),
+          'precioMedio' => $precioMedio,
+          'precioUltimo' => $precioUltimo,
+          'unidad' => (string) ($row['unidad'] ?? ''),
+          'unidadEmpaquetado' => (string) ($row['unidadEmpaquetado'] ?? ''),
+          'unidades' => $unidades,
+          'valorPm' => $valorPm,
+          'valorPu' => $valorPu,
+        ];
+      } else {
+        $items[] = [
+          'grupoCodigo' => (string) ($row['grupoCodigo'] ?? ''),
+          'grupoNombre' => (string) ($row['grupoNombre'] ?? ''),
+          'unidades' => $unidades,
+          'numArticulos' => (int) ($row['numArticulos'] ?? 0),
+        ];
+      }
     }
 
     $truncado = count($items) > self::LIMITE_FILAS;
     if ($truncado) {
       $items = array_slice($items, 0, self::LIMITE_FILAS);
+      $totalUnidades = 0.0;
+      $totalValorPm = 0.0;
+      $totalValorPu = 0.0;
+      foreach ($items as $item) {
+        $totalUnidades += (float) $item['unidades'];
+        $totalValorPm += (float) ($item['valorPm'] ?? 0);
+        $totalValorPu += (float) ($item['valorPu'] ?? 0);
+      }
     }
+
+    $almacenUnico = $this->almacenUnico($query, $almacen);
+    $contexto = $this->contextoListado($query, $almacenUnico);
 
     return [
       'agruparPor' => $agrupar,
-      'almacen' => $almacen,
+      'detalle' => $detalle,
+      'almacen' => $almacenUnico,
+      'almacenNombre' => $contexto['almacenNombre'],
+      'ano' => $contexto['ano'],
       'items' => $items,
       'totales' => [
         'unidades' => round($totalUnidades, 4),
         'filas' => count($items),
+        'valorPm' => round($totalValorPm, 2),
+        'valorPu' => round($totalValorPu, 2),
       ],
       'truncado' => $truncado,
       'limite' => self::LIMITE_FILAS,
     ];
+  }
+
+  private function imArticulosNo(array $query): bool
+  {
+    $v = strtolower(trim((string) ($query['imArticulos'] ?? 'si')));
+
+    return $v === 'no' || $v === '0' || $v === 'false';
+  }
+
+  /** @param array<string, mixed> $query */
+  private function almacenUnico(array $query, int $almacenLegacy): int
+  {
+    if ($almacenLegacy > 0) {
+      return $almacenLegacy;
+    }
+    $desde = (int) ($query['almacenDesde'] ?? 0);
+    $hasta = (int) ($query['almacenHasta'] ?? 0);
+    if ($desde > 0 && ($hasta <= 0 || $hasta === $desde)) {
+      return $desde;
+    }
+    if ($hasta > 0 && $desde <= 0) {
+      return $hasta;
+    }
+
+    return 0;
+  }
+
+  /**
+   * @param array<string, mixed> $query
+   * @return array{almacenNombre: string, ano: int|null}
+   */
+  private function contextoListado(array $query, int $almacen): array
+  {
+    $nombre = '';
+    if ($almacen > 0) {
+      $stmt = $this->pdo->prepare(
+        'SELECT RTRIM(ISNULL([Descripcion], \'\')) AS nombre FROM [Almacenes] WHERE [Codigo] = :codigo'
+      );
+      $stmt->execute(['codigo' => $almacen]);
+      $nombre = (string) ($stmt->fetchColumn() ?: '');
+    }
+
+    $desde = (int) ($query['anoDesde'] ?? 0);
+    $hasta = (int) ($query['anoHasta'] ?? 0);
+    $ano = null;
+    if ($desde > 0 && ($hasta <= 0 || $hasta === $desde)) {
+      $ano = $desde;
+    } elseif ($hasta > 0 && $desde <= 0) {
+      $ano = $hasta;
+    }
+
+    return ['almacenNombre' => $nombre, 'ano' => $ano];
   }
 
   /** Valores legacy (positivo/cero/negativo) y etiquetas 1.0 (superior_0, …). */

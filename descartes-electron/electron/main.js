@@ -3,6 +3,7 @@ const path = require('path')
 const fs = require('fs')
 const localConfig = require('./local-config')
 const logos = require('./logos')
+const tecladoImagenes = require('./teclado-imagenes')
 const peripherals = require('./peripherals')
 const dispositivoAgente = require('./dispositivo-agente')
 const { bindWindowMenu, clearMenu } = require('./app-menu')
@@ -160,6 +161,11 @@ function registerIpc() {
   })
   ipcMain.handle('logos:abrirCarpeta', () => logos.openLogosFolder())
   ipcMain.handle('logos:directorio', () => logos.getLogosDirectory())
+  ipcMain.handle('teclado:imagen', (_event, ruta) => tecladoImagenes.leerImagen(ruta))
+  ipcMain.handle('teclado:elegirImagen', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    return tecladoImagenes.elegirImagen(win)
+  })
   // En Windows, tras alert/confirm nativo la página no recupera el teclado hasta cambiar de ventana.
   ipcMain.on('ventana:reenfocar', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)

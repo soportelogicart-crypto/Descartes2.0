@@ -169,6 +169,15 @@ export type DescartesBridge = {
   }>
   abrirCarpetaLogos: () => Promise<{ ok: boolean; carpeta?: string; message?: string }>
   getLogosDir: () => Promise<{ ok: boolean; carpeta?: string; message?: string }>
+  /** Imagen de botón del teclado táctil (ruta local de H_ICON). Solo en instaladores recientes. */
+  imagenTeclado?: (ruta: string) => Promise<{ ok: boolean; dataUrl: string; noExiste?: boolean; message?: string }>
+  elegirImagenTeclado?: () => Promise<{
+    ok: boolean
+    cancelado?: boolean
+    ruta?: string
+    dataUrl?: string
+    message?: string
+  }>
   listPrinters: () => Promise<{
     ok: boolean
     stub?: boolean
@@ -222,6 +231,56 @@ export function getDescartesBridge(): DescartesBridge | null {
   return isElectronShell() ? (window.descartes ?? null) : null
 }
 
+/** Windows PRINTER_STATUS_OFFLINE. El spooler acepta el trabajo igual y no sale papel. */
+const PRINTER_STATUS_OFFLINE = 0x80
+
+async function avisoImpresoraDesconectada(nombre: string): Promise<string | null> {
+  const wanted = nombre.trim().toLowerCase()
+  if (!wanted) return null
+
+  let printers: DescartesPrinter[] = []
+  const bridge = getDescartesBridge()
+  if (bridge?.listPrinters) {
+    try {
+      const res = await bridge.listPrinters()
+      printers = res.printers ?? []
+    } catch {
+      /* seguir con el agente */
+    }
+  }
+  if (printers.length === 0 && typeof fetch === 'function') {
+    try {
+      const ctrl = new AbortController()
+      const timer = window.setTimeout(() => ctrl.abort(), 2500)
+      const res = await fetch('http://127.0.0.1:17321/impresoras', {
+        headers: { Accept: 'application/json' },
+        signal: ctrl.signal,
+      })
+      window.clearTimeout(timer)
+      if (res.ok) {
+        const data = (await res.json()) as { printers?: DescartesPrinter[] }
+        printers = Array.isArray(data.printers) ? data.printers : []
+      }
+    } catch {
+      /* sin agente: no bloquear la impresión */
+    }
+  }
+
+  const hit = printers.find((p) => {
+    const n = String(p.name ?? '').toLowerCase()
+    const d = String(p.displayName ?? '').toLowerCase()
+    return n === wanted || d === wanted || n.startsWith(wanted) || d.startsWith(wanted)
+  })
+  if (!hit || hit.status == null || (Number(hit.status) & PRINTER_STATUS_OFFLINE) === 0) {
+    return null
+  }
+  const visible = hit.displayName || hit.name
+  return (
+    `La impresora «${visible}» está desconectada. Enciéndala o compruebe la red. ` +
+    'La etiqueta no se ha enviado y sigue en la cola.'
+  )
+}
+
 /**
  * Imprime etiqueta vía Electron. Lanza si no hay bridge o si `ok` es false.
  * Fallback navegador: abre diálogo `window.print()` con el HTML.
@@ -236,6 +295,11 @@ export async function imprimirEtiquetaViaBridge(
   }
   if (!String(payload.html ?? '').trim()) {
     throw new Error('html de etiqueta vacío')
+  }
+
+  const desconectada = await avisoImpresoraDesconectada(String(payload.impresora ?? ''))
+  if (desconectada) {
+    throw new Error(desconectada)
   }
 
   const bridge = getDescartesBridge()

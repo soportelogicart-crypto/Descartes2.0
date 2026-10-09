@@ -6,8 +6,14 @@ export type InventarioMenuItem = {
   modulo: string
 }
 
-/** Inventario → un acceso; dentro se elige macrofamilia, artículos, etc. */
+/** Inventario: recuento y listados de existencias. */
 export const inventarioMenuItems: InventarioMenuItem[] = [
+  {
+    id: 'recuento',
+    titulo: 'Recuento de inventario',
+    ruta: '/inventario',
+    modulo: 'inventario',
+  },
   {
     id: 'stock',
     titulo: 'Listado de stock',

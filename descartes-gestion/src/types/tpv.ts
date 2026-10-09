@@ -1,57 +1,64 @@
-export type TpvBotonTipo = 'articulo' | 'nivel' | 'vacio'
+/**
+ * `grupo` / `grupoVuelta` abren otro nivel (DefPlus M / F). Con F, tras vender
+ * el teclado vuelve a ese grupo en lugar de al último abierto.
+ */
+export type TpvBotonTipo = 'articulo' | 'texto' | 'grupo' | 'grupoVuelta' | 'vacio'
 
 export type TpvBoton = {
+  /** Posición fija legacy: 0..7 en la columna de grupos, 0..13 en la rejilla 2x7. */
+  posicion: number
   tecla: number
-  nivel: string | null
-  fila: number
-  columna: number
   etiqueta1: string | null
   etiqueta2: string | null
   etiqueta3: string | null
-  ancho: number
-  alto: number
-  articulo: string | null
-  nivelDestino: string | null
-  nivelVolver: string | null
   colorFondo: string | null
   colorTexto: string | null
+  /** Ruta absoluta de la imagen en el disco del PC de caja (H_ICON). */
   icono: string | null
-  tarifa: number | null
-  clase: string | null
   tipo: TpvBotonTipo
+  nivelDestino: string | null
+  articulo?: string | null
+  texto?: string | null
+  pedirPrecio?: boolean
+  /** Pantallas de complementos (DefPlus O### / P### de la plantilla 001). */
+  obligatorios?: string[]
+  opcionales?: string[]
+  tarifa?: number | null
+  /** Grupo sin texto ni imagen: legacy no lo enseña. */
+  visible: boolean
 }
 
 export type TpvNivel = {
   general: string
   nivel: string
   nombre: string | null
-  columnas: number
+  grupos: TpvBoton[]
   botones: TpvBoton[]
+  /** Falso en el último nivel posible (9 caracteres) y en complementos. */
+  puedeTenerGrupos: boolean
 }
 
-export type TpvNivelResumen = {
-  nivel: string
-  etiqueta: string
-  botones: number
+export type TpvBotonAsignacion = {
+  tipo: 'articulo' | 'texto' | 'grupo'
+  articulo?: string
+  texto?: string
+  etiqueta1: string
+  etiqueta2: string
+  etiqueta3: string
+  colorFondo: string | null
+  colorTexto: string | null
+  icono: string | null
+  pedirPrecio?: boolean
 }
 
-export type TpvBotonAsignacion =
-  | {
-      tipo: 'articulo'
-      articulo: string
-      etiqueta: string
-      ancho?: number
-      alto?: number
-    }
-  | {
-      tipo: 'nivel'
-      /** Vacío cuando `crearGrupo` pide un grupo nuevo: el nivel lo asigna el servidor. */
-      nivelDestino: string
-      crearGrupo?: boolean
-      etiqueta: string
-      ancho?: number
-      alto?: number
-    }
+/** Columna de grupos (nivel 000) o rejilla de botones del nivel abierto. */
+export type TpvZonaTeclado = 'grupo' | 'boton'
+
+/** Nivel que se abre al empezar y tras cada venta si no hay grupo de vuelta (a_plu legacy). */
+export const TPV_NIVEL_INICIAL = '001'
+export const TPV_NIVEL_GRUPOS = '000'
+export const TPV_POSICIONES_GRUPO = 8
+export const TPV_POSICIONES_BOTON = 14
 
 /** Cliente de venta rápida: si el cajero no elige nadie, el ticket va a este código. */
 export const CLIENTE_RAPIDO_TPV = 'ZZZZZZZZZ'
@@ -80,26 +87,6 @@ export type TpvTicketEspera = {
   lineas: number
 }
 
-/**
- * Geometría de la rejilla táctil de venta rápida.
- *
- * `DefPlus.H_TECLA` codifica la posición legacy como `fila * 20 + columna`, y
- * de ahí sale el ancho de cada tecla al repartir esas 20 columnas entre las
- * visibles. Vive aquí porque lo comparten la rejilla y el modal que guarda los
- * botones: si cada uno llevara su copia, al cambiar el número de columnas las
- * posiciones dejarían de cuadrar con lo guardado.
- */
-export const TPV_COLUMNAS_LEGACY = 20
-/**
- * Divisor exacto de las 20 columnas legacy: cada tecla ocupa 2 de ellas.
- * Con la columna de artículos a pantalla completa hacen falta unas 10 teclas
- * por fila para que salgan cuadradas y no apaisadas.
- */
-export const TPV_COLUMNAS_VISIBLES = 10
-export const TPV_ANCHO_TECLA = Math.floor(TPV_COLUMNAS_LEGACY / TPV_COLUMNAS_VISIBLES)
-/** Filas mínimas que se rellenan con huecos para ocupar la columna. */
-export const TPV_FILAS_MINIMAS = 7
-
 /** Forma de pago de contado (CobroDeArqueo) disponible en la caja. */
 export type TpvFormaPago = {
   codigo: string
@@ -112,6 +99,8 @@ export type TpvFormaPago = {
   chipAcumuladoMenu: boolean
   emv: boolean
   agrupacion: number
+  /** Forma de pago Vale: el cliente entrega un vale en lugar de dinero. */
+  vales: boolean
 }
 
 export type TpvContexto = {

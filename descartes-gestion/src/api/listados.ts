@@ -12,14 +12,25 @@ export type StockListadoFila = {
   grupoCodigo: string
   grupoNombre: string
   unidades: number
-  numArticulos: number
+  numArticulos?: number
+  articulo?: string
+  descripcion?: string
+  precioMedio?: number
+  precioUltimo?: number
+  unidad?: string
+  unidadEmpaquetado?: string
+  valorPm?: number
+  valorPu?: number
 }
 
 export type StockListadoResult = {
   agruparPor: StockAgruparPor
+  detalle?: boolean
   almacen: number
+  almacenNombre?: string
+  ano?: number | null
   items: StockListadoFila[]
-  totales: { unidades: number; filas: number }
+  totales: { unidades: number; filas: number; valorPm?: number; valorPu?: number }
   truncado: boolean
   limite: number
 }
@@ -65,6 +76,7 @@ export type StockListadoParams = {
   ultCompraHasta?: string
   ubicacionDesde?: string
   ubicacionHasta?: string
+  imArticulos?: string
 }
 
 export async function generarListadoStock(params: StockListadoParams): Promise<StockListadoResult> {

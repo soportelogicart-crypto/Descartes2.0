@@ -6,7 +6,6 @@ import type {
   TpvCliente,
   TpvContexto,
   TpvNivel,
-  TpvNivelResumen,
   TpvTicketEspera,
 } from '@/types/tpv'
 import type { VentaDetalle, VentaResumen } from '@/types/ventas'
@@ -31,34 +30,53 @@ export async function obtenerNivelTeclado(general: string, nivel: string): Promi
   return data
 }
 
-export async function obtenerNivelesTeclado(general: string): Promise<TpvNivelResumen[]> {
-  const { data } = await api.get<{ items: TpvNivelResumen[] }>(
-    `/api/tpv/teclados/${encodeURIComponent(general)}/niveles`
-  )
-  return Array.isArray(data.items) ? data.items : []
+function rutaNivel(general: string, nivel: string): string {
+  return `/api/tpv/teclados/${encodeURIComponent(general)}/niveles/${encodeURIComponent(nivel)}`
 }
 
+/** Guarda el botón de una posición fija (0..7 grupos en nivel 000, 0..13 resto). */
 export async function guardarBotonTeclado(
   general: string,
   nivel: string,
-  tecla: number,
+  posicion: number,
   asignacion: TpvBotonAsignacion
 ): Promise<string | null> {
   const { data } = await api.put<{ nivelDestino: string | null }>(
-    `/api/tpv/teclados/${encodeURIComponent(general)}/niveles/${encodeURIComponent(nivel)}/botones/${tecla}`,
+    `${rutaNivel(general, nivel)}/posiciones/${posicion}`,
     asignacion
   )
   return data?.nivelDestino ?? null
 }
 
+/** Botones que se perderían al borrar un grupo. */
+export async function contarSubnivelesTeclado(
+  general: string,
+  nivel: string,
+  posicion: number
+): Promise<number> {
+  const { data } = await api.get<{ botones: number }>(
+    `${rutaNivel(general, nivel)}/posiciones/${posicion}/subniveles`
+  )
+  return Number(data?.botones) || 0
+}
+
+/** Borra el botón; si es un grupo, también los botones de dentro. */
 export async function borrarBotonTeclado(
   general: string,
   nivel: string,
-  tecla: number
+  posicion: number
 ): Promise<void> {
-  await api.delete(
-    `/api/tpv/teclados/${encodeURIComponent(general)}/niveles/${encodeURIComponent(nivel)}/botones/${tecla}`
-  )
+  await api.delete(`${rutaNivel(general, nivel)}/posiciones/${posicion}`)
+}
+
+/** Intercambia dos posiciones del nivel (los grupos se llevan su contenido). */
+export async function intercambiarBotonesTeclado(
+  general: string,
+  nivel: string,
+  origen: number,
+  destino: number
+): Promise<void> {
+  await api.post(`${rutaNivel(general, nivel)}/intercambio`, { origen, destino })
 }
 
 /** Clientes por código, NIF, nombre o teléfono (permiso tpv.ver). */

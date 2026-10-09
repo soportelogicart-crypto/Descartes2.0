@@ -121,6 +121,8 @@ return function (App $app): void {
 
     $group->get('/vales', [VentasController::class, 'listVales'])
       ->add($setPermiso('ventas-vales', 'ver'));
+    $group->get('/vales/{empresa}/{codigo}', [VentasController::class, 'consultarValeCobro'])
+      ->add($setPermiso('ventas', 'ver'));
     $group->get('/fidelizacion/vale-disponible', [VentasController::class, 'valeFidelizacionDisponible'])
       ->add($setPermiso('ventas', 'ver'));
     $group->post('/vales', [VentasController::class, 'createVale'])

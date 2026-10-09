@@ -1180,11 +1180,21 @@ function navArticulos(dir: 'primero' | 'anterior' | 'siguiente' | 'ultimo') {
   font-weight: 600;
 }
 
+.ficha-campos {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .ficha-body {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+  grid-template-columns: minmax(0, 1.15fr) minmax(220px, 0.85fr);
   align-items: stretch;
   max-width: 1100px;
+  min-width: 0;
+}
+
+.ficha-body > * {
+  min-width: 0;
 }
 
 .msg {

@@ -143,11 +143,15 @@ function sectionZoneClass(section: ArticuloSection) {
 
 <template>
   <div class="tab-form" :class="{ 'tab-form-tarifas': isTarifasLayout }">
-    <fieldset
+    <div
       v-for="section in sections"
       :key="section.title"
+      class="section-slot"
+      :class="sectionZoneClass(section)"
+    >
+    <fieldset
       class="form-section"
-      :class="[sectionZoneClass(section), section.title === 'Clasificacion' ? 'section-clasificacion' : '']"
+      :class="section.title === 'Clasificacion' ? 'section-clasificacion' : ''"
     >
       <legend>{{ section.title }}</legend>
       <div
@@ -238,6 +242,7 @@ function sectionZoneClass(section: ArticuloSection) {
         </div>
       </div>
     </fieldset>
+    </div>
   </div>
 </template>
 
@@ -258,12 +263,19 @@ function sectionZoneClass(section: ArticuloSection) {
 
 .tab-form-tarifas {
   display: grid;
-  grid-template-columns: minmax(150px, 0.85fr) minmax(280px, 1.15fr);
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
   grid-template-areas:
     'especiales precios'
     'especiales costes';
   gap: 0.45rem;
   align-items: start;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.section-slot {
+  min-width: 0;
+  min-inline-size: 0;
 }
 
 .tab-form-tarifas .zone-especiales {
@@ -276,6 +288,19 @@ function sectionZoneClass(section: ArticuloSection) {
 
 .tab-form-tarifas .zone-costes {
   grid-area: costes;
+}
+
+.tab-form-tarifas .form-section {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.tab-form-tarifas .field-inline .field-label {
+  white-space: normal;
+}
+
+.tab-form-tarifas input {
+  min-width: 0;
 }
 
 .form-section {

@@ -128,6 +128,14 @@ export type VentaDetalle = VentaResumen & {
     saldoRestante: number
     consumos: { vale: number; importe: number; saldo: number }[]
   }
+  /** Vale nuevo emitido al devolver con forma de pago Vales. */
+  valeEmitido?: { empresa?: string; codigo: number; importe: number; cliente?: string | null } | null
+  /** Vale de devolución aplicado en esta compra, y el resto si no se agotó. */
+  valeAplicado?: {
+    aplicado: number
+    codigo: number
+    valeResto?: { empresa?: string; codigo: number; importe: number; cliente?: string | null } | null
+  } | null
   puntosCanje?: {
     puntos: number
     puntosUsables: number

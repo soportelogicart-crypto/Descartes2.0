@@ -234,8 +234,11 @@ async function generar() {
   }
 
   // Solo EAN sintético 9710… (NO añadir el código de artículo como EAN).
-  const body9 = digits.slice(-9).padStart(9, '0')
-  const base12 = (`9710${body9}`).slice(0, 12)
+  // 9710 ocupa 4 posiciones: el cuerpo solo puede llevar 8 dígitos más.
+  // Antes se añadían 9 y se cortaba el último, por lo que diez artículos
+  // consecutivos (…500–…509) generaban el mismo EAN.
+  const body8 = digits.slice(-8).padStart(8, '0')
+  const base12 = `9710${body8}`
   const candidate = base12 + String(eanCheckDigit(base12))
 
   const actuales = filas.value

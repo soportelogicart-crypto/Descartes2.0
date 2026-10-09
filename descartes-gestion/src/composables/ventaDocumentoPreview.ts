@@ -209,6 +209,9 @@ export function ventaAPreviewDatos(
       portes: String(venta.portes ?? ''),
       observaciones: String(venta.observaciones ?? '').trim(),
       formaPago: String(venta.formaPagoDescripcion ?? venta.formasPago?.[0]?.codigo ?? ''),
+      pagos: (venta.formasPago ?? [])
+        .filter((f) => String(f.codigo ?? '').trim() && Math.abs(Number(f.importe) || 0) > 0.004)
+        .map((f) => ({ codigo: String(f.codigo).trim(), importe: Number(f.importe) || 0 })),
       codigoBarras: `*${venta.empresa || ''}${venta.albaran || ''}*`,
       pagina: '1/1',
     },

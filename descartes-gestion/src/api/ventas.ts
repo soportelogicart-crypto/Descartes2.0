@@ -211,7 +211,12 @@ export async function finalizarVenta(
   albaran: number,
   nuevoTipo: string,
   fpago1?: string,
-  opciones: { aplicarValeFidelizacion?: boolean; aplicarPuntosFidelizacion?: boolean } = {}
+  opciones: {
+    aplicarValeFidelizacion?: boolean
+    aplicarPuntosFidelizacion?: boolean
+    valeCodigo?: number
+    fpago2?: string
+  } = {}
 ) {
   const { data } = await api.post<VentaDetalle>(
     `/api/ventas/albaranes/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}/finalizar`,
@@ -479,6 +484,17 @@ export async function listarCobrosPagos(params: Record<string, string | number |
 
 export async function listarVales(params: Record<string, string | number | undefined>) {
   const { data } = await api.get<Paged<Vale>>('/api/ventas/vales', { params })
+  return data
+}
+
+export async function consultarValeCobro(empresa: string, codigo: number) {
+  const { data } = await api.get<{
+    empresa: string
+    codigo: number
+    cliente: string
+    saldo: number
+    tipoVale: string
+  }>(`/api/ventas/vales/${encodeURIComponent(empresa)}/${codigo}`)
   return data
 }
 

@@ -3,9 +3,10 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   borrarBotonTeclado,
+  contarSubnivelesTeclado,
   guardarBotonTeclado,
+  intercambiarBotonesTeclado,
   obtenerNivelTeclado,
-  obtenerNivelesTeclado,
   obtenerVentaTpv,
 } from '@/api/tpv'
 import {
@@ -41,6 +42,7 @@ import {
 } from '@/composables/cobroDatafono'
 import { autorizacionDesdeXmlRedsys } from '@/composables/comprobanteTarjeta'
 import { createBarcodeScanWatcher } from '@/composables/useBarcodeScanWatcher'
+import { imprimirValesDeCierre } from '@/composables/comprobanteVale'
 import { extractApiError } from '@/composables/extractApiError'
 import {
   imprimirA4Preparado,
@@ -61,10 +63,10 @@ import type {
   TpvCliente,
   TpvFuncionExtra,
   TpvNivel,
-  TpvNivelResumen,
   TpvTicketEspera,
+  TpvZonaTeclado,
 } from '@/types/tpv'
-import { CLIENTE_RAPIDO_TPV } from '@/types/tpv'
+import { CLIENTE_RAPIDO_TPV, TPV_NIVEL_GRUPOS, TPV_NIVEL_INICIAL } from '@/types/tpv'
 import type { VentaDetalle, VentaResumen } from '@/types/ventas'
 
 const router = useRouter()
@@ -78,12 +80,20 @@ const initError = ref<string | null>(null)
 const nivelData = ref<TpvNivel | null>(null)
 const cargandoTeclado = ref(false)
 /**
- * Camino recorrido por el teclado. Guarda la etiqueta del botón que abrió cada
- * grupo porque `DefPlus` no nombra los niveles: sin ella, dentro de un grupo no
- * hay forma de saber por dónde se entró.
+ * Camino recorrido por el teclado (legacy a_plu). Guarda la etiqueta del botón que
+ * abrió cada nivel porque `DefPlus` no nombra los niveles. El primer paso es el grupo
+ * de la columna izquierda; `nivelVuelta` es f_plu: el nivel al que se vuelve tras vender.
  */
-const NIVEL_RAIZ = { nivel: '000', etiqueta: 'Venta rápida' }
-const stackNiveles = ref<{ nivel: string; etiqueta: string }[]>([{ ...NIVEL_RAIZ }])
+type PasoTeclado = { nivel: string; etiqueta: string }
+const NIVEL_RAIZ: PasoTeclado = { nivel: TPV_NIVEL_INICIAL, etiqueta: 'Venta rápida' }
+const stackNiveles = ref<PasoTeclado[]>([{ ...NIVEL_RAIZ }])
+const nivelVuelta = ref(TPV_NIVEL_INICIAL)
+/**
+ * Pantallas de complementos pendientes del último artículo (H_NIVOB obligatorias,
+ * H_NIVOP opcionales). Mientras hay alguna, el teclado muestra esa pantalla.
+ */
+const complementos = ref<{ nivel: string; obligatorio: boolean }[]>([])
+const complementoActual = computed(() => complementos.value[0] ?? null)
 const seleccion = ref(-1)
 const cantidadTecleada = ref('')
 const editandoPrecioLinea = ref(-1)
@@ -107,8 +117,9 @@ const consultaVentasError = ref<string | null>(null)
 const ticketsEsperaAbierto = ref(false)
 const visorTicketAbierto = ref(false)
 const configurandoBotones = ref(false)
-const botonConfigurando = ref<TpvBoton | null>(null)
-const nivelesConfigurables = ref<TpvNivelResumen[]>([])
+const botonConfigurando = ref<{ boton: TpvBoton; zona: TpvZonaTeclado } | null>(null)
+const avisoBorrarBoton = ref<string | null>(null)
+const moviendoBoton = ref<{ zona: TpvZonaTeclado; posicion: number } | null>(null)
 const cobrado = ref<string | null>(null)
 const clienteAbierto = ref(false)
 /** Último ticket cerrado: permite reintentar la impresión sin rehacer la venta. */
@@ -122,7 +133,14 @@ const devolucionDatafonoAbierto = ref(false)
 const devolucionAlbaranOrigen = ref(0)
 
 type CobroPendienteTrasDevolucion = {
-  datos: { tipoDocumento: string; formaPago: string; entregado: number }
+  datos: {
+    tipoDocumento: string
+    formaPago: string
+    entregado: number
+    valeCodigo?: number
+    valeImporte?: number
+    formaPago2?: string
+  }
   importeDatafono: number
   aplicarValeFidelizacion: boolean
   aplicarPuntosFidelizacion: boolean
@@ -288,46 +306,163 @@ const modalPrecio = computed(() => {
   return { open: false, titulo: '', articulo: '', descripcion: '', cantidad: 0, precioInicial: 0 }
 })
 
-async function cargarNivel(nivel: string) {
-  if (!tpv.contexto) return
+/**
+ * Carga un nivel del teclado. Como legacy, si el nivel no tiene botones se vuelve al
+ * de vuelta (f_plu); en modo configuración no, para poder rellenarlo.
+ * @returns false si el nivel estaba vacío y no se ha abierto
+ */
+async function cargarNivel(nivel: string): Promise<boolean> {
+  if (!tpv.contexto) return false
   cargandoTeclado.value = true
   try {
-    nivelData.value = await obtenerNivelTeclado(tpv.contexto.tecladoGeneral, nivel)
+    const data = await obtenerNivelTeclado(tpv.contexto.tecladoGeneral, nivel)
+    const vacio = !data.botones.length && nivel !== nivelVuelta.value
+    if (vacio && !configurandoBotones.value && !complementoActual.value) return false
+    nivelData.value = data
+    return true
+  } catch (e: unknown) {
+    tpv.error = extractApiError(e, 'No se pudo cargar el teclado')
+    return false
   } finally {
     cargandoTeclado.value = false
   }
 }
 
-async function editarBoton(boton: TpvBoton) {
-  if (!tpv.contexto || !puede('tpv', 'editar')) {
-    tpv.error = 'Su rol no tiene permiso para configurar los botones'
+function etiquetaBoton(b: TpvBoton, por: string): string {
+  return [b.etiqueta1, b.etiqueta2].filter(Boolean).join(' ') || por
+}
+
+/** Abre un nivel desde un botón de grupo; con F (grupoVuelta) pasa a ser el de vuelta. */
+async function abrirNivel(nivel: string, etiqueta: string, vuelta: boolean) {
+  const anterior = [...stackNiveles.value]
+  stackNiveles.value.push({ nivel, etiqueta })
+  if (!(await cargarNivel(nivel))) {
+    stackNiveles.value = anterior
     return
   }
-  try {
-    nivelesConfigurables.value = await obtenerNivelesTeclado(tpv.contexto.tecladoGeneral)
-    botonConfigurando.value = boton
-  } catch (e: unknown) {
-    tpv.error = extractApiError(e, 'No se pudieron cargar los grupos del teclado')
+  if (vuelta) nivelVuelta.value = nivel
+}
+
+/** Pulsar un grupo de la columna izquierda: nivel Format(posición + 1, "000"). */
+async function abrirGrupo(g: TpvBoton) {
+  const nivel = g.nivelDestino ?? String(g.posicion + 1).padStart(3, '0')
+  const anterior = { pila: [...stackNiveles.value], vuelta: nivelVuelta.value }
+  stackNiveles.value = [{ nivel, etiqueta: etiquetaBoton(g, `Grupo ${g.posicion + 1}`) }]
+  nivelVuelta.value = nivel
+  if (!(await cargarNivel(nivel))) {
+    stackNiveles.value = anterior.pila
+    nivelVuelta.value = anterior.vuelta
   }
 }
 
+/** Tras vender: vuelta al nivel f_plu (el último grupo o grupo F abierto). */
+async function volverTrasVender() {
+  const i = stackNiveles.value.findIndex((p) => p.nivel === nivelVuelta.value)
+  if (i < 0 || i === stackNiveles.value.length - 1) {
+    if (nivelData.value?.nivel !== nivelVuelta.value) await cargarNivel(nivelVuelta.value)
+    return
+  }
+  stackNiveles.value = stackNiveles.value.slice(0, i + 1)
+  await cargarNivel(nivelVuelta.value)
+}
+
+/** Primera pantalla de complementos, o vuelta al nivel f_plu si no quedan. */
+async function siguienteComplemento() {
+  complementos.value = complementos.value.slice(1)
+  if (complementoActual.value) {
+    await cargarNivel(complementoActual.value.nivel)
+    return
+  }
+  await volverTrasVender()
+  await foco()
+}
+
+async function salirComplementos() {
+  complementos.value = []
+  await volverTrasVender()
+  await foco()
+}
+
+async function iniciarComplementos(b: TpvBoton) {
+  complementos.value = [
+    ...(b.obligatorios ?? []).map((id) => ({ nivel: `O${id}`, obligatorio: true })),
+    ...(b.opcionales ?? []).map((id) => ({ nivel: `P${id}`, obligatorio: false })),
+  ]
+  if (complementoActual.value) {
+    await cargarNivel(complementoActual.value.nivel)
+    return true
+  }
+  return false
+}
+
+async function editarBoton(boton: TpvBoton, zona: TpvZonaTeclado) {
+  if (!tpv.contexto || !nivelData.value || !puede('tpv', 'editar')) {
+    tpv.error = 'Su rol no tiene permiso para configurar los botones'
+    return
+  }
+  const mover = moviendoBoton.value
+  if (mover) {
+    moviendoBoton.value = null
+    if (mover.zona !== zona) {
+      tpv.error = 'Un grupo solo se puede mover a otra casilla de grupos, y un botón a otra de botones'
+      return
+    }
+    if (mover.posicion === boton.posicion) return
+    try {
+      await intercambiarBotonesTeclado(
+        tpv.contexto.tecladoGeneral,
+        zona === 'grupo' ? TPV_NIVEL_GRUPOS : nivelData.value.nivel,
+        mover.posicion,
+        boton.posicion
+      )
+      await cargarNivel(nivelData.value.nivel)
+    } catch (e: unknown) {
+      tpv.error = extractApiError(e, 'No se pudo mover el botón')
+    }
+    return
+  }
+  avisoBorrarBoton.value = null
+  botonConfigurando.value = { boton, zona }
+}
+
+/** En configuración, tocar un grupo entra en su página para ponerle botones. */
+async function entrarEnGrupo(boton: TpvBoton, zona: TpvZonaTeclado) {
+  if (zona === 'grupo') {
+    await abrirGrupo(boton)
+    return
+  }
+  if (boton.nivelDestino) {
+    await abrirNivel(boton.nivelDestino, etiquetaBoton(boton, 'Grupo'), boton.tipo === 'grupoVuelta')
+  }
+}
+
+function nivelDeEdicion(zona: TpvZonaTeclado): string {
+  return zona === 'grupo' ? TPV_NIVEL_GRUPOS : (nivelData.value?.nivel ?? TPV_NIVEL_INICIAL)
+}
+
 async function guardarConfiguracionBoton(asignacion: TpvBotonAsignacion) {
-  if (!tpv.contexto || !nivelData.value || !botonConfigurando.value) return
+  const editando = botonConfigurando.value
+  if (!tpv.contexto || !nivelData.value || !editando) return
+  const { boton, zona } = editando
   try {
     const nivelDestino = await guardarBotonTeclado(
       tpv.contexto.tecladoGeneral,
-      nivelData.value.nivel,
-      botonConfigurando.value.tecla,
+      nivelDeEdicion(zona),
+      boton.posicion,
       asignacion
     )
     botonConfigurando.value = null
 
-    // Un grupo nuevo nace vacío: entramos en él para que se vea qué hay que rellenar.
-    if (asignacion.tipo === 'nivel' && asignacion.crearGrupo && nivelDestino) {
-      stackNiveles.value.push({
-        nivel: nivelDestino,
-        etiqueta: asignacion.etiqueta || `Grupo ${nivelDestino}`,
-      })
+    // Grupo nuevo: se entra en él para que se vea qué hay que rellenar.
+    const etiqueta = [asignacion.etiqueta1, asignacion.etiqueta2].filter(Boolean).join(' ')
+    if (nivelDestino && zona === 'grupo' && !boton.visible) {
+      stackNiveles.value = [{ nivel: nivelDestino, etiqueta: etiqueta || `Grupo ${boton.posicion + 1}` }]
+      nivelVuelta.value = nivelDestino
+      await cargarNivel(nivelDestino)
+      return
+    }
+    if (nivelDestino && zona === 'boton' && boton.tipo === 'vacio') {
+      stackNiveles.value.push({ nivel: nivelDestino, etiqueta: etiqueta || 'Grupo' })
       await cargarNivel(nivelDestino)
       return
     }
@@ -337,25 +472,60 @@ async function guardarConfiguracionBoton(asignacion: TpvBotonAsignacion) {
   }
 }
 
-async function borrarConfiguracionBoton() {
-  if (!tpv.contexto || !nivelData.value || !botonConfigurando.value) return
+async function borrarConfiguracionBoton(confirmado: boolean) {
+  const editando = botonConfigurando.value
+  if (!tpv.contexto || !nivelData.value || !editando) return
+  const { boton, zona } = editando
+  const general = tpv.contexto.tecladoGeneral
+  const nivel = nivelDeEdicion(zona)
+  const esGrupo = zona === 'grupo' || boton.tipo === 'grupo' || boton.tipo === 'grupoVuelta'
   try {
-    await borrarBotonTeclado(
-      tpv.contexto.tecladoGeneral,
-      nivelData.value.nivel,
-      botonConfigurando.value.tecla
-    )
+    if (esGrupo && !confirmado) {
+      const dentro = await contarSubnivelesTeclado(general, nivel, boton.posicion)
+      if (dentro > 0) {
+        avisoBorrarBoton.value =
+          `Este grupo tiene ${dentro} ${dentro === 1 ? 'botón' : 'botones'} dentro. ` +
+          'Se borrarán también.'
+        return
+      }
+    }
+    await borrarBotonTeclado(general, nivel, boton.posicion)
     botonConfigurando.value = null
+    avisoBorrarBoton.value = null
+
+    // Si se estaba dentro del grupo borrado, se vuelve al principio.
+    const prefijo =
+      zona === 'grupo'
+        ? String(boton.posicion + 1).padStart(3, '0')
+        : boton.nivelDestino
+    if (esGrupo && prefijo && nivelData.value.nivel.startsWith(prefijo)) {
+      await volverAlInicio()
+      return
+    }
     await cargarNivel(nivelData.value.nivel)
   } catch (e: unknown) {
     tpv.error = extractApiError(e, 'No se pudo dejar vacío el botón')
   }
 }
 
+function moverConfiguracionBoton() {
+  const editando = botonConfigurando.value
+  if (!editando) return
+  moviendoBoton.value = { zona: editando.zona, posicion: editando.boton.posicion }
+  botonConfigurando.value = null
+}
+
 function cancelarConfiguracionBoton() {
   botonConfigurando.value = null
+  avisoBorrarBoton.value = null
   void foco()
 }
+
+watch(configurandoBotones, async (activo) => {
+  moviendoBoton.value = null
+  // Al salir de configurar, un nivel que se quedó vacío vuelve al de vuelta, como legacy.
+  if (!activo && nivelData.value && !nivelData.value.botones.length) await volverAlInicio()
+})
 
 /**
  * Deja la caja lista pero sin ticket: el número se pide en NUEVA VENTA para no
@@ -375,9 +545,7 @@ async function abrirCaja() {
       return
     }
     await tpv.abrirCaja(puestoStore.empresaCodigo, puestoStore.puestoCodigo)
-    stackNiveles.value = [{ ...NIVEL_RAIZ }]
-    await cargarNivel(NIVEL_RAIZ.nivel)
-    await foco()
+    await volverAlInicio()
   } catch (e: unknown) {
     initError.value = extractApiError(e, 'No se pudo iniciar el TPV')
   }
@@ -613,52 +781,64 @@ async function onCodigoIntro() {
   await anadirCodigo(codigo)
 }
 
-async function onBoton(b: TpvBoton) {
+async function onBoton(b: TpvBoton, zona: TpvZonaTeclado) {
   if (tpv.enConsulta) return
-  if (b.tipo === 'nivel' && b.nivelDestino) {
-    stackNiveles.value.push({
-      nivel: b.nivelDestino,
-      etiqueta: b.etiqueta1 || `Grupo ${b.nivelDestino}`,
-    })
-    await cargarNivel(b.nivelDestino)
+  if (zona === 'grupo') {
+    complementos.value = []
+    await abrirGrupo(b)
     return
   }
-  if (b.tipo === 'articulo' && b.articulo) {
-    // Navegar por los grupos sí se permite sin ticket; vender, no.
-    if (!tpv.ticketListo) {
-      tpv.error = 'Pulse NUEVA VENTA para abrir un ticket'
-      await foco()
-      return
-    }
+  if ((b.tipo === 'grupo' || b.tipo === 'grupoVuelta') && b.nivelDestino) {
+    await abrirNivel(b.nivelDestino, etiquetaBoton(b, 'Grupo'), b.tipo === 'grupoVuelta')
+    return
+  }
+  if ((b.tipo !== 'articulo' || !b.articulo) && (b.tipo !== 'texto' || !b.texto)) return
+
+  // Navegar por los grupos sí se permite sin ticket; vender, no.
+  if (!tpv.ticketListo) {
+    tpv.error = 'Pulse NUEVA VENTA para abrir un ticket'
+    await foco()
+    return
+  }
+  if (b.tipo === 'texto') {
+    if (await tpv.anadirNota(b.texto ?? '')) seleccion.value = tpv.lineas.length - 1
+  } else if (b.articulo) {
     const cantidad = Number(cantidadTecleada.value) || 1
     cantidadTecleada.value = ''
-    await tpv.anadirArticulo(b.articulo, cantidad)
+    await tpv.anadirArticulo(b.articulo, cantidad, b.pedirPrecio === true)
     const i = tpv.lineas.findIndex((l) => l.articulo === b.articulo)
     if (i >= 0) seleccion.value = i
-    // Legacy: tras vender, el teclado vuelve al nivel indicado en H_NIVOB si existe.
-    if (b.nivelVolver && b.nivelVolver !== grupoActual.value.nivel) {
-      stackNiveles.value.push({
-        nivel: b.nivelVolver,
-        etiqueta: `Grupo ${b.nivelVolver}`,
-      })
-      await cargarNivel(b.nivelVolver)
-    }
-    await foco()
   }
+
+  // Dentro de complementos: la obligatoria pasa a la siguiente con una elección; la opcional
+  // admite varias hasta SIGUIENTE.
+  if (complementoActual.value) {
+    if (complementoActual.value.obligatorio) await siguienteComplemento()
+    await foco()
+    return
+  }
+  if (!(await iniciarComplementos(b))) await volverTrasVender()
+  await foco()
 }
 
 async function volverNivel() {
   if (!puedeVolver.value) return
   stackNiveles.value.pop()
-  await cargarNivel(grupoActual.value.nivel)
+  const actual = grupoActual.value.nivel
+  // Si se sube por encima del grupo de vuelta, el de vuelta pasa a ser este.
+  if (!stackNiveles.value.some((p) => p.nivel === nivelVuelta.value)) nivelVuelta.value = actual
+  await cargarNivel(actual)
   await foco()
 }
 
-/** Atajo para salir de varios grupos anidados de una vez. */
+/** Primer grupo (nivel 001), como al abrir la caja en legacy. */
 async function volverAlInicio() {
-  if (!puedeVolver.value) return
+  complementos.value = []
   stackNiveles.value = [{ ...NIVEL_RAIZ }]
-  await cargarNivel(NIVEL_RAIZ.nivel)
+  nivelVuelta.value = TPV_NIVEL_INICIAL
+  await cargarNivel(TPV_NIVEL_INICIAL)
+  const g = nivelData.value?.grupos.find((x) => x.posicion === 0 && x.visible)
+  if (g) stackNiveles.value = [{ nivel: TPV_NIVEL_INICIAL, etiqueta: etiquetaBoton(g, NIVEL_RAIZ.etiqueta) }]
   await foco()
 }
 
@@ -809,16 +989,27 @@ function abrirAccionesConsulta() {
 }
 
 async function finalizarVentaTrasCobro(
-  datos: { tipoDocumento: string; formaPago: string; entregado: number },
+  datos: {
+    tipoDocumento: string
+    formaPago: string
+    entregado: number
+    valeCodigo?: number
+    valeImporte?: number
+    formaPago2?: string
+  },
   importeDatafono: number,
   aplicarValeFidelizacion: boolean,
   aplicarPuntosFidelizacion: boolean
 ) {
   const contexto = tpv.contexto
-  const forma = contexto?.formasPago.find((item) => item.codigo === datos.formaPago)
+  const formaTarjeta = datos.formaPago2
+    ? contexto?.formasPago.find((item) => item.codigo === datos.formaPago2)
+    : contexto?.formasPago.find((item) => item.codigo === datos.formaPago)
   const cerrada = await tpv.cobrar(datos.tipoDocumento, datos.formaPago, {
     aplicarValeFidelizacion,
     aplicarPuntosFidelizacion,
+    ...(datos.valeCodigo ? { valeCodigo: datos.valeCodigo } : {}),
+    ...(datos.formaPago2 ? { fpago2: datos.formaPago2 } : {}),
   })
   if (!cerrada) return
 
@@ -826,19 +1017,19 @@ async function finalizarVentaTrasCobro(
     ultimoReceiptDatafono.value &&
     importeDatafono > 0.005 &&
     contexto &&
-    forma?.datafono &&
-    forma.chipAcumuladoMenu
+    formaTarjeta?.datafono &&
+    formaTarjeta.chipAcumuladoMenu
   ) {
     try {
       const auth = autorizacionDesdeXmlRedsys(
         ultimoReceiptDatafono.value,
-        Number(cerrada.importe ?? importeDatafono)
+        importeDatafono
       )
       if (auth) {
         await registrarAutorizacionTarjetaAlbaran(cerrada.empresa, cerrada.albaran, {
           puesto: contexto.puesto,
           sesion: Number(cerrada.sesion ?? contexto.sesion ?? 0),
-          formaPago: 1,
+          formaPago: datos.formaPago2 ? 2 : 1,
           ...auth,
         })
       }
@@ -847,7 +1038,10 @@ async function finalizarVentaTrasCobro(
     }
   }
 
-  const cambio = datos.entregado > 0 ? datos.entregado - Number(cerrada.importe ?? tpv.total) : 0
+  const cobradoEnCaja = datos.valeCodigo
+    ? Math.max(0, Number(cerrada.importe ?? tpv.total) - Number(datos.valeImporte ?? 0))
+    : Number(cerrada.importe ?? tpv.total)
+  const cambio = datos.entregado > 0 ? datos.entregado - cobradoEnCaja : 0
   const etiquetas: Record<string, string> = {
     T: 'Ticket',
     A: 'Albaran',
@@ -881,6 +1075,26 @@ async function finalizarVentaTrasCobro(
     const euros = cerrada.puntosCanje.euros.toFixed(2).replace('.', ',')
     cobrado.value += `. Puntos usados: ${cerrada.puntosCanje.puntosUsables} (${euros} €).`
   }
+  if (cerrada.valeAplicado?.aplicado) {
+    const aplicado = cerrada.valeAplicado.aplicado.toFixed(2).replace('.', ',')
+    cobrado.value += `. Vale ${cerrada.valeAplicado.codigo} aplicado: ${aplicado} €.`
+    if (cerrada.valeAplicado.valeResto?.codigo) {
+      const resto = Number(cerrada.valeAplicado.valeResto.importe).toFixed(2).replace('.', ',')
+      cobrado.value += ` Resto en el vale ${cerrada.valeAplicado.valeResto.codigo}: ${resto} €.`
+    }
+  }
+  if (cerrada.valeEmitido?.codigo) {
+    const importeVale = Number(cerrada.valeEmitido.importe).toFixed(2).replace('.', ',')
+    cobrado.value += `. Vale ${cerrada.valeEmitido.codigo} emitido por ${importeVale} €.`
+  }
+  const puestoVale = String(puestoStore.puestoCodigo ?? '').trim()
+  if (puestoVale && (cerrada.valeEmitido?.codigo || cerrada.valeAplicado?.valeResto?.codigo)) {
+    try {
+      await imprimirValesDeCierre(puestoVale, cerrada)
+    } catch (e: unknown) {
+      errorImpresion.value = extractApiError(e, 'La venta está hecha, pero no se pudo imprimir el vale')
+    }
+  }
   if (cerrada.fidelizacionPuntos) {
     const compra = Number(cerrada.fidelizacionPuntos.compra)
     const acumulados = Number(cerrada.fidelizacionPuntos.acumulados)
@@ -909,9 +1123,14 @@ async function onCobroConfirmado(datos: {
   tipoDocumento: string
   formaPago: string
   entregado: number
+  valeCodigo?: number
+  valeImporte?: number
+  formaPago2?: string
 }) {
   const contexto = tpv.contexto
-  const forma = contexto?.formasPago.find((item) => item.codigo === datos.formaPago)
+  const forma = datos.formaPago2
+    ? contexto?.formasPago.find((item) => item.codigo === datos.formaPago2)
+    : contexto?.formasPago.find((item) => item.codigo === datos.formaPago)
   const requierePago = datos.tipoDocumento === 'T' || datos.tipoDocumento === 'F'
   const totalCobro = Number(tpv.venta?.importe ?? tpv.total)
   let aplicarValeFidelizacion = false
@@ -951,7 +1170,11 @@ async function onCobroConfirmado(datos: {
       aplicarPuntosFidelizacion = false
     }
   }
-  const importeDatafono = totalCobro - descuentoValePrevisto - descuentoPuntosPrevisto
+  const topeTrasFidelizacion = totalCobro - descuentoValePrevisto - descuentoPuntosPrevisto
+  const descuentoValePapel = datos.valeCodigo
+    ? Math.min(Number(datos.valeImporte ?? 0), Math.max(0, topeTrasFidelizacion))
+    : 0
+  const importeDatafono = topeTrasFidelizacion - descuentoValePapel
   const datafonoIntegrado = Boolean(forma?.datafono && forma.chipAcumuladoMenu)
   if (requierePago && datafonoIntegrado && Math.abs(importeDatafono) > 0.005) {
     if (!contexto || !tpv.venta) {
@@ -1658,12 +1881,25 @@ onMounted(() => {
           <TpvTecladoGrid
             :nivel="nivelData"
             :cargando="cargandoTeclado"
-            :configurando="configurandoBotones"
+            :configurando="configurandoBotones && !complementoActual"
+            :moviendo="moviendoBoton"
             @boton="onBoton"
             @editar="editarBoton"
+            @entrar="entrarEnGrupo"
           />
 
-          <div class="acciones-teclado">
+          <div v-if="complementoActual" class="acciones-teclado">
+            <span class="pista-teclado">
+              {{ complementoActual.obligatorio ? 'Elija un complemento' : 'Complementos opcionales' }}
+            </span>
+            <button type="button" class="btn-tpv atras-teclado" @click="salirComplementos">
+              SALIDA
+            </button>
+            <button type="button" class="btn-tpv configurar" @click="siguienteComplemento">
+              SIGUIENTE ►
+            </button>
+          </div>
+          <div v-else class="acciones-teclado">
             <!-- Modo configuración: se entra desde OTRAS FUNCIONES, pero salir
                  tiene que estar a la vista mientras dure. -->
             <button
@@ -1674,8 +1910,15 @@ onMounted(() => {
             >
               TERMINAR CONFIGURACIÓN
             </button>
+            <span v-if="configurandoBotones" class="pista-teclado">
+              Toque un grupo para entrar. El lápiz lo edita o lo elimina.
+            </span>
             <span v-else class="pista-teclado">
-              {{ puedeVolver ? `Dentro de ${grupoActual.etiqueta}` : 'Todos los artículos' }}
+              {{ puedeVolver ? `Dentro de ${grupoActual.etiqueta}` : grupoActual.etiqueta }}
+            </span>
+            <span v-if="moviendoBoton" class="pista-teclado">
+              Toque la casilla de destino
+              <button type="button" class="btn-tpv" @click="moviendoBoton = null">CANCELAR</button>
             </span>
             <button
               type="button"
@@ -1741,6 +1984,7 @@ onMounted(() => {
       :total="tpv.total"
       :formas-pago="tpv.contexto?.formasPago ?? []"
       :forma-pago-inicial="formaPagoSugeridaCobro"
+      :empresa="tpv.contexto?.empresa"
       :permite-factura="permiteFactura"
       :guardando="tpv.guardando || cobrandoDatafono"
       :cobrando-datafono="cobrandoDatafono"
@@ -1875,12 +2119,14 @@ onMounted(() => {
 
     <TpvBotonConfigModal
       :open="botonConfigurando !== null"
-      :boton="botonConfigurando"
-      :nivel-actual="nivelData?.nivel ?? '000'"
-      :niveles="nivelesConfigurables"
+      :boton="botonConfigurando?.boton ?? null"
+      :zona="botonConfigurando?.zona ?? 'boton'"
+      :puede-tener-grupos="nivelData?.puedeTenerGrupos ?? true"
+      :aviso-borrar="avisoBorrarBoton"
       :tarifa="tpv.contexto?.tarifa ?? 1"
       @guardar="guardarConfiguracionBoton"
       @borrar="borrarConfiguracionBoton"
+      @mover="moverConfiguracionBoton"
       @cancelar="cancelarConfiguracionBoton"
     />
   </section>

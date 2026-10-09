@@ -7,6 +7,7 @@ import {
   crearVenta,
   eliminarVenta,
   enviarVentaPorEmail,
+  consultarValeCobro,
   finalizarVenta,
   obtenerVenta,
   obtenerVendedorPuesto,
@@ -26,6 +27,7 @@ import type {
   VentaPayload,
   VentaResumen,
 } from '@/types/ventas'
+import { imprimirValesDeCierre } from '@/composables/comprobanteVale'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
@@ -369,8 +371,15 @@ const TIPOS_FINAL = [
 const clienteContado = ref(false)
 const formaPagoCliente = ref('')
 /** Formas de pago de contado: la regla de negocio es CobroDeArqueo. */
-const formasPagoContado = ref<{ codigo: string; descripcion: string }[]>([])
+const formasPagoContado = ref<{ codigo: string; descripcion: string; vales: boolean }[]>([])
 const fpagoFinal = ref('')
+const fpago2Final = ref('')
+const valeNumeroFinal = ref('')
+const valeCodigoFinal = ref(0)
+const valeSaldoFinal = ref(0)
+const valeAvisoFinal = ref('')
+const valeBuscandoFinal = ref(false)
+const valeInputFinal = ref<HTMLInputElement | null>(null)
 /** Empresas.SW_IVA: precios de linea con IVA incluido (yIVA). */
 const preciosIvaIncluido = ref(false)
 
@@ -427,6 +436,43 @@ const mostrarSelectorFpago = computed(
     !esTicketCerrado.value &&
     (clienteContado.value || tipoFinal.value === 'T' || tipoFinal.value === 'F')
 )
+
+const formaFinalEsVale = computed(
+  () => Boolean(formasPagoContado.value.find((f) => f.codigo === fpagoFinal.value)?.vales)
+)
+
+const pedirNumeroValeFinal = computed(
+  () =>
+    mostrarSelectorFpago.value &&
+    formaFinalEsVale.value &&
+    Number(totales.value.importe ?? ficha.value?.importe ?? 0) > 0.005
+)
+
+const diferenciaValeFinal = computed(() => {
+  if (!pedirNumeroValeFinal.value || valeCodigoFinal.value <= 0) return 0
+  const venta = Math.max(0, Number(totales.value.importe ?? ficha.value?.importe ?? 0))
+  const aplicado = Math.min(valeSaldoFinal.value, venta)
+  return Math.round((venta - aplicado) * 100) / 100
+})
+
+const formasDiferenciaFinal = computed(() => formasPagoContado.value.filter((f) => !f.vales))
+
+const faltaFormaDiferencia = computed(
+  () => diferenciaValeFinal.value > 0.005 && !fpago2Final.value
+)
+
+watch(fpagoFinal, async () => {
+  fpago2Final.value = ''
+  if (!pedirNumeroValeFinal.value) {
+    valeNumeroFinal.value = ''
+    valeCodigoFinal.value = 0
+    valeSaldoFinal.value = 0
+    valeAvisoFinal.value = ''
+    return
+  }
+  await nextTick()
+  valeInputFinal.value?.focus()
+})
 
 function lineaVacia(): VentaLinea {
   return {
@@ -579,13 +625,13 @@ const docAviso = computed(() => {
       : 'Solo consulta. Puede imprimir el documento.'
   }
   if (kind === 'presupuesto') {
-    return 'Presupuesto. Puede imprimir o modificar las líneas.'
+    return 'Presupuesto. Puede modificar las líneas. Imprimir permite pasarlo a ticket, albarán o factura.'
   }
   if (esAbono.value && ficha.value) {
     const origen = ficha.value.origenDocumento?.etiqueta || `albarán ${ficha.value.albaranOrigenAbono}`
     return `Albarán de abono de ${origen}. Pendiente de facturar.`
   }
-  return 'Pendiente de facturar. Puede tipificar (ticket, factura o presupuesto) o imprimir.'
+  return 'Albarán de venta, pendiente de facturar. Imprimir saca el albarán. Imprimir permite elegir ticket, albarán o factura.'
 })
 
 const mostrarModificarToolbar = computed(() => {
@@ -598,13 +644,21 @@ const mostrarFinalizarToolbar = computed(() => {
   if (modoEdicion.value && esTicketCerrado.value) return false
   if (!esConsultaRecuperada.value || modoEdicion.value) return true
   if (esTicketCerrado.value && (Number(ficha.value?.facturaConversion) || 0) > 0) return false
-  return docKind.value === 'ticket' || docKind.value === 'albaran'
+  // Albarán y presupuesto recuperados: el tipo se elige desde Imprimir.
+  return docKind.value === 'ticket'
 })
+
+/** Albarán o presupuesto recuperado: Imprimir abre primero la elección de tipo. */
+const imprimirEligeTipo = computed(
+  () =>
+    !esPlantillaConsulta.value &&
+    !esTicketCerrado.value &&
+    !bloqueado.value &&
+    (docKind.value === 'albaran' || docKind.value === 'presupuesto')
+)
 
 const etiquetaFinalizarToolbar = computed(() => {
   if (esTicketCerrado.value) return 'A factura'
-  if (modoEdicion.value || esNuevo.value) return ''
-  if (docKind.value === 'albaran') return 'Tipificar'
   return ''
 })
 const puedePasarAFactura = computed(() => {
@@ -852,9 +906,10 @@ async function cargarFormasPagoContado() {
       .filter((f: { cobroDeArqueo?: boolean; codigo?: string }) =>
         Boolean(f.cobroDeArqueo && String(f.codigo ?? '').trim())
       )
-      .map((f: { codigo: string; descripcion?: string }) => ({
+      .map((f: { codigo: string; descripcion?: string; vales?: boolean }) => ({
         codigo: String(f.codigo).trim(),
         descripcion: String(f.descripcion ?? f.codigo).trim(),
+        vales: Boolean(f.vales),
       }))
   } catch {
     formasPagoContado.value = []
@@ -2243,6 +2298,11 @@ async function onFinalizar() {
     fpagoFinal.value = formasPagoContado.value[0]?.codigo ?? preferida ?? ''
   }
   aplicarPuntosFinal.value = false
+  valeNumeroFinal.value = ''
+  valeCodigoFinal.value = 0
+  valeSaldoFinal.value = 0
+  valeAvisoFinal.value = ''
+  fpago2Final.value = ''
   puntosCanjeFinal.value = null
   const clienteFinal = String(ficha.value.cliente ?? '').trim()
   const importeFinal = Number(totales.value.importe ?? ficha.value.importe ?? 0)
@@ -2256,6 +2316,8 @@ async function onFinalizar() {
     }
   }
   finalizarOpen.value = true
+  await nextTick()
+  if (pedirNumeroValeFinal.value) valeInputFinal.value?.focus()
 }
 
 function onImprimir() {
@@ -2263,8 +2325,9 @@ function onImprimir() {
   error.value = null
   mensaje.value = null
   postVentaError.value = null
-  if (docKind.value === 'presupuesto') {
-    formatoImpresionOpen.value = true
+  // Albarán o presupuesto: primero la ventana de tipo (ticket, albarán, factura).
+  if (imprimirEligeTipo.value && !modoEdicion.value) {
+    void onFinalizar()
     return
   }
   formatoImpresionOpen.value = true
@@ -2470,6 +2533,36 @@ async function enviarDesdeImpresion(email: string) {
   }
 }
 
+async function buscarValeFinal() {
+  const codigo = Number(String(valeNumeroFinal.value).replace(/\D/g, ''))
+  valeCodigoFinal.value = 0
+  valeAvisoFinal.value = ''
+  if (!codigo || !ficha.value) return
+  valeBuscandoFinal.value = true
+  try {
+    const vale = await consultarValeCobro(ficha.value.empresa, codigo)
+    valeCodigoFinal.value = vale.codigo
+    valeSaldoFinal.value = Number(vale.saldo) || 0
+    fpago2Final.value = ''
+    const venta = Math.max(0, Number(totales.value.importe ?? ficha.value.importe ?? 0))
+    const aplicable = Math.min(valeSaldoFinal.value, venta)
+    const sobraVale = Math.round((valeSaldoFinal.value - aplicable) * 100) / 100
+    const faltaCompra = Math.round((venta - aplicable) * 100) / 100
+    const fmt = (n: number) => n.toFixed(2).replace('.', ',')
+    if (faltaCompra > 0.005) {
+      valeAvisoFinal.value = `Vale ${vale.codigo}: se aplican ${fmt(aplicable)} €. Faltan ${fmt(faltaCompra)} €.`
+    } else if (sobraVale > 0.005) {
+      valeAvisoFinal.value = `Vale ${vale.codigo}: se aplican ${fmt(aplicable)} € y se imprime otro de ${fmt(sobraVale)} €.`
+    } else {
+      valeAvisoFinal.value = `Vale ${vale.codigo}: se aplican ${fmt(aplicable)} €.`
+    }
+  } catch (e: unknown) {
+    valeAvisoFinal.value = extractApiError(e, 'Vale no encontrado')
+  } finally {
+    valeBuscandoFinal.value = false
+  }
+}
+
 async function confirmarFinalizar() {
   if (!ficha.value) return
   if (!String(ficha.value.vendedor ?? '').trim()) {
@@ -2479,6 +2572,14 @@ async function confirmarFinalizar() {
   }
   if (mostrarSelectorFpago.value && !String(fpagoFinal.value).trim()) {
     error.value = 'Seleccione una forma de pago de contado'
+    return
+  }
+  if (pedirNumeroValeFinal.value && valeCodigoFinal.value <= 0) {
+    error.value = 'Compruebe el número del vale'
+    return
+  }
+  if (faltaFormaDiferencia.value) {
+    error.value = 'Seleccione la forma de pago de la diferencia'
     return
   }
   if (esTicketCerrado.value && !datosFacturaFinalOk.value) {
@@ -2541,7 +2642,11 @@ async function confirmarFinalizar() {
       ficha.value.albaran,
       opcion,
       mostrarSelectorFpago.value ? fpagoFinal.value : undefined,
-      { aplicarPuntosFidelizacion: aplicarPuntosFinal.value }
+      {
+        aplicarPuntosFidelizacion: aplicarPuntosFinal.value,
+        ...(valeCodigoFinal.value > 0 ? { valeCodigo: valeCodigoFinal.value } : {}),
+        ...(fpago2Final.value ? { fpago2: fpago2Final.value } : {}),
+      }
     )
     aplicarDetalle(done)
     modoEdicion.value = false
@@ -2560,6 +2665,29 @@ async function confirmarFinalizar() {
       mensaje.value +=
         `. Puntos de esta venta: ${done.fidelizacionPuntos.compra}. ` +
         `Acumulados: ${done.fidelizacionPuntos.acumulados}.`
+    }
+    if (done.valeAplicado?.aplicado) {
+      mensaje.value +=
+        ` Vale ${done.valeAplicado.codigo} aplicado: ` +
+        `${done.valeAplicado.aplicado.toFixed(2).replace('.', ',')} €.`
+      if (done.valeAplicado.valeResto?.codigo) {
+        mensaje.value +=
+          ` Resto en el vale ${done.valeAplicado.valeResto.codigo}: ` +
+          `${Number(done.valeAplicado.valeResto.importe).toFixed(2).replace('.', ',')} €.`
+      }
+    }
+    if (done.valeEmitido?.codigo) {
+      mensaje.value +=
+        ` Vale ${done.valeEmitido.codigo} emitido por ` +
+        `${Number(done.valeEmitido.importe).toFixed(2).replace('.', ',')} €.`
+    }
+    const puestoVale = String(puesto.puestoCodigo || done.puesto || '').trim()
+    if (puestoVale && (done.valeEmitido?.codigo || done.valeAplicado?.valeResto?.codigo)) {
+      try {
+        await imprimirValesDeCierre(puestoVale, done)
+      } catch (e: unknown) {
+        error.value = extractApiError(e, 'El documento está hecho, pero no se pudo imprimir el vale')
+      }
     }
     if (done.puntosCanje) {
       mensaje.value +=
@@ -3217,7 +3345,11 @@ onActivated(() => {
           </p>
           <div class="tipos">
             <label v-for="t in tiposFinalDisponibles" :key="t.codigo" class="tipo-opt">
-              <input v-model="tipoFinal" type="radio" :value="t.codigo" />
+              <input
+                type="checkbox"
+                :checked="tipoFinal === t.codigo"
+                @change="tipoFinal = t.codigo"
+              />
               {{ t.label }} ({{ t.codigo }})
             </label>
           </div>
@@ -3234,6 +3366,60 @@ onActivated(() => {
             <p v-if="!formasPagoContado.length" class="warn">
               No hay formas de pago configuradas con cobro de arqueo.
             </p>
+
+            <div v-if="pedirNumeroValeFinal" class="vale-bloque">
+              <label class="vale-cobro">
+                Nº vale
+                <span class="vale-linea">
+                  <input
+                    ref="valeInputFinal"
+                    v-model="valeNumeroFinal"
+                    inputmode="numeric"
+                    placeholder="Número o código de barras"
+                    :disabled="valeBuscandoFinal"
+                    @input="valeCodigoFinal = 0; valeSaldoFinal = 0; fpago2Final = ''"
+                    @keydown.enter.prevent="buscarValeFinal"
+                  />
+                  <button type="button" :disabled="valeBuscandoFinal" @click="buscarValeFinal">
+                    Comprobar
+                  </button>
+                </span>
+              </label>
+              <p v-if="valeAvisoFinal && valeCodigoFinal <= 0" class="warn">{{ valeAvisoFinal }}</p>
+
+              <div v-if="valeCodigoFinal > 0 && diferenciaValeFinal <= 0.005" class="vale-ok">
+                Vale {{ valeCodigoFinal }} cubre toda la compra
+                ({{ Math.min(valeSaldoFinal, Number(totales.importe)).toFixed(2).replace('.', ',') }} €).
+              </div>
+
+              <div v-if="diferenciaValeFinal > 0.005" class="vale-diferencia">
+                <div class="vale-diferencia-cab">
+                  <span class="vale-dif-titulo">Falta por cobrar</span>
+                  <strong class="vale-dif-importe">
+                    {{ diferenciaValeFinal.toFixed(2).replace('.', ',') }} €
+                  </strong>
+                </div>
+                <p class="vale-dif-detalle">
+                  Vale {{ valeCodigoFinal }}:
+                  {{ Math.min(valeSaldoFinal, Number(totales.importe)).toFixed(2).replace('.', ',') }} €
+                  · Total
+                  {{ Number(totales.importe).toFixed(2).replace('.', ',') }} €
+                </p>
+                <label>
+                  Forma de pago de la diferencia
+                  <select v-model="fpago2Final" class="select-diferencia">
+                    <option disabled value="">Seleccione…</option>
+                    <option
+                      v-for="f in formasDiferenciaFinal"
+                      :key="'dif-' + f.codigo"
+                      :value="f.codigo"
+                    >
+                      {{ f.codigo }} — {{ f.descripcion }}
+                    </option>
+                  </select>
+                </label>
+              </div>
+            </div>
           </div>
           <p v-if="tipoFinal === 'F' && !esTicketCerrado" class="warn">Factura: el documento quedara bloqueado.</p>
           <div v-if="puntosCanjeFinal && tipoFinal !== 'P' && !esTicketCerrado" class="vale-puntos">
@@ -3259,7 +3445,7 @@ onActivated(() => {
             <button
               type="button"
               class="primary"
-              :disabled="(mostrarSelectorFpago && !fpagoFinal) || (esTicketCerrado && !datosFacturaFinalOk)"
+              :disabled="(mostrarSelectorFpago && !fpagoFinal) || (pedirNumeroValeFinal && !valeCodigoFinal) || faltaFormaDiferencia || (esTicketCerrado && !datosFacturaFinalOk)"
               @click="confirmarFinalizar"
             >
               Aceptar
@@ -3318,7 +3504,7 @@ onActivated(() => {
       :etiqueta-a4="docKind === 'factura' ? 'Factura' : etiquetaA4Impresion"
       :etiqueta-secundaria="docKind === 'factura' ? 'Albarán' : 'Ticket'"
       :valor-secundario="docKind === 'factura' ? 'albaran' : 'ticket'"
-      :mostrar-secundaria="docKind !== 'presupuesto'"
+      :mostrar-secundaria="docKind !== 'presupuesto' && docKind !== 'albaran'"
       :email-inicial="ficha?.email"
       :procesando="postVentaEnviando"
       :error="postVentaError"
@@ -3835,6 +4021,9 @@ tr.comentario td input {
 }
 .fpago-final {
   margin: 0.5rem 0 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
 }
 .fpago-final label {
   display: flex;
@@ -3847,6 +4036,79 @@ tr.comentario td input {
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   font-size: 0.9rem;
+}
+.vale-bloque {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.vale-linea {
+  display: flex;
+  gap: 0.4rem;
+}
+.vale-linea input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+.vale-ok {
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  border-radius: 6px;
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  color: #14532d;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+.vale-diferencia {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.75rem 0.8rem;
+  border-radius: 8px;
+  border: 2px solid #d97706;
+  background: #fffbeb;
+}
+.vale-diferencia-cab {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.vale-dif-titulo {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #92400e;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.vale-dif-importe {
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: #9a3412;
+  font-variant-numeric: tabular-nums;
+}
+.vale-dif-detalle {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #78350f;
+}
+.vale-diferencia label {
+  font-weight: 600;
+  color: #78350f;
+}
+.select-diferencia {
+  border-color: #d97706 !important;
+  background: #fff;
+  font-weight: 600;
 }
 .warn {
   color: #92400e;

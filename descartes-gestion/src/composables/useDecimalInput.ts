@@ -45,8 +45,15 @@ export function parseDecimalInput(
 const MAX_DECIMALES_DISPLAY = 6
 
 /** Muestra el número con coma decimal (estilo ES) sin forzar decimales. */
-export function formatDecimalDisplay(value: number | null | undefined): string {
-  if (value == null || Number.isNaN(value)) return ''
+export function formatDecimalDisplay(value: number | string | null | undefined): string {
+  if (value == null || value === '') return ''
+  // SQL Server devuelve los float como texto ("4.4800000000000004"): sin convertir, toFixed revienta.
+  if (typeof value === 'string') {
+    const n = Number(value.trim().replace(',', '.'))
+    if (!Number.isFinite(n)) return value
+    value = n
+  }
+  if (Number.isNaN(value)) return ''
   let texto = String(value)
   if (texto.includes('e') || texto.includes('E')) {
     texto = value.toFixed(MAX_DECIMALES_DISPLAY)

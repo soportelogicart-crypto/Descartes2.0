@@ -61,6 +61,7 @@ $app->setBasePath($basePath);
 (require __DIR__ . '/../src/Routes/etiquetas.php')($app);
 (require __DIR__ . '/../src/Routes/facturacion.php')($app);
 (require __DIR__ . '/../src/Routes/listados.php')($app);
+(require __DIR__ . '/../src/Routes/inventario.php')($app);
 
 $app->options('/{routes:.+}', function ($request, $response) {
   return $response;

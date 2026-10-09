@@ -41,7 +41,6 @@ const FormasPagoView = vista(() => import('@/views/mantenimiento/FormasPagoView.
 const ProveedoresView = vista(() => import('@/views/mantenimiento/ProveedoresView.vue'))
 const OfertaProveedoresView = vista(() => import('@/views/mantenimiento/OfertaProveedoresView.vue'))
 const TiposDescuentoView = vista(() => import('@/views/mantenimiento/TiposDescuentoView.vue'))
-const ModuloPlaceholderView = vista(() => import('@/views/ModuloPlaceholderView.vue'))
 const ComprasAlbaranesListView = vista(() => import('@/views/compras/ComprasAlbaranesListView.vue'))
 const CompraAlbaranDetalleView = vista(() => import('@/views/compras/CompraAlbaranDetalleView.vue'))
 const ComprasPedidosListView = vista(() => import('@/views/compras/ComprasPedidosListView.vue'))
@@ -87,7 +86,7 @@ const articulosSeccionesPendientes = [
   { path: 'mantenimiento/subsecciones', name: 'subsecciones', titulo: 'Subsecciones' },
 ] as const
 
-const modulosPlaceholder = [{ path: 'inventario', name: 'inventario', titulo: 'Inventario' }] as const
+const InventarioRecuentoView = vista(() => import('@/views/inventario/InventarioRecuentoView.vue'))
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -151,13 +150,12 @@ const router = createRouter({
           component: DocumentosPlantillasView,
           meta: { titulo: 'Etiquetas', plantillasScope: 'etiquetas' },
         },
-        ...modulosPlaceholder.map((m) => ({
-          path: m.path,
-          name: m.name,
-          component: ModuloPlaceholderView,
-          props: { titulo: m.titulo },
-          meta: { titulo: m.titulo },
-        })),
+        {
+          path: 'inventario',
+          name: 'inventario',
+          component: InventarioRecuentoView,
+          meta: { titulo: 'Recuento de inventario', modulo: 'inventario', accion: 'ver' },
+        },
         {
           path: 'listados',
           name: 'listados',

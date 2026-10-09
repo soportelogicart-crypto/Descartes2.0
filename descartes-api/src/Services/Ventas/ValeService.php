@@ -91,22 +91,31 @@ final class ValeService
     $fechaCad = !empty($body['fechaCaducidad']) ? $body['fechaCaducidad'] : null;
     $formaPago = isset($body['formaPago']) ? substr(trim((string) $body['formaPago']), 0, 2) : null;
     $tipoVale = strtoupper(trim((string) ($body['tipoVale'] ?? 'REGALO')));
-    if (!in_array($tipoVale, ['REGALO', 'FIDELIZACION'], true)) {
-      throw new \InvalidArgumentException('tipoVale debe ser REGALO o FIDELIZACION');
+    if (!in_array($tipoVale, ['REGALO', 'FIDELIZACION', 'DEVOLUCION'], true)) {
+      throw new \InvalidArgumentException('tipoVale debe ser REGALO, FIDELIZACION o DEVOLUCION');
     }
 
+    $texto = static function ($v, int $max): ?string {
+      $s = trim((string) ($v ?? ''));
+      return $s === '' ? null : mb_substr($s, 0, $max);
+    };
+    $sesion = (int) ($body['sesion'] ?? 0);
+
     $sql = 'INSERT INTO Vales (
-              Empresa, Codigo, Liquidado, Fecha, Importe, Cliente, FormaPago,
-              FechaCaducidad, TrasModem, TipoVale, ImporteOriginal, SaldoPendiente
+              Empresa, Codigo, Numero, Liquidado, Fecha, Importe, Cliente, FormaPago,
+              FechaCaducidad, TrasModem, TipoVale, ImporteOriginal, SaldoPendiente,
+              Puesto, Sesion, Cajero, Motivo, EmpresaOrigen
             )
             VALUES (
-              :empresa, :codigo, 0, GETDATE(), :importe, :cliente, :formaPago,
-              CONVERT(datetime, :fechaCad, 120), 0, :tipoVale, :importeOriginal, :saldoPendiente
+              :empresa, :codigo, :numero, 0, GETDATE(), :importe, :cliente, :formaPago,
+              CONVERT(datetime, :fechaCad, 120), 0, :tipoVale, :importeOriginal, :saldoPendiente,
+              :puesto, :sesion, :cajero, :motivo, :empresaOrigen
             )';
     $stmt = $this->pdo->prepare($sql);
     $stmt->execute([
       'empresa' => $empresa,
       'codigo' => $codigo,
+      'numero' => $codigo,
       'importe' => $importe,
       'cliente' => $cliente,
       'formaPago' => $formaPago,
@@ -114,6 +123,11 @@ final class ValeService
       'tipoVale' => $tipoVale,
       'importeOriginal' => $importe,
       'saldoPendiente' => $importe,
+      'puesto' => $texto($body['puesto'] ?? null, 2),
+      'sesion' => $sesion > 0 ? $sesion : null,
+      'cajero' => $texto($body['cajero'] ?? null, 4),
+      'motivo' => $texto($body['motivo'] ?? null, 30),
+      'empresaOrigen' => $texto($body['empresaOrigen'] ?? null, 3),
     ]);
 
     return $this->obtener($empresa, $codigo);
@@ -280,6 +294,199 @@ final class ValeService
       'aplicado' => $aplicado,
       'saldoRestante' => round($disponible['saldo'] - $aplicado, 2),
       'consumos' => $consumos,
+    ];
+  }
+
+  /** Euros de vale de fidelización ya consumidos en una venta. */
+  public function importeFidelizacionConsumido(string $empresa, int $albaran): float
+  {
+    if ($albaran <= 0) {
+      return 0.0;
+    }
+    try {
+      $st = $this->pdo->prepare(
+        'SELECT ISNULL(SUM(c.Importe), 0)
+         FROM ValeConsumos c
+         INNER JOIN Vales v ON v.Codigo = c.ValeCodigo AND RTRIM(v.Empresa) = RTRIM(c.Empresa)
+         WHERE RTRIM(c.EmpresaVenta) = :e
+           AND c.Albaran = :a
+           AND RTRIM(ISNULL(v.TipoVale, \'\')) = \'FIDELIZACION\''
+      );
+      $st->execute(['e' => trim($empresa), 'a' => $albaran]);
+
+      return round((float) $st->fetchColumn(), 2);
+    } catch (\Throwable $e) {
+      return 0.0;
+    }
+  }
+
+  public function formaEsVale(string $codigo): bool
+  {
+    $codigo = substr(trim($codigo), 0, 2);
+    if ($codigo === '') {
+      return false;
+    }
+    try {
+      $st = $this->pdo->prepare('SELECT Vales FROM FormasPago WHERE Codigo = :c');
+      $st->execute(['c' => $codigo]);
+      $row = $st->fetch(PDO::FETCH_ASSOC);
+
+      return $row !== false && !empty($row['Vales']);
+    } catch (\Throwable $e) {
+      return false;
+    }
+  }
+
+  /**
+   * Vale de devolución pendiente, para mostrarlo antes de cobrar.
+   *
+   * @return array{empresa: string, codigo: int, cliente: string, saldo: float, tipoVale: string}
+   */
+  public function consultarParaCobro(string $empresa, int $codigo): array
+  {
+    $row = $this->filaDevolucionPendiente($empresa, $codigo, false);
+    if ($row === null) {
+      throw new \RuntimeException('Vale no encontrado, caducado o ya usado', 404);
+    }
+
+    return $this->resumenDevolucion($row);
+  }
+
+  /**
+   * Descuenta el vale de la venta. Si sobra saldo, el vale usado se cierra
+   * y se emite otro con la diferencia. Debe ir dentro de la transacción de cierre.
+   *
+   * @return array{
+   *   aplicado: float,
+   *   codigo: int,
+   *   valeResto: ?array{empresa: string, codigo: int, importe: float, cliente: string}
+   * }
+   *
+   * @param array{puesto?: string, sesion?: int, cajero?: string, motivo?: string, empresaOrigen?: string} $origen
+   */
+  public function aplicarPorCodigo(
+    string $empresaVenta,
+    int $codigo,
+    float $importeVenta,
+    string $tipoVenta,
+    int $albaran,
+    array $origen = []
+  ): array {
+    if (!$this->pdo->inTransaction()) {
+      throw new \LogicException('El uso del vale requiere una transacción activa');
+    }
+    $row = $this->filaDevolucionPendiente($empresaVenta, $codigo, true);
+    if ($row === null) {
+      throw new \InvalidArgumentException('Vale no encontrado, caducado o ya usado');
+    }
+    $saldo = round((float) ($row['Saldo'] ?? 0), 2);
+    $aplicado = round(min($saldo, max(0, $importeVenta)), 2);
+    if ($aplicado <= 0) {
+      throw new \InvalidArgumentException('El importe de la venta no admite este vale');
+    }
+    $resto = round($saldo - $aplicado, 2);
+    $empresaVale = trim((string) ($row['Empresa'] ?? '')) ?: $empresaVenta;
+    $cliente = trim((string) ($row['Cliente'] ?? ''));
+    if ($cliente === '') {
+      $cliente = 'ZZZZZZZZZ';
+    }
+
+    $upd = $this->pdo->prepare(
+      'UPDATE Vales SET SaldoPendiente = 0, Liquidado = 1,
+           FechaLiquidacion = GETDATE(), TipoLiquidacion = :tipo
+       WHERE RTRIM(Empresa) = :e AND Codigo = :codigo AND ISNULL(Liquidado, 0) = 0'
+    );
+    $upd->execute([
+      'tipo' => 'V',
+      'e' => $empresaVale,
+      'codigo' => (int) $row['Codigo'],
+    ]);
+    if ($upd->rowCount() !== 1) {
+      throw new \RuntimeException('El saldo del vale cambió durante el cobro', 409);
+    }
+
+    $ins = $this->pdo->prepare(
+      'INSERT INTO ValeConsumos
+         (Empresa, ValeCodigo, EmpresaVenta, TipoVenta, Albaran, Importe, Fecha)
+       VALUES (:e, :vale, :ev, :tv, :a, :importe, GETDATE())'
+    );
+    $ins->execute([
+      'e' => $empresaVale,
+      'vale' => (int) $row['Codigo'],
+      'ev' => $empresaVenta,
+      'tv' => $tipoVenta,
+      'a' => $albaran,
+      'importe' => $aplicado,
+    ]);
+
+    $valeResto = null;
+    if ($resto >= 0.005) {
+      $nuevo = $this->emitir(array_merge($origen, [
+        'empresa' => $empresaVale,
+        'cliente' => $cliente,
+        'importe' => $resto,
+        'tipoVale' => 'DEVOLUCION',
+      ]));
+      $valeResto = [
+        'empresa' => (string) ($nuevo['empresa'] ?? $empresaVale),
+        'codigo' => (int) ($nuevo['codigo'] ?? 0),
+        'importe' => round((float) ($nuevo['importe'] ?? $resto), 2),
+        'cliente' => (string) ($nuevo['cliente'] ?? $cliente),
+      ];
+    }
+
+    return [
+      'aplicado' => $aplicado,
+      'codigo' => (int) $row['Codigo'],
+      'valeResto' => $valeResto,
+    ];
+  }
+
+  /**
+   * @return array<string, mixed>|null
+   */
+  private function filaDevolucionPendiente(string $empresa, int $codigo, bool $bloquear): ?array
+  {
+    if ($codigo <= 0) {
+      return null;
+    }
+    $lock = $bloquear ? ' WITH (UPDLOCK, HOLDLOCK)' : '';
+    $st = $this->pdo->prepare(
+      "SELECT TOP 1 RTRIM(Empresa) AS Empresa, Codigo, RTRIM(Cliente) AS Cliente,
+              ISNULL(SaldoPendiente, Importe) AS Saldo, FechaCaducidad,
+              RTRIM(ISNULL(TipoVale, 'REGALO')) AS TipoVale
+       FROM Vales{$lock}
+       WHERE Codigo = :c
+         AND ISNULL(Liquidado, 0) = 0
+         AND RTRIM(ISNULL(TipoVale, 'REGALO')) = 'DEVOLUCION'
+         AND ISNULL(SaldoPendiente, Importe) > 0
+       ORDER BY CASE WHEN RTRIM(Empresa) = :e THEN 0 ELSE 1 END, Empresa"
+    );
+    $st->execute(['c' => $codigo, 'e' => trim($empresa)]);
+    $row = $st->fetch(PDO::FETCH_ASSOC);
+    if ($row === false) {
+      return null;
+    }
+    $caducidad = $row['FechaCaducidad'] ?? null;
+    if ($caducidad !== null && $caducidad !== '') {
+      $cadDay = date('Y-m-d', strtotime((string) $caducidad));
+      if (date('Y-m-d') > $cadDay) {
+        return null;
+      }
+    }
+
+    return $row;
+  }
+
+  /** @param array<string, mixed> $row */
+  private function resumenDevolucion(array $row): array
+  {
+    return [
+      'empresa' => trim((string) ($row['Empresa'] ?? '')),
+      'codigo' => (int) ($row['Codigo'] ?? 0),
+      'cliente' => trim((string) ($row['Cliente'] ?? '')),
+      'saldo' => round((float) ($row['Saldo'] ?? 0), 2),
+      'tipoVale' => trim((string) ($row['TipoVale'] ?? 'DEVOLUCION')),
     ];
   }
 

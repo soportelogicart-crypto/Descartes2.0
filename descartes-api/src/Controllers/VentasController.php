@@ -721,6 +721,20 @@ final class VentasController
     return $this->json($response, 200, $this->vales->listar($request->getQueryParams()));
   }
 
+  public function consultarValeCobro(Request $request, Response $response, array $args): Response
+  {
+    $empresa = trim((string) ($args['empresa'] ?? ''));
+    $codigo = (int) ($args['codigo'] ?? 0);
+    try {
+      $item = $this->vales->consultarParaCobro($empresa, $codigo);
+      return $this->json($response, 200, $item);
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
   public function valeFidelizacionDisponible(Request $request, Response $response): Response
   {
     $q = $request->getQueryParams();

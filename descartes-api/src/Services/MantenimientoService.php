@@ -931,6 +931,14 @@ final class MantenimientoService
       $mapped['LUpdate'] = date('Y-m-d H:i:s');
     }
 
+    // Puestos.NivelBar = plantilla del teclado táctil; legacy la guarda con Format(n, "000").
+    if (($config['table'] ?? '') === 'Puestos' && array_key_exists('NivelBar', $mapped)) {
+      $nivelBar = trim((string) ($mapped['NivelBar'] ?? ''));
+      $mapped['NivelBar'] = ctype_digit($nivelBar) && (int) $nivelBar > 0
+        ? str_pad((string) (int) $nivelBar, 3, '0', STR_PAD_LEFT)
+        : ($nivelBar === '' ? ' ' : $nivelBar);
+    }
+
     if ($isCreate && ($config['table'] ?? '') === 'Vendedores' && !array_key_exists('ComisionVenta', $mapped)) {
       $mapped['ComisionVenta'] = 0;
     }

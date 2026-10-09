@@ -128,20 +128,6 @@ final class TpvController
     }
   }
 
-  public function getNivelesTeclado(Request $request, Response $response, array $args): Response
-  {
-    $general = trim((string) ($args['general'] ?? ''));
-    try {
-      return $this->json($response, 200, [
-        'items' => $this->teclado->listarNiveles($general),
-      ]);
-    } catch (\InvalidArgumentException $e) {
-      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
-    } catch (\Throwable $e) {
-      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
-    }
-  }
-
   public function guardarBotonTeclado(
     Request $request,
     Response $response,
@@ -149,18 +135,37 @@ final class TpvController
   ): Response {
     $general = trim((string) ($args['general'] ?? ''));
     $nivel = trim((string) ($args['nivel'] ?? ''));
-    $tecla = (int) ($args['tecla'] ?? -1);
+    $posicion = (int) ($args['posicion'] ?? -1);
     $body = (array) json_decode((string) $request->getBody(), true);
 
     try {
-      if (($body['tipo'] ?? '') === 'articulo') {
+      if ($nivel !== '000' && ($body['tipo'] ?? '') === 'articulo') {
         $articulo = trim((string) ($body['articulo'] ?? ''));
         if ($this->articulos->obtenerPrecio($articulo, 1) === null) {
           return ErrorResponse::json($response, 404, 'Artículo no encontrado', 'NO_ENCONTRADO');
         }
       }
-      $nivelDestino = $this->teclado->guardarBoton($general, $nivel, $tecla, $body);
+      $nivelDestino = $this->teclado->guardarBoton($general, $nivel, $posicion, $body);
       return $this->json($response, 200, ['nivelDestino' => $nivelDestino]);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function contarSubnivelesTeclado(
+    Request $request,
+    Response $response,
+    array $args
+  ): Response {
+    try {
+      $total = $this->teclado->contarSubniveles(
+        trim((string) ($args['general'] ?? '')),
+        trim((string) ($args['nivel'] ?? '')),
+        (int) ($args['posicion'] ?? -1)
+      );
+      return $this->json($response, 200, ['botones' => $total]);
     } catch (\InvalidArgumentException $e) {
       return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
     } catch (\Throwable $e) {
@@ -177,9 +182,32 @@ final class TpvController
       $this->teclado->borrarBoton(
         trim((string) ($args['general'] ?? '')),
         trim((string) ($args['nivel'] ?? '')),
-        (int) ($args['tecla'] ?? -1)
+        (int) ($args['posicion'] ?? -1)
       );
       return $response->withStatus(204);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function intercambiarBotonesTeclado(
+    Request $request,
+    Response $response,
+    array $args
+  ): Response {
+    $body = (array) json_decode((string) $request->getBody(), true);
+    try {
+      $this->teclado->intercambiar(
+        trim((string) ($args['general'] ?? '')),
+        trim((string) ($args['nivel'] ?? '')),
+        (int) ($body['origen'] ?? -1),
+        (int) ($body['destino'] ?? -1)
+      );
+      return $response->withStatus(204);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
     } catch (\Throwable $e) {
       return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
     }

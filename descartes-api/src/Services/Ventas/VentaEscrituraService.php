@@ -107,9 +107,7 @@ final class VentaEscrituraService
     $representante = $this->codigoCharOEspacio($body['representante'] ?? null);
     $transporte = $this->spaceIfEmpty($body['transporte'] ?? null);
     $agente = $this->spaceIfEmpty($body['agente'] ?? null);
-    $genAlbaranCompras = isset($body['genAlbaranCompras']) && (int) $body['genAlbaranCompras'] > 0
-      ? (int) $body['genAlbaranCompras']
-      : 0;
+    $genAlbaranCompras = !empty($body['genAlbaranCompras']) ? 1 : 0;
 
     $this->pdo->beginTransaction();
     try {
@@ -223,6 +221,20 @@ final class VentaEscrituraService
       ]);
 
       $this->reemplazarLineas($empresa, $tipo, $albaran, $lineas);
+      if (!empty($body['comoAlbaranVenta'])) {
+        $ctxSesion = $this->arqueo->asegurarSesionPuesto($puesto, $empresa);
+        $this->pdo->prepare(
+          'UPDATE AlbaranesVentasCab SET
+              FacturaTipo = NULL, Factura = 0, Estado = NULL,
+              Sesion = :sesion, RebajeStock = 1
+           WHERE Empresa = :e AND Tipo = :t AND Albaran = :a'
+        )->execute([
+          'sesion' => $ctxSesion['sesion'],
+          'e' => $empresa,
+          't' => $tipo,
+          'a' => $albaran,
+        ]);
+      }
       $this->pdo->commit();
     } catch (\Throwable $e) {
       $this->pdo->rollBack();
@@ -256,6 +268,10 @@ final class VentaEscrituraService
     }
     if (!isset($body['empresa']) || trim((string) $body['empresa']) === '') {
       $body['empresa'] = $empresa;
+    }
+    // El UPDATE no toca ImporteDtoFidelizacion: el total debe seguir llevando ese descuento.
+    if (!array_key_exists('importeDtoFidelizacion', $body)) {
+      $body['importeDtoFidelizacion'] = (float) ($actual['descuentoFidelizacion'] ?? 0);
     }
     $totales = $this->calcularTotales($lineas, $body);
 
@@ -421,7 +437,6 @@ final class VentaEscrituraService
     if (!in_array($opcion, ['T', 'A', 'P', 'F'], true)) {
       throw new \InvalidArgumentException('Tipo invalido. Use T, A, P o F');
     }
-
     $esTicketAFactura = $this->esTicketCerrado($actual) && $opcion === 'F';
     if ($this->estaBloqueado($actual) && !$esTicketAFactura) {
       throw new \RuntimeException('Documento facturado: no se puede modificar', 409);
@@ -465,6 +480,8 @@ final class VentaEscrituraService
     $resultadoValeFidelizacion = null;
     $resultadoPuntosCanje = null;
     $puntosFidelizacion = null;
+    $valeEmitido = null;
+    $valeAplicado = null;
     // Contado/ticket: forma de pago elegida (legacy Frame1/DbList2: CobroDeArqueo).
     $fpagoBody = trim((string) ($body['fpago1'] ?? ''));
     $fpago1 = $fpagoBody !== '' ? $fpagoBody : trim((string) ($this->fpagoCodigo($actual, 0)));
@@ -528,6 +545,49 @@ final class VentaEscrituraService
         }
       }
 
+      $almacenVenta = $actual['almacen'] ?? null;
+      $origenVale = [
+        'puesto' => $puesto,
+        'sesion' => (int) $sesion,
+        'cajero' => trim((string) ($actual['vendedor'] ?? '')),
+        'motivo' => trim((string) ($actual['razonSocial'] ?? '')),
+        'empresaOrigen' => $almacenVenta === null || $almacenVenta === '' ? '' : (string) (int) $almacenVenta,
+      ];
+
+      $impFpago1 = $importe;
+      $fpago2 = '';
+      $impFpago2 = 0.0;
+      $codigoVale = (int) ($body['valeCodigo'] ?? 0);
+      if (
+        !$esTicketAFactura
+        && $importe > 0.005
+        && in_array($opcion, ['T', 'F'], true)
+        && $this->vales->formaEsVale($fpago1)
+      ) {
+        if ($codigoVale <= 0) {
+          throw new \InvalidArgumentException('Indique el número del vale');
+        }
+        $uso = $this->vales->aplicarPorCodigo(
+          $empresa,
+          $codigoVale,
+          $importe,
+          $tipoActual,
+          $albaran,
+          $origenVale
+        );
+        $valeAplicado = $uso;
+        $aplicado = round((float) $uso['aplicado'], 2);
+        $diferencia = round($importe - $aplicado, 2);
+        $impFpago1 = $aplicado;
+        if ($diferencia > 0.005) {
+          $fpago2 = substr(trim((string) ($body['fpago2'] ?? '')), 0, 2);
+          if ($fpago2 === '' || $this->vales->formaEsVale($fpago2)) {
+            throw new \InvalidArgumentException('Indique la forma de pago de la diferencia');
+          }
+          $impFpago2 = $diferencia;
+        }
+      }
+
       if ($opcion === 'T') {
         $factura = $this->nextContadorEmpresa($empresa, 'UltTicket');
         $this->pdo->prepare(
@@ -535,6 +595,7 @@ final class VentaEscrituraService
               FacturaTipo = \'T\', Factura = :factura, Estado = NULL,
               FechaCobro = CONVERT(datetime, :fechaCobro, 120),
               Fpago1 = :fpago1, ImpFpago1 = :impFpago1,
+              Fpago2 = :fpago2, ImpFpago2 = :impFpago2,
               Sesion = :sesion, RebajeStock = 1,
               EmpresaFacturacion = :empresaFacturacion
            WHERE Empresa = :e AND Tipo = :t AND Albaran = :a'
@@ -542,7 +603,9 @@ final class VentaEscrituraService
           'factura' => $factura,
           'fechaCobro' => $ahora,
           'fpago1' => $fpago1,
-          'impFpago1' => $importe,
+          'impFpago1' => $impFpago1,
+          'fpago2' => $this->spaceIfEmpty($fpago2),
+          'impFpago2' => $impFpago2,
           'sesion' => $sesion,
           'empresaFacturacion' => $empresa,
           'e' => $empresa,
@@ -602,6 +665,7 @@ final class VentaEscrituraService
                 FacturaTipo = :facturaTipo, Factura = :factura, Estado = :estado,
                 FechaCobro = CONVERT(datetime, :fechaCobro, 120),
                 Fpago1 = :fpago1, ImpFpago1 = :impFpago1,
+                Fpago2 = :fpago2, ImpFpago2 = :impFpago2,
                 Sesion = :sesion, RebajeStock = 1,
                 EmpresaFacturacion = :empresaFacturacion
              WHERE Empresa = :e AND Tipo = :t AND Albaran = :a'
@@ -611,7 +675,9 @@ final class VentaEscrituraService
             'estado' => $estadoAlb,
             'fechaCobro' => $ahora,
             'fpago1' => $fpago1,
-            'impFpago1' => $importe,
+            'impFpago1' => $impFpago1,
+            'fpago2' => $this->spaceIfEmpty($fpago2),
+            'impFpago2' => $impFpago2,
             'sesion' => $sesion,
             'empresaFacturacion' => $empresa,
             'e' => $empresa,
@@ -656,8 +722,36 @@ final class VentaEscrituraService
           $opcion,
           $fpago1,
           $importe,
-          $actual
+          $actual,
+          $impFpago1,
+          $fpago2,
+          $impFpago2
         );
+      }
+
+      if (
+        !$esTicketAFactura
+        && $importe < -0.005
+        && in_array($opcion, ['T', 'F'], true)
+        && $this->vales->formaEsVale($fpago1)
+      ) {
+        $clienteVale = trim((string) ($actual['cliente'] ?? ''));
+        if ($clienteVale === '') {
+          $clienteVale = 'ZZZZZZZZZ';
+        }
+        $emitido = $this->vales->emitir(array_merge($origenVale, [
+          'empresa' => $empresa,
+          'cliente' => $clienteVale,
+          'importe' => round(abs($importe), 2),
+          'tipoVale' => 'DEVOLUCION',
+          'formaPago' => $fpago1,
+        ]));
+        $valeEmitido = [
+          'empresa' => (string) ($emitido['empresa'] ?? $empresa),
+          'codigo' => (int) ($emitido['codigo'] ?? 0),
+          'importe' => round((float) ($emitido['importe'] ?? abs($importe)), 2),
+          'cliente' => (string) ($emitido['cliente'] ?? $clienteVale),
+        ];
       }
 
       $resultadoFid = ['avisos' => [], 'aplicado' => false, 'puntos' => 0, 'acumulados' => 0.0];
@@ -753,6 +847,12 @@ final class VentaEscrituraService
     }
     if ($resultadoValeFidelizacion !== null) {
       $detalle['valeFidelizacion'] = $resultadoValeFidelizacion;
+    }
+    if ($valeEmitido !== null) {
+      $detalle['valeEmitido'] = $valeEmitido;
+    }
+    if ($valeAplicado !== null) {
+      $detalle['valeAplicado'] = $valeAplicado;
     }
     if ($resultadoPuntosCanje !== null) {
       $detalle['puntosCanje'] = $resultadoPuntosCanje;
@@ -897,7 +997,10 @@ final class VentaEscrituraService
       'T',
       $fpago,
       $importeNegativo,
-      ['tipo' => 'A', 'albaran' => $albaranNegativo]
+      ['tipo' => 'A', 'albaran' => $albaranNegativo],
+      $importeNegativo,
+      '',
+      0.0
     );
 
     $albaranFactura = $this->reservarAlbaranEnTransaccion($empresa);
@@ -934,14 +1037,18 @@ final class VentaEscrituraService
       'e' => $empresa,
       'a' => $albaranFactura,
     ]);
+    $importeFactura = abs((float) ($actual['importe'] ?? 0));
     $this->acumularArqueoTrasFinalizar(
       $empresa,
       $puesto,
       $sesion,
       'F',
       $fpago,
-      abs((float) ($actual['importe'] ?? 0)),
-      ['tipo' => 'A', 'albaran' => $albaranFactura]
+      $importeFactura,
+      ['tipo' => 'A', 'albaran' => $albaranFactura],
+      $importeFactura,
+      '',
+      0.0
     );
 
     $this->anotarObservaciones(
@@ -1332,10 +1439,12 @@ final class VentaEscrituraService
       'pjeIva' => 0.0,
     ]);
 
+    $dtoAbono = $this->dtoFidelizacionDelAbono($origen, $seleccionadas);
     $totales = $this->calcularTotales($seleccionadas, [
       'pjeDto' => $origen['pjeDto'] ?? 0,
       'empresa' => $empresa,
       'cliente' => $origen['cliente'] ?? null,
+      'importeDtoFidelizacion' => $dtoAbono,
     ]);
 
     $nuevoAlbaran = $this->nextAlbaran($empresa, 'A');
@@ -1352,7 +1461,7 @@ final class VentaEscrituraService
           ImporteIva1, ImporteIva2, ImporteIva3, ImporteIva4,
           PjeRec1, PjeRec2, PjeRec3, PjeRec4,
           ImporteRec1, ImporteRec2, ImporteRec3, ImporteRec4,
-          PjeDto, ImporteDtos, Importe,
+          PjeDto, ImporteDtos, ImporteDtoFidelizacion, Importe,
           Fpago1, Fpago2, Divisa1, Divisa2,
           Estado, FechaCobro, FacturaTipo, Factura, Pedido,
           TrasCtb, TrasModem, RebajeStock, Impreso,
@@ -1374,7 +1483,7 @@ final class VentaEscrituraService
           :importeIva1, :importeIva2, :importeIva3, :importeIva4,
           0, 0, 0, 0,
           0, 0, 0, 0,
-          :pjeDto, :importeDtos, :importe,
+          :pjeDto, :importeDtos, :importeDtoFidelizacion, :importe,
           :fpago1, :fpago2, 0, 0,
           NULL, NULL, NULL, 0, :pedido,
           0, 0, 1, 0,
@@ -1431,6 +1540,7 @@ final class VentaEscrituraService
         'importeIva4' => (float) ($totales['ivas'][3] ?? 0),
         'pjeDto' => (float) ($totales['pjeDto'] ?? 0),
         'importeDtos' => (float) ($totales['descuento'] ?? 0),
+        'importeDtoFidelizacion' => (float) ($totales['descuentoFidelizacion'] ?? 0),
         'importe' => (float) ($totales['importe'] ?? 0),
         'fpago1' => $this->nullIfEmpty($fp1),
         'fpago2' => $this->nullIfEmpty($fp2),
@@ -1453,6 +1563,7 @@ final class VentaEscrituraService
       ]);
 
       $this->insertarLineasAbono($empresa, 'A', $nuevoAlbaran, $seleccionadas, $albaran, $observacion);
+      $this->devolverPuntosDelAbono($empresa, $origen, $albaran, $dtoAbono);
 
       $this->pdo->commit();
     } catch (\Throwable $e) {
@@ -1467,6 +1578,69 @@ final class VentaEscrituraService
       throw new \RuntimeException('No se pudo releer el abono creado');
     }
     return $ficha;
+  }
+
+  /**
+   * Parte del descuento de fidelización que corresponde a las líneas abonadas.
+   *
+   * @param array<string, mixed> $origen
+   * @param list<array<string, mixed>> $seleccionadas
+   */
+  private function dtoFidelizacionDelAbono(array $origen, array $seleccionadas): float
+  {
+    $dto = round(max(0, (float) ($origen['descuentoFidelizacion'] ?? 0)), 2);
+    if ($dto < 0.005) {
+      return 0.0;
+    }
+    $bruto = static function (array $lineas): float {
+      $suma = 0.0;
+      foreach ($lineas as $lin) {
+        if (!is_array($lin)) {
+          continue;
+        }
+        $art = strtoupper(trim((string) ($lin['articulo'] ?? '')));
+        if ($art === '' || $art === 'NO') {
+          continue;
+        }
+        $suma += abs((float) ($lin['importe'] ?? 0));
+      }
+
+      return round($suma, 2);
+    };
+    $origenBruto = $bruto(is_array($origen['lineas'] ?? null) ? $origen['lineas'] : []);
+    $selBruto = $bruto($seleccionadas);
+    if ($origenBruto < 0.005 || $selBruto < 0.005) {
+      return 0.0;
+    }
+    if ($selBruto >= $origenBruto - 0.02) {
+      return $dto;
+    }
+
+    return round(min($dto, $dto * $selBruto / $origenBruto), 2);
+  }
+
+  /**
+   * @param array<string, mixed> $origen
+   */
+  private function devolverPuntosDelAbono(string $empresa, array $origen, int $albaranOrigen, float $dtoAbono): void
+  {
+    if ($dtoAbono < 0.005) {
+      return;
+    }
+    $dtoOrigen = round(max(0, (float) ($origen['descuentoFidelizacion'] ?? 0)), 2);
+    if ($dtoOrigen < 0.005) {
+      return;
+    }
+    $vale = $this->vales->importeFidelizacionConsumido($empresa, $albaranOrigen);
+    $puntosEuros = max(0.0, round($dtoOrigen - $vale, 2));
+    if ($puntosEuros < 0.005) {
+      return;
+    }
+    $parte = $dtoAbono >= $dtoOrigen - 0.005
+      ? $puntosEuros
+      : round($puntosEuros * ($dtoAbono / $dtoOrigen), 2);
+    $cliente = trim((string) ($origen['cliente'] ?? ''));
+    $this->fidelizacion->devolverPuntos($empresa, $cliente, $parte);
   }
 
   /**
@@ -2099,6 +2273,34 @@ final class VentaEscrituraService
       $importe = round(array_sum($bases) + array_sum($ivas), 2);
       $ivaTotal = round(array_sum($ivas), 2);
       $dtoFidelizacion = round($totalAntesFidelizacion - $importe, 2);
+    } elseif ($dtoFidelizacionSolicitado > 0 && $totalAntesFidelizacion < -0.005) {
+      $magnitud = abs($totalAntesFidelizacion);
+      $objetivo = min($dtoFidelizacionSolicitado, $magnitud);
+      $restante = $objetivo;
+      $indices = [];
+      for ($j = 0; $j < 4; $j++) {
+        if (round($bases[$j] + $ivas[$j], 2) < -0.005) {
+          $indices[] = $j;
+        }
+      }
+      foreach ($indices as $pos => $j) {
+        $brutoGrupo = abs(round($bases[$j] + $ivas[$j], 2));
+        $ultimo = $pos === count($indices) - 1;
+        $parte = $ultimo
+          ? $restante
+          : round($objetivo * $brutoGrupo / $magnitud, 2);
+        $parte = min($parte, $brutoGrupo);
+        $nuevoBruto = round($brutoGrupo - $parte, 2);
+        $nuevaBase = $pjes[$j] > 0
+          ? round($nuevoBruto / (1 + $pjes[$j] / 100), 2)
+          : $nuevoBruto;
+        $bases[$j] = -$nuevaBase;
+        $ivas[$j] = -round($nuevoBruto - $nuevaBase, 2);
+        $restante = round($restante - $parte, 2);
+      }
+      $importe = round(array_sum($bases) + array_sum($ivas), 2);
+      $ivaTotal = round(array_sum($ivas), 2);
+      $dtoFidelizacion = round($magnitud - abs($importe), 2);
     }
 
     return [
@@ -2446,7 +2648,10 @@ final class VentaEscrituraService
     string $opcion,
     string $fpago1,
     float $importe,
-    array $actual
+    array $actual,
+    float $impFpago1,
+    string $fpago2,
+    float $impFpago2
   ): void {
     if ($puesto === '' || $sesion <= 0) {
       return;
@@ -2473,9 +2678,24 @@ final class VentaEscrituraService
     }
     $importeArq = $importe - $pagoACuenta;
 
-    $meta = $this->metaFormaPagoFactura($fpago1);
-    if ($meta['cobroDeArqueo']) {
-      $this->arqueo->addArq($empresaArq, $puesto, $sesion, $fpago1, $importeArq);
+    if ($fpago2 !== '' && $impFpago2 > 0.005) {
+      $recorte = max(0, $importe - $importeArq);
+      $arq2 = max(0, $impFpago2 - $recorte);
+      $recorteRestante = max(0, $recorte - $impFpago2);
+      $arq1 = max(0, $impFpago1 - $recorteRestante);
+      $meta1 = $this->metaFormaPagoFactura($fpago1);
+      if ($meta1['cobroDeArqueo'] && $arq1 > 0.005) {
+        $this->arqueo->addArq($empresaArq, $puesto, $sesion, $fpago1, $arq1);
+      }
+      $meta2 = $this->metaFormaPagoFactura($fpago2);
+      if ($meta2['cobroDeArqueo'] && $arq2 > 0.005) {
+        $this->arqueo->addArq($empresaArq, $puesto, $sesion, $fpago2, $arq2);
+      }
+    } else {
+      $meta = $this->metaFormaPagoFactura($fpago1);
+      if ($meta['cobroDeArqueo']) {
+        $this->arqueo->addArq($empresaArq, $puesto, $sesion, $fpago1, $importeArq);
+      }
     }
 
     if ($opcion === 'T') {

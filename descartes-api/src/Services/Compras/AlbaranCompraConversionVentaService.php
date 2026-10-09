@@ -8,7 +8,9 @@ use Descartes\Api\Services\Ventas\VentaEscrituraService;
 use PDO;
 
 /**
- * Albarán de compra ACTUALIZADO → albarán de venta al cliente (legacy GenAlbaranCompras).
+ * Albarán de compra ACTUALIZADO → venta al cliente (legacy GenAlbaranCompras).
+ * La venta queda pendiente de tipificar, como una venta normal recién guardada.
+ * El tipo y la forma de pago se eligen en la venta, con Imprimir.
  * D2.0 exige cliente en el body (legacy no lo pedía en UI).
  */
 final class AlbaranCompraConversionVentaService
@@ -124,7 +126,11 @@ final class AlbaranCompraConversionVentaService
     if ($vendedor === '' && $puesto !== '' && $puesto !== '99') {
       $vendedor = $this->trabajadorDePuesto($puesto) ?? '';
     }
-    $vendedor = $vendedor !== '' ? $vendedor : null;
+    if ($vendedor === '') {
+      throw new \InvalidArgumentException(
+        'El puesto no tiene vendedor. Indíquelo para generar el albarán de venta.'
+      );
+    }
 
     $fiscal = $this->direccionFiscalCliente($cliente);
     $almacen = isset($detalle['almacen']) && $detalle['almacen'] !== null
@@ -143,6 +149,7 @@ final class AlbaranCompraConversionVentaService
       'vendedorApertura' => $vendedor,
       'almacen' => $almacen,
       'facturaTipo' => 'R',
+      'fpago1' => $fiscal['formaPago'] ?? '',
       'tarifa' => $tarifa,
       'genAlbaranCompras' => $albaran,
       'referencia1' => $refCompra,
@@ -181,6 +188,8 @@ final class AlbaranCompraConversionVentaService
   /** @return array{tipo: string, albaran: int}|null */
   private function ventaExistenteParaCompra(string $empresa, int $albaranCompra): ?array
   {
+    // GenAlbaranCompras es un indicador (bit), no el número: comparar con el albarán
+    // de compra da verdadero para cualquier número. Solo vale Referencia1.
     $ref = $this->referenciaAlbaranCompra($albaranCompra);
     try {
       $st = $this->pdo->prepare(
@@ -190,15 +199,6 @@ final class AlbaranCompraConversionVentaService
       );
       $st->execute(['e' => $empresa, 'ref' => $ref]);
       $row = $st->fetch(PDO::FETCH_ASSOC);
-      if ($row === false) {
-        $st2 = $this->pdo->prepare(
-          'SELECT TOP 1 Tipo, Albaran FROM AlbaranesVentasCab
-           WHERE Empresa = :e AND GenAlbaranCompras = :alb AND ISNULL(Anulado, 0) = 0
-           ORDER BY Albaran DESC'
-        );
-        $st2->execute(['e' => $empresa, 'alb' => $albaranCompra]);
-        $row = $st2->fetch(PDO::FETCH_ASSOC);
-      }
       if ($row === false) {
         return null;
       }
@@ -308,7 +308,8 @@ final class AlbaranCompraConversionVentaService
    *   pais: ?string,
    *   telefono: ?string,
    *   telefono2: ?string,
-   *   email: ?string
+   *   email: ?string,
+   *   formaPago: ?string
    * }
    */
   private function direccionFiscalCliente(string $cliente): array
@@ -324,6 +325,7 @@ final class AlbaranCompraConversionVentaService
       'telefono' => null,
       'telefono2' => null,
       'email' => null,
+      'formaPago' => null,
     ];
     $cliente = trim($cliente);
     if ($cliente === '') {
@@ -332,7 +334,7 @@ final class AlbaranCompraConversionVentaService
     try {
       $st = $this->pdo->prepare(
         'SELECT RazonSocial, NIF, Direccion, Poblacion, CodigoPostal, Provincia, Pais,
-                Telefono1, Telefono2, Email
+                Telefono1, Telefono2, Email, FormaPago
          FROM Clientes WHERE Codigo = :c'
       );
       $st->execute(['c' => $cliente]);
@@ -358,6 +360,7 @@ final class AlbaranCompraConversionVentaService
         'telefono' => $trim($row['Telefono1'] ?? null),
         'telefono2' => $trim($row['Telefono2'] ?? null),
         'email' => $trim($row['Email'] ?? null),
+        'formaPago' => $trim($row['FormaPago'] ?? null),
       ];
     } catch (\Throwable $e) {
       return $vacío;
