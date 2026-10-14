@@ -18,7 +18,14 @@ import { extractApiError } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { usePedidosBusquedaStore } from '@/stores/pedidosBusqueda'
+import { useVentanaPreviewDocumento } from '@/composables/previewDocumentoVentana'
+import type { PrepImpresionA4 } from '@/composables/impresionDocumentoA4Shared'
+import {
+  imprimirA4PedidoCliente,
+  prepararImpresionPedidoCliente,
+} from '@/composables/useImpresionPedidoCliente'
 import VentaToolbar from '@/components/ventas/VentaToolbar.vue'
+import VentaImpresionA4Modal from '@/components/ventas/VentaImpresionA4Modal.vue'
 import EntidadBuscarModal from '@/components/common/EntidadBuscarModal.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import DecimalInput from '@/components/common/DecimalInput.vue'
@@ -29,6 +36,11 @@ const { puede } = usePermisos()
 const puedeCrear = computed(() => puede('ventas-pedidos', 'crear'))
 const puedeEditar = computed(() => puede('ventas-pedidos', 'editar'))
 const puestoContexto = usePuestoContextoStore()
+const preview = useVentanaPreviewDocumento({ imprimir: () => confirmarImpresionPedido() })
+const a4Open = ref(false)
+const a4Prep = ref<PrepImpresionA4 | null>(null)
+const a4Imprimiendo = ref(false)
+const a4ModalRef = ref<{ capturarHtmlFolio: () => Promise<string> } | null>(null)
 const busqueda = usePedidosBusquedaStore()
 
 /**
@@ -916,14 +928,52 @@ async function onGuardar() {
   }
 }
 
+async function mostrarPreviewPedido(prep: PrepImpresionA4) {
+  if (!preview.abrir(prep.titulo)) {
+    throw new Error('Permita las ventanas emergentes para previsualizar el documento')
+  }
+  a4Prep.value = prep
+  a4Open.value = true
+  await nextTick()
+  const html = (await a4ModalRef.value?.capturarHtmlFolio()) || ''
+  if (!html) {
+    preview.cerrar()
+    throw new Error('No hay plantilla configurada para este documento en el puesto')
+  }
+  preview.mostrar(html, { impresoraNombre: prep.impresoraNombre })
+}
+
 async function onImpreso() {
   if (!detalle.value || !(puedeEditar.value || puedeCrear.value)) return
+  error.value = ''
+  try {
+    await mostrarPreviewPedido(
+      await prepararImpresionPedidoCliente(detalle.value, {
+        puestoCodigo: String(puestoContexto.puestoCodigo || ''),
+      })
+    )
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo preparar la impresión A4')
+  }
+}
+
+async function confirmarImpresionPedido() {
+  if (!a4Prep.value || !detalle.value) return
+  a4Imprimiendo.value = true
+  error.value = ''
   try {
     detalle.value = await marcarPedidoImpreso(detalle.value.empresa, detalle.value.pedido)
     busqueda.upsertResumen(detalle.value)
-    msg.value = 'Pedido marcado como impreso'
+    const html = (await a4ModalRef.value?.capturarHtmlFolio()) || ''
+    msg.value = await imprimirA4PedidoCliente(a4Prep.value, html)
+    preview.cerrar()
+    a4Open.value = false
   } catch (e: unknown) {
-    error.value = extractApiError(e, 'No se pudo marcar impreso')
+    const texto = extractApiError(e, 'No se pudo imprimir el pedido')
+    error.value = texto
+    preview.notificarError(texto)
+  } finally {
+    a4Imprimiendo.value = false
   }
 }
 
@@ -1445,6 +1495,19 @@ onActivated(() => {
       :danger="false"
       @confirm="confirmarConvertir"
       @cancel="confirmConvertirOpen = false"
+    />
+
+    <VentaImpresionA4Modal
+      ref="a4ModalRef"
+      :open="a4Open"
+      :titulo="a4Prep?.titulo || 'Pedido'"
+      :plantilla="a4Prep?.plantilla ?? null"
+      :datos="a4Prep?.datos ?? null"
+      :impresora-nombre="a4Prep?.impresoraNombre || ''"
+      :imprimiendo="a4Imprimiendo"
+      oculto
+      @cerrar="a4Open = false"
+      @imprimir="confirmarImpresionPedido"
     />
 
     <ConfirmDialog

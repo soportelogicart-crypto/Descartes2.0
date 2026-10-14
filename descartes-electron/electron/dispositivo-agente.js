@@ -92,6 +92,13 @@ async function handle(req, res) {
     return
   }
 
+  if (req.method === 'POST' && url === '/abrir-cajon') {
+    const body = await readJson(req)
+    const result = await peripherals.openCashDrawer(body)
+    sendJson(res, result.ok ? 200 : 503, result)
+    return
+  }
+
   if (req.method === 'POST' && url === '/imprimir') {
     const body = await readJson(req)
     const result = await peripherals.printTicket(body)

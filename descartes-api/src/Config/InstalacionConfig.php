@@ -12,7 +12,7 @@ use RuntimeException;
  */
 final class InstalacionConfig
 {
-  /** @return array{server: string, database: string, user: string, password: string, trust_cert: bool, tipo?: string, encrypt?: bool}|null */
+  /** @return array{server: string, database: string, user: string, password: string, trust_cert: bool, tipo?: string, encrypt?: bool, motor?: string}|null */
   public static function load(): ?array
   {
     $path = self::path();
@@ -32,7 +32,12 @@ final class InstalacionConfig
       return null;
     }
     $tipo = trim((string) ($data['tipo'] ?? 'local'));
+    $motor = strtolower(trim((string) ($data['motor'] ?? 'sqlsrv')));
+    if (!in_array($motor, ['sqlsrv', 'mysql'], true)) {
+      $motor = 'sqlsrv';
+    }
     return [
+      'motor' => $motor,
       'tipo' => $tipo !== '' ? $tipo : 'local',
       'server' => trim((string) ($data['server'] ?? 'localhost')) ?: 'localhost',
       'database' => $database,
@@ -51,7 +56,12 @@ final class InstalacionConfig
       throw new RuntimeException('El nombre de la base de datos es obligatorio');
     }
     $tipo = trim((string) ($config['tipo'] ?? 'local')) ?: 'local';
+    $motor = strtolower(trim((string) ($config['motor'] ?? 'sqlsrv')));
+    if (!in_array($motor, ['sqlsrv', 'mysql'], true)) {
+      $motor = 'sqlsrv';
+    }
     $payload = [
+      'motor' => $motor,
       'tipo' => $tipo,
       'server' => trim((string) ($config['server'] ?? 'localhost')) ?: 'localhost',
       'database' => $database,

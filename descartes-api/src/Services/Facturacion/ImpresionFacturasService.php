@@ -236,7 +236,18 @@ final class ImpresionFacturasService
           2
         ),
       ],
+      'facturaOrigen' => $this->facturaOrigenLegible($c),
     ];
+  }
+
+  /** RECT:F/123 → F/123. Vacío si la factura no rectifica a otra. */
+  private function facturaOrigenLegible(array $cab): string
+  {
+    $raw = trim((string) ($cab['FirmaFacturaAnterior'] ?? ''));
+    if (preg_match('/^RECT:([A-Za-z])\/(\d+)$/', $raw, $m) === 1) {
+      return strtoupper($m[1]) . '/' . $m[2];
+    }
+    return '';
   }
 
   /**
@@ -448,6 +459,7 @@ final class ImpresionFacturasService
   {
     $sql = "SELECT
         f.Empresa, f.FacturaTipo, f.Factura, f.Fecha, f.Cliente, f.Fpago, f.Estado,
+        f.FirmaFacturaAnterior,
         ISNULL(f.FacturaContadoDiferida, 0) AS FacturaContadoDiferida,
         f.Importe, f.ImporteDtos, f.PjeDto, f.PagoACuenta,
         f.PjeRetIrpf, f.BasRetIrpf, f.ImpRetIrpf,

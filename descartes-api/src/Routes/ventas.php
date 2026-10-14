@@ -104,6 +104,8 @@ return function (App $app): void {
       ->add($setPermiso('puestos-trabajo', 'ver'));
     $group->post('/puestos/{puesto}/dispositivo/leer-cajon', [VentasController::class, 'leerCajonDispositivo'])
       ->add($setPermiso('ventas-arqueo', 'editar'));
+    $group->post('/puestos/{puesto}/dispositivo/abrir-cajon', [VentasController::class, 'abrirCajonDispositivo'])
+      ->add($setPermiso('ventas-arqueo', 'crear'));
     $group->post('/puestos/{puesto}/dispositivo/imprimir', [VentasController::class, 'imprimirDispositivo'])
       ->add($setPermiso('ventas-arqueo', 'ver'));
     $group->post('/puestos/{puesto}/dispositivo/datafono/estado', [VentasController::class, 'estadoDatafonoDispositivo'])

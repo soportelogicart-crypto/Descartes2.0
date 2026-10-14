@@ -24,6 +24,8 @@ export type FacturaClave = { empresa: string; facturaTipo: string; factura: numb
 
 export type FacturaImpresionPreparada = {
   clave: FacturaClave
+  /** Distingue varios folios de la misma factura (recibos). */
+  folioId?: string
   titulo: string
   plantilla: DocumentoPlantilla
   datos: DocumentoPreviewDatos

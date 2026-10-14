@@ -180,7 +180,9 @@ function registerIpc() {
   ipcMain.handle('peripheral:printHtml', (_event, payload) => peripherals.printHtml(payload))
   ipcMain.handle('peripheral:htmlToPdf', (_event, payload) => peripherals.htmlToPdf(payload || {}))
   ipcMain.handle('peripheral:printLabel', (_event, payload) => peripherals.printLabel(payload))
-  ipcMain.handle('peripheral:openCashDrawer', () => peripherals.openCashDrawer())
+  ipcMain.handle('peripheral:openCashDrawer', (_event, payload) =>
+    peripherals.openCashDrawer(payload || {})
+  )
   ipcMain.handle('peripheral:readCashDrawer', (_event, payload) => peripherals.readCashDrawer(payload || {}))
   ipcMain.handle('peripheral:readScale', () => peripherals.readScale())
   ipcMain.handle('peripheral:displayPrice', (_event, payload) => peripherals.displayPrice(payload))
@@ -201,6 +203,7 @@ app.whenReady().then(async () => {
   logos.getLogosDirectory()
   registerIpc()
   dispositivoAgente.start()
+  peripherals.precalentarImpresionTicket()
   try {
     await createWindow()
   } catch (err) {
@@ -217,6 +220,7 @@ app.whenReady().then(async () => {
 })
 
 app.on('before-quit', () => {
+  peripherals.cerrarImpresionTicket()
   dispositivoAgente.stop()
   stopViteDevServer()
 })

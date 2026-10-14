@@ -98,6 +98,11 @@
   text-align: right;
 }
 
+.titulo.titulo-izq {
+  align-items: flex-start;
+  text-align: left;
+}
+
 .titulo strong {
   color: var(--block-accent, #14509b);
   font-size: 1.05rem;

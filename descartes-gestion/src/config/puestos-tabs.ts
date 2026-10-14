@@ -40,15 +40,6 @@ export type PuestoTab = {
   sections: PuestoSection[]
 }
 
-/** Tipos de plantilla del diseñador (Configuración → Albaranes / Tickets / Etiquetas). */
-const PLANTILLAS_DOC = [
-  'albaran',
-  'factura-contado',
-  'factura-credito',
-  'factura-rectificativa',
-  'ticket',
-] as const
-
 /** Documentos de Generales II: impresora + plantilla creada en el diseñador. */
 export const puestoImpresorasDocumento: PuestoImpresoraDoc[] = [
   { label: 'Listados', indiceKey: 'impresora80', nombreKey: 'imp80', nombreMax: 100 },
@@ -70,7 +61,7 @@ export const puestoImpresorasDocumento: PuestoImpresoraDoc[] = [
     nombreMax: 100,
     formatoKey: 'formatoPresupuestos',
     formatoMax: 100,
-    plantillaTipo: [...PLANTILLAS_DOC],
+    plantillaTipo: 'presupuesto',
   },
   {
     label: 'Facturas contado',
@@ -97,7 +88,7 @@ export const puestoImpresorasDocumento: PuestoImpresoraDoc[] = [
     nombreMax: 100,
     formatoKey: 'formatoRecibos',
     formatoMax: 100,
-    plantillaTipo: [...PLANTILLAS_DOC],
+    plantillaTipo: 'recibo',
   },
   {
     label: 'Pedidos clientes',
@@ -106,7 +97,7 @@ export const puestoImpresorasDocumento: PuestoImpresoraDoc[] = [
     nombreMax: 100,
     formatoKey: 'formatoPedidos',
     formatoMax: 100,
-    plantillaTipo: [...PLANTILLAS_DOC],
+    plantillaTipo: 'pedido-cliente',
   },
   {
     label: 'Albaranes compras',
@@ -115,7 +106,7 @@ export const puestoImpresorasDocumento: PuestoImpresoraDoc[] = [
     nombreMax: 100,
     formatoKey: 'formatoAlbaranCompras',
     formatoMax: 100,
-    plantillaTipo: [...PLANTILLAS_DOC],
+    plantillaTipo: 'albaran-compra',
   },
   {
     label: 'Pedidos compras',
@@ -124,7 +115,7 @@ export const puestoImpresorasDocumento: PuestoImpresoraDoc[] = [
     nombreMax: 100,
     formatoKey: 'formatoPedidoCompras',
     formatoMax: 100,
-    plantillaTipo: [...PLANTILLAS_DOC],
+    plantillaTipo: 'pedido-compra',
   },
   {
     label: 'Etiquetas artículo',

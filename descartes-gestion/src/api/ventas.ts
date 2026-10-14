@@ -400,10 +400,19 @@ export async function leerCajonDispositivo(puesto: string, payload: { formaPago?
   return data
 }
 
+export async function abrirCajonDispositivo(puesto: string) {
+  const { data } = await api.post<LeerCajonResponse>(
+    `/api/ventas/puestos/${encodeURIComponent(puesto)}/dispositivo/abrir-cajon`,
+    {}
+  )
+  return data
+}
+
 export type ImprimirDispositivoResponse = {
   ok: boolean
   stub?: boolean
   agenteOnline?: boolean
+  impresora?: string
   message?: string
 }
 

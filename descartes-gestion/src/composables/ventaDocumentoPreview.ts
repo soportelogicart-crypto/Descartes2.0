@@ -283,7 +283,7 @@ export function tipoPlantillaDesdeVenta(venta: VentaDetalle): {
   if (ft === 'R') {
     return {
       esTicket: false,
-      plantillaTipo: 'albaran',
+      plantillaTipo: 'presupuesto',
       formatoKey: 'formatoPresupuestos',
       nombreKey: 'impPresupuestos',
       indiceKey: 'impresoraPresupuestos',
@@ -308,6 +308,16 @@ export function tipoPlantillaDesdeVenta(venta: VentaDetalle): {
       nombreKey: 'impFacturasContado',
       indiceKey: 'impresoraFacturasContado',
       label: 'Factura contado',
+    }
+  }
+  if (ft === 'A' && factura > 0) {
+    return {
+      esTicket: false,
+      plantillaTipo: 'factura-rectificativa',
+      formatoKey: 'formatoFacturas',
+      nombreKey: 'impFacturas',
+      indiceKey: 'impresoraFacturas',
+      label: 'Factura rectificativa',
     }
   }
   // Albarán cerrado (finalizado sin tipificar T/F/R)

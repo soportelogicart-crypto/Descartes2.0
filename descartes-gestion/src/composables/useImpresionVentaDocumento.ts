@@ -73,6 +73,8 @@ export async function prepararOImprimirVenta(
     formato?: 'auto' | 'ticket' | 'a4' | 'albaran'
     /** XML Redsys del último cobro con datáfono (misma venta). */
     receiptDatafono?: string | null
+    /** La forma de pago del cobro tiene marcado abrir cajón. */
+    abrirCajon?: boolean
   }
 ): Promise<PrepImpresionResult> {
   const formato = opciones.formato ?? 'auto'
@@ -124,6 +126,7 @@ export async function prepararOImprimirVenta(
       tipo: 'ticket',
       empresa: String(venta.empresa || ''),
       sesion: Number(venta.sesion) || undefined,
+      abrirCajon: Boolean(opciones.abrirCajon),
     })
     let errorCopiaEstablecimiento = ''
     if (comprobanteTarjeta?.aprobada) {

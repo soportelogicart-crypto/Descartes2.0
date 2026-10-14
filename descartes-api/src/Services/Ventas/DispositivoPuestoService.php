@@ -123,6 +123,41 @@ final class DispositivoPuestoService
   }
 
   /**
+   * Abre el cajón físico conectado a la impresora de tickets.
+   *
+   * @return array<string, mixed>
+   */
+  public function abrirCajon(string $puesto): array
+  {
+    $puesto = trim($puesto);
+    if ($puesto === '') {
+      throw new \InvalidArgumentException('puesto es obligatorio');
+    }
+    $impresora = $this->impresoraTicketsPuesto($puesto);
+    $agent = $this->llamarAgente('POST', '/abrir-cajon', [
+      'puesto' => $puesto,
+      'impresora' => $impresora,
+    ]);
+    if ($agent === null) {
+      return [
+        'ok' => false,
+        'stub' => true,
+        'agenteOnline' => false,
+        'puesto' => $puesto,
+        'message' => 'Agente local no disponible para abrir el cajón. Ejecute Descartes Electron.',
+      ];
+    }
+    return [
+      'ok' => !empty($agent['ok']),
+      'stub' => !empty($agent['stub']),
+      'agenteOnline' => true,
+      'puesto' => $puesto,
+      'impresora' => $agent['impresora'] ?? $impresora,
+      'message' => (string) ($agent['message'] ?? ''),
+    ];
+  }
+
+  /**
    * Envia texto termico al agente local.
    *
    * @param array<string, mixed> $body

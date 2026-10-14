@@ -63,6 +63,8 @@ export type DocumentoPreviewDatos = {
     portes: string
     observaciones: string
     formaPago: string
+    /** Factura rectificada, si el documento la trae (RECT:tipo/número). */
+    facturaOrigen?: string
     /** Cobros del ticket. Si hay más de uno, cada línea lleva su importe. */
     pagos?: { codigo: string; importe: number }[]
     codigoBarras: string
@@ -94,6 +96,8 @@ export type DocumentoPreviewDatos = {
     literalFacturaContado: string
     literalPresupuesto: string
     literalVale: string
+    /** Tiendas → Literal pie pedido compra. */
+    literalPedidoCompra?: string
     /** Nº de literales del puesto a imprimir en el ticket. */
     literalTicket: number
   }
@@ -347,6 +351,7 @@ export function datosPreviewPorTipo(tipo: DocumentoTipo): DocumentoPreviewDatos 
           descripcion: 'TULIPA bara',
           unidades: 5,
           precioSinIva: 2.27,
+          precio: 2.27,
           dto: 10,
           pjeIva: 10,
           importe: 10.23,
@@ -357,6 +362,7 @@ export function datosPreviewPorTipo(tipo: DocumentoTipo): DocumentoPreviewDatos 
           descripcion: 'RANUNCULO C13',
           unidades: 7,
           precioSinIva: 3.73,
+          precio: 3.73,
           dto: 0,
           pjeIva: 10,
           importe: 26.09,
@@ -367,6 +373,7 @@ export function datosPreviewPorTipo(tipo: DocumentoTipo): DocumentoPreviewDatos 
           descripcion: 'JARDINERA VENEZIA RA 60 MA ANTRACITA',
           unidades: 2,
           precioSinIva: 9.05,
+          precio: 9.05,
           dto: 0,
           pjeIva: 21,
           importe: 18.1,
@@ -415,6 +422,7 @@ export function datosPreviewPorTipo(tipo: DocumentoTipo): DocumentoPreviewDatos 
         observaciones: '',
         codigoBarras: '',
         formaPago: 'CREDITO',
+        facturaOrigen: rect ? 'F/26000436' : '',
       },
       lineas: rect
         ? [
@@ -521,6 +529,96 @@ export function datosPreviewPorTipo(tipo: DocumentoTipo): DocumentoPreviewDatos 
           : 'https://prewww2.aeat.es/wlpl/TIKE-CONT/ValidarQR?nif=B13983507&numserie=1-26000436&fecha=04-08-2026&importe=165.65',
         url: 'https://prewww2.aeat.es/wlpl/TIKE-CONT/ValidarQR',
       },
+    }
+  }
+
+  if (tipo === 'presupuesto' || tipo === 'pedido-cliente') {
+    const pedido = tipo === 'pedido-cliente'
+    return {
+      ...comunes,
+      documento: {
+        ...comunes.documento,
+        numero: pedido ? '260012' : '260045',
+        fecha: '09/10/2026',
+        suPedido: 'PED-CLIENTE-18',
+        albaran: '',
+        atendidoPor: pedido ? '' : 'Helena',
+        observaciones: pedido ? 'Entregar en tienda' : 'Validez 30 días',
+        formaPago: '',
+        codigoBarras: '',
+      },
+      lineas: [
+        {
+          articulo: '0010031961',
+          descripcion: 'PEONIA 3L',
+          unidades: 2,
+          precio: 16.68,
+          dto: 0,
+          pjeIva: 10,
+          importe: 33.36,
+          pvp: 18.35,
+        },
+      ],
+      totales: {
+        base: 33.36,
+        ivas: [{ pje: 10, base: 33.36, cuota: 3.34 }],
+        importe: 36.7,
+      },
+    }
+  }
+
+  if (tipo === 'pedido-compra' || tipo === 'albaran-compra') {
+    const albaran = tipo === 'albaran-compra'
+    return {
+      ...comunes,
+      cliente: {
+        ...baseCliente,
+        codigo: '40012',
+        nombre: 'VIVERS DEL CAMP, S.L.',
+        cif: 'B43000111',
+      },
+      documento: {
+        ...comunes.documento,
+        numero: albaran ? '260088' : '260041',
+        fecha: '09/10/2026',
+        suPedido: albaran ? 'ALB-PROV-5521' : '',
+        albaran: '',
+        observaciones: 'Entrega en almacén',
+        formaPago: '',
+        codigoBarras: '',
+      },
+      lineas: [
+        {
+          articulo: '0010031961',
+          descripcion: 'PEONIA 3L',
+          unidades: 20,
+          precio: 8.5,
+          dto: 0,
+          pjeIva: 0,
+          importe: 170,
+        },
+      ],
+      totales: { base: 170, ivas: [], importe: 170 },
+      tienda: { ...baseTienda, literalPedidoCompra: 'Mercancía según pedido. Plazo de entrega 7 días.' },
+    }
+  }
+
+  if (tipo === 'recibo') {
+    return {
+      ...comunes,
+      documento: {
+        ...comunes.documento,
+        numero: '3',
+        serie: 'F',
+        fecha: '04/08/2026',
+        albaran: 'F/26000436',
+        fechaEntrega: '04/09/2026',
+        observaciones: '',
+        formaPago: 'RECIBO DOMICILIADO',
+        codigoBarras: '',
+      },
+      lineas: [],
+      totales: { base: 165.65, ivas: [], importe: 165.65 },
     }
   }
 

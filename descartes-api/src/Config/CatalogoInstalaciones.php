@@ -51,7 +51,7 @@ final class CatalogoInstalaciones
   /**
    * Cambia el SQL de una instalación ya creada. La clave del PC no cambia.
    *
-   * @param array{tipo: string, server: string, database: string, user: string, password: string, trust_cert: bool, encrypt: bool} $config
+   * @param array{tipo: string, server: string, database: string, user: string, password: string, trust_cert: bool, encrypt: bool, motor?: string} $config
    */
   public static function actualizarConexion(string $id, array $config): void
   {
@@ -61,6 +61,7 @@ final class CatalogoInstalaciones
       throw new InvalidArgumentException('No existe esa instalación');
     }
     self::probar($config);
+    $data['motor'] = $config['motor'] ?? 'sqlsrv';
     $data['tipo'] = $config['tipo'];
     $data['server'] = $config['server'];
     $data['database'] = $config['database'];
@@ -100,7 +101,7 @@ final class CatalogoInstalaciones
   /**
    * Configuración SQL si el identificador y la clave coinciden.
    *
-   * @return array{tipo: string, server: string, database: string, user: string, password: string, trust_cert: bool, encrypt: bool}|null
+   * @return array{tipo: string, server: string, database: string, user: string, password: string, trust_cert: bool, encrypt: bool, motor: string}|null
    */
   public static function autenticar(string $id, string $clave): ?array
   {
@@ -167,7 +168,7 @@ final class CatalogoInstalaciones
 
   /**
    * @param array<string, mixed> $body
-   * @return array{tipo: string, server: string, database: string, user: string, password: string, trust_cert: bool, encrypt: bool}
+   * @return array{tipo: string, server: string, database: string, user: string, password: string, trust_cert: bool, encrypt: bool, motor: string}
    */
   private static function configDesdeBody(array $body): array
   {
@@ -191,10 +192,16 @@ final class CatalogoInstalaciones
 
     $user = trim((string) ($body['user'] ?? $body['dbUser'] ?? ''));
     if ($user === '') {
-      throw new InvalidArgumentException('Indique el usuario de SQL Server');
+      throw new InvalidArgumentException('Indique el usuario de la base de datos');
+    }
+
+    $motor = strtolower(trim((string) ($body['motor'] ?? 'sqlsrv')));
+    if (!in_array($motor, ['sqlsrv', 'mysql'], true)) {
+      $motor = 'sqlsrv';
     }
 
     return Database::prepareConfig([
+      'motor' => $motor,
       'tipo' => $tipo,
       'server' => $serverRaw,
       'database' => $database,
@@ -205,7 +212,7 @@ final class CatalogoInstalaciones
     ]);
   }
 
-  /** @param array{tipo: string, server: string, database: string, user: string, password: string, trust_cert: bool, encrypt: bool} $config */
+  /** @param array{tipo: string, server: string, database: string, user: string, password: string, trust_cert: bool, encrypt: bool, motor?: string} $config */
   private static function probar(array $config): void
   {
     try {
@@ -218,7 +225,7 @@ final class CatalogoInstalaciones
     }
   }
 
-  /** @param array{tipo: string, server: string, database: string, user: string, password: string, trust_cert: bool, encrypt: bool} $config */
+  /** @param array{tipo: string, server: string, database: string, user: string, password: string, trust_cert: bool, encrypt: bool, motor?: string} $config */
   private static function escribir(string $id, array $config, string $claveHash): void
   {
     $ahora = date('c');
@@ -226,6 +233,7 @@ final class CatalogoInstalaciones
       'id' => $id,
       'claveHash' => $claveHash,
       'activa' => true,
+      'motor' => $config['motor'] ?? 'sqlsrv',
       'tipo' => $config['tipo'],
       'server' => $config['server'],
       'database' => $config['database'],

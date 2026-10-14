@@ -41,6 +41,7 @@ import {
   type OperacionCobroDatafono,
 } from '@/composables/cobroDatafono'
 import { autorizacionDesdeXmlRedsys } from '@/composables/comprobanteTarjeta'
+import { abrirCajonPuesto } from '@/composables/abrirCajonPuesto'
 import { createBarcodeScanWatcher } from '@/composables/useBarcodeScanWatcher'
 import { imprimirValesDeCierre } from '@/composables/comprobanteVale'
 import { extractApiError } from '@/composables/extractApiError'
@@ -242,6 +243,28 @@ const postVentaOpen = ref(false)
 const postVentaEnviando = ref(false)
 const postVentaError = ref<string | null>(null)
 const ultimoDocumento = ref('')
+/** Cobro cuya forma de pago pide abrir el cajón al imprimir su ticket. */
+const cajonCobro = ref<{ tipo: string; albaran: number; abrir: boolean } | null>(null)
+
+function formaAbreCajon(codigo: string | null | undefined): boolean {
+  const c = String(codigo ?? '').trim()
+  if (!c) return false
+  return Boolean(tpv.contexto?.formasPago.find((item) => item.codigo === c)?.abrirCajon)
+}
+
+async function abrirCajonCobroPendiente(venta: VentaDetalle): Promise<void> {
+  const marca = cajonCobro.value
+  if (
+    !marca ||
+    !marca.abrir ||
+    marca.tipo !== venta.tipo ||
+    marca.albaran !== venta.albaran
+  ) {
+    return
+  }
+  await abrirCajonPuesto(puestoStore.puestoCodigo ?? '')
+  cajonCobro.value = null
+}
 
 const cabecera = computed(() => {
   const c = tpv.contexto
@@ -1055,6 +1078,13 @@ async function finalizarVentaTrasCobro(
       : cerrada.albaran
   cobroAbierto.value = false
   formaPagoSugeridaCobro.value = ''
+  cajonCobro.value = {
+    tipo: cerrada.tipo,
+    albaran: cerrada.albaran,
+    abrir:
+      formaAbreCajon(datos.formaPago) ||
+      formaAbreCajon(datos.formaPago2),
+  }
   ultimoTicket.value = cerrada
   ultimoTipoDocumento.value = datos.tipoDocumento
   ultimoDocumento.value = `${etiqueta} ${numero}`
@@ -1215,6 +1245,22 @@ async function imprimirTrasCobro() {
   }
 }
 
+async function omitirTrasCobro() {
+  const venta = ultimoTicket.value
+  postVentaOpen.value = false
+  if (venta) {
+    try {
+      await abrirCajonCobroPendiente(venta)
+    } catch (e: unknown) {
+      errorImpresion.value = extractApiError(
+        e,
+        'La venta está hecha, pero no se pudo abrir el cajón'
+      )
+    }
+  }
+  await foco()
+}
+
 async function pdfPlantillaParaEmail(venta: VentaDetalle): Promise<string | undefined> {
   const ft = String(venta.facturaTipo ?? '').trim().toUpperCase()
   if (ft === 'T' && Number(venta.factura) > 0) {
@@ -1254,6 +1300,14 @@ async function enviarTrasCobro(email: string) {
     const res = await enviarVentaPorEmail(venta.empresa, venta.tipo, venta.albaran, email, 'tpv', pdf)
     postVentaOpen.value = false
     cobrado.value = `${res.documento} enviado a ${res.destinatario}`
+    try {
+      await abrirCajonCobroPendiente(venta)
+    } catch (e: unknown) {
+      errorImpresion.value = extractApiError(
+        e,
+        'El documento se envió, pero no se pudo abrir el cajón'
+      )
+    }
   } catch (e: unknown) {
     postVentaError.value = extractApiError(e, 'No se pudo enviar el documento por email')
   } finally {
@@ -1301,6 +1355,7 @@ async function imprimirDocumentoA4() {
   try {
     const html = (await a4ModalRef.value?.capturarHtmlFolio()) || ''
     await imprimirA4Preparado(a4Prep.value, html, ultimoTicket.value)
+    await abrirCajonCobroPendiente(ultimoTicket.value)
     try {
       await imprimirCopiaEstablecimientoDatafono(ultimoTicket.value, {
         puestoCodigo: puestoStore.puestoCodigo ?? '',
@@ -1330,12 +1385,24 @@ async function imprimirTicket() {
   imprimiendo.value = true
   errorImpresion.value = null
   try {
+    const marca = cajonCobro.value
+    const abrirCajon = Boolean(
+      marca && marca.tipo === venta.tipo && marca.albaran === venta.albaran && marca.abrir
+    )
     const res = await prepararOImprimirVenta(venta, {
       puestoCodigo: puestoStore.puestoCodigo ?? '',
       receiptDatafono: ultimoReceiptDatafono.value,
+      abrirCajon,
     })
     if (res.kind !== 'ticket') {
       errorImpresion.value = 'El documento no salió como ticket térmico; revise la plantilla'
+    } else if (
+      marca &&
+      marca.tipo === venta.tipo &&
+      marca.albaran === venta.albaran
+    ) {
+      // Una reimpresión posterior no debe volver a abrir el cajón.
+      cajonCobro.value = null
     }
   } catch (e: unknown) {
     // El cobro ya está cerrado: un fallo de impresora no puede parecer un fallo de venta.
@@ -1407,6 +1474,13 @@ const otrasFunciones = computed<TpvFuncionExtra[]>(() => [
     deshabilitada: !ultimoTicket.value || imprimiendo.value,
   },
   {
+    id: 'abrir-cajon',
+    etiqueta: 'ABRIR CAJÓN',
+    ayuda: 'Abrir el cajón conectado a la impresora de tickets',
+    deshabilitada: tpv.loading || tpv.guardando,
+    tono: 'activo',
+  },
+  {
     id: 'configurar',
     etiqueta: configurandoBotones.value ? 'TERMINAR CONFIGURACIÓN' : 'CONFIGURAR BOTONES',
     ayuda: puede('tpv', 'editar')
@@ -1447,6 +1521,14 @@ async function onOtraFuncion(id: string) {
       return
     case 'reimprimir':
       await reimprimirUltimo()
+      break
+    case 'abrir-cajon':
+      try {
+        await abrirCajonPuesto(puestoStore.puestoCodigo ?? '')
+        tpv.aviso = 'Cajón abierto'
+      } catch (e: unknown) {
+        tpv.error = extractApiError(e, 'No se pudo abrir el cajón')
+      }
       break
     case 'configurar':
       configurandoBotones.value = !configurandoBotones.value
@@ -1641,142 +1723,6 @@ onMounted(() => {
             {{ etiquetaLineaMarcada }}
           </p>
 
-          <!-- Tres columnas: las parejas (cantidad, precio/dto., nueva/anular)
-               van a la izquierda y la acción suelta de cada fila a la derecha.
-               Lo que no se usa en cada venta vive en OTRAS FUNCIONES. -->
-          <div class="acciones-tpv">
-            <button
-              type="button"
-              class="btn-tpv"
-              :disabled="!lineaSeleccionada || tpv.guardando || tpv.enConsulta"
-              @click="cambiarCantidad(1)"
-            >
-              CANT +
-            </button>
-            <button
-              type="button"
-              class="btn-tpv"
-              :disabled="!lineaSeleccionada || tpv.guardando || tpv.enConsulta"
-              @click="cambiarCantidad(-1)"
-            >
-              CANT −
-            </button>
-            <button
-              type="button"
-              class="btn-tpv borrar-linea"
-              :disabled="!lineaSeleccionada || tpv.guardando || tpv.enConsulta"
-              @click="borrarLinea"
-            >
-              BORRAR LINEA
-            </button>
-
-            <button
-              type="button"
-              class="btn-tpv"
-              :disabled="!lineaSeleccionada || tpv.guardando || tpv.enConsulta"
-              @click="abrirPrecioLinea"
-            >
-              PRECIO
-            </button>
-            <button
-              type="button"
-              class="btn-tpv"
-              :disabled="!tpv.ticketListo || tpv.guardando || tpv.enConsulta"
-              :title="etiquetaLineaMarcada"
-              @click="abrirDescuentoLinea"
-            >
-              DTO.
-            </button>
-            <button
-              type="button"
-              class="btn-tpv cliente"
-              :class="{ 'con-cliente': !!tpv.cliente }"
-              :disabled="!tpv.ticketListo || tpv.guardando || tpv.enConsulta"
-              :title="etiquetaCliente"
-              @click="clienteAbierto = true"
-            >
-              CLIENTE
-            </button>
-
-            <button
-              type="button"
-              class="btn-tpv nueva"
-              :class="{ 'en-curso': tpv.ticketListo && !tpv.enConsulta, repetir: tpv.enConsulta }"
-              :disabled="
-                tpv.enConsulta
-                  ? !tpv.venta || tpv.guardando
-                  : tpv.ticketListo || tpv.loading || tpv.guardando
-              "
-              :title="
-                tpv.enConsulta
-                  ? 'Abrir una venta nueva con las mismas líneas'
-                  : tpv.ticketListo
-                    ? 'Ya hay una venta abierta'
-                    : 'Abrir una venta'
-              "
-              @click="tpv.enConsulta ? repetirVenta() : nuevaVenta()"
-            >
-              {{
-                tpv.enConsulta
-                  ? 'REPETIR VENTA'
-                  : tpv.ticketListo
-                    ? 'VENTA ABIERTA'
-                    : 'NUEVA VENTA'
-              }}
-            </button>
-            <button
-              type="button"
-              class="btn-tpv anular"
-              :disabled="tpv.enConsulta || !tpv.ticketListo || tpv.loading || tpv.guardando"
-              @click="pedirAnularVenta"
-            >
-              ANULAR VENTA
-            </button>
-            <button
-              type="button"
-              class="btn-tpv otras"
-              :class="{ activo: configurandoBotones }"
-              :disabled="tpv.enConsulta"
-              @click="otrasFuncionesAbierto = true"
-            >
-              OTRAS FUNCIONES
-            </button>
-
-            <button
-              type="button"
-              class="btn-tpv cobrar"
-              :class="{ consulta: tpv.enConsulta }"
-              :disabled="tpv.enConsulta ? !tpv.venta : !puedeCobrar"
-              @click="tpv.enConsulta ? abrirAccionesConsulta() : abrirCobro()"
-            >
-              {{ tpv.enConsulta ? 'IMPRIMIR / EMAIL' : 'COBRAR' }}
-            </button>
-            <button
-              type="button"
-              class="btn-tpv salir"
-              :title="tpv.enConsulta ? 'Quitar el documento de la pantalla' : 'Salir del TPV'"
-              @click="tpv.enConsulta ? cerrarConsultaPantalla() : salir()"
-            >
-              SALIR
-            </button>
-            <button
-              type="button"
-              class="btn-tpv"
-              :disabled="!lineaSeleccionada || tpv.guardando || tpv.enConsulta"
-              @click="abrirDescripcionLinea"
-            >
-              DESCRIP.
-            </button>
-            <button
-              type="button"
-              class="btn-tpv"
-              :disabled="!tpv.ticketListo || tpv.guardando || tpv.enConsulta"
-              @click="anadirNota"
-            >
-              NOTA
-            </button>
-          </div>
-
           <div class="numerico">
             <div class="visor">
               <span class="visor-lbl">CANTIDAD</span>
@@ -1799,6 +1745,140 @@ onMounted(() => {
               <button type="button" class="btn-tpv num aux" :disabled="tpv.enConsulta" @click="borrarDigito">←</button>
             </div>
           </div>
+        </div>
+
+        <!-- Todas las teclas de la venta en una columna, en el orden de uso:
+             abrir, ajustar líneas, funciones y COBRAR al pie. -->
+        <div class="col-funciones">
+          <button
+            type="button"
+            class="btn-tpv nueva"
+            :class="{ 'en-curso': tpv.ticketListo && !tpv.enConsulta, repetir: tpv.enConsulta }"
+            :disabled="
+              tpv.enConsulta
+                ? !tpv.venta || tpv.guardando
+                : tpv.ticketListo || tpv.loading || tpv.guardando
+            "
+            :title="
+              tpv.enConsulta
+                ? 'Abrir una venta nueva con las mismas líneas'
+                : tpv.ticketListo
+                  ? 'Ya hay una venta abierta'
+                  : 'Abrir una venta'
+            "
+            @click="tpv.enConsulta ? repetirVenta() : nuevaVenta()"
+          >
+            {{
+              tpv.enConsulta
+                ? 'REPETIR VENTA'
+                : tpv.ticketListo
+                  ? 'VENTA ABIERTA'
+                  : 'NUEVA VENTA'
+            }}
+          </button>
+          <button
+            type="button"
+            class="btn-tpv anular"
+            :disabled="tpv.enConsulta || !tpv.ticketListo || tpv.loading || tpv.guardando"
+            @click="pedirAnularVenta"
+          >
+            ANULAR VENTA
+          </button>
+          <div class="fila-cant">
+            <button
+              type="button"
+              class="btn-tpv"
+              :disabled="!lineaSeleccionada || tpv.guardando || tpv.enConsulta"
+              @click="cambiarCantidad(1)"
+            >
+              CANT +
+            </button>
+            <button
+              type="button"
+              class="btn-tpv"
+              :disabled="!lineaSeleccionada || tpv.guardando || tpv.enConsulta"
+              @click="cambiarCantidad(-1)"
+            >
+              CANT −
+            </button>
+          </div>
+          <button
+            type="button"
+            class="btn-tpv"
+            :disabled="!lineaSeleccionada || tpv.guardando || tpv.enConsulta"
+            @click="abrirPrecioLinea"
+          >
+            PRECIO
+          </button>
+          <button
+            type="button"
+            class="btn-tpv"
+            :disabled="!tpv.ticketListo || tpv.guardando || tpv.enConsulta"
+            :title="etiquetaLineaMarcada"
+            @click="abrirDescuentoLinea"
+          >
+            DTO.
+          </button>
+          <button
+            type="button"
+            class="btn-tpv cliente"
+            :class="{ 'con-cliente': !!tpv.cliente }"
+            :disabled="!tpv.ticketListo || tpv.guardando || tpv.enConsulta"
+            :title="etiquetaCliente"
+            @click="clienteAbierto = true"
+          >
+            CLIENTE
+          </button>
+          <button
+            type="button"
+            class="btn-tpv"
+            :disabled="!lineaSeleccionada || tpv.guardando || tpv.enConsulta"
+            @click="abrirDescripcionLinea"
+          >
+            DESCRIPCIÓN
+          </button>
+          <button
+            type="button"
+            class="btn-tpv"
+            :disabled="!tpv.ticketListo || tpv.guardando || tpv.enConsulta"
+            @click="anadirNota"
+          >
+            NOTA
+          </button>
+          <button
+            type="button"
+            class="btn-tpv borrar-linea"
+            :disabled="!lineaSeleccionada || tpv.guardando || tpv.enConsulta"
+            @click="borrarLinea"
+          >
+            BORRAR LÍNEA
+          </button>
+          <button
+            type="button"
+            class="btn-tpv otras"
+            :class="{ activo: configurandoBotones }"
+            :disabled="tpv.enConsulta"
+            @click="otrasFuncionesAbierto = true"
+          >
+            OTRAS FUNCIONES
+          </button>
+          <button
+            type="button"
+            class="btn-tpv salir"
+            :title="tpv.enConsulta ? 'Quitar el documento de la pantalla' : 'Salir del TPV'"
+            @click="tpv.enConsulta ? cerrarConsultaPantalla() : salir()"
+          >
+            SALIR
+          </button>
+          <button
+            type="button"
+            class="btn-tpv cobrar"
+            :class="{ consulta: tpv.enConsulta }"
+            :disabled="tpv.enConsulta ? !tpv.venta : !puedeCobrar"
+            @click="tpv.enConsulta ? abrirAccionesConsulta() : abrirCobro()"
+          >
+            {{ tpv.enConsulta ? 'IMPRIMIR / EMAIL' : 'COBRAR' }}
+          </button>
         </div>
 
         <div class="col-articulos">
@@ -2014,7 +2094,7 @@ onMounted(() => {
       :error="postVentaError"
       @imprimir="imprimirTrasCobro"
       @email="enviarTrasCobro"
-      @omitir="postVentaOpen = false; foco()"
+      @omitir="omitirTrasCobro"
     />
 
     <TpvPrecioModal
@@ -2258,14 +2338,14 @@ onMounted(() => {
 }
 
 /*
- * Dos columnas: a la izquierda toda la caja (ticket, botonera y pad numérico
- * de arriba abajo) y a la derecha el teclado de venta rápida.
+ * Tres columnas: la caja (ticket, botonera de venta y pad numérico), las
+ * funciones de la venta y el teclado de artículos.
  */
 .tpv-cuerpo {
   flex: 1;
   display: grid;
-  /* Columna de caja estrecha: el ancho sobrante va al teclado de artículos. */
-  grid-template-columns: min(12cm, 30%) minmax(0, 1fr);
+  /* Caja, teclas de venta de ancho fijo y el resto para los artículos. */
+  grid-template-columns: min(12cm, 30%) 4cm minmax(0, 1fr);
   gap: 8px;
   margin: 8px;
   min-height: 0;
@@ -2279,34 +2359,44 @@ onMounted(() => {
   min-height: 0;
 }
 
-/* El display y la botonera se reparten a partes iguales el alto que deja el
-   pad numérico: así no queda hueco muerto sobre el pad. */
+/* El display se queda todo el alto que deja el pad numérico. */
 .col-ticket {
   flex: 1 1 0;
   min-height: 6rem;
 }
 
-/*
- * Tres columnas de teclas cuadradas. Las dos de la izquierda llevan las
- * acciones que van en pareja (cantidad, precio/dto., nueva/anular) y la
- * tercera las que van solas.
- */
-.acciones-tpv {
-  flex: 1 1 0;
+/* Teclas de la venta, de arriba abajo a todo el alto. CANT +/− van juntos
+   en una fila más baja; COBRAR al pie, doble. */
+.col-funciones {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  /* Las filas se estiran con la columna: la botonera absorbe su mitad del
-     hueco en vez de dejarlo en blanco bajo los botones. */
-  grid-auto-rows: minmax(1.9rem, 1fr);
+  grid-template-rows: 1fr 1fr 0.6fr repeat(8, minmax(0, 1fr)) minmax(0, 2fr);
   gap: 5px;
+  min-width: 0;
   min-height: 0;
 }
 
-.acciones-tpv .btn-tpv {
-  min-height: 1.9rem;
-  padding: 0.1rem 0.2rem;
-  font-size: 0.72rem;
+.fila-cant {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  min-height: 0;
+}
+
+.fila-cant .btn-tpv {
+  font-size: 0.68rem;
+  white-space: nowrap;
+  padding: 0 0.1rem;
+}
+
+.col-funciones .btn-tpv {
+  min-height: 0;
+  padding: 0.1rem 0.25rem;
+  font-size: 0.82rem;
   line-height: 1.05;
+}
+
+.col-funciones > .cobrar {
+  font-size: 1.05rem;
 }
 
 /* Columna del teclado de artículos: ocupa todo el alto disponible. */
@@ -2510,14 +2600,14 @@ onMounted(() => {
 }
 
 .visor-lbl {
-  font-size: 0.66rem;
+  font-size: 0.75rem;
   letter-spacing: 0.06em;
   color: #64748b;
 }
 
 .visor-val {
   margin-left: auto;
-  font-size: 1.5rem;
+  font-size: 1.8rem;
   font-weight: 600;
 }
 
@@ -2525,7 +2615,7 @@ onMounted(() => {
   display: grid;
   flex: 0 0 auto;
   grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: repeat(4, minmax(2.1rem, 2.6rem));
+  grid-template-rows: repeat(4, 3.4rem);
   gap: 5px;
   min-height: 0;
 }
@@ -2566,15 +2656,15 @@ onMounted(() => {
 }
 
 .num {
-  min-height: 2.1rem;
-  font-size: 1.2rem;
+  min-height: 3.4rem;
+  font-size: 1.6rem;
   font-weight: 500;
 }
 
 .aux {
   background: #f1f5f9;
   color: #475569;
-  font-size: 1rem;
+  font-size: 1.3rem;
 }
 
 .nueva {
@@ -2645,13 +2735,6 @@ onMounted(() => {
   color: #1d4ed8;
 }
 
-/* Última fila: COBRAR ocupa las dos columnas de la izquierda y SALIR la tercera,
-   así no queda ninguna celda hueca. */
-.acciones-tpv > .cobrar {
-  grid-column: span 2;
-  font-size: 0.82rem;
-}
-
 .cobrar {
   background: #059669;
   border-color: #059669;
@@ -2713,7 +2796,7 @@ onMounted(() => {
  */
 @media (max-width: 1200px) {
   .tpv-cuerpo {
-    grid-template-columns: minmax(0, 34%) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 32%) min(4cm, 12%) minmax(0, 1fr);
   }
 
   .cliente-num {

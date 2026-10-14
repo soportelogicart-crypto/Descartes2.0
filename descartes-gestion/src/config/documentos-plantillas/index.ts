@@ -8,6 +8,13 @@ import {
 } from './factura-credito-std'
 import { plantillaTicket } from './ticket-std'
 import { plantillaEtiqueta } from './etiqueta-std'
+import {
+  plantillaAlbaranCompra,
+  plantillaPedidoCliente,
+  plantillaPedidoCompra,
+  plantillaPresupuesto,
+  plantillaRecibo,
+} from './comerciales-std'
 
 export type {
   DocumentoPlantilla,
@@ -49,6 +56,11 @@ export const documentosPlantillas: DocumentoPlantilla[] = [
   plantillaFacturaCredito,
   plantillaFacturaCreditoSinVerifactu,
   plantillaFacturaRectificativa,
+  plantillaPresupuesto,
+  plantillaPedidoCompra,
+  plantillaAlbaranCompra,
+  plantillaPedidoCliente,
+  plantillaRecibo,
   plantillaTicket,
   plantillaEtiqueta,
 ]

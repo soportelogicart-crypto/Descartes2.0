@@ -1,17 +1,22 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { descargarRecibosPdf, listarRecibosImpresion } from '@/api/facturacion'
+import { computed, nextTick, onMounted, ref } from 'vue'
+import { listarRecibosImpresion } from '@/api/facturacion'
 import { api } from '@/api/client'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
 import { useGridRenderLimit } from '@/composables/useGridRenderLimit'
-import { usePdfPreview } from '@/composables/usePdfPreview'
+import { useVentanaPreviewDocumento } from '@/composables/previewDocumentoVentana'
+import {
+  imprimirA4Recibos,
+  prepararImpresionRecibos,
+} from '@/composables/useImpresionReciboDocumento'
+import type { PrepImpresionFacturas } from '@/composables/useImpresionFacturaDocumento'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import type { ReciboImpresionItem } from '@/types/facturacion'
 import EntidadBuscarModal, {
   type EntidadBuscarResultado,
 } from '@/components/common/EntidadBuscarModal.vue'
-import PdfPreviewModal from '@/components/common/PdfPreviewModal.vue'
+import FacturasImpresionA4Modal from '@/components/facturacion/FacturasImpresionA4Modal.vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
 
 const puesto = usePuestoContextoStore()
@@ -22,8 +27,11 @@ const mensaje = ref<string | null>(null)
 const items = ref<ReciboImpresionItem[]>([])
 const selected = ref<Record<string, boolean>>({})
 const tiendas = ref<Array<{ value: string; label: string }>>([])
-const { pdfOpen, pdfUrl, pdfTitulo, abrirPdf, cerrarPdf } = usePdfPreview('Impresión de recibos')
 const buscarClienteOpen = ref(false)
+const a4Open = ref(false)
+const a4Prep = ref<PrepImpresionFacturas | null>(null)
+const a4ModalRef = ref<{ capturarHtmlFolio: () => Promise<string> } | null>(null)
+const preview = useVentanaPreviewDocumento({ imprimir: () => confirmarImpresionRecibos() })
 
 const hoy = new Date().toISOString().slice(0, 10)
 const form = ref({
@@ -186,19 +194,41 @@ async function imprimir() {
   printing.value = true
   error.value = null
   try {
-    const blob = await descargarRecibosPdf({
-      recibos: seleccionados.value.map((r) => ({
-        empresa: r.empresa,
-        facturaTipo: r.facturaTipo,
-        factura: r.factura,
-        recibo: r.recibo,
-      })),
+    const prep = await prepararImpresionRecibos(seleccionados.value, {
+      puestoCodigo: String(puesto.puestoCodigo || ''),
     })
-    const head = await blob.slice(0, 5).text()
-    if (!head.startsWith('%PDF')) throw new Error('La API no devolvió un PDF válido')
-    abrirPdf(blob, `Recibos (${seleccionados.value.length})`)
+    if (!preview.abrir(prep.documentos.length === 1 ? prep.documentos[0].titulo : 'Recibos')) {
+      throw new Error('Permita las ventanas emergentes para previsualizar el documento')
+    }
+    a4Prep.value = prep
+    a4Open.value = true
+    await nextTick()
+    const html = (await a4ModalRef.value?.capturarHtmlFolio()) || ''
+    if (!html) {
+      preview.cerrar()
+      throw new Error('No hay plantilla configurada para los recibos en el puesto')
+    }
+    preview.mostrar(html, { impresoraNombre: prep.impresoraNombre })
   } catch (e: unknown) {
-    error.value = extractApiError(e, 'No se pudieron imprimir los recibos')
+    error.value = extractApiError(e, 'No se pudieron preparar los recibos')
+  } finally {
+    printing.value = false
+  }
+}
+
+async function confirmarImpresionRecibos() {
+  if (!a4Prep.value) return
+  printing.value = true
+  error.value = null
+  try {
+    const html = (await a4ModalRef.value?.capturarHtmlFolio()) || ''
+    mensaje.value = await imprimirA4Recibos(a4Prep.value, html)
+    preview.cerrar()
+    a4Open.value = false
+  } catch (e: unknown) {
+    const texto = extractApiError(e, 'No se pudieron imprimir los recibos')
+    error.value = texto
+    preview.notificarError(texto)
   } finally {
     printing.value = false
   }
@@ -349,11 +379,15 @@ onMounted(async () => {
       @cerrar="buscarClienteOpen = false"
     />
 
-    <PdfPreviewModal
-      :open="pdfOpen"
-      :url="pdfUrl"
-      :titulo="pdfTitulo"
-      @cerrar="cerrarPdf"
+    <FacturasImpresionA4Modal
+      ref="a4ModalRef"
+      :open="a4Open"
+      :documentos="a4Prep?.documentos ?? []"
+      :impresora-nombre="a4Prep?.impresoraNombre || ''"
+      :imprimiendo="printing"
+      oculto
+      @cerrar="a4Open = false"
+      @imprimir="confirmarImpresionRecibos"
     />
   </section>
 </template>

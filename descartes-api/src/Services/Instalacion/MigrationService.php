@@ -94,6 +94,9 @@ final class MigrationService
   public function aplicarTodasIdempotentes(array $config): array
   {
     $pdo = Database::createPdo($config);
+    if ($this->esMysql($pdo)) {
+      return $this->aplicarEsquemaMysql($pdo);
+    }
     $this->ensureMigrationTable($pdo);
 
     $aplicadas = [];
@@ -144,7 +147,11 @@ final class MigrationService
     }
 
     try {
-      $this->ensureMigrationTable($pdo);
+      if (!$this->esMysql($pdo)) {
+        $this->ensureMigrationTable($pdo);
+      } else {
+        $this->ensureMigrationTableMysql($pdo);
+      }
     } catch (\Throwable $e) {
       return [
         'aplicadas' => [],
@@ -200,6 +207,38 @@ final class MigrationService
     throw new RuntimeException('No se encontro el directorio database/migrations');
   }
 
+  /**
+   * @return array{aplicadas: list<string>, errores: list<string>, ok: bool}
+   */
+  private function aplicarEsquemaMysql(PDO $pdo): array
+  {
+    $errores = [];
+    $aplicadas = [];
+    try {
+      (new MysqlSchemaService())->asegurar($pdo);
+      $this->ensureMigrationTableMysql($pdo);
+      foreach (self::MIGRATION_ORDER as $filename) {
+        if (!$this->isApplied($pdo, $filename)) {
+          $this->markAppliedMysql($pdo, $filename);
+        }
+        $aplicadas[] = $filename;
+      }
+    } catch (\Throwable $e) {
+      $errores[] = $e->getMessage();
+    }
+
+    return [
+      'aplicadas' => $aplicadas,
+      'errores' => $errores,
+      'ok' => $errores === [],
+    ];
+  }
+
+  private function esMysql(PDO $pdo): bool
+  {
+    return $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
+  }
+
   private function ensureMigrationTable(PDO $pdo): void
   {
     $pdo->exec(
@@ -212,6 +251,25 @@ final class MigrationService
          );
        END'
     );
+  }
+
+  private function ensureMigrationTableMysql(PDO $pdo): void
+  {
+    $pdo->exec(
+      'CREATE TABLE IF NOT EXISTS `SchemaMigrations` (
+         `Id` varchar(80) NOT NULL,
+         `AppliedAt` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+         PRIMARY KEY (`Id`)
+       )'
+    );
+  }
+
+  private function markAppliedMysql(PDO $pdo, string $filename): void
+  {
+    $stmt = $pdo->prepare(
+      'INSERT INTO `SchemaMigrations` (`Id`, `AppliedAt`) VALUES (:id, NOW())'
+    );
+    $stmt->execute(['id' => $filename]);
   }
 
   private function isApplied(PDO $pdo, string $filename): bool

@@ -36,9 +36,16 @@ function escFeed(lines) {
   return Buffer.from([0x1b, 0x64, n]) // ESC d n
 }
 
-/** Apertura cajón pin 2 (kick). */
+/**
+ * Pulso encolado (ESC p), no en tiempo real: se ejecuta cuando la impresora
+ * llega a este punto, después del texto. 200 ms; el de 50 ms no movió el cajón.
+ * Los dos pines: el cajón solo está cableado a uno.
+ */
 function escOpenDrawer() {
-  return Buffer.from([0x1b, 0x70, 0x00, 0x19, 0xfa])
+  return Buffer.from([
+    0x1b, 0x70, 0x00, 0x64, 0xfa,
+    0x1b, 0x70, 0x01, 0x64, 0xfa,
+  ])
 }
 
 /**
@@ -190,11 +197,11 @@ function buildTicketBuffer(opts = {}) {
   }
 
   parts.push(escFeed(opts.feed != null ? opts.feed : 4))
-  if (opts.abrirCajon) {
-    parts.push(escOpenDrawer())
-  }
   if (opts.cortar !== false) {
     parts.push(escCut())
+  }
+  if (opts.abrirCajon) {
+    parts.push(escOpenDrawer())
   }
 
   return Buffer.concat(parts)

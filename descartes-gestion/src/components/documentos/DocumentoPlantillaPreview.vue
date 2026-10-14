@@ -272,6 +272,12 @@ const META_FILAS_DEFECTO = [
  * legacy la etiqueta se imprime aunque el dato venga vacío; con
  * `props.ocultarVacias` se omiten las filas sin valor.
  */
+function campoVisible(b: PlantillaBloque): boolean {
+  if (b.props?.ocultarVacio !== true) return true
+  const path = b.bind?.[0]
+  return path ? str(path) !== '' : true
+}
+
 function metaFilas(b: PlantillaBloque): { label: string; valor: string }[] {
   const paths = b.bind && b.bind.length > 0 ? b.bind : META_FILAS_DEFECTO
   const ocultarVacias = b.props?.ocultarVacias === true
@@ -323,7 +329,7 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
       <div class="folio">
         <div class="page" :style="pageStyle">
         <div
-          v-for="b in plantilla.blocks"
+          v-for="b in plantilla.blocks.filter((bloque) => bloque.type !== 'qr-verifactu')"
           :key="b.id"
           class="block"
           :class="`type-${b.type}`"
@@ -348,7 +354,7 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
               :style="textStyle(b)"
             >
               <img
-                v-if="srcEmblemaEnCabecera()"
+                v-if="srcEmblemaEnCabecera() && b.props?.logoDerecha !== true"
                 class="empresa-logo"
                 :src="srcEmblemaEnCabecera()"
                 alt=""
@@ -363,12 +369,23 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
                 <span v-if="tieneBind(b, 'empresa.fax')">Fax {{ str('empresa.fax') }}</span>
                 <span v-if="str('empresa.email')">{{ str('empresa.email') }}</span>
               </div>
+              <img
+                v-if="srcEmblemaEnCabecera() && b.props?.logoDerecha === true"
+                class="empresa-logo"
+                :src="srcEmblemaEnCabecera()"
+                alt=""
+                @error="ocultarImgRota"
+              />
             </div>
           </template>
 
           <!-- Título -->
           <template v-else-if="b.type === 'titulo-documento'">
-            <div class="titulo" :class="{ 'fs-mm': !!textStyle(b).fontSize }" :style="textStyle(b)">
+            <div
+              class="titulo"
+              :class="{ 'fs-mm': !!textStyle(b).fontSize, 'titulo-izq': b.props?.align === 'left' }"
+              :style="textStyle(b)"
+            >
               <strong>{{ b.label || 'DOCUMENTO' }}</strong>
               <span v-if="tieneBind(b, 'documento.numero')">{{ str('documento.numero') }}</span>
               <em v-if="etiquetaModo(b)">{{ etiquetaModo(b) }}</em>
@@ -392,7 +409,7 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
               :style="textStyle(b)"
             >
               <div v-if="muestraDatoCliente(b, 'cliente.codigo')" class="cli-cod">
-                <span class="chip">Cliente</span> {{ str('cliente.codigo') }}
+                <span class="chip">{{ String(b.props?.rotulo || 'Cliente') }}</span> {{ str('cliente.codigo') }}
               </div>
               <strong v-if="muestraDatoCliente(b, 'cliente.nombre')">{{
                 str('cliente.nombre')
@@ -440,7 +457,7 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
           </template>
 
           <!-- Campo genérico -->
-          <template v-else-if="b.type === 'campo'">
+          <template v-else-if="b.type === 'campo' && campoVisible(b)">
             <div
               class="campo"
               :class="{

@@ -9,14 +9,16 @@
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
-const { execFile } = require('child_process')
+const { execFile, spawn } = require('child_process')
 const { promisify } = require('util')
 
 const execFileAsync = promisify(execFile)
 
 const ASSEMBLY_VERSION = '1'
-/** Si el trabajo sigue en «Printing» tras este tiempo, se considera atascado. */
-const JOB_WAIT_MS = 8000
+/** Una mirada a la cola tras enviar: solo retenido, error o pausa. No se espera a que salga. */
+const COMPROBACION_COLA_MS = 300
+/** Tope por si el proceso deja de responder. No es la espera del ticket. */
+const RESPUESTA_MS = 12000
 
 const CSHARP = `
 using System;
@@ -143,6 +145,228 @@ Write-Output 'COMPILED'
   return dll
 }
 
+const WORKER_PS = `
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+[Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
+Add-Type -Path $args[0]
+try { Get-PrintJob -ErrorAction SilentlyContinue | Out-Null } catch {}
+[Console]::Out.WriteLine('READY')
+[Console]::Out.Flush()
+while ($true) {
+  $line = [Console]::In.ReadLine()
+  if ($null -eq $line) { break }
+  if ($line.Length -eq 0) { continue }
+  try {
+    if ($line -eq 'PING') {
+      [Console]::Out.WriteLine('PONG')
+      [Console]::Out.Flush()
+      continue
+    }
+    $tab = $line.IndexOf([char]9)
+    $tab2 = if ($tab -ge 0) { $line.IndexOf([char]9, $tab + 1) } else { -1 }
+    if ($tab -lt 1 -or $tab2 -le $tab -or $line.Substring(0, $tab) -ne 'PRINT') {
+      [Console]::Out.WriteLine('ERR:comando')
+      [Console]::Out.Flush()
+      continue
+    }
+    $printerName = $line.Substring($tab + 1, $tab2 - $tab - 1)
+    $binPath = $line.Substring($tab2 + 1)
+    Get-PrintJob -PrinterName $printerName -ErrorAction SilentlyContinue | ForEach-Object {
+      $st = [string]$_.JobStatus
+      if ($st -match 'Retain|Error|Offline|Paused') {
+        Remove-PrintJob -PrinterName $printerName -ID $_.Id -ErrorAction SilentlyContinue
+      }
+    }
+    $bytes = [System.IO.File]::ReadAllBytes($binPath)
+    [DescartesRawPrinter]::SendBytes($printerName, $bytes)
+    Start-Sleep -Milliseconds ${COMPROBACION_COLA_MS}
+    $bad = @(Get-PrintJob -PrinterName $printerName -ErrorAction SilentlyContinue |
+      Where-Object { ([string]$_.JobStatus) -match 'Retain|Error|Offline|Paused' })
+    if ($bad.Count -gt 0) {
+      [Console]::Out.WriteLine('STUCK:' + [string]$bad[0].JobStatus)
+    } else {
+      [Console]::Out.WriteLine('OK')
+    }
+  } catch {
+    [Console]::Out.WriteLine('ERR:' + $_.Exception.Message)
+  }
+  [Console]::Out.Flush()
+}
+`.trim()
+
+/** Proceso PowerShell vivo: la DLL ya está cargada y cada ticket entra por stdin. */
+let workerPromise = null
+/** Sube al cerrar, para que el fallo del proceso viejo no borre el que acaba de arrancar. */
+let workerGeneracion = 0
+/** Los tickets van de uno en uno: la respuesta de stdout tiene que coincidir con el envío. */
+let colaEnvio = Promise.resolve()
+
+function workerScriptPath(dll) {
+  return path.join(path.dirname(dll), 'raw-worker.ps1')
+}
+
+function cerrarWorker() {
+  workerGeneracion += 1
+  const actual = workerPromise
+  workerPromise = null
+  if (!actual) return
+  actual
+    .then((worker) => {
+      try {
+        worker.child.kill()
+      } catch (_) {
+        /* ignore */
+      }
+    })
+    .catch(() => {})
+}
+
+function startWorker(dll) {
+  const scriptPath = workerScriptPath(dll)
+  writePs1(scriptPath, WORKER_PS)
+  const child = spawn(
+    'powershell.exe',
+    ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, dll],
+    { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }
+  )
+  let buf = ''
+  let listo = false
+  const pendientes = []
+  let abrir
+  let fallarApertura
+  const abierto = new Promise((resolve, reject) => {
+    abrir = resolve
+    fallarApertura = reject
+  })
+
+  const rechazarPendientes = (err) => {
+    const copia = pendientes.splice(0)
+    for (const item of copia) item.reject(err)
+  }
+
+  const apertura = setTimeout(() => {
+    if (listo) return
+    try {
+      child.kill()
+    } catch (_) {
+      /* ignore */
+    }
+    fallarApertura(new Error('El envío RAW no arrancó'))
+  }, RESPUESTA_MS)
+
+  child.stderr.on('data', () => {})
+  child.stdin.on('error', () => {})
+  child.stdout.setEncoding('utf8')
+  child.stdout.on('data', (chunk) => {
+    buf += chunk
+    let corte = buf.indexOf('\n')
+    while (corte >= 0) {
+      const linea = buf.slice(0, corte).replace(/\r$/, '').replace(/^\uFEFF/, '')
+      buf = buf.slice(corte + 1)
+      corte = buf.indexOf('\n')
+      if (!linea) continue
+      if (!listo) {
+        if (linea === 'READY') {
+          listo = true
+          clearTimeout(apertura)
+          abrir(api)
+        }
+        continue
+      }
+      const item = pendientes.shift()
+      if (item) item.resolve(linea)
+    }
+  })
+  child.on('error', (err) => {
+    clearTimeout(apertura)
+    if (!listo) fallarApertura(err)
+    else rechazarPendientes(err)
+  })
+  child.on('exit', (code) => {
+    clearTimeout(apertura)
+    const err = new Error(`El envío RAW se cerró (${code == null ? 'sin código' : code})`)
+    if (!listo) fallarApertura(err)
+    else rechazarPendientes(err)
+  })
+
+  const api = {
+    child,
+    request(linea) {
+      return new Promise((resolve, reject) => {
+        if (child.exitCode != null || child.killed) {
+          reject(new Error('El envío RAW no está disponible'))
+          return
+        }
+        let cerrado = false
+        const terminar = (fn, valor) => {
+          if (cerrado) return
+          cerrado = true
+          clearTimeout(temporizador)
+          fn(valor)
+        }
+        const temporizador = setTimeout(() => {
+          terminar(reject, new Error('El envío RAW no respondió'))
+          try {
+            child.kill()
+          } catch (_) {
+            /* ignore */
+          }
+        }, RESPUESTA_MS)
+        const item = {
+          resolve: (valor) => terminar(resolve, valor),
+          reject: (err) => terminar(reject, err),
+        }
+        pendientes.push(item)
+        child.stdin.write(`${linea}\n`, 'utf8', (err) => {
+          if (!err) return
+          const idx = pendientes.indexOf(item)
+          if (idx >= 0) pendientes.splice(idx, 1)
+          terminar(reject, err)
+        })
+      })
+    },
+  }
+  return abierto
+}
+
+function ensureWorker(dll) {
+  if (!workerPromise) {
+    const gen = workerGeneracion
+    workerPromise = startWorker(dll).catch((err) => {
+      if (workerGeneracion === gen) workerPromise = null
+      throw err
+    })
+  }
+  return workerPromise
+}
+
+function encolar(tarea) {
+  const ejecucion = colaEnvio.then(tarea, tarea)
+  colaEnvio = ejecucion.then(
+    () => {},
+    () => {}
+  )
+  return ejecucion
+}
+
+async function pedirImpresion(dll, printerName, binPath) {
+  const worker = await ensureWorker(dll)
+  return worker.request(`PRINT\t${printerName}\t${binPath}`)
+}
+
+/** Arranca el proceso al abrir la aplicación, para que el primer ticket no pague el arranque. */
+async function precalentarRawPrinter() {
+  if (!isWindows()) return
+  const dll = await ensureRawPrinterDll()
+  await ensureWorker(dll)
+}
+
+function cerrarRawPrinter() {
+  cerrarWorker()
+}
+
 /**
  * @param {string} printerName nombre de impresora Windows
  * @param {Buffer} data
@@ -150,8 +374,8 @@ Write-Output 'COMPILED'
  */
 async function printRawWindows(printerName, data) {
   const name = String(printerName || '').trim()
-  if (!name) {
-    return { ok: false, message: 'Nombre de impresora vacío' }
+  if (!name || /[\t\r\n]/.test(name)) {
+    return { ok: false, message: name ? 'Nombre de impresora no válido' : 'Nombre de impresora vacío' }
   }
   if (!Buffer.isBuffer(data) || data.length === 0) {
     return { ok: false, message: 'No hay datos para imprimir' }
@@ -167,70 +391,18 @@ async function printRawWindows(printerName, data) {
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'descartes-ticket-'))
   const binPath = path.join(tmpDir, 'ticket.bin')
-  const psPath = path.join(tmpDir, 'print-raw.ps1')
 
   try {
     fs.writeFileSync(binPath, data)
-
-    const ps = `
-$ErrorActionPreference = 'Stop'
-$printerName = @'
-${name.replace(/'/g, "''")}
-'@
-$binPath = @'
-${binPath.replace(/'/g, "''")}
-'@
-$dllPath = @'
-${dll.replace(/'/g, "''")}
-'@
-
-Add-Type -Path $dllPath
-
-Get-PrintJob -PrinterName $printerName -ErrorAction SilentlyContinue | ForEach-Object {
-  $st = [string]$_.JobStatus
-  if ($st -match 'Retain|Error|Offline|Paused') {
-    Remove-PrintJob -PrinterName $printerName -ID $_.Id -ErrorAction SilentlyContinue
-  }
-}
-
-$bytes = [System.IO.File]::ReadAllBytes($binPath)
-[DescartesRawPrinter]::SendBytes($printerName, $bytes)
-
-$started = Get-Date
-$deadline = $started.AddMilliseconds(${JOB_WAIT_MS})
-do {
-  Start-Sleep -Milliseconds 200
-  $jobs = @(Get-PrintJob -PrinterName $printerName -ErrorAction SilentlyContinue |
-    Where-Object { $_.PagesPrinted -eq 0 -and ([string]$_.JobStatus) -match 'Print|Retain|Error|Offline|Paused' })
-  $elapsed = ((Get-Date) - $started).TotalMilliseconds
-  if ($jobs.Count -eq 0) {
-    if ($elapsed -ge 400) {
-      Write-Output 'OK'
-      exit 0
-    }
-    continue
-  }
-  $st = [string]$jobs[0].JobStatus
-  if ($st -match 'Retain|Error|Offline|Paused') {
-    Write-Output ('STUCK:' + $st)
-    exit 0
-  }
-  if ((Get-Date) -ge $deadline) {
-    Write-Output ('STUCK:' + $st)
-    exit 0
-  }
-} while ($true)
-`.trim()
-
-    writePs1(psPath, ps)
-
-    const { stdout, stderr } = await execFileAsync(
-      'powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', psPath],
-      { windowsHide: true, timeout: JOB_WAIT_MS + 15000, maxBuffer: 1024 * 1024 }
-    )
-
-    const out = String(stdout || '').trim()
+    const linea = await encolar(async () => {
+      try {
+        return await pedirImpresion(dll, name, binPath)
+      } catch (_) {
+        cerrarWorker()
+        return pedirImpresion(dll, name, binPath)
+      }
+    })
+    const out = String(linea || '').trim()
     if (out.startsWith('STUCK:')) {
       return {
         ok: false,
@@ -239,20 +411,16 @@ do {
         message: 'El ticket sigue en la cola de impresión',
       }
     }
-    if (!out.includes('OK')) {
-      return {
-        ok: false,
-        message: stderr ? String(stderr).slice(0, 400) : 'Impresión RAW sin confirmación',
-      }
+    if (out.startsWith('ERR:')) {
+      return { ok: false, message: out.slice('ERR:'.length).trim().slice(0, 500) }
+    }
+    if (out !== 'OK') {
+      return { ok: false, message: out ? out.slice(0, 400) : 'Impresión RAW sin confirmación' }
     }
     return { ok: true, message: `Ticket enviado a «${name}» (${data.length} bytes RAW)` }
   } catch (err) {
     const msg = err && err.message ? String(err.message) : String(err)
-    const stderr = err && err.stderr ? String(err.stderr) : ''
-    return {
-      ok: false,
-      message: (stderr || msg).slice(0, 500),
-    }
+    return { ok: false, message: msg.slice(0, 500) }
   } finally {
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true })
@@ -265,4 +433,6 @@ do {
 module.exports = {
   isWindows,
   printRawWindows,
+  precalentarRawPrinter,
+  cerrarRawPrinter,
 }

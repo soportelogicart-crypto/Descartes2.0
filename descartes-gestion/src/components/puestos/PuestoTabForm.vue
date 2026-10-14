@@ -9,6 +9,8 @@ import {
   listarImpresorasSistema,
   type ImpresoraSistema,
 } from '@/composables/useImpresorasSistema'
+import { documentosPlantillas } from '@/config/documentos-plantillas'
+import { clonePlantilla } from '@/composables/impresionDocumentoA4Shared'
 
 const props = defineProps<{
   sections: PuestoSection[]
@@ -84,7 +86,13 @@ async function cargarPlantillas() {
   plantillasError.value = null
   try {
     // Sin filtrar por empresa: las plantillas pueden estar en otra tienda que la de arqueo.
-    const { data } = await api.get('/api/mantenimiento/documento-plantillas')
+    const emp = empresaPlantillas.value
+    const { data } = emp
+      ? await api.post('/api/mantenimiento/documento-plantillas/sembrar', {
+          empresaCodigo: emp,
+          skeletons: documentosPlantillas.map((p) => clonePlantilla(p)),
+        })
+      : await api.get('/api/mantenimiento/documento-plantillas')
     let lista = ((data?.items ?? []) as Record<string, unknown>[]).map((p) => ({
       id: Number(p.id),
       tipo: String(p.tipo ?? ''),
@@ -92,7 +100,6 @@ async function cargarPlantillas() {
       activa: Boolean(p.activa),
       empresaCodigo: String(p.empresaCodigo ?? '').trim(),
     }))
-    const emp = empresaPlantillas.value
     if (emp) {
       const deEmpresa = lista.filter((p) => p.empresaCodigo.toUpperCase() === emp)
       if (deEmpresa.length > 0) lista = deEmpresa
@@ -113,9 +120,7 @@ async function cargarPlantillas() {
 function plantillasPara(row: PuestoImpresoraDoc): PlantillaOpcion[] {
   if (!row.plantillaTipo) return plantillas.value
   const tipos = Array.isArray(row.plantillaTipo) ? row.plantillaTipo : [row.plantillaTipo]
-  const matched = plantillas.value.filter((p) => tipos.includes(p.tipo))
-  // Si no hay del tipo (p.ej. creó «Albaran» con otro tipo), mostrar todas para poder elegirla.
-  return matched.length > 0 ? matched : plantillas.value
+  return plantillas.value.filter((p) => tipos.includes(p.tipo))
 }
 
 function etiquetaPlantilla(p: PlantillaOpcion, row: PuestoImpresoraDoc): string {
@@ -134,6 +139,16 @@ function etiquetaPlantilla(p: PlantillaOpcion, row: PuestoImpresoraDoc): string 
           ? 'Fac. crédito'
             : p.tipo === 'factura-rectificativa'
             ? 'Rectificativa'
+            : p.tipo === 'presupuesto'
+              ? 'Presupuesto'
+              : p.tipo === 'pedido-compra'
+                ? 'Ped. compra'
+                : p.tipo === 'albaran-compra'
+                  ? 'Alb. compra'
+                  : p.tipo === 'pedido-cliente'
+                    ? 'Ped. cliente'
+                    : p.tipo === 'recibo'
+                      ? 'Recibo'
             : p.tipo === 'ticket'
               ? 'Ticket'
               : p.tipo === 'etiqueta'

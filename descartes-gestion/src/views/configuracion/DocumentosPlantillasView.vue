@@ -34,6 +34,11 @@ const TIPOS_TODOS: { value: DocumentoTipo; label: string }[] = [
   { value: 'factura-contado', label: 'Factura contado' },
   { value: 'factura-credito', label: 'Factura crédito' },
   { value: 'factura-rectificativa', label: 'Rectificativa' },
+  { value: 'presupuesto', label: 'Presupuesto' },
+  { value: 'pedido-compra', label: 'Pedido de compras' },
+  { value: 'albaran-compra', label: 'Albarán de compras' },
+  { value: 'pedido-cliente', label: 'Pedido de cliente' },
+  { value: 'recibo', label: 'Recibo' },
   { value: 'ticket', label: 'Ticket 80 mm' },
   { value: 'etiqueta', label: 'Etiqueta' },
 ]
@@ -153,17 +158,39 @@ function etiquetaTipo(tipo: string) {
   return TIPOS_TODOS.find((t) => t.value === tipo)?.label ?? tipo
 }
 
+/** Quita el bloque QR tributario de una plantilla ya guardada. */
+function quitarQr(p: DocumentoPlantilla): { plantilla: DocumentoPlantilla; cambio: boolean } {
+  if (!p.blocks.some((b) => b.type === 'qr-verifactu')) {
+    return { plantilla: p, cambio: false }
+  }
+  return {
+    cambio: true,
+    plantilla: {
+      ...p,
+      blocks: p.blocks.filter((b) => b.type !== 'qr-verifactu'),
+    },
+  }
+}
+
 function aplicarItem(item: DocumentoPlantillaServidor) {
   silenciarDirty.value = true
   plantillaId.value = item.id
-  draft.value = {
-    ...item.definicion,
-    nombre: item.nombre,
-    descripcion: item.descripcion ?? item.definicion.descripcion,
-    // `version` es la del diseño (esqueleto), no la de la fila del servidor.
-    tipo: item.tipo as DocumentoPlantilla['tipo'],
-  }
-  dirty.value = false
+  const base = esqueletoPorTipo(item.tipo, item.definicion.id)
+  const reemplazar =
+    item.definicion.id === 'albaran-compra-std' &&
+    !!base &&
+    base.version > Number(item.definicion.version ?? 0)
+  const origen: DocumentoPlantilla = reemplazar
+    ? { ...base!, nombre: item.nombre, descripcion: item.descripcion ?? base!.descripcion }
+    : {
+        ...item.definicion,
+        nombre: item.nombre,
+        descripcion: item.descripcion ?? item.definicion.descripcion,
+        tipo: item.tipo as DocumentoPlantilla['tipo'],
+      }
+  const sinQr = quitarQr(origen)
+  draft.value = sinQr.plantilla
+  dirty.value = reemplazar || sinQr.cambio
   void nextTick(() => {
     silenciarDirty.value = false
   })

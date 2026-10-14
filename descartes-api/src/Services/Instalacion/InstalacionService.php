@@ -70,6 +70,7 @@ final class InstalacionService
       'configurado' => $configurado,
       'primeraVez' => $primeraVez,
       'origen' => $origen,
+      'motor' => $config['motor'] ?? 'sqlsrv',
       'tipo' => $config['tipo'] ?? 'local',
       'server' => $config['server'],
       'database' => $config['database'],
@@ -285,7 +286,7 @@ final class InstalacionService
    */
   private function diagnosticoEsquema(PDO $pdo, array $config): array
   {
-    $row = $pdo->query('SELECT @@SERVERNAME AS servidorSql, DB_NAME() AS baseDatos')->fetch(PDO::FETCH_ASSOC);
+    $row = $pdo->query('SELECT @@SERVERNAME AS servidorSql, DB_NAME() AS baseDatos')->fetch(PDO::FETCH_ASSOC) ?: [];
     $columnas = [];
     $stmt = $pdo->query(
       "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
@@ -372,10 +373,16 @@ final class InstalacionService
 
     $user = trim((string) ($body['user'] ?? $body['dbUser'] ?? ''));
     if ($user === '') {
-      throw new InvalidArgumentException('Indique el usuario de SQL Server');
+      throw new InvalidArgumentException('Indique el usuario de la base de datos');
+    }
+
+    $motor = strtolower(trim((string) ($body['motor'] ?? 'sqlsrv')));
+    if (!in_array($motor, ['sqlsrv', 'mysql'], true)) {
+      $motor = 'sqlsrv';
     }
 
     return Database::prepareConfig([
+      'motor' => $motor,
       'tipo' => $tipo,
       'server' => $serverRaw,
       'database' => $database,

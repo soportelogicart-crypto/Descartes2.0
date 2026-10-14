@@ -249,6 +249,7 @@ export type ArqueoLinea = {
   diferencia?: number
   agrupacion?: number
   cantidad?: number
+  abrirCajon?: boolean
   cajonElectronico?: boolean
 }
 

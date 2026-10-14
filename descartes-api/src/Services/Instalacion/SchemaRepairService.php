@@ -30,6 +30,29 @@ final class SchemaRepairService
   public function asegurarExtensionesBase(PDO $pdo): array
   {
     $faltantesAntes = $this->extensionesFaltantes($pdo);
+    if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
+      if ($faltantesAntes !== []) {
+        try {
+          (new MysqlSchemaService())->asegurar($pdo);
+        } catch (\Throwable $e) {
+          return [
+            'ok' => false,
+            'reparado' => false,
+            'faltantes' => $faltantesAntes,
+            'errores' => [$e->getMessage()],
+          ];
+        }
+      }
+      $restantes = $this->extensionesFaltantes($pdo);
+      return [
+        'ok' => $restantes === [],
+        'reparado' => $faltantesAntes !== [],
+        'faltantes' => $restantes,
+        'errores' => $restantes !== []
+          ? ['Tras actualizar siguen faltando: ' . implode(', ', $restantes)]
+          : [],
+      ];
+    }
 
     try {
       $this->migrations->aplicarArchivoIdempotente($pdo, '001-mantenimiento-extensiones.sql');
@@ -79,18 +102,35 @@ final class SchemaRepairService
   {
     $stmt = $pdo->prepare(
       'SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
-       WHERE TABLE_SCHEMA = \'dbo\' AND TABLE_NAME = :table AND COLUMN_NAME = :column'
+       WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table AND COLUMN_NAME = :column'
     );
-    $stmt->execute(['table' => $table, 'column' => $column]);
+    $stmt->execute([
+      'schema' => $this->schemaActual($pdo),
+      'table' => $table,
+      'column' => $column,
+    ]);
     return (bool) $stmt->fetchColumn();
   }
 
   private function tableExists(PDO $pdo, string $table): bool
   {
     $stmt = $pdo->prepare(
-      'SELECT CASE WHEN OBJECT_ID(:fullName, \'U\') IS NULL THEN 0 ELSE 1 END'
+      'SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+       WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table'
     );
-    $stmt->execute(['fullName' => 'dbo.' . $table]);
+    $stmt->execute([
+      'schema' => $this->schemaActual($pdo),
+      'table' => $table,
+    ]);
     return (bool) $stmt->fetchColumn();
+  }
+
+  private function schemaActual(PDO $pdo): string
+  {
+    if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
+      $nombre = $pdo->query('SELECT DATABASE()')->fetchColumn();
+      return trim((string) $nombre);
+    }
+    return 'dbo';
   }
 }

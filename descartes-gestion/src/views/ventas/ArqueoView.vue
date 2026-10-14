@@ -13,6 +13,7 @@ import type { ArqueoLinea, ArqueoResponse } from '@/types/ventas'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { ANCHO_TICKET, centrarTicket } from '@/composables/comprobanteTarjeta'
 import { imprimirTicketTermica } from '@/composables/impresionTicketTermica'
+import { abrirCajonPuesto } from '@/composables/abrirCajonPuesto'
 import { TICKET_MARCA_GRANDE } from '@/config/documentos-plantillas/ticket-texto'
 import { usePdfPreview } from '@/composables/usePdfPreview'
 import { usePermisos } from '@/composables/usePermisos'
@@ -357,6 +358,13 @@ async function confirmarCerrar() {
   saving.value = true
   error.value = null
   mensaje.value = null
+  const salidaFisica =
+    (Number(cierreForm.value.salidaBanco) || 0) > 0 ||
+    (Number(cierreForm.value.salidaSiguienteSesion) || 0) > 0
+  const formaCierre = cierreForm.value.formaPagoEfectivo.trim()
+  const abreCajonCierre = Boolean(
+    data.value.lineas.find((item) => item.formaPago === formaCierre)?.abrirCajon
+  )
   try {
     const res = await cerrarSesionArqueo(emp, pue, ses, {
       salidaBanco: Number(cierreForm.value.salidaBanco) || 0,
@@ -373,6 +381,16 @@ async function confirmarCerrar() {
     if (p) p.ultSesion = res.sesionNueva.sesion
     const fp = cierreForm.value.formaPagoEfectivo.trim()
     mensaje.value = `Sesion ${ses} cerrada. Nueva sesion ${res.sesionNueva.sesion} abierta. Descuadre: ${res.descuadreEfectivo.toFixed(2)}${fp ? ` · Efectivo: ${fp}` : ''}`
+    if (salidaFisica && abreCajonCierre) {
+      try {
+        await abrirCajonPuesto(pue)
+      } catch (e: unknown) {
+        error.value = extractApiError(
+          e,
+          'La sesión quedó cerrada, pero no se pudo abrir el cajón'
+        )
+      }
+    }
   } catch (e: unknown) {
     const msg = extractApiError(e, 'No se pudo cerrar la sesion')
     error.value = msg
@@ -426,6 +444,19 @@ async function confirmarMovimiento() {
         despues != null
           ? `Entrada de caja +${importe.toFixed(2)} en ${mov?.formaPago ?? movForm.value.formaPago}. Acumulado: ${Number(despues).toFixed(2)} (la Diferencia negativa es normal hasta introducir el arqueo físico).`
           : `Entrada de caja registrada (+${importe.toFixed(2)} en Acumulado)`
+      const linea = data.value.lineas.find(
+        (item) => item.formaPago === (mov?.formaPago ?? movForm.value.formaPago)
+      )
+      if (linea?.abrirCajon) {
+        try {
+          await abrirCajonPuesto(pue)
+        } catch (e: unknown) {
+          error.value = extractApiError(
+            e,
+            'La entrada quedó registrada, pero no se pudo abrir el cajón'
+          )
+        }
+      }
     } else {
       const base =
         mov?.acumuladoDespues != null
@@ -495,7 +526,6 @@ function textoComprobanteSalida(res: ArqueoResponse): string {
 async function imprimirComprobanteSalida(res: ArqueoResponse): Promise<string> {
   const forma = String(res.ultimoMovimiento?.formaPago ?? '').trim()
   const linea = res.lineas.find((l) => l.formaPago === forma)
-  const esEfectivo = (linea?.agrupacion ?? 0) === 0
   try {
     const print = await imprimirTicketTermica({
       puestoCodigo: form.value.puesto.trim(),
@@ -503,7 +533,7 @@ async function imprimirComprobanteSalida(res: ArqueoResponse): Promise<string> {
       tipo: 'salida-caja',
       empresa: res.empresa,
       sesion: res.sesion,
-      abrirCajon: esEfectivo,
+      abrirCajon: Boolean(linea?.abrirCajon),
     })
     return print.stub
       ? `Comprobante (prueba): ${print.message}`
@@ -644,6 +674,21 @@ async function leerCajon() {
     mensaje.value = `Cajón leído: ${forma} = ${importe.toFixed(2)}. Revise y pulse Confirmar arqueo.`
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudo leer el cajón')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function abrirCajonManual() {
+  const pue = form.value.puesto.trim()
+  if (!pue || saving.value) return
+  saving.value = true
+  error.value = null
+  mensaje.value = null
+  try {
+    mensaje.value = await abrirCajonPuesto(pue)
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo abrir el cajón')
   } finally {
     saving.value = false
   }
@@ -860,6 +905,16 @@ onMounted(async () => {
           @click="leerCajon"
         >
           Leer cajón
+        </button>
+        <button
+          v-if="puedeMovimiento && !editando"
+          type="button"
+          class="tool-btn"
+          :disabled="loading || saving"
+          title="Abrir el cajón físico conectado a la impresora de tickets"
+          @click="abrirCajonManual"
+        >
+          Abrir cajón
         </button>
         <span class="toolbar-sep" aria-hidden="true"></span>
         <button type="button" class="tool-btn" :disabled="loading || !data.lineas.length" @click="imprimirPantalla">

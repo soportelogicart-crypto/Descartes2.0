@@ -14,22 +14,11 @@ export const plantillaAlbaran: DocumentoPlantilla = {
   },
   blocks: [
     {
-      id: 'qr-tributario',
-      type: 'qr-verifactu',
-      x: 10,
-      y: 10,
-      w: 28,
-      h: 28,
-      label: 'QR tributario',
-      bind: ['verifactu.qrPayload', 'verifactu.url'],
-      props: { quietZoneMm: 1, errorCorrection: 'M', rotulo: 'VERI*FACTU' },
-    },
-    {
       id: 'empresa',
       type: 'empresa-cabecera',
-      x: 40,
+      x: 10,
       y: 10,
-      w: 76,
+      w: 106,
       h: 28,
       bind: [
         'empresa.nombre',

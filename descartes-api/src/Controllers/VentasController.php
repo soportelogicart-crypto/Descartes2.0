@@ -574,6 +574,18 @@ final class VentasController
     }
   }
 
+  public function abrirCajonDispositivo(Request $request, Response $response, array $args): Response
+  {
+    try {
+      $item = $this->dispositivos->abrirCajon(trim((string) ($args['puesto'] ?? '')));
+      return $this->json($response, 200, $item);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
   public function imprimirDispositivo(Request $request, Response $response, array $args): Response
   {
     $body = (array) ($request->getParsedBody() ?? []);

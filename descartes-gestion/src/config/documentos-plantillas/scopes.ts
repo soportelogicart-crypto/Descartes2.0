@@ -20,11 +20,22 @@ export const DOCUMENTOS_PLANTILLAS_SCOPES: Record<
   albaranes: {
     id: 'albaranes',
     titulo: 'Albaranes y facturas',
-    descripcionHub: 'Plantillas A4: albarán, factura contado, crédito y rectificativa.',
+    descripcionHub:
+      'Plantillas A4: albarán, facturas, presupuesto, pedidos, albarán de compra y recibo.',
     intro:
       'Diseñador A4 por empresa. Albaranes y facturas. Guardar actualiza la seleccionada; Nueva / Guardar como… crean otra sin sobrescribir.',
     ruta: '/configuracion/albaranes',
-    tipos: ['albaran', 'factura-contado', 'factura-credito', 'factura-rectificativa'],
+    tipos: [
+      'albaran',
+      'factura-contado',
+      'factura-credito',
+      'factura-rectificativa',
+      'presupuesto',
+      'pedido-compra',
+      'albaran-compra',
+      'pedido-cliente',
+      'recibo',
+    ],
     tipoDefault: 'albaran',
   },
   tickets: {

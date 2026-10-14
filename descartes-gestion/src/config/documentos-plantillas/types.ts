@@ -3,6 +3,11 @@ export type DocumentoTipo =
   | 'factura-contado'
   | 'factura-credito'
   | 'factura-rectificativa'
+  | 'presupuesto'
+  | 'pedido-compra'
+  | 'albaran-compra'
+  | 'pedido-cliente'
+  | 'recibo'
   | 'ticket'
   /** Etiqueta de artículo (005): tamaño mm configurable. */
   | 'etiqueta'

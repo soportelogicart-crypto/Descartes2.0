@@ -244,6 +244,8 @@ export type FacturaDocumento = {
     impRetIrpf: number
     liquido: number
   }
+  /** Factura rectificada, legible (p. ej. F/26000436). Vacío si no aplica. */
+  facturaOrigen?: string
 }
 
 export type FacturasImpresionListResponse = {

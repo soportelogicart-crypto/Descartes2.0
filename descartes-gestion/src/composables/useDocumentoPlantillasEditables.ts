@@ -80,17 +80,11 @@ export function useDocumentoPlantillasEditables() {
     limpiarLegacyLocal()
     cargando.value = true
     try {
-      const { data } = await api.get('/api/mantenimiento/documento-plantillas', {
-        params: { empresa },
+      const { data } = await api.post('/api/mantenimiento/documento-plantillas/sembrar', {
+        empresaCodigo: empresa,
+        skeletons: documentosPlantillas.map((p) => clonePlantilla(p)),
       })
-      let lista = ((data?.items ?? []) as Record<string, unknown>[]).map(mapItem)
-      if (lista.length === 0) {
-        const { data: seeded } = await api.post('/api/mantenimiento/documento-plantillas/sembrar', {
-          empresaCodigo: empresa,
-          skeletons: documentosPlantillas.map((p) => clonePlantilla(p)),
-        })
-        lista = ((seeded?.items ?? []) as Record<string, unknown>[]).map(mapItem)
-      }
+      const lista = ((data?.items ?? []) as Record<string, unknown>[]).map(mapItem)
       items.value = lista
       return { ok: true, message: lista.length ? 'Plantillas cargadas del servidor.' : 'Sin plantillas.' }
     } catch (e: unknown) {

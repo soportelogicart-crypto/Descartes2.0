@@ -194,7 +194,10 @@ export type DescartesBridge = {
     pageHeightMm?: number
   }) => Promise<{ ok: boolean; pdfBase64?: string; message?: string }>
   printLabel: (payload: PrintLabelPayload) => Promise<PrintLabelResult>
-  openCashDrawer: () => Promise<{ ok: boolean; stub?: boolean; message?: string }>
+  openCashDrawer: (payload?: {
+    impresora?: string
+    printerName?: string
+  }) => Promise<{ ok: boolean; stub?: boolean; impresora?: string; message?: string }>
   readCashDrawer: (payload?: {
     formaPago?: string
     puesto?: string

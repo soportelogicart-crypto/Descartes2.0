@@ -9,6 +9,7 @@ import {
   probarInstalacion,
   type InstalacionEstado,
   type InstalacionDiagnostico,
+  type MotorBd,
   type TipoConexionBd,
 } from '@/api/instalacion'
 import {
@@ -23,6 +24,7 @@ const router = useRouter()
 const auth = useAuthStore()
 
 const form = reactive({
+  motor: 'sqlsrv' as MotorBd,
   tipo: 'local' as TipoConexionBd,
   server: 'localhost',
   database: '',
@@ -59,14 +61,18 @@ const diagnosticoActual = computed(() => diagnostico.value ?? estado.value?.diag
 const necesitaActualizarEsquema = computed(
   () => estado.value?.conexionOk === true && estado.value?.esquemaOk === false
 )
-const tituloServidor = computed(() =>
-  form.tipo === 'nube' ? 'URL del servidor SQL' : 'Servidor SQL (local / red)'
-)
-const ayudaServidor = computed(() =>
-  form.tipo === 'nube'
+const tituloServidor = computed(() => {
+  if (form.motor === 'mysql') return 'Servidor MySQL'
+  return form.tipo === 'nube' ? 'URL del servidor SQL' : 'Servidor SQL (local / red)'
+})
+const ayudaServidor = computed(() => {
+  if (form.motor === 'mysql') return 'Ej: localhost, localhost:3306 o 192.168.x.x'
+  return form.tipo === 'nube'
     ? 'Ej: mi-empresa.database.windows.net (Azure SQL) o la URL que le haya dado su proveedor.'
     : 'Ej: wslogicartbd, localhost, .\\SQLEXPRESS o 192.168.x.x'
-)
+})
+const tituloUsuario = computed(() => (form.motor === 'mysql' ? 'Usuario MySQL' : 'Usuario SQL'))
+const tituloClave = computed(() => (form.motor === 'mysql' ? 'Contrasena MySQL' : 'Contrasena SQL'))
 
 function mostrarFeedback(tipo: FeedbackTipo, texto: string | null) {
   feedbackTipo.value = tipo
@@ -166,6 +172,7 @@ async function cargarEstado() {
   try {
     estado.value = await getInstalacionEstado({ refrescar: true })
     diagnostico.value = estado.value.diagnostico ?? null
+    if (estado.value.motor) form.motor = estado.value.motor
     if (estado.value.tipo) form.tipo = estado.value.tipo
     if (estado.value.server) form.server = estado.value.server
     if (estado.value.database) form.database = estado.value.database
@@ -319,6 +326,18 @@ onMounted(() => {
         </fieldset>
 
         <fieldset class="tipo-conexion">
+          <legend>Motor de la base</legend>
+          <label class="radio">
+            <input v-model="form.motor" type="radio" value="sqlsrv" />
+            SQL Server
+          </label>
+          <label class="radio">
+            <input v-model="form.motor" type="radio" value="mysql" />
+            MySQL
+          </label>
+        </fieldset>
+
+        <fieldset v-if="form.motor === 'sqlsrv'" class="tipo-conexion">
           <legend>Tipo de conexion</legend>
           <label class="radio">
             <input v-model="form.tipo" type="radio" value="local" />
@@ -335,7 +354,7 @@ onMounted(() => {
           <input
             v-model="form.server"
             autocomplete="off"
-            :placeholder="form.tipo === 'nube' ? 'mi-servidor.database.windows.net' : 'wslogicartbd'"
+            :placeholder="form.motor === 'mysql' ? 'localhost:3306' : form.tipo === 'nube' ? 'mi-servidor.database.windows.net' : 'wslogicartbd'"
           />
           <span class="hint">{{ ayudaServidor }}</span>
         </label>
@@ -344,14 +363,14 @@ onMounted(() => {
           <input v-model="form.database" autocomplete="off" placeholder="Ej: LOGIA" />
         </label>
         <label>
-          Usuario SQL
-          <input v-model="form.user" autocomplete="off" placeholder="Ej: sa" />
+          {{ tituloUsuario }}
+          <input v-model="form.user" autocomplete="off" :placeholder="form.motor === 'mysql' ? 'Ej: root' : 'Ej: sa'" />
         </label>
         <label>
-          Contrasena SQL
+          {{ tituloClave }}
           <input v-model="form.password" type="password" autocomplete="new-password" />
         </label>
-        <label class="checkbox">
+        <label v-if="form.motor === 'sqlsrv'" class="checkbox">
           <input v-model="form.trustCert" type="checkbox" />
           Confiar en certificado del servidor
         </label>

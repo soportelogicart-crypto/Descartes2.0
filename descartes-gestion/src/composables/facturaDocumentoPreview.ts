@@ -174,6 +174,7 @@ export function facturaAPreviewDatos(
       portes: '',
       observaciones: '',
       formaPago: doc.formaPago.descripcion || doc.formaPago.codigo,
+      facturaOrigen: doc.facturaOrigen || '',
       codigoBarras: `*${doc.empresa}${doc.factura}*`,
       pagina: '1/1',
     },

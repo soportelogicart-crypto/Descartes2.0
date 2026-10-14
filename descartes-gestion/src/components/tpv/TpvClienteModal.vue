@@ -167,18 +167,20 @@ function etiqueta(c: TpvCliente): string {
           @limpiar="limpiar"
         />
 
-        <p v-if="error" class="error">{{ error }}</p>
+        <div class="resultados" :class="{ fija: tecladoVisible }">
+          <p v-if="error" class="error">{{ error }}</p>
 
-        <ul v-if="resultados.length" class="lista">
-          <li v-for="c in resultados" :key="c.codigo">
-            <button type="button" class="fila" @click="emit('seleccionar', c)">
-              <span class="nombre">{{ c.razonSocial || '(sin nombre)' }}</span>
-              <span class="datos">{{ etiqueta(c) }}</span>
-              <span class="cod">{{ c.codigo }}</span>
-            </button>
-          </li>
-        </ul>
-        <p v-else-if="buscado && !buscando" class="vacio">Ningun cliente coincide con la busqueda</p>
+          <ul v-if="resultados.length" class="lista">
+            <li v-for="c in resultados" :key="c.codigo">
+              <button type="button" class="fila" @click="emit('seleccionar', c)">
+                <span class="nombre">{{ c.razonSocial || '(sin nombre)' }}</span>
+                <span class="datos">{{ etiqueta(c) }}</span>
+                <span class="cod">{{ c.codigo }}</span>
+              </button>
+            </li>
+          </ul>
+          <p v-else-if="buscado && !buscando" class="vacio">Ningun cliente coincide con la busqueda</p>
+        </div>
       </div>
 
       <footer class="pie">
@@ -197,8 +199,10 @@ function etiqueta(c: TpvCliente): string {
   inset: 0;
   z-index: 60;
   display: flex;
-  align-items: center;
+  /* Arriba y no centrada: al crecer con los resultados, el teclado no sube bajo el dedo. */
+  align-items: flex-start;
   justify-content: center;
+  padding-top: 4vh;
   background: rgba(0, 0, 0, 0.45);
 }
 
@@ -274,6 +278,19 @@ function etiqueta(c: TpvCliente): string {
   outline: none;
   border-color: #2563eb;
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+}
+
+.resultados {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 0;
+}
+
+/* Con el teclado en pantalla, la ventana mide lo mismo antes y después de buscar. */
+.resultados.fija {
+  flex: 0 1 14rem;
+  height: 14rem;
 }
 
 .error {

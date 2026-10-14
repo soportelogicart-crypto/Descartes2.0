@@ -143,7 +143,10 @@ export function resolverPlantilla(
   const aplicar = (p: DocumentoPlantilla) => plantillaVigente(p, tipoPreferido)
   const nombre = nombrePreferido.trim()
   if (nombre) {
-    const byName = lista.find((p) => p.nombre.trim().toLowerCase() === nombre.toLowerCase())
+    const byName = lista.find(
+      (p) =>
+        p.tipo === tipoPreferido && p.nombre.trim().toLowerCase() === nombre.toLowerCase()
+    )
     if (byName) return aplicar(byName.definicion)
   }
   const activa = lista.find((p) => p.tipo === tipoPreferido && p.activa)
@@ -204,6 +207,7 @@ export function extrasEmpresaDesdeTienda(
   literalFacturaContado: string
   literalPresupuesto: string
   literalVale: string
+  literalPedidoCompra: string
   preciosIvaIncluido: boolean
   emblemaUrl: string
 } {
@@ -222,6 +226,7 @@ export function extrasEmpresaDesdeTienda(
     literalFacturaContado: String(tienda.literalFacturaContado ?? ''),
     literalPresupuesto: String(tienda.literalPresupuesto ?? ''),
     literalVale: String(tienda.literalVale ?? ''),
+    literalPedidoCompra: String(tienda.litPiePedidoCompra ?? tienda.literalPedidoCompra ?? ''),
     // Empresas.SW_IVA: precios de línea con IVA incluido.
     preciosIvaIncluido: Boolean(tienda.swIva),
     emblemaUrl: '',
@@ -287,7 +292,10 @@ export async function prepararImpresionA4Puesto(opciones: {
 }
 
 /** Imprime HTML A4 vía bridge Electron o diálogo del navegador (sin marcar documento). */
-export async function imprimirA4Html(prep: PrepImpresionA4, html: string): Promise<string> {
+export async function imprimirA4Html(
+  prep: Pick<PrepImpresionA4, 'impresoraNombre' | 'impresoraId'>,
+  html: string
+): Promise<string> {
   if (!html.trim()) {
     throw new Error('No se pudo generar el documento A4')
   }

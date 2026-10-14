@@ -163,7 +163,7 @@ final class DocumentoPlantillasService
   }
 
   /**
-   * Si no hay plantillas para la empresa, inserta esqueletos base.
+   * Inserta los esqueletos cuyo id aún no está guardado. No modifica las plantillas existentes.
    *
    * @param list<array<string, mixed>> $skeletons
    * @return list<array<string, mixed>>
@@ -171,13 +171,24 @@ final class DocumentoPlantillasService
   public function sembrar(string $empresaCodigo, array $skeletons): array
   {
     $empresa = $this->normEmpresa($empresaCodigo);
-    $existentes = $this->repository->list($empresa, null);
-    if ($existentes !== []) {
-      return $this->listar($empresa, null);
+    $ids = [];
+    foreach ($this->listar($empresa, null) as $item) {
+      $def = $item['definicion'] ?? null;
+      if (!is_array($def)) {
+        continue;
+      }
+      $id = trim((string) ($def['id'] ?? ''));
+      if ($id !== '') {
+        $ids[$id] = true;
+      }
     }
 
     foreach ($skeletons as $sk) {
       if (!is_array($sk)) {
+        continue;
+      }
+      $id = trim((string) ($sk['id'] ?? ''));
+      if ($id === '' || isset($ids[$id])) {
         continue;
       }
       $this->crear([
@@ -186,9 +197,10 @@ final class DocumentoPlantillasService
         'nombre' => (string) ($sk['nombre'] ?? 'Plantilla'),
         'descripcion' => (string) ($sk['descripcion'] ?? ''),
         'version' => (int) ($sk['version'] ?? 1),
-        'activa' => true,
+        'activa' => false,
         'definicion' => $sk,
       ]);
+      $ids[$id] = true;
     }
 
     return $this->listar($empresa, null);

@@ -23,6 +23,10 @@ const emit = defineEmits<{
 
 const previewHost = ref<HTMLElement | null>(null)
 
+function claveDoc(doc: FacturaImpresionPreparada): string {
+  return doc.folioId || `${doc.clave.empresa}|${doc.clave.facturaTipo}|${doc.clave.factura}`
+}
+
 const puedeImprimir = computed(() => props.documentos.length > 0)
 
 watch(
@@ -95,7 +99,7 @@ defineExpose({ capturarHtmlFolio })
       <div ref="previewHost">
         <DocumentoPlantillaPreview
           v-for="doc in documentos"
-          :key="`${doc.clave.empresa}|${doc.clave.facturaTipo}|${doc.clave.factura}`"
+          :key="claveDoc(doc)"
           :plantilla="doc.plantilla"
           :datos="doc.datos"
         />
@@ -125,7 +129,7 @@ defineExpose({ capturarHtmlFolio })
           <p v-if="cargando" class="warn">Cargando el documento…</p>
           <p v-else-if="errorCarga" class="warn">{{ errorCarga }}</p>
           <template v-else-if="documentos.length">
-            <div v-for="doc in documentos" :key="`${doc.clave.empresa}|${doc.clave.facturaTipo}|${doc.clave.factura}`" class="doc">
+            <div v-for="doc in documentos" :key="claveDoc(doc)" class="doc">
               <p v-if="documentos.length > 1" class="doc-titulo">{{ doc.titulo }}</p>
               <DocumentoPlantillaPreview :plantilla="doc.plantilla" :datos="doc.datos" />
             </div>

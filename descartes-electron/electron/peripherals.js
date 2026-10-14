@@ -7,8 +7,8 @@
 const { BrowserWindow, nativeImage } = require('electron')
 const { execFile } = require('child_process')
 const { promisify } = require('util')
-const { buildTicketBuffer, buildLogoEscPos } = require('./escpos-encode')
-const { isWindows, printRawWindows } = require('./raw-print-win')
+const { buildTicketBuffer, buildLogoEscPos, escOpenDrawer } = require('./escpos-encode')
+const { isWindows, printRawWindows, precalentarRawPrinter, cerrarRawPrinter } = require('./raw-print-win')
 const paymentTerminal = require('./payment-terminal')
 
 const execFileAsync = promisify(execFile)
@@ -18,6 +18,10 @@ const PRINT_TIMEOUT_MS = 30000
 
 /** Impresoras a las que ya se aplicó direct/BIDI en esta sesión de Electron. */
 const impresorasTicketListas = new Set()
+
+/** La enumeración de Windows es lenta si hay impresoras de red: se reutiliza unos segundos. */
+const LISTA_IMPRESORAS_MS = 10000
+let listaImpresorasCache = null
 
 /** El monitor Epson ESDPRT retiene trabajos si BIDI espera estado y la cola está NotAvailable. */
 async function disablePrinterBidi(printerName) {
@@ -57,6 +61,17 @@ async function prepararImpresoraTicket(printerName) {
  * Indices 1-based como en legacy (npresor).
  */
 async function listPrinters() {
+  if (listaImpresorasCache && Date.now() - listaImpresorasCache.en < LISTA_IMPRESORAS_MS) {
+    return listaImpresorasCache.valor
+  }
+  const valor = await consultarImpresoras()
+  if (valor.ok && Array.isArray(valor.printers) && valor.printers.length) {
+    listaImpresorasCache = { en: Date.now(), valor }
+  }
+  return valor
+}
+
+async function consultarImpresoras() {
   let win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]
   let tempWin = null
 
@@ -269,12 +284,42 @@ async function printTicket(payload) {
   }
 }
 
-async function openCashDrawer() {
-  console.log('[peripherals] openCashDrawer')
+async function openCashDrawer(payload = {}) {
+  if (!isWindows()) {
+    return { ok: false, stub: false, message: 'Apertura de cajón solo implementada en Windows' }
+  }
+
+  const listed = await listPrinters()
+  const printers = listed.printers || []
+  if (!printers.length) {
+    return {
+      ok: false,
+      stub: false,
+      message: listed.message || 'No hay impresoras detectadas en este equipo',
+    }
+  }
+
+  const resolved = resolvePrinterName(payload, printers)
+  if (resolved.error) {
+    return { ok: false, stub: false, message: resolved.error }
+  }
+  const printerName = resolved.name
+  await prepararImpresoraTicket(printerName)
+
+  const result = await printRawWindows(printerName, escOpenDrawer())
+  if (result.stuck) {
+    return {
+      ok: true,
+      stub: false,
+      impresora: printerName,
+      message: `Orden de apertura enviada a «${printerName}»`,
+    }
+  }
   return {
-    ok: true,
-    stub: true,
-    message: 'Apertura de cajon no implementada (stub)',
+    ...result,
+    stub: false,
+    impresora: printerName,
+    message: result.ok ? `Cajón abierto mediante «${printerName}»` : result.message,
   }
 }
 
@@ -611,8 +656,21 @@ async function htmlToPdf(payload) {
   }
 }
 
+function precalentarImpresionTicket() {
+  if (!isWindows()) return
+  precalentarRawPrinter().catch((err) => {
+    console.error('[peripherals] precalentar ticket', err)
+  })
+}
+
+function cerrarImpresionTicket() {
+  cerrarRawPrinter()
+}
+
 module.exports = {
   listPrinters,
+  precalentarImpresionTicket,
+  cerrarImpresionTicket,
   printTicket,
   printHtml,
   htmlToPdf,

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Descartes\Api\Services\Instalacion;
 
+use Descartes\Api\Services\RolService;
 use PDO;
 use PDOException;
 
@@ -24,6 +25,7 @@ final class InstalacionBootstrapService
     $codigo = self::USUARIO_ADMIN;
     $creado = false;
     $actualizado = false;
+    $this->asegurarRolAdministrador($pdo);
 
     $stmt = $pdo->prepare('SELECT TOP 1 [Codigo] FROM [Usuarios_Ges] WHERE RTRIM([Codigo]) = :codigo');
     $stmt->execute(['codigo' => $codigo]);
@@ -107,6 +109,34 @@ final class InstalacionBootstrapService
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
     return $stmt->rowCount() > 0;
+  }
+
+  /**
+   * En una base vacía no hay rol ni permisos: los crea aquí.
+   * Si el rol ADMIN ya existe, no toca sus permisos.
+   */
+  private function asegurarRolAdministrador(PDO $pdo): void
+  {
+    try {
+      $stmt = $pdo->query("SELECT TOP 1 1 FROM [Roles] WHERE RTRIM([Codigo]) = 'ADMIN'");
+      $existe = $stmt !== false && $stmt->fetchColumn() !== false;
+      if (!$existe) {
+        $pdo->exec("INSERT INTO [Roles] ([Codigo], [Nombre], [Baja]) VALUES ('ADMIN', 'Administrador', 0)");
+      }
+      $cuenta = $pdo->query("SELECT COUNT(*) FROM [RolPermisos] WHERE RTRIM([Rol]) = 'ADMIN'");
+      if ($cuenta === false || (int) $cuenta->fetchColumn() > 0) {
+        return;
+      }
+      $insert = $pdo->prepare(
+        'INSERT INTO [RolPermisos] ([Rol], [Modulo], [Ver], [Crear], [Editar], [Eliminar])
+         VALUES (:rol, :modulo, 1, 1, 1, 1)'
+      );
+      foreach (RolService::modulos() as $modulo) {
+        $insert->execute(['rol' => 'ADMIN', 'modulo' => $modulo]);
+      }
+    } catch (PDOException $e) {
+      // La tabla Roles llega con las migraciones. Antes de eso no hay nada que sembrar.
+    }
   }
 
   /** @return list<string> */

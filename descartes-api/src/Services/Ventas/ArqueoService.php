@@ -39,6 +39,7 @@ final class ArqueoService
         'descripcion' => $f['descripcion'],
         'agrupacion' => $f['agrupacion'],
         'cuentaParaArqueo' => true,
+        'abrirCajon' => $f['abrirCajon'],
         'cajonElectronico' => $f['cajonElectronico'],
         'acumulado' => 0.0,
         'entrado' => 0.0,
@@ -48,7 +49,7 @@ final class ArqueoService
     }
 
     $sql = 'SELECT a.Codigo, a.Acumulado, a.Entrado, a.Cantidad,
-                   f.Descripcion, f.CobroDeArqueo, f.Agrupacion, f.CajonElectronico
+                   f.Descripcion, f.CobroDeArqueo, f.Agrupacion, f.AbrirCajon, f.CajonElectronico
             FROM Arqueo a
             LEFT JOIN FormasPago f ON f.Codigo = a.Codigo
             WHERE a.Empresa = :empresa AND a.Puesto = :puesto AND a.Sesion = :sesion
@@ -73,6 +74,7 @@ final class ArqueoService
           'descripcion' => $row['Descripcion'],
           'agrupacion' => $agrupacion,
           'cuentaParaArqueo' => true,
+          'abrirCajon' => !empty($row['AbrirCajon']),
           'cajonElectronico' => !empty($row['CajonElectronico']),
           'acumulado' => 0.0,
           'entrado' => 0.0,
@@ -86,6 +88,7 @@ final class ArqueoService
       $porCodigo[$codigo]['entrado'] = $entrado;
       $porCodigo[$codigo]['cantidad'] = (int) ($row['Cantidad'] ?? 0);
       $porCodigo[$codigo]['diferencia'] = round($entrado - $acumulado, 2);
+      $porCodigo[$codigo]['abrirCajon'] = !empty($row['AbrirCajon']);
     }
 
     // Orden: Agrupacion, Codigo.
@@ -1133,13 +1136,13 @@ th{background:#f1f5f9}
   }
 
   /**
-   * @return list<array{codigo: string, descripcion: ?string, agrupacion: int, cajonElectronico: bool}>
+   * @return list<array{codigo: string, descripcion: ?string, agrupacion: int, abrirCajon: bool, cajonElectronico: bool}>
    */
   private function formasParaArqueo(): array
   {
     $out = [];
     try {
-      $sql = 'SELECT Codigo, Descripcion, Agrupacion, CajonElectronico
+      $sql = 'SELECT Codigo, Descripcion, Agrupacion, AbrirCajon, CajonElectronico
               FROM FormasPago
               WHERE CobroDeArqueo <> 0 AND ISNULL(Agrupacion, 0) <> 3
               ORDER BY Agrupacion, Codigo';
@@ -1152,6 +1155,7 @@ th{background:#f1f5f9}
           'codigo' => $codigo,
           'descripcion' => $row['Descripcion'] ?? null,
           'agrupacion' => (int) ($row['Agrupacion'] ?? 0),
+          'abrirCajon' => !empty($row['AbrirCajon']),
           'cajonElectronico' => !empty($row['CajonElectronico']),
         ];
       }
@@ -1167,6 +1171,7 @@ th{background:#f1f5f9}
           'codigo' => $codigo,
           'descripcion' => $row['Descripcion'] ?? null,
           'agrupacion' => 0,
+          'abrirCajon' => false,
           'cajonElectronico' => false,
         ];
       }

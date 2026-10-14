@@ -31,6 +31,7 @@ type ExtrasEmpresa = {
   literalVale?: string
   /** Data URL del logo de la carpeta `logos`. Vacío = no se imprime. */
   emblemaUrl?: string
+  literalPedidoCompra?: string
 }
 
 function basePreview(
@@ -84,6 +85,9 @@ function basePreview(
       pais: '',
       cif: '',
       telefono: '',
+      cuentaBancaria: '',
+      iban: '',
+      swift: '',
     },
     documento: {
       numero: opts.numero,
@@ -97,6 +101,7 @@ function basePreview(
       transportista: '',
       portes: '',
       observaciones: opts.observaciones,
+      formaPago: '',
       codigoBarras: opts.codigoBarras,
       pagina: '1/1',
     },
@@ -113,6 +118,7 @@ function basePreview(
       literalFacturaContado: extras.literalFacturaContado || '',
       literalPresupuesto: extras.literalPresupuesto || '',
       literalVale: extras.literalVale || '',
+      literalPedidoCompra: extras.literalPedidoCompra || '',
       literalTicket: nLit,
     },
     puesto: {
@@ -124,7 +130,7 @@ function basePreview(
 /** Meta Generales II: Albaranes compras. */
 export function metaImpresionAlbaranCompra(): MetaImpresionA4Puesto {
   return {
-    plantillaTipo: 'albaran',
+    plantillaTipo: 'albaran-compra',
     formatoKey: 'formatoAlbaranCompras',
     nombreKey: 'impAlbaranCompras',
     indiceKey: 'impresoraAlbaranCompras',
@@ -135,7 +141,7 @@ export function metaImpresionAlbaranCompra(): MetaImpresionA4Puesto {
 /** Meta Generales II: Pedidos compras. */
 export function metaImpresionPedidoCompra(): MetaImpresionA4Puesto {
   return {
-    plantillaTipo: 'albaran',
+    plantillaTipo: 'pedido-compra',
     formatoKey: 'formatoPedidoCompras',
     nombreKey: 'impPedidoCompras',
     indiceKey: 'impresoraPedidoCompras',

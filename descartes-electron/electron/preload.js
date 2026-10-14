@@ -29,7 +29,7 @@ contextBridge.exposeInMainWorld('descartes', {
   printHtml: (payload) => ipcRenderer.invoke('peripheral:printHtml', payload),
   htmlToPdf: (payload) => ipcRenderer.invoke('peripheral:htmlToPdf', payload),
   printLabel: (payload) => ipcRenderer.invoke('peripheral:printLabel', payload),
-  openCashDrawer: () => ipcRenderer.invoke('peripheral:openCashDrawer'),
+  openCashDrawer: (payload) => ipcRenderer.invoke('peripheral:openCashDrawer', payload || {}),
   readCashDrawer: (payload) => ipcRenderer.invoke('peripheral:readCashDrawer', payload || {}),
   readScale: () => ipcRenderer.invoke('peripheral:readScale'),
   displayPrice: (payload) => ipcRenderer.invoke('peripheral:displayPrice', payload),

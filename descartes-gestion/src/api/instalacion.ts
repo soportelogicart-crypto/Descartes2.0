@@ -1,6 +1,7 @@
 import { api } from './client'
 
 export type TipoConexionBd = 'local' | 'nube'
+export type MotorBd = 'sqlsrv' | 'mysql'
 
 export interface InstalacionDiagnostico {
   servidorConfigurado: string
@@ -16,6 +17,7 @@ export interface InstalacionEstado {
   configurado: boolean
   primeraVez: boolean
   origen: 'instalacion' | 'env'
+  motor?: MotorBd
   tipo?: TipoConexionBd
   server: string | null
   database: string | null
@@ -47,6 +49,7 @@ export interface InstalacionEstado {
 }
 
 export interface InstalacionForm {
+  motor: MotorBd
   tipo: TipoConexionBd
   server: string
   database: string
@@ -99,7 +102,8 @@ export async function getInstalacionEstado(opciones?: {
 
 function payloadDesdeForm(form: InstalacionForm) {
   return {
-    tipo: form.tipo,
+    motor: form.motor,
+    tipo: form.motor === 'mysql' ? 'local' : form.tipo,
     server: form.server,
     database: form.database,
     user: form.user,

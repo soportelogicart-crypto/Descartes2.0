@@ -6,25 +6,12 @@ const pageFacturaCredito: DocumentoPlantilla['page'] = {
   marginMm: { top: 10, right: 10, bottom: 12, left: 10 },
 }
 
-/** Bloques compartidos; con Verifactu el QR va arriba a la izquierda (10, 10). */
-function bloquesFacturaCredito(conVerifactu: boolean): PlantillaBloque[] {
-  const empresaX = conVerifactu ? 40 : 10
-  const empresaW = conVerifactu ? 76 : 106
+/** Cabecera de crédito sin QR tributario. */
+function bloquesFacturaCredito(_conVerifactu: boolean): PlantillaBloque[] {
+  const empresaX = 10
+  const empresaW = 106
 
   const blocks: PlantillaBloque[] = []
-  if (conVerifactu) {
-    blocks.push({
-      id: 'qr-tributario',
-      type: 'qr-verifactu',
-      x: 10,
-      y: 10,
-      w: 28,
-      h: 28,
-      label: 'QR tributario',
-      bind: ['verifactu.qrPayload', 'verifactu.url'],
-      props: { quietZoneMm: 1, errorCorrection: 'M', rotulo: 'VERI*FACTU' },
-    })
-  }
 
   blocks.push(
     {
@@ -206,13 +193,13 @@ function bloquesFacturaCredito(conVerifactu: boolean): PlantillaBloque[] {
   return blocks
 }
 
-/** Factura de crédito con QR Verifactu (arriba izquierda). Esqueleto por defecto del tipo. */
+/** Factura de crédito. Esqueleto por defecto del tipo, sin QR. */
 export const plantillaFacturaCredito: DocumentoPlantilla = {
   id: 'factura-credito-std',
   tipo: 'factura-credito',
-  nombre: 'Factura crédito (Verifactu)',
-  descripcion: 'Crédito / diferida con QR tributario arriba a la izquierda',
-  version: 7,
+  nombre: 'Factura crédito',
+  descripcion: 'Crédito / diferida, sin QR tributario',
+  version: 8,
   page: pageFacturaCredito,
   blocks: bloquesFacturaCredito(true),
 }
@@ -228,14 +215,37 @@ export const plantillaFacturaCreditoSinVerifactu: DocumentoPlantilla = {
   blocks: bloquesFacturaCredito(false),
 }
 
-/** Rectificativa con la composición de crédito Verifactu. */
+/** Rectificativa con la composición de crédito sin QR. */
+function bloquesFacturaRectificativa(): PlantillaBloque[] {
+  const bloques = bloquesFacturaCredito(false).map((b) => ({
+    ...b,
+    bind: b.bind ? [...b.bind] : undefined,
+    props: b.props ? { ...b.props } : undefined,
+    columns: b.columns?.map((c) => ({ ...c })),
+  }))
+  const titulo = bloques.find((b) => b.id === 'titulo')
+  if (titulo) titulo.label = 'FACTURA RECTIFICATIVA'
+  const forma = bloques.findIndex((b) => b.id === 'forma-pago')
+  bloques.splice(forma + 1, 0, {
+    id: 'origen',
+    type: 'campo',
+    x: 12,
+    y: 63,
+    w: 90,
+    h: 5,
+    label: 'Factura origen',
+    bind: ['documento.facturaOrigen'],
+    props: { inline: true, ocultarVacio: true, fontSizeMm: 2.4 },
+  })
+  return bloques
+}
+
 export const plantillaFacturaRectificativa: DocumentoPlantilla = {
-  ...plantillaFacturaCredito,
   id: 'factura-rectificativa-std',
   tipo: 'factura-rectificativa',
-  nombre: 'Factura rectificativa (Verifactu)',
-  descripcion: 'Rectificativa con QR y composición de factura de crédito',
-  blocks: plantillaFacturaCredito.blocks.map((b) =>
-    b.id === 'titulo' ? { ...b, label: 'FACTURA RECTIFICATIVA' } : b
-  ),
+  nombre: 'Factura rectificativa',
+  descripcion: 'Rectificativa sin QR, con la factura de origen si el documento la trae',
+  version: 8,
+  page: pageFacturaCredito,
+  blocks: bloquesFacturaRectificativa(),
 }
