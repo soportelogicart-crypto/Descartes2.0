@@ -1,0 +1,572 @@
+<script setup lang="ts">
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import { api } from '@/api/client'
+import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
+
+export type EntidadBuscarResultado = {
+  codigo: string
+  etiqueta: string
+}
+
+const props = defineProps<{
+  open: boolean
+  entidad:
+    | 'articulos'
+    | 'proveedores'
+    | 'clientes'
+    | 'trabajadores'
+    | 'puestos-trabajo'
+    | 'tiendas'
+    | 'familias'
+    | 'macrofamilias'
+    | 'subfamilias'
+    | 'secciones'
+    | 'subsecciones'
+    | 'agrupaciones'
+    | 'impuestos'
+    | 'actividades'
+    | 'almacenes'
+    | 'roles'
+    | 'usuarios'
+    | 'tipos-calculo-fidelizacion'
+    | 'tipos-descuento'
+    | 'formas-pago'
+    | 'bancos'
+    | 'cuentas'
+    | 'cuentas-ultimo-nivel'
+    | 'cuentas-banco'
+  titulo?: string
+  busquedaInicial?: string
+  /** Deja la fila de este codigo señalada, sin filtrar el listado. */
+  codigoActual?: string
+}>()
+
+const emit = defineEmits<{
+  seleccionar: [resultado: EntidadBuscarResultado]
+  cerrar: []
+}>()
+
+type Fila = { codigo: string; etiqueta: string }
+
+const q = ref('')
+const inputBusqueda = ref<HTMLInputElement | null>(null)
+const gridWrap = ref<HTMLElement | null>(null)
+const loading = ref(false)
+const items = ref<Fila[]>([])
+const indice = ref(0)
+const error = ref<string | null>(null)
+const { orden, clicarColumna, ordenarFilas } = useOrdenLista()
+const itemsMostrados = computed(() =>
+  ordenarFilas(items.value, (fila, key) => fila[key as keyof Fila])
+)
+
+const tituloModal = () => {
+  if (props.titulo) return props.titulo
+  if (props.entidad === 'articulos') return 'Buscar articulo'
+  if (props.entidad === 'clientes') return 'Buscar cliente'
+  if (props.entidad === 'trabajadores') return 'Buscar vendedor'
+  if (props.entidad === 'puestos-trabajo') return 'Buscar puesto'
+  if (props.entidad === 'tiendas') return 'Buscar empresa'
+  if (props.entidad === 'familias') return 'Buscar familia'
+  if (props.entidad === 'macrofamilias') return 'Buscar macrofamilia'
+  if (props.entidad === 'subfamilias') return 'Buscar subfamilia'
+  if (props.entidad === 'secciones') return 'Buscar seccion'
+  if (props.entidad === 'subsecciones') return 'Buscar subseccion'
+  if (props.entidad === 'agrupaciones') return 'Buscar agrupacion'
+  if (props.entidad === 'impuestos') return 'Buscar impuesto'
+  if (props.entidad === 'actividades') return 'Buscar actividad'
+  if (props.entidad === 'almacenes') return 'Buscar almacen'
+  if (props.entidad === 'roles') return 'Buscar rol'
+  if (props.entidad === 'usuarios') return 'Buscar usuario'
+  if (props.entidad === 'tipos-calculo-fidelizacion') return 'Buscar tipo fidelizacion'
+  if (props.entidad === 'tipos-descuento') return 'Buscar tipo de descuento'
+  if (props.entidad === 'formas-pago') return 'Buscar forma de pago'
+  if (props.entidad === 'bancos') return 'Buscar banco'
+  if (props.entidad === 'cuentas') return 'Buscar cuenta'
+  if (props.entidad === 'cuentas-ultimo-nivel') return 'Buscar cuenta contable'
+  if (props.entidad === 'cuentas-banco') return 'Buscar banco'
+  return 'Buscar proveedor'
+}
+
+/** Espera entre pulsaciones antes de consultar, para no lanzar una peticion por tecla. */
+const RETARDO_TECLEO = 250
+let temporizador: ReturnType<typeof setTimeout> | null = null
+/** La busqueda inicial ya la lanza el watch de open; el de q no debe repetirla. */
+let omitirBusquedaDeQ = false
+
+function cancelarBusquedaPendiente() {
+  if (temporizador === null) return
+  clearTimeout(temporizador)
+  temporizador = null
+}
+
+function limpiarBusqueda() {
+  cancelarBusquedaPendiente()
+  omitirBusquedaDeQ = true
+  q.value = ''
+  indice.value = 0
+  void buscar()
+  void nextTick(() => inputBusqueda.value?.focus())
+}
+
+watch(
+  () => props.open,
+  async (abierto) => {
+    cancelarBusquedaPendiente()
+    if (!abierto) return
+    const inicial = props.busquedaInicial?.trim() ?? ''
+    omitirBusquedaDeQ = inicial !== q.value
+    q.value = inicial
+    indice.value = 0
+    error.value = null
+    await buscar()
+    await posicionarEnActual()
+    await nextTick()
+    inputBusqueda.value?.focus()
+    inputBusqueda.value?.select()
+  }
+)
+
+// Busca mientras se escribe: no hay boton de lupa.
+watch(q, () => {
+  if (omitirBusquedaDeQ) {
+    omitirBusquedaDeQ = false
+    return
+  }
+  if (!props.open) return
+  cancelarBusquedaPendiente()
+  temporizador = setTimeout(() => {
+    temporizador = null
+    indice.value = 0
+    void buscar()
+  }, RETARDO_TECLEO)
+})
+
+onUnmounted(cancelarBusquedaPendiente)
+
+async function posicionarEnActual() {
+  const codigo = props.codigoActual?.trim()
+  if (!codigo) return
+  const i = itemsMostrados.value.findIndex((fila) => fila.codigo.trim() === codigo)
+  if (i < 0) return
+  indice.value = i
+  await nextTick()
+  gridWrap.value?.querySelector('tr.selected')?.scrollIntoView({ block: 'center' })
+}
+
+/** Descarta respuestas de consultas que ya han quedado atras al seguir tecleando. */
+let ultimaPeticion = 0
+
+async function buscar() {
+  const peticion = ++ultimaPeticion
+  loading.value = true
+  error.value = null
+  try {
+    const { data } = await api.get(`/api/mantenimiento/${props.entidad}`, {
+      params: { q: q.value, page: 1, pageSize: 200 },
+    })
+    if (peticion !== ultimaPeticion) return
+    if (props.entidad === 'tipos-descuento') {
+      items.value = agruparTiposDescuento((data.items ?? []) as Record<string, unknown>[])
+      indice.value = Math.min(indice.value, Math.max(0, items.value.length - 1))
+      return
+    }
+    items.value = (data.items ?? []).map((item: Record<string, unknown>) => {
+      const codigo = String(item.codigo ?? item.puesto ?? '').trim()
+      let etiqueta = ''
+      if (props.entidad === 'articulos') {
+        etiqueta = String(item.descripcion ?? item.nombre ?? '')
+      } else if (props.entidad === 'clientes') {
+        etiqueta = String(item.nombre ?? item.razonSocial ?? '')
+      } else if (props.entidad === 'trabajadores') {
+        etiqueta = String(item.nombre ?? item.descripcion ?? '')
+      } else if (props.entidad === 'puestos-trabajo') {
+        etiqueta = String(item.descripcion ?? item.nombre ?? '')
+      } else if (props.entidad === 'tiendas') {
+        etiqueta = String(item.nombre ?? item.nombreFiscal ?? '')
+      } else {
+        etiqueta = String(item.nombre ?? item.razonSocial ?? item.descripcion ?? '')
+      }
+      return { codigo, etiqueta }
+    })
+    indice.value = Math.min(indice.value, Math.max(0, items.value.length - 1))
+  } catch {
+    if (peticion !== ultimaPeticion) return
+    error.value = 'No se pudo cargar el listado'
+    items.value = []
+  } finally {
+    if (peticion === ultimaPeticion) loading.value = false
+  }
+}
+
+function agruparTiposDescuento(filas: Record<string, unknown>[]): Fila[] {
+  const grupos = new Map<string, string[]>()
+  for (const item of filas) {
+    const codigo = String(item.tipoDescuento ?? '').trim()
+    if (!codigo) continue
+    const tipo = String(item.tipo ?? '').trim()
+    const codigoOferta = tipo === '.' ? '' : String(item.codigo ?? '').trim()
+    const quien = tipo === '.' ? 'General' : [tipo, codigoOferta].filter(Boolean).join(' ')
+    const desde = String(item.fechaInicio ?? '').slice(0, 10)
+    const hasta = String(item.fechaFin ?? '').slice(0, 10)
+    const periodo = hasta ? `${desde} a ${hasta}` : desde ? `desde ${desde}` : ''
+    const dto = item.descuento == null || item.descuento === '' ? '' : `${item.descuento}%`
+    const texto = [quien, dto, periodo].filter(Boolean).join(' ')
+    const previos = grupos.get(codigo) ?? []
+    previos.push(texto)
+    grupos.set(codigo, previos)
+  }
+  return [...grupos.entries()].map(([codigo, textos]) => ({
+    codigo,
+    etiqueta: textos.join(' | '),
+  }))
+}
+
+function seleccionarIndice(i: number) {
+  indice.value = i
+}
+
+function aceptar(i?: number) {
+  const fila = itemsMostrados.value[i ?? indice.value]
+  if (!fila) return
+  emit('seleccionar', { codigo: fila.codigo, etiqueta: fila.etiqueta })
+  emit('cerrar')
+}
+
+function scrollFilaSeleccionada() {
+  void nextTick(() => {
+    gridWrap.value?.querySelector('tr.selected')?.scrollIntoView({ block: 'nearest' })
+  })
+}
+
+function onBusquedaKeydown(e: KeyboardEvent) {
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    const max = itemsMostrados.value.length - 1
+    if (max >= 0) indice.value = Math.min(indice.value + 1, max)
+    scrollFilaSeleccionada()
+    return
+  }
+  if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    indice.value = Math.max(0, indice.value - 1)
+    scrollFilaSeleccionada()
+    return
+  }
+  if (e.key !== 'Enter' && e.key !== 'NumpadEnter') return
+  e.preventDefault()
+  if (loading.value) return
+  const list = itemsMostrados.value
+  if (list.length === 1) {
+    aceptar(0)
+    return
+  }
+  if (list.length > 0) aceptar()
+}
+</script>
+
+<template>
+  <Teleport to="body">
+    <div v-if="open" class="overlay" role="dialog" aria-modal="true" @click.self="emit('cerrar')">
+      <div class="modal">
+        <header class="modal-header">
+          <h3>{{ tituloModal() }}</h3>
+          <button type="button" class="btn-cerrar" @click="emit('cerrar')">Cerrar</button>
+        </header>
+
+        <div class="buscar-bar">
+          <div class="buscar-input-wrap">
+            <input
+              ref="inputBusqueda"
+              v-model="q"
+              type="search"
+              :placeholder="
+                entidad === 'clientes'
+                  ? 'Codigo o razon social...'
+                  : entidad === 'proveedores'
+                    ? 'Codigo o razon social...'
+                    : entidad === 'trabajadores' || entidad === 'tiendas'
+                      ? 'Codigo o nombre...'
+                      : 'Codigo o descripcion...'
+              "
+              autofocus
+              @keydown="onBusquedaKeydown"
+            />
+            <button
+              v-if="q.trim()"
+              type="button"
+              class="btn-limpiar-busqueda"
+              title="Limpiar busqueda"
+              tabindex="-1"
+              @click="limpiarBusqueda"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+
+        <p v-if="error" class="error">{{ error }}</p>
+        <p v-else class="hint">{{ loading ? 'Buscando...' : `${items.length} resultado(s)` }}</p>
+
+        <div ref="gridWrap" class="grid-wrap">
+          <table class="entidad-grid">
+            <thead>
+              <tr>
+                <th class="col-ind"></th>
+                <th class="ordenable" title="Ordenar por codigo" @click="clicarColumna('codigo')">
+                  Codigo
+                  <span v-if="orden?.key === 'codigo'" class="marca-orden">{{
+                    orden.dir === 'asc' ? '▲' : '▼'
+                  }}</span>
+                </th>
+                <th class="ordenable" title="Ordenar" @click="clicarColumna('etiqueta')">
+                  {{
+                    entidad === 'articulos' || entidad === 'puestos-trabajo'
+                      ? 'Descripcion'
+                      : entidad === 'formas-pago' ||
+                          entidad === 'macrofamilias' ||
+                          entidad === 'familias' ||
+                          entidad === 'subfamilias' ||
+                          entidad === 'secciones' ||
+                          entidad === 'subsecciones' ||
+                          entidad === 'agrupaciones' ||
+                          entidad === 'impuestos' ||
+                          entidad === 'actividades' ||
+                          entidad === 'almacenes' ||
+                          entidad === 'roles' ||
+                          entidad === 'usuarios' ||
+                          entidad === 'tipos-calculo-fidelizacion' ||
+                          entidad === 'tipos-descuento' ||
+                          entidad === 'cuentas' ||
+                          entidad === 'cuentas-ultimo-nivel' ||
+                          entidad === 'cuentas-banco' ||
+                          entidad === 'bancos'
+                        ? 'Descripcion'
+                      : entidad === 'trabajadores'
+                        ? 'Nombre'
+                        : 'Razon social'
+                  }}
+                  <span v-if="orden?.key === 'etiqueta'" class="marca-orden">{{
+                    orden.dir === 'asc' ? '▲' : '▼'
+                  }}</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="(item, i) in itemsMostrados"
+                :key="item.codigo"
+                :class="{ selected: i === indice }"
+                @click="seleccionarIndice(i)"
+                @dblclick="aceptar(i)"
+              >
+                <td class="col-ind">{{ i === indice ? '>' : '' }}</td>
+                <td>{{ item.codigo }}</td>
+                <td>{{ item.etiqueta }}</td>
+              </tr>
+              <tr v-if="items.length === 0">
+                <td colspan="3">{{ loading ? 'Buscando...' : 'Sin resultados' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <footer class="modal-footer">
+          <button type="button" class="btn-primary" :disabled="!items.length" @click="aceptar()">
+            Seleccionar
+          </button>
+          <button type="button" @click="emit('cerrar')">Cancelar</button>
+        </footer>
+      </div>
+    </div>
+  </Teleport>
+</template>
+
+<style scoped>
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5000;
+  padding: 1rem;
+}
+
+.modal {
+  width: min(640px, 100%);
+  max-height: min(80vh, 640px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  background: #fff;
+  border: 1px solid #94a3b8;
+  border-radius: 8px;
+  padding: 0.75rem;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.2);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.btn-cerrar {
+  border: 1px solid #94a3b8;
+  border-radius: 6px;
+  background: #fff;
+  padding: 0.25rem 0.55rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.buscar-bar {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.buscar-input-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.buscar-input-wrap input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.4rem 1.85rem 0.4rem 0.55rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.btn-limpiar-busqueda {
+  position: absolute;
+  top: 50%;
+  right: 0.3rem;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #64748b;
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.btn-limpiar-busqueda:hover {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.grid-wrap {
+  overflow: auto;
+  flex: 1;
+  min-height: 12rem;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+}
+
+.entidad-grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.entidad-grid th,
+.entidad-grid td {
+  border: 1px solid #cbd5e1;
+  padding: 0.2rem 0.35rem;
+}
+
+.entidad-grid th {
+  background: linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%);
+  font-weight: 600;
+  text-align: center;
+  position: sticky;
+  top: 0;
+}
+
+.entidad-grid th.ordenable {
+  cursor: pointer;
+  user-select: none;
+}
+.entidad-grid th.ordenable:hover {
+  background: #dbeafe;
+}
+.entidad-grid th .marca-orden {
+  font-size: 0.65rem;
+  margin-left: 0.15rem;
+  color: #1d4ed8;
+}
+
+.col-ind {
+  width: 1.5rem;
+  text-align: center;
+  color: #1e40af;
+  font-weight: 700;
+  background: #f8fafc;
+}
+
+.entidad-grid tbody tr {
+  cursor: pointer;
+}
+
+.entidad-grid tbody tr.selected {
+  background: #dbeafe;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.modal-footer button {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid #94a3b8;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.btn-primary {
+  background: #2563eb !important;
+  border-color: #1d4ed8 !important;
+  color: #fff !important;
+}
+
+.btn-primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.hint,
+.error {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.hint {
+  color: #64748b;
+}
+
+.error {
+  color: #b91c1c;
+}
+</style>

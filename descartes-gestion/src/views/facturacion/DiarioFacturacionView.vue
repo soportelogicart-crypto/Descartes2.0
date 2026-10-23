@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { descargarDiarioPdf, listarDiarioFacturacion } from '@/api/facturacion'
+import { listarDiarioFacturacion } from '@/api/facturacion'
 import { api } from '@/api/client'
 import type { FacturaDiarioItem } from '@/types/facturacion'
 import { extractApiError } from '@/composables/useMantenimiento'
-import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
 import { useGridRenderLimit } from '@/composables/useGridRenderLimit'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
@@ -13,7 +12,9 @@ import EntidadBuscarModal, {
 } from '@/components/common/EntidadBuscarModal.vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
 import DecimalInput from '@/components/common/DecimalInput.vue'
-import { abrirVentanaPreview, escribirVentanaPdf } from '@/composables/previewDocumentoVentana'
+import { imprimirListadoHtml } from '@/composables/imprimirListadoHtml'
+import { ESTILOS_LISTADO_A4 } from '@/composables/listadoPrintStyles'
+import { LEGACY_PRINT_CSS } from '@/composables/abcVentasInformeHtml'
 
 type Opt = { value: string; label: string }
 type CampoCliente = 'desde' | 'hasta'
@@ -43,7 +44,7 @@ function hoyIso() {
 const form = ref({
   empresaDesde: '',
   empresaHasta: '',
-  fechaDesde: '',
+  fechaDesde: hoyIso(),
   fechaHasta: hoyIso(),
   clienteDesde: '',
   clienteHasta: '',
@@ -53,91 +54,83 @@ const form = ref({
   estado: '',
 })
 
-/** Columnas del grid con su texto filtrable (búsqueda mientras se escribe). */
-const COLUMNAS = [
-  { key: 'fecha', label: 'Fecha', clase: 'col-fecha' },
-  { key: 'empresa', label: 'Tie.', clase: 'col-tie' },
-  { key: 'facturaTipo', label: 'Tipo', clase: 'col-tipo' },
-  { key: 'factura', label: 'Factura', clase: 'col-factura' },
-  { key: 'cliente', label: 'Cliente', clase: 'col-cliente' },
-  { key: 'razonSocial', label: 'Razón social', clase: 'col-razon' },
-  { key: 'nif', label: 'NIF', clase: 'col-nif' },
-  { key: 'importe', label: 'Importe', clase: 'col-importe', num: true },
-  { key: 'cobro', label: 'Cobro', clase: 'col-cobro' },
-  { key: 'fpago', label: 'F.P.', clase: 'col-fpago' },
-  { key: 'impresa', label: 'Imp.', clase: 'col-imp' },
-] as const
-
-type ColumnaKey = (typeof COLUMNAS)[number]['key']
-
 function textoCobro(r: FacturaDiarioItem) {
   return r.tipoCobro === 'diferida' ? 'Dif.' : 'Con.'
 }
 
-const textoColumna: Record<ColumnaKey, (r: FacturaDiarioItem) => string> = {
-  fecha: (r) => String(r.fecha ?? ''),
-  empresa: (r) => String(r.empresa ?? ''),
-  facturaTipo: (r) => String(r.facturaTipo ?? ''),
-  factura: (r) => String(r.factura ?? ''),
-  cliente: (r) => String(r.cliente ?? ''),
-  razonSocial: (r) => String(r.razonSocial ?? ''),
-  nif: (r) => String(r.nif ?? ''),
-  importe: (r) => Number(r.importe ?? 0).toFixed(2),
-  cobro: (r) => textoCobro(r),
-  fpago: (r) => String(r.fpago || '—'),
-  impresa: (r) => (r.impresa ? 'Sí' : ''),
+type FilaImpuesto = {
+  clave: string
+  primera: boolean
+  factura: FacturaDiarioItem
+  base: number
+  pjeIva: number
+  cuotaIva: number
+  pjeRec: number
+  cuotaRec: number
 }
 
-function filtrosColumnaVacios(): Record<ColumnaKey, string> {
-  return {
-    fecha: '',
-    empresa: '',
-    facturaTipo: '',
-    factura: '',
-    cliente: '',
-    razonSocial: '',
-    nif: '',
-    importe: '',
-    cobro: '',
-    fpago: '',
-    impresa: '',
+const filasImpuesto = computed<FilaImpuesto[]>(() => {
+  const out: FilaImpuesto[] = []
+  for (const factura of items.value) {
+    const lineas = factura.desgloseIva?.length
+      ? factura.desgloseIva
+      : [{ pjeIva: 0, baseImponible: 0, cuotaIva: 0, pjeRec: 0, cuotaRec: 0 }]
+    lineas.forEach((d, i) => {
+      out.push({
+        clave: `${factura.empresa}|${factura.facturaTipo}|${factura.factura}|${i}`,
+        primera: i === 0,
+        factura,
+        base: d.baseImponible,
+        pjeIva: d.pjeIva,
+        cuotaIva: d.cuotaIva,
+        pjeRec: d.pjeRec ?? 0,
+        cuotaRec: d.cuotaRec ?? 0,
+      })
+    })
   }
-}
-
-const filtrosColumna = ref<Record<ColumnaKey, string>>(filtrosColumnaVacios())
-
-function normalizar(texto: string) {
-  return texto
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-}
-
-const filtrosColumnaActivos = computed(() =>
-  (Object.entries(filtrosColumna.value) as [ColumnaKey, string][])
-    .map(([key, valor]) => ({ key, valor: normalizar(valor.trim()) }))
-    .filter((f) => f.valor !== '')
-)
-
-const hayFiltroColumna = computed(() => filtrosColumnaActivos.value.length > 0)
-const { orden, clicarColumna, ordenarFilas } = useOrdenLista()
-
-const itemsFiltrados = computed(() => {
-  const activos = filtrosColumnaActivos.value
-  const base =
-    activos.length === 0
-      ? items.value
-      : items.value.filter((r) =>
-          activos.every((f) => normalizar(textoColumna[f.key](r)).includes(f.valor))
-        )
-  return ordenarFilas(base, (row, key) => textoColumna[key as ColumnaKey](row), ['fecha'])
+  return out
 })
 
-const { gridEl, visibles, onScrollGrid } = useGridRenderLimit(itemsFiltrados)
-
-function limpiarFiltrosColumna() {
-  filtrosColumna.value = filtrosColumnaVacios()
+function fmtImporte(n: number) {
+  return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
+
+function fmtFechaCab(iso: string) {
+  const s = iso.trim()
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s)
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`
+  return s || '…'
+}
+
+const fechaImpresionAhora = ref('')
+
+function marcarFechaImpresion() {
+  fechaImpresionAhora.value = new Date().toLocaleString('es-ES', {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+}
+
+function sumaFacturas(campo: 'importe' | 'irpf') {
+  return items.value.reduce(
+    (acc, fila) => acc + Number(campo === 'importe' ? fila.importe : (fila.cuotaIrpf ?? 0)),
+    0
+  )
+}
+
+function sumaLineas(campo: 'base' | 'iva' | 'recargo') {
+  return filasImpuesto.value.reduce((acc, fila) => {
+    if (campo === 'base') return acc + fila.base
+    if (campo === 'iva') return acc + fila.cuotaIva
+    return acc + fila.cuotaRec
+  }, 0)
+}
+
+const { gridEl, visibles, onScrollGrid } = useGridRenderLimit(filasImpuesto)
 
 function paramsConsulta(): Record<string, string | number | undefined> {
   const f = form.value
@@ -217,7 +210,10 @@ async function buscar() {
   try {
     const data = await listarDiarioFacturacion(paramsConsulta())
     items.value = data.items ?? []
-    mensaje.value = `${data.totales.facturas} facturas · ${data.totales.importe.toFixed(2)} €`
+    marcarFechaImpresion()
+    const base = Number(data.totales.baseImponible ?? 0).toFixed(2)
+    const cuota = Number(data.totales.cuotaIva ?? 0).toFixed(2)
+    mensaje.value = `${data.totales.facturas} facturas · base ${base} € · IVA ${cuota} € · total ${data.totales.importe.toFixed(2)} €`
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudo cargar el diario')
     items.value = []
@@ -226,45 +222,83 @@ async function buscar() {
   }
 }
 
-async function pdf() {
+function escHtml(v: string | number) {
+  return String(v ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function celdasImpuesto(fila: FilaImpuesto): string {
+  const irpf = fila.primera
+    ? `<td class="col-num">${fmtImporte(fila.factura.pjeIrpf ?? 0)}</td><td class="col-num">${fmtImporte(fila.factura.cuotaIrpf ?? 0)}</td>`
+    : '<td class="col-num"></td><td class="col-num"></td>'
+  return `<td class="col-num">${fmtImporte(fila.base)}</td><td class="col-num">${fmtImporte(fila.pjeIva)}</td><td class="col-num">${fmtImporte(fila.cuotaIva)}</td><td class="col-num">${fmtImporte(fila.pjeRec)}</td><td class="col-num">${fmtImporte(fila.cuotaRec)}</td>${irpf}`
+}
+
+function construirHtmlDiario(): string {
+  const thead = `<thead><tr><th>Fecha</th><th>Tie.</th><th>Factura</th><th>Cliente</th><th>Razón social</th><th class="col-nif">NIF</th><th class="col-num">Base</th><th class="col-num">% Iva</th><th class="col-num">Iva</th><th class="col-num">% Rec</th><th class="col-num">Recargo</th><th class="col-num">% IRPF</th><th class="col-num">IRPF</th><th class="col-num">Importe</th><th>Cobro</th><th>F.P.</th></tr></thead>`
+  const filas = filasImpuesto.value
+    .map((fila) => {
+      const r = fila.factura
+      const identidad = fila.primera
+        ? `<td>${escHtml(fmtFechaCab(r.fecha))}</td><td>${escHtml(r.empresa)}</td><td>${escHtml(r.factura)}</td><td>${escHtml(r.cliente)}</td><td>${escHtml(r.razonSocial ?? '')}</td><td class="col-nif">${escHtml(r.nif ?? '')}</td>`
+        : '<td></td><td></td><td></td><td></td><td></td><td></td>'
+      const cierre = fila.primera
+        ? `<td class="col-num">${fmtImporte(r.importe)}</td><td>${escHtml(textoCobro(r))}</td><td>${escHtml(r.fpago || '—')}</td>`
+        : '<td></td><td></td><td></td>'
+      return `<tr>${identidad}${celdasImpuesto(fila)}${cierre}</tr>`
+    })
+    .join('')
+  const total = `<tr class="total-general"><td colspan="6" class="lab-tot">TOTAL GENERAL</td><td class="col-num">${fmtImporte(sumaLineas('base'))}</td><td></td><td class="col-num">${fmtImporte(sumaLineas('iva'))}</td><td></td><td class="col-num">${fmtImporte(sumaLineas('recargo'))}</td><td></td><td class="col-num">${fmtImporte(sumaFacturas('irpf'))}</td><td class="col-num">${fmtImporte(sumaFacturas('importe'))}</td><td colspan="2"></td></tr>`
+
+  const css = `
+.abc-legacy .col-nif { white-space: nowrap; }
+.abc-legacy td, .abc-legacy th { white-space: nowrap; }
+`
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Diario de facturación</title>
+<style>${ESTILOS_LISTADO_A4}${LEGACY_PRINT_CSS}${css}</style></head><body><main class="folio">
+<div class="legacy-top">
+  <div><h1 class="legacy-tit">DIARIO DE FACTURACIÓN</h1><hr class="legacy-tit-line" /></div>
+  <div class="legacy-fecha">
+    <span class="legacy-fecha-lab">Fecha</span>
+    <span class="legacy-fecha-val">${escHtml(fmtFechaCab(form.value.fechaDesde))} 00:00</span>
+    <span class="legacy-fecha-val">${escHtml(fmtFechaCab(form.value.fechaHasta))} 23:59</span>
+  </div>
+</div>
+<p class="legacy-impresion">Fecha de Impresión: ${escHtml(fechaImpresionAhora.value)}</p>
+<hr class="legacy-sep" />
+<table class="abc-table abc-legacy">${thead}<tbody>${filas}${total}</tbody></table>
+</main></body></html>`
+}
+
+async function previsualizar() {
   if (!puede('facturacion-diario', 'ver')) {
     error.value = 'Sin permiso'
     return
   }
-  if (!form.value.empresaDesde.trim()) {
-    error.value = 'Indique la tienda'
-    return
-  }
-  const ventana = abrirVentanaPreview('Diario de facturación')
-  if (!ventana) {
-    error.value = 'Permita las ventanas emergentes para previsualizar el PDF'
+  if (!items.value.length) {
+    error.value = 'Pulse Buscar antes de previsualizar'
     return
   }
   saving.value = true
-  error.value = null
-  mensaje.value = null
   try {
-    const blob = await descargarDiarioPdf({
-      ...paramsConsulta(),
+    const res = await imprimirListadoHtml({
+      titulo: 'Diario de facturación',
+      html: construirHtmlDiario(),
+      filenameFallback: 'diario-facturacion.html',
     })
-    if (blob.type && blob.type.includes('json')) {
-      throw new Error('Error al generar PDF')
-    }
-    escribirVentanaPdf(ventana, blob, 'Diario de facturación')
-    mensaje.value =
-      items.value.length >= 500
-        ? 'PDF del diario (máx. 500 filas) listo'
-        : 'PDF del diario listo para previsualizar'
+    mensaje.value = res.message
   } catch (e: unknown) {
-    if (!ventana.closed) ventana.close()
-    error.value = extractApiError(e, 'No se pudo generar el PDF')
+    error.value = extractApiError(e, 'No se pudo preparar la previsualización')
   } finally {
     saving.value = false
   }
 }
 
 function exportarExcel() {
-  const filas = itemsFiltrados.value
+  const filas = items.value
   if (!filas.length) {
     error.value = 'No hay filas para exportar'
     return
@@ -283,26 +317,41 @@ function exportarExcel() {
     'Cliente',
     'Razón social',
     'NIF',
+    'Base',
+    '% Iva',
+    'Iva',
+    '% Rec',
+    'Recargo',
+    '% IRPF',
+    'IRPF',
     'Importe',
     'Cobro',
     'Forma de pago',
     'Impresa',
   ]
   const lines = [cabecera.map(esc).join(';')]
-  for (const r of filas) {
+  for (const fila of filasImpuesto.value) {
+    const r = fila.factura
     lines.push(
       [
-        r.fecha,
-        r.empresa,
-        r.facturaTipo,
-        r.factura,
-        r.cliente,
-        r.razonSocial,
-        r.nif,
-        num(r.importe),
-        r.tipoCobro === 'diferida' ? 'Diferida' : 'Contado',
-        r.fpago || '',
-        r.impresa ? 'Sí' : 'No',
+        fila.primera ? r.fecha : '',
+        fila.primera ? r.empresa : '',
+        fila.primera ? r.facturaTipo : '',
+        fila.primera ? r.factura : '',
+        fila.primera ? r.cliente : '',
+        fila.primera ? r.razonSocial : '',
+        fila.primera ? r.nif : '',
+        num(fila.base),
+        num(fila.pjeIva),
+        num(fila.cuotaIva),
+        num(fila.pjeRec),
+        num(fila.cuotaRec),
+        fila.primera ? num(r.pjeIrpf ?? 0) : '',
+        fila.primera ? num(r.cuotaIrpf ?? 0) : '',
+        fila.primera ? num(r.importe) : '',
+        fila.primera ? (r.tipoCobro === 'diferida' ? 'Diferida' : 'Contado') : '',
+        fila.primera ? r.fpago || '' : '',
+        fila.primera ? (r.impresa ? 'Sí' : 'No') : '',
       ]
         .map(esc)
         .join(';')
@@ -332,19 +381,21 @@ onMounted(async () => {
     <div class="toolbar">
       <div>
         <h2>Diario de facturación</h2>
-        <p class="hint">Listado de facturas emitidas (auditoría). El PDF es el diario tabular, no reimpresión.</p>
+        <p class="hint">Listado de facturas emitidas (auditoría). La previsualización es el diario tabular, no reimpresión.</p>
       </div>
       <div class="actions">
-        <button type="button" class="btn" :disabled="loading || loadingOpts" @click="buscar">
-          {{ loading ? 'Buscando…' : 'Buscar' }}
-        </button>
-        <button type="button" class="btn primary" :disabled="saving || loadingOpts" @click="pdf">
-          {{ saving ? 'PDF…' : 'Previsualizar PDF' }}
+        <button
+          type="button"
+          class="btn primary"
+          :disabled="saving || loading || loadingOpts || !items.length"
+          @click="previsualizar"
+        >
+          {{ saving ? 'Preparando…' : 'Previsualizar' }}
         </button>
         <button
           type="button"
           class="btn"
-          :disabled="loading || !itemsFiltrados.length"
+          :disabled="loading || !items.length"
           @click="exportarExcel"
         >
           Exportar Excel
@@ -438,65 +489,95 @@ onMounted(async () => {
             </select>
           </label>
         </fieldset>
+        <button type="submit" class="btn primary btn-buscar" :disabled="loading || loadingOpts">
+          {{ loading ? 'Buscando…' : 'Buscar' }}
+        </button>
       </form>
 
       <div class="resultado">
         <p v-if="error" class="error">{{ error }}</p>
         <p v-if="mensaje && !error" class="ok">{{ mensaje }}</p>
         <p v-if="loading" class="hint">Cargando…</p>
-        <div v-if="items.length" ref="gridEl" class="grid-wrap" @scroll.passive="onScrollGrid">
-          <table>
-            <thead>
-              <tr>
-                <th v-for="c in COLUMNAS" :key="c.key" :class="c.clase">
-                  <span
-                    class="th-titulo"
-                    :class="{ num: c.num }"
-                    :title="`Ordenar por ${c.label}`"
-                    @click="clicarColumna(c.key)"
-                  >
-                    {{ c.label }}
-                    <span v-if="orden?.key === c.key" class="marca-orden">{{
-                      orden.dir === 'asc' ? '▲' : '▼'
-                    }}</span>
-                  </span>
-                  <input
-                    v-model="filtrosColumna[c.key]"
-                    type="search"
-                    class="filtro-col"
-                    :title="`Filtrar por ${c.label}`"
-                    :aria-label="`Filtrar por ${c.label}`"
-                  />
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="r in visibles" :key="`${r.empresa}|${r.facturaTipo}|${r.factura}`">
-                <td>{{ r.fecha }}</td>
-                <td>{{ r.empresa }}</td>
-                <td>{{ r.facturaTipo }}</td>
-                <td>{{ r.factura }}</td>
-                <td>{{ r.cliente }}</td>
-                <td class="clip">{{ r.razonSocial }}</td>
-                <td>{{ r.nif }}</td>
-                <td class="num">{{ r.importe.toFixed(2) }}</td>
-                <td>{{ textoCobro(r) }}</td>
-                <td>{{ r.fpago || '—' }}</td>
-                <td>{{ r.impresa ? 'Sí' : '' }}</td>
-              </tr>
-              <tr v-if="!itemsFiltrados.length">
-                <td :colspan="COLUMNAS.length" class="empty">Ninguna factura con esos filtros</td>
-              </tr>
-            </tbody>
-          </table>
+        <div v-if="items.length" ref="gridEl" class="informe-wrap" @scroll.passive="onScrollGrid">
+          <div class="informe abc-legacy-informe">
+            <header class="informe-cab legacy-cab">
+              <div class="legacy-top">
+                <div>
+                  <h1 class="legacy-tit">DIARIO DE FACTURACIÓN</h1>
+                  <hr class="legacy-tit-line" />
+                </div>
+                <div class="legacy-fecha">
+                  <span class="legacy-fecha-lab">Fecha</span>
+                  <span class="legacy-fecha-val">{{ fmtFechaCab(form.fechaDesde) }} 00:00</span>
+                  <span class="legacy-fecha-val">{{ fmtFechaCab(form.fechaHasta) }} 23:59</span>
+                </div>
+              </div>
+              <p class="legacy-impresion">Fecha de Impresión: {{ fechaImpresionAhora }}</p>
+              <hr class="legacy-sep" />
+            </header>
+            <div class="table-scroll">
+              <table class="abc-table abc-legacy">
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Tie.</th>
+                    <th>Factura</th>
+                    <th>Cliente</th>
+                    <th class="col-articulo">Razón social</th>
+                    <th class="col-nif">NIF</th>
+                    <th class="col-num">Base</th>
+                    <th class="col-num">% Iva</th>
+                    <th class="col-num">Iva</th>
+                    <th class="col-num">% Rec</th>
+                    <th class="col-num">Recargo</th>
+                    <th class="col-num">% IRPF</th>
+                    <th class="col-num">IRPF</th>
+                    <th class="col-num">Importe</th>
+                    <th>Cobro</th>
+                    <th>F.P.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="fila in visibles" :key="fila.clave">
+                    <td>{{ fila.primera ? fmtFechaCab(fila.factura.fecha) : '' }}</td>
+                    <td>{{ fila.primera ? fila.factura.empresa : '' }}</td>
+                    <td>{{ fila.primera ? fila.factura.factura : '' }}</td>
+                    <td class="col-codigo">{{ fila.primera ? fila.factura.cliente : '' }}</td>
+                    <td class="col-articulo" :title="fila.primera ? fila.factura.razonSocial : ''">
+                      {{ fila.primera ? fila.factura.razonSocial : '' }}
+                    </td>
+                    <td class="col-nif">{{ fila.primera ? fila.factura.nif : '' }}</td>
+                    <td class="col-num">{{ fmtImporte(fila.base) }}</td>
+                    <td class="col-num">{{ fmtImporte(fila.pjeIva) }}</td>
+                    <td class="col-num">{{ fmtImporte(fila.cuotaIva) }}</td>
+                    <td class="col-num">{{ fmtImporte(fila.pjeRec) }}</td>
+                    <td class="col-num">{{ fmtImporte(fila.cuotaRec) }}</td>
+                    <td class="col-num">{{ fila.primera ? fmtImporte(fila.factura.pjeIrpf ?? 0) : '' }}</td>
+                    <td class="col-num">{{ fila.primera ? fmtImporte(fila.factura.cuotaIrpf ?? 0) : '' }}</td>
+                    <td class="col-num">{{ fila.primera ? fmtImporte(fila.factura.importe) : '' }}</td>
+                    <td>{{ fila.primera ? textoCobro(fila.factura) : '' }}</td>
+                    <td>{{ fila.primera ? fila.factura.fpago || '—' : '' }}</td>
+                  </tr>
+                  <tr class="total-row total-general">
+                    <td colspan="6" class="lab-tot"><strong>TOTAL GENERAL</strong></td>
+                    <td class="col-num">{{ fmtImporte(sumaLineas('base')) }}</td>
+                    <td></td>
+                    <td class="col-num">{{ fmtImporte(sumaLineas('iva')) }}</td>
+                    <td></td>
+                    <td class="col-num">{{ fmtImporte(sumaLineas('recargo')) }}</td>
+                    <td></td>
+                    <td class="col-num">{{ fmtImporte(sumaFacturas('irpf')) }}</td>
+                    <td class="col-num">{{ fmtImporte(sumaFacturas('importe')) }}</td>
+                    <td colspan="2"></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
         <p v-else-if="!loading && !error" class="empty">
           No hay facturas con estas opciones e intervalos.
         </p>
-        <div v-if="hayFiltroColumna" class="pie-grid">
-          <span class="listadas">{{ itemsFiltrados.length }} de {{ items.length }}</span>
-          <button type="button" class="btn" @click="limpiarFiltrosColumna">Limpiar filtros</button>
-        </div>
       </div>
     </div>
 
@@ -512,6 +593,8 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+@import '../listados/abc-form-view.css';
+
 .page {
   display: flex;
   flex-direction: column;
@@ -553,6 +636,9 @@ onMounted(async () => {
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+.btn-buscar {
+  width: 100%;
 }
 .layout {
   display: grid;
@@ -660,106 +746,69 @@ onMounted(async () => {
   flex-direction: column;
   gap: 0.5rem;
 }
-.grid-wrap {
-  overflow: auto;
-  border: 1px solid #cbd5e1;
-  border-radius: 4px;
-  background: #fff;
+.informe-wrap {
   flex: 1;
+  overflow: auto;
 }
-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.82rem;
+.informe-wrap .abc-table.abc-legacy {
+  table-layout: auto;
+  width: max-content;
+  max-width: none;
+  min-width: 100%;
 }
-th,
-td {
-  border: 1px solid #e2e8f0;
-  padding: 0.25rem 0.35rem;
+.informe-wrap .table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
 }
-th {
-  background: #f1f5f9;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  vertical-align: top;
-  font-weight: 600;
-}
-.th-titulo {
-  display: block;
-  padding: 0 0.1rem 0.15rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-  user-select: none;
-}
-.th-titulo:hover {
-  color: #1d4ed8;
-}
-.marca-orden {
-  font-size: 0.65rem;
-  margin-left: 0.15rem;
-  color: #1d4ed8;
-}
-.th-titulo.num {
-  text-align: right;
-}
-.filtro-col {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 0.15rem 0.3rem;
-  border: 1px solid #94a3b8;
-  border-radius: 3px;
-  background: #fff;
-  font: inherit;
-  font-size: 0.76rem;
-  font-weight: 400;
-  height: auto;
-}
-.filtro-col:focus {
-  outline: 2px solid #2563eb;
-  outline-offset: -1px;
-}
-.col-fecha {
-  width: 6.5rem;
-}
-.col-tie,
-.col-tipo,
-.col-imp {
-  width: 4rem;
-}
-.col-factura,
-.col-cobro,
-.col-fpago {
-  width: 5.5rem;
-}
-.col-cliente,
-.col-nif {
-  width: 7rem;
-}
-.col-importe {
-  width: 6rem;
-}
-.pie-grid {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 0.75rem;
-  flex-shrink: 0;
-}
-.listadas {
-  font-size: 0.78rem;
-  color: #64748b;
-}
-.num {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-.clip {
-  max-width: 12rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.abc-table.abc-legacy .col-nif {
+  min-width: 7rem;
   white-space: nowrap;
+}
+.abc-legacy-informe .legacy-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.abc-legacy-informe .legacy-tit {
+  font-size: 1.35rem;
+  font-weight: 700;
+  font-style: italic;
+  color: #006f6f;
+  margin: 0;
+}
+.abc-legacy-informe .legacy-tit-line {
+  border: none;
+  border-top: 2px solid #006f6f;
+  margin: 2px 0 0;
+}
+.abc-legacy-informe .legacy-fecha {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 0.72rem;
+}
+.abc-legacy-informe .legacy-fecha-lab {
+  background: #006f6f;
+  color: #fff;
+  padding: 2px 6px;
+  font-weight: 700;
+}
+.abc-legacy-informe .legacy-fecha-val {
+  background: #004d4d;
+  color: #fff;
+  padding: 2px 6px;
+}
+.abc-legacy-informe .legacy-impresion {
+  font-size: 0.72rem;
+  margin: 0.35rem 0;
+}
+.abc-legacy-informe .legacy-sep {
+  border: none;
+  border-top: 3px solid #6b2d2d;
+  margin: 0 0 0.5rem;
 }
 .error {
   color: #b91c1c;

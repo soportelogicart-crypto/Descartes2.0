@@ -1,0 +1,2760 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Descartes\Api\Services;
+
+use Descartes\Api\Config\EntityConfig;
+use Descartes\Api\Database\SqlPagination;
+use Descartes\Api\Repositories\ArtBarrasRepository;
+use Descartes\Api\Repositories\ClientesRiesgoRepository;
+use Descartes\Api\Services\Ventas\FidelizacionValesSemestreService;
+use Descartes\Api\Services\Ventas\ValeService;
+use PDO;
+use PDOException;
+
+final class MantenimientoService
+{
+  private PDO $pdo;
+  private DependencyCheckService $dependencyCheckService;
+  private TiendaAlmacenService $tiendaAlmacenService;
+  private ArticuloService $articuloService;
+  private ClientesRiesgoRepository $clientesRiesgoRepository;
+  private ?ArticuloGeneracionCodigosService $articuloGeneracionCodigos = null;
+  private ?FidelizacionValesSemestreService $fidelizacionVales = null;
+
+  public function __construct(
+    PDO $pdo,
+    DependencyCheckService $dependencyCheckService,
+    TiendaAlmacenService $tiendaAlmacenService,
+    ArticuloService $articuloService,
+    ?ClientesRiesgoRepository $clientesRiesgoRepository = null
+  ) {
+    $this->pdo = $pdo;
+    $this->dependencyCheckService = $dependencyCheckService;
+    $this->tiendaAlmacenService = $tiendaAlmacenService;
+    $this->articuloService = $articuloService;
+    $this->clientesRiesgoRepository = $clientesRiesgoRepository ?? new ClientesRiesgoRepository($pdo);
+  }
+
+  /** @var array<string, bool> */
+  private array $columnExistsCache = [];
+
+  private function columnExists(string $table, string $column): bool
+  {
+    $key = strtolower($table) . '.' . strtolower($column);
+    if (array_key_exists($key, $this->columnExistsCache)) {
+      return $this->columnExistsCache[$key];
+    }
+    $sql = sprintf("SELECT COL_LENGTH('dbo.%s', '%s')", $table, $column);
+    $length = $this->pdo->query($sql)->fetchColumn();
+    $ok = $length !== false && $length !== null;
+    $this->columnExistsCache[$key] = $ok;
+    return $ok;
+  }
+
+  /**
+   * El esquema [Clientes] varia segun la version legacy: no insertar columnas que no existan.
+   *
+   * @param array<string, mixed> $mapped
+   * @return array<string, mixed>
+   */
+  private function filtrarColumnasExistentes(string $table, array $mapped): array
+  {
+    $out = [];
+    foreach ($mapped as $col => $val) {
+      if ($this->columnExists($table, (string) $col)) {
+        $out[$col] = $val;
+      }
+    }
+    return $out;
+  }
+
+  /**
+   * Formato* = plantilla; Imp* / ImpresoraTickets* = nombre Windows (antes 8–10 / lógico OPOS).
+   */
+  private function ensurePuestosFormatoPlantillas(): void
+  {
+    static $done = false;
+    if ($done) {
+      return;
+    }
+    $columnas = [
+      'FormatoAlbaranes',
+      'FormatoFacturasContado',
+      'FormatoPresupuestos',
+      'FormatoFacturas',
+      'FormatoRecibos',
+      'FormatoPedidos',
+      'FormatoEtiquetasEnvio',
+      'FormatoAlbaranCompras',
+      'FormatoPedidoCompras',
+      'FormatoFabricacion',
+      'FormatoCorte',
+      'ImpresoraTickets',
+      'ImpresoraTicketsF',
+      'ImpresoraEtiquetas',
+      'Imp80',
+      'ImpFax',
+      'ImpTarjetas',
+      'ImpAlbaranes',
+      'ImpPresupuestos',
+      'ImpFacturasContado',
+      'ImpFacturas',
+      'ImpRecibos',
+      'ImpPedidos',
+      'ImpEtiquetasEnvio',
+      'ImpAlbaranCompras',
+      'ImpPedidoCompras',
+      'ImpFabricacion',
+      'ImpCorte',
+    ];
+    $esMysql = $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
+    foreach ($columnas as $col) {
+      if (!$this->columnExists('Puestos', $col)) {
+        continue;
+      }
+      if ($esMysql) {
+        // COL_LENGTH traducido solo dice si existe; text no tiene límite que ampliar.
+        $stmt = $this->pdo->prepare(
+          "SELECT CHARACTER_MAXIMUM_LENGTH FROM information_schema.COLUMNS
+           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Puestos' AND COLUMN_NAME = ?"
+        );
+        $stmt->execute([$col]);
+        $len = (int) $stmt->fetchColumn();
+        if ($len > 0 && $len < 100) {
+          $this->pdo->exec(sprintf('ALTER TABLE `Puestos` MODIFY `%s` varchar(100) NULL', $col));
+        }
+        continue;
+      }
+      // nvarchar(N) => COL_LENGTH = 2*N; ampliar si sigue corto (< 200 = nvarchar(100))
+      $len = (int) $this->pdo->query(sprintf("SELECT COL_LENGTH('dbo.Puestos', '%s')", $col))->fetchColumn();
+      if ($len > 0 && $len < 200) {
+        $this->pdo->exec(sprintf(
+          'ALTER TABLE [Puestos] ALTER COLUMN [%s] nvarchar(100) NULL',
+          $col
+        ));
+      }
+    }
+    $done = true;
+  }
+
+  /** LOGIA y algunos esquemas legacy no traen RegistroSanitario; sin columna el UPDATE lo omite en silencio. */
+  private function ensureArticulosRegistroSanitario(): void
+  {
+    static $done = false;
+    if ($done) {
+      return;
+    }
+    $done = true;
+    if ($this->columnExists('Articulos', 'RegistroSanitario')) {
+      return;
+    }
+    $esMysql = $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'mysql';
+    if ($esMysql) {
+      $this->pdo->exec(
+        'ALTER TABLE `Articulos` ADD COLUMN `RegistroSanitario` varchar(25) NULL DEFAULT \'\''
+      );
+    } else {
+      $this->pdo->exec('ALTER TABLE [Articulos] ADD [RegistroSanitario] nvarchar(25) NULL');
+    }
+    $this->columnExistsCache[strtolower('Articulos') . '.' . strtolower('RegistroSanitario')] = true;
+  }
+
+  private function canFilterActivo(array $config, string $table): bool
+  {
+    $soft = $config['softDelete'] ?? null;
+    if ($soft === null) {
+      return false;
+    }
+
+    return $this->columnExists($table, $soft['column']);
+  }
+
+  public function list(string $entidad, array $query): array
+  {
+    $config = EntityConfig::assertExists($entidad);
+    $table = $config['table'];
+    $pk = $config['primaryKey'];
+    $page = max(1, (int) ($query['page'] ?? 1));
+    $pageSize = min(5000, max(1, (int) ($query['pageSize'] ?? 25)));
+    $offset = ($page - 1) * $pageSize;
+
+    $where = [];
+    $params = [];
+
+    if (isset($config['fixedWhere'])) {
+      $where[] = '(' . $config['fixedWhere'] . ')';
+    }
+
+    if (isset($query['q']) && $query['q'] !== '') {
+      $searchCols = $config['searchColumns'] ?? [$pk];
+      $parts = [];
+      foreach ($searchCols as $i => $col) {
+        $key = "q{$i}";
+        $parts[] = "[{$table}].[{$col}] LIKE :{$key}";
+        $params[$key] = '%' . $query['q'] . '%';
+      }
+      if ($entidad === 'articulos') {
+        // ODBC/SQL Server: cada placeholder debe ser unico (no reutilizar :nombre).
+        // Codigo FK o descripcion de Familia / Impuesto / Proveedor habitual
+        $like = '%' . $query['q'] . '%';
+        $parts[] = "EXISTS (SELECT 1 FROM [Familias] f WHERE RTRIM(f.[Codigo]) = RTRIM([{$table}].[Familia]) AND (f.[Codigo] LIKE :qFamCod OR f.[Descripcion] LIKE :qFamDesc))";
+        $params['qFamCod'] = $like;
+        $params['qFamDesc'] = $like;
+        $parts[] = "EXISTS (SELECT 1 FROM [Impuestos] i WHERE RTRIM(i.[Codigo]) = RTRIM([{$table}].[Impuesto]) AND (i.[Codigo] LIKE :qImpCod OR i.[Descripcion] LIKE :qImpDesc))";
+        $params['qImpCod'] = $like;
+        $params['qImpDesc'] = $like;
+        $parts[] = "EXISTS (SELECT 1 FROM [Proveedores] p WHERE RTRIM(p.[Codigo]) = RTRIM([{$table}].[UltProveedor]) AND (p.[Codigo] LIKE :qProvCod OR ISNULL(p.[RazonSocial],'') LIKE :qProvNom))";
+        $params['qProvCod'] = $like;
+        $params['qProvNom'] = $like;
+      }
+      if ($entidad === 'actividades') {
+        $like = '%' . $query['q'] . '%';
+        $parts[] = "EXISTS (SELECT 1 FROM [CentrosCoste] cc WHERE RTRIM(cc.[Codigo]) = RTRIM([{$table}].[CodigoCentroCoste]) AND cc.[Descripcion] LIKE :qCcDesc)";
+        $params['qCcDesc'] = $like;
+      }
+      $where[] = '(' . implode(' OR ', $parts) . ')';
+    }
+
+    if (isset($query['activo'])) {
+      $activo = filter_var($query['activo'], FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
+      if ($activo !== null && $this->canFilterActivo($config, $table)) {
+        $where[] = $this->activoSqlCondition($config, $activo);
+      }
+    }
+
+    if (isset($query['empresaCodigo']) && $query['empresaCodigo'] !== '') {
+      if ($entidad === 'clientes') {
+        $where[] = '[Empresa] = :empresaCodigo';
+        $params['empresaCodigo'] = $query['empresaCodigo'];
+      }
+    }
+
+    if ($entidad === 'tiendas' && filter_var($query['conParametros'] ?? false, FILTER_VALIDATE_BOOL)) {
+      $where[] = 'EXISTS (SELECT 1 FROM [Parametros] p WHERE RTRIM(p.[Empresa]) = RTRIM([Empresas_Ges].[Codigo]))';
+    }
+
+    $whereSql = $where === [] ? '' : 'WHERE ' . implode(' AND ', $where);
+
+    $countStmt = $this->pdo->prepare("SELECT COUNT(*) AS total FROM [{$table}] {$whereSql}");
+    $countStmt->execute($params);
+    $total = (int) ($countStmt->fetch()['total'] ?? 0);
+
+    $innerSql = "SELECT * FROM [{$table}] {$whereSql}";
+    $sql = SqlPagination::wrap($innerSql, "[{$pk}]", $offset, $pageSize);
+    $stmt = $this->pdo->prepare($sql);
+    foreach ($params as $key => $value) {
+      $stmt->bindValue(':' . $key, $value);
+    }
+    SqlPagination::bind($stmt, $offset, $pageSize);
+    $stmt->execute();
+
+    $items = [];
+    while ($row = $stmt->fetch()) {
+      $items[] = $this->mapRowToApi($config, $row);
+    }
+    if ($entidad === 'articulos') {
+      $items = $this->articuloService->enrichMany($items);
+    } elseif ($entidad === 'actividades') {
+      $items = $this->enrichActividadesCentroCoste($items);
+    } else {
+      foreach ($items as $i => $item) {
+        $items[$i] = $this->enrichItem($entidad, $item, false);
+      }
+    }
+
+    return [
+      'items' => $items,
+      'page' => $page,
+      'pageSize' => $pageSize,
+      'total' => $total,
+    ];
+  }
+
+  public function get(string $entidad, string $codigo): ?array
+  {
+    $config = EntityConfig::assertExists($entidad);
+
+    $filtroFijo = isset($config['fixedWhere']) ? " AND ({$config['fixedWhere']})" : '';
+
+    foreach ($this->codigoVariants($entidad, $codigo) as $variant) {
+      $stmt = $this->pdo->prepare(
+        "SELECT * FROM [{$config['table']}] WHERE [{$config['primaryKey']}] = :codigo{$filtroFijo}"
+      );
+      $this->bindPrimaryKey($stmt, ':codigo', $variant, $config);
+      $stmt->execute();
+      $row = $stmt->fetch();
+      if ($row) {
+        return $this->enrichItem($entidad, $this->mapRowToApi($config, $row), true);
+      }
+    }
+
+    return null;
+  }
+
+  private function codigoVariants(string $entidad, string $codigo): array
+  {
+    $codigo = trim($codigo);
+    $variants = [$codigo];
+
+    if ($entidad === 'puestos-trabajo') {
+      $variants[] = str_pad($codigo, 2, '0', STR_PAD_LEFT);
+    }
+
+    if ($entidad === 'tiendas') {
+      $variants[] = str_pad($codigo, 3, '0', STR_PAD_LEFT);
+    }
+
+    return array_values(array_unique($variants));
+  }
+
+  public function create(string $entidad, array $data): array
+  {
+    if ($entidad === 'puestos-trabajo') {
+      $this->ensurePuestosFormatoPlantillas();
+    }
+    $config = EntityConfig::assertExists($entidad);
+    if ($entidad === 'usuarios') {
+      $this->validarUsuario($data, true);
+    }
+    if ($entidad === 'tiendas') {
+      $this->validarTienda($data, null);
+    }
+    if ($entidad === 'articulos') {
+      $this->ensureArticulosRegistroSanitario();
+      $empresaCodigo = trim((string) ($data['empresaCodigo'] ?? ''));
+      unset($data['empresaCodigo']);
+      $this->articuloGeneracionCodigos()->aplicarEnAlta($data, $empresaCodigo);
+      $this->validarArticulo($data, null);
+    }
+    if ($entidad === 'clientes') {
+      // Validar datos de negocio antes de reservar UltCliente (GenClientes).
+      $this->validarClienteDatosObligatorios($data, true);
+      $empresaCodigo = trim((string) ($data['tiendaCodigo'] ?? ''));
+      $this->asignarCodigoClienteSiCorresponde($data, $empresaCodigo);
+      $this->prepararDatosCliente($data);
+      $this->prepararFechaAltaFidelizacion($data);
+      $this->validarCliente($data, null);
+    }
+    if ($entidad === 'trabajadores') {
+      $this->validarTrabajador($data, null);
+    }
+    if ($entidad === 'almacenes') {
+      $this->validarAlmacen($data, null);
+    }
+    if ($entidad === 'impuestos') {
+      $this->validarImpuesto($data, null);
+    }
+    if ($entidad === 'formas-pago') {
+      $this->validarFormaPago($data, null);
+    }
+    if ($entidad === 'macrofamilias') {
+      $this->validarMacrofamilia($data, null);
+    }
+    if ($entidad === 'actividades') {
+      $this->validarActividad($data, null);
+    }
+    if ($entidad === 'intereses-comerciales') {
+      $this->validarInteresComercial($data, null);
+    }
+    if ($entidad === 'tipos-calculo-fidelizacion') {
+      $this->validarTipoCalculoFidelizacion($data, null);
+    }
+    if ($entidad === 'agrupaciones') {
+      $this->validarAgrupacion($data, null);
+    }
+    if ($entidad === 'familias') {
+      $this->validarFamilia($data, null);
+    }
+    if ($entidad === 'subfamilias') {
+      $this->validarSubfamilia($data, null);
+    }
+    if ($entidad === 'proveedores') {
+      $empresaCodigo = trim((string) ($data['empresaCodigo'] ?? ''));
+      unset($data['empresaCodigo']);
+      $this->asignarCodigoProveedorSiCorresponde($data, $empresaCodigo);
+      $this->prepararIban($data);
+      $this->validarProveedorIban($data);
+    }
+    $table = $config['table'];
+    $pk = $config['primaryKey'];
+
+    $mapped = $this->filtrarColumnasExistentes($table, $this->mapApiToRow($config, $data, true));
+    if (!isset($mapped[$pk]) || $mapped[$pk] === '' || $mapped[$pk] === null) {
+      throw new \InvalidArgumentException('Codigo obligatorio');
+    }
+
+    $codigo = (string) $mapped[$pk];
+    $useTransaction = $entidad === 'tiendas';
+    if ($useTransaction) {
+      $this->pdo->beginTransaction();
+    }
+
+    try {
+      if ($entidad === 'tiendas') {
+        $this->ensureParametrosTienda($codigo, $data);
+      }
+
+      $columns = array_keys($mapped);
+      $valueExprs = [];
+      foreach (array_values($columns) as $i => $col) {
+        $valueExprs[] = $this->sqlValueExpression($col, 'p' . $i);
+      }
+      $sql = sprintf(
+        'INSERT INTO [%s] (%s) VALUES (%s)',
+        $table,
+        implode(', ', array_map(static fn (string $c) => "[{$c}]", $columns)),
+        implode(', ', $valueExprs)
+      );
+
+      $stmt = $this->pdo->prepare($sql);
+      $this->bindPlaceholderValues($stmt, array_values($mapped));
+      $stmt->execute();
+
+      if ($useTransaction) {
+        $this->pdo->commit();
+      }
+    } catch (\Throwable $e) {
+      if ($useTransaction && $this->pdo->inTransaction()) {
+        $this->pdo->rollBack();
+      }
+      throw $e;
+    }
+    if ($entidad === 'articulos') {
+      $eanGenerado = trim((string) ($data['_eanGenerado'] ?? ''));
+      unset($data['_eanGenerado']);
+      $this->articuloService->saveExtras($codigo, $data);
+      if ($eanGenerado !== '') {
+        $this->articuloGeneracionCodigos()->insertarEanGenerado($codigo, $eanGenerado);
+      }
+    }
+
+    return $this->get($entidad, $codigo) ?? $data;
+  }
+
+  private function articuloGeneracionCodigos(): ArticuloGeneracionCodigosService
+  {
+    if ($this->articuloGeneracionCodigos === null) {
+      $this->articuloGeneracionCodigos = new ArticuloGeneracionCodigosService(
+        $this->pdo,
+        new ArtBarrasRepository($this->pdo)
+      );
+    }
+    return $this->articuloGeneracionCodigos;
+  }
+
+  private function fidelizacionVales(): FidelizacionValesSemestreService
+  {
+    if ($this->fidelizacionVales === null) {
+      $this->fidelizacionVales = new FidelizacionValesSemestreService(
+        $this->pdo,
+        new ValeService($this->pdo)
+      );
+    }
+    return $this->fidelizacionVales;
+  }
+
+  public function update(string $entidad, string $codigo, array $data): ?array
+  {
+    if ($entidad === 'puestos-trabajo') {
+      $this->ensurePuestosFormatoPlantillas();
+    }
+    $config = EntityConfig::assertExists($entidad);
+    if ($entidad === 'tiendas') {
+      $this->validarTienda($data, $codigo);
+    }
+    if ($entidad === 'articulos') {
+      $this->ensureArticulosRegistroSanitario();
+      $this->validarArticulo($data, $codigo);
+    }
+    if ($entidad === 'clientes') {
+      $this->prepararDatosCliente($data, $codigo);
+      $this->prepararFechaAltaFidelizacion($data);
+      $this->validarCliente($data, $codigo);
+    }
+    if ($entidad === 'trabajadores') {
+      $this->validarTrabajador($data, $codigo);
+    }
+    if ($entidad === 'almacenes') {
+      $this->validarAlmacenBaja($data, $codigo);
+    }
+    if ($entidad === 'formas-pago') {
+      $this->validarFormaPago($data, $codigo);
+    }
+    if ($entidad === 'usuarios') {
+      $this->validarUsuario($data, false);
+    }
+    if ($entidad === 'macrofamilias') {
+      $this->validarMacrofamilia($data, $codigo);
+    }
+    if ($entidad === 'actividades') {
+      $this->validarActividad($data, $codigo);
+    }
+    if ($entidad === 'intereses-comerciales') {
+      $this->validarInteresComercial($data, $codigo);
+    }
+    if ($entidad === 'tipos-calculo-fidelizacion') {
+      $this->validarTipoCalculoFidelizacion($data, $codigo);
+    }
+    if ($entidad === 'agrupaciones') {
+      $this->validarAgrupacion($data, $codigo);
+    }
+    if ($entidad === 'familias') {
+      $this->validarFamilia($data, $codigo);
+    }
+    if ($entidad === 'subfamilias') {
+      $this->validarSubfamilia($data, $codigo);
+    }
+    if ($entidad === 'proveedores') {
+      $this->prepararIban($data);
+      $this->validarProveedorIban($data);
+    }
+    $table = $config['table'];
+    $pk = $config['primaryKey'];
+
+    $mapped = $this->filtrarColumnasExistentes($table, $this->mapApiToRow($config, $data, false));
+    unset($mapped[$pk]);
+
+    if ($mapped === []) {
+      return $this->get($entidad, $codigo);
+    }
+
+    $sets = [];
+    $i = 0;
+    foreach (array_keys($mapped) as $col) {
+      $sets[] = "[{$col}] = " . $this->sqlValueExpression($col, 'p' . $i);
+      $i++;
+    }
+
+    $sql = sprintf('UPDATE [%s] SET %s WHERE [%s] = :pk', $table, implode(', ', $sets), $pk);
+    $stmt = $this->pdo->prepare($sql);
+    $this->bindPlaceholderValues($stmt, array_values($mapped));
+    $this->bindPrimaryKey($stmt, ':pk', $codigo, $config);
+    $stmt->execute();
+
+    if ($entidad === 'tiendas') {
+      $this->syncParametrosNombreTienda($codigo, $data);
+    }
+
+    if ($entidad === 'articulos') {
+      $this->articuloService->saveExtras($codigo, $data);
+    }
+
+    return $this->get($entidad, $codigo);
+  }
+
+  public function softDelete(string $entidad, string $codigo): void
+  {
+    $check = $this->dependencyCheckService->puedeDarDeBaja($entidad, $codigo);
+    if (!$check['ok']) {
+      throw new DependencyException(
+        'No se puede dar de baja el registro porque tiene dependencias activas',
+        $check['dependencias']
+      );
+    }
+
+    $config = EntityConfig::assertExists($entidad);
+    $soft = $config['softDelete'] ?? null;
+    if ($soft !== null) {
+      $this->aplicarBajaLogica($config, $codigo, $soft);
+      return;
+    }
+
+    if (empty($config['hardDelete'])) {
+      throw new \RuntimeException('Eliminacion no configurada para esta entidad');
+    }
+
+    $this->aplicarBajaFisica($config, $codigo);
+  }
+
+  private function aplicarBajaLogica(array $config, string $codigo, array $soft): void
+  {
+    $table = $config['table'];
+    $pk = $config['primaryKey'];
+    $column = $soft['column'];
+    $inactive = $soft['inactiveValue'];
+
+    $this->assertRegistroExiste($config, $codigo);
+    $this->assertSoftDeleteColumn($table, $column);
+
+    if ($inactive === 'NOT_NULL') {
+      $sql = "UPDATE [{$table}] SET [{$column}] = GETDATE() WHERE [{$pk}] = :codigo";
+      $stmt = $this->pdo->prepare($sql);
+    } else {
+      $sql = "UPDATE [{$table}] SET [{$column}] = :inactive WHERE [{$pk}] = :codigo";
+      $stmt = $this->pdo->prepare($sql);
+      $stmt->bindValue(':inactive', $inactive, PDO::PARAM_INT);
+    }
+
+    $this->bindPrimaryKey($stmt, ':codigo', $codigo, $config);
+    $stmt->execute();
+
+    // PDO/SQL Server a veces reporta rowCount=0 aunque el UPDATE haya afectado filas.
+    if (!$this->registroEstaDeBaja($config, $codigo, $soft)) {
+      throw new \RuntimeException('No se pudo dar de baja el registro');
+    }
+  }
+
+  private function registroEstaDeBaja(array $config, string $codigo, array $soft): bool
+  {
+    $table = $config['table'];
+    $pk = $config['primaryKey'];
+    $column = $soft['column'];
+    $inactive = $soft['inactiveValue'];
+
+    if ($inactive === 'NOT_NULL') {
+      $sql = "SELECT 1 FROM [{$table}] WHERE [{$pk}] = :codigo AND [{$column}] IS NOT NULL";
+      $stmt = $this->pdo->prepare($sql);
+      $this->bindPrimaryKey($stmt, ':codigo', $codigo, $config);
+      $stmt->execute();
+      return (bool) $stmt->fetchColumn();
+    }
+
+    $sql = "SELECT 1 FROM [{$table}] WHERE [{$pk}] = :codigo AND [{$column}] = :inactive";
+    $stmt = $this->pdo->prepare($sql);
+    $this->bindPrimaryKey($stmt, ':codigo', $codigo, $config);
+    $stmt->bindValue(':inactive', $inactive, PDO::PARAM_INT);
+    $stmt->execute();
+    return (bool) $stmt->fetchColumn();
+  }
+
+  private function aplicarBajaFisica(array $config, string $codigo): void
+  {
+    $codigo = trim($codigo);
+    $this->assertRegistroExiste($config, $codigo);
+
+    $table = $config['table'];
+    $pk = $config['primaryKey'];
+    $pkType = $config['primaryKeyType'] ?? 'string';
+
+    if ($pkType === 'int') {
+      $sql = "DELETE FROM [{$table}] WHERE [{$pk}] = :codigo";
+    } else {
+      // Evita fallos por espacios en nvarchar (p.ej. Codigo de Proveedores).
+      $sql = "DELETE FROM [{$table}] WHERE RTRIM([{$pk}]) = :codigo";
+    }
+
+    $stmt = $this->pdo->prepare($sql);
+    $this->bindPrimaryKey($stmt, ':codigo', $codigo, $config);
+    $stmt->execute();
+
+    if ($this->assertRegistroExisteSilent($config, $codigo)) {
+      throw new \RuntimeException('No se pudo eliminar el registro');
+    }
+  }
+
+  private function assertRegistroExisteSilent(array $config, string $codigo): bool
+  {
+    $codigo = trim($codigo);
+    $table = $config['table'];
+    $pk = $config['primaryKey'];
+    $pkType = $config['primaryKeyType'] ?? 'string';
+    $sql = $pkType === 'int'
+      ? "SELECT 1 FROM [{$table}] WHERE [{$pk}] = :codigo"
+      : "SELECT 1 FROM [{$table}] WHERE RTRIM([{$pk}]) = :codigo";
+    $stmt = $this->pdo->prepare($sql);
+    $this->bindPrimaryKey($stmt, ':codigo', $codigo, $config);
+    $stmt->execute();
+    return (bool) $stmt->fetchColumn();
+  }
+
+  private function activoSqlCondition(array $config, bool $activo): string
+  {
+    $soft = $config['softDelete'] ?? ['column' => 'Baja', 'inactiveValue' => 1, 'activeValue' => 0];
+    $column = $soft['column'];
+
+    if (($soft['inactiveValue'] ?? null) === 'NOT_NULL') {
+      return $activo ? "[{$column}] IS NULL" : "[{$column}] IS NOT NULL";
+    }
+
+    $activeValue = $soft['activeValue'] ?? 0;
+    $inactiveValue = $soft['inactiveValue'] ?? 1;
+    return $activo
+      ? "[{$column}] = {$activeValue}"
+      : "[{$column}] = {$inactiveValue}";
+  }
+
+  private function sqlPlaceholders(int $count, string $prefix = 'p'): array
+  {
+    $placeholders = [];
+    for ($i = 0; $i < $count; $i++) {
+      $placeholders[] = ':' . $prefix . $i;
+    }
+
+    return $placeholders;
+  }
+
+  private function bindPlaceholderValues(\PDOStatement $stmt, array $values, string $prefix = 'p'): void
+  {
+    foreach (array_values($values) as $i => $value) {
+      $param = ':' . $prefix . $i;
+      if ($value === null) {
+        $stmt->bindValue($param, null, \PDO::PARAM_NULL);
+      } else {
+        $stmt->bindValue($param, $value);
+      }
+    }
+  }
+
+  private function mapRowToApi(array $config, array $row): array
+  {
+    $result = [];
+    foreach ($config['fields'] as $apiField => $sqlColumn) {
+      if (!array_key_exists($sqlColumn, $row)) {
+        continue;
+      }
+      $value = $row[$sqlColumn];
+      if ($apiField === 'activo') {
+        $result[$apiField] = $this->isActivo($config, $value);
+        continue;
+      }
+      if ($this->isBooleanField($config, $apiField)) {
+        $result[$apiField] = (bool) $value;
+        continue;
+      }
+      if ($this->isIntField($config, $apiField)) {
+        $result[$apiField] = $value === null || $value === '' ? null : (int) $value;
+        continue;
+      }
+      if ($this->isTimeField($config, $apiField)) {
+        $result[$apiField] = $this->normalizeTimeValue($value);
+        continue;
+      }
+      if ($apiField === 'almacenCodigo') {
+        $result[$apiField] = $value === null || (float) $value <= 0 ? null : (int) $value;
+        continue;
+      }
+      if ($sqlColumn === 'LUpdate') {
+        $result[$apiField] = $this->normalizeDateValue($value);
+        continue;
+      }
+      if ($this->isDateField($config, $apiField) || $this->isDateSqlColumn($sqlColumn)) {
+        $normalized = $this->normalizeDateValue($value);
+        // API: solo fecha para inputs HTML date
+        $result[$apiField] = $normalized === null ? null : substr($normalized, 0, 10);
+        continue;
+      }
+      $result[$apiField] = $value;
+    }
+    return $result;
+  }
+
+  private function mapApiToRow(array $config, array $data, bool $isCreate): array
+  {
+    $mapped = [];
+    foreach ($config['fields'] as $apiField => $sqlColumn) {
+      if (!array_key_exists($apiField, $data)) {
+        continue;
+      }
+      if (in_array($apiField, $config['hidden'] ?? [], true)) {
+        continue;
+      }
+      if (in_array($apiField, $config['readOnlyFields'] ?? [], true)) {
+        continue;
+      }
+      $value = $data[$apiField];
+      if ($apiField === 'activo') {
+        $mapped[$sqlColumn] = $this->activoToSql($config, (bool) $value);
+        continue;
+      }
+      if ($this->isBooleanField($config, $apiField)) {
+        $mapped[$sqlColumn] = $value ? 1 : 0;
+        continue;
+      }
+      if ($this->isIntField($config, $apiField)) {
+        $mapped[$sqlColumn] = $value === null || $value === '' ? null : (int) $value;
+        continue;
+      }
+      if ($this->isTimeField($config, $apiField)) {
+        $mapped[$sqlColumn] = $this->timeToSqlDateTime($value);
+        continue;
+      }
+      if ($apiField === 'almacenCodigo') {
+        $mapped[$sqlColumn] = $value === null || $value === '' ? 0 : (int) $value;
+        continue;
+      }
+      if ($apiField === 'tarjeta') {
+        $mapped[$sqlColumn] = $value === null || $value === '' ? 0 : (int) $value;
+        continue;
+      }
+      if ($apiField === 'conceptoDescuadre') {
+        $concepto = trim((string) ($value ?? ''));
+        $mapped[$sqlColumn] = $concepto === '' ? null : substr($concepto, 0, 2);
+        continue;
+      }
+      if ($this->isDateField($config, $apiField) || $this->isDateSqlColumn($sqlColumn)) {
+        $mapped[$sqlColumn] = $this->normalizeDateValue($value);
+        continue;
+      }
+      $mapped[$sqlColumn] = $value;
+    }
+
+    foreach ($mapped as $col => $val) {
+      if ($val === '') {
+        $mapped[$col] = null;
+      }
+    }
+
+    $this->truncateStringMaxLengths($config, $mapped);
+    $this->assertStringMaxLengths($config, $mapped);
+
+    if ($isCreate && isset($config['softDelete']) && !isset($data['activo'])) {
+      $soft = $config['softDelete'];
+      if (($soft['inactiveValue'] ?? null) !== 'NOT_NULL') {
+        $mapped[$soft['column']] = $soft['activeValue'] ?? 0;
+      }
+    }
+
+    if ($isCreate && isset($config['createDefaults']) && is_array($config['createDefaults'])) {
+      foreach ($config['createDefaults'] as $sqlColumn => $defaultValue) {
+        // Legacy rellena 0/'' en alta; no dejar NULL si el cliente omite el campo.
+        if (!array_key_exists($sqlColumn, $mapped) || $mapped[$sqlColumn] === null) {
+          $mapped[$sqlColumn] = $defaultValue;
+        }
+      }
+    }
+
+    // Almacenes.CentroCoste: mantener en blanco ('') aunque el payload vacio se normalice a null.
+    if (($config['table'] ?? '') === 'Almacenes' && array_key_exists('CentroCoste', $mapped) && $mapped['CentroCoste'] === null) {
+      $mapped['CentroCoste'] = '';
+    }
+
+    // FormasPago: legacy guarda '' (no NULL) en textos opcionales; FACTEFPCodigo a 0.
+    if (($config['table'] ?? '') === 'FormasPago') {
+      foreach (
+        [
+          'Abreviacion',
+          'Tipo',
+          'Nota',
+          'FACTEIban',
+          'FACTEBanco',
+          'FACTESucursal',
+          'FACTEBanDir',
+          'FACTEBanCodPos',
+          'FACTEBanPob',
+          'FACTEBanPrv',
+          'FACTEBanPai',
+        ] as $col
+      ) {
+        if (array_key_exists($col, $mapped) && $mapped[$col] === null) {
+          $mapped[$col] = '';
+        }
+      }
+      if (array_key_exists('FACTEFPCodigo', $mapped) && $mapped['FACTEFPCodigo'] === null) {
+        $mapped['FACTEFPCodigo'] = 0;
+      }
+    }
+
+    // Familias.CuentaCtbIta: legacy en blanco (''), no NULL.
+    if (($config['table'] ?? '') === 'Familias' && array_key_exists('CuentaCtbIta', $mapped) && $mapped['CuentaCtbIta'] === null) {
+      $mapped['CuentaCtbIta'] = '';
+    }
+
+    // Actividades / InteresesComerciales: Descripcion en '' (no NULL).
+    if (
+      in_array(($config['table'] ?? ''), ['Actividades', 'InteresesComerciales'], true)
+      && array_key_exists('Descripcion', $mapped)
+      && $mapped['Descripcion'] === null
+    ) {
+      $mapped['Descripcion'] = '';
+    }
+
+    if (
+      ($config['table'] ?? '') === 'Actividades'
+      && array_key_exists('CodigoCentroCoste', $mapped)
+      && $mapped['CodigoCentroCoste'] === null
+    ) {
+      $mapped['CodigoCentroCoste'] = '';
+    }
+
+    // Clientes: textos/numeros opcionales en ''/0 (legacy), no NULL.
+    // Fechas vacias → 1995-01-01 (sentinel legacy).
+    if (($config['table'] ?? '') === 'Clientes') {
+      foreach (
+        [
+          'PersonaContacto',
+          'Direccion',
+          'Poblacion',
+          'Provincia',
+          'Pais',
+          'CodigoPostal',
+          'DireccionEnvio',
+          'PoblacionEnvio',
+          'ProvinciaEnvio',
+          'PaisEnvio',
+          'Telefono1',
+          'Telefono2',
+          'Fax',
+          'Email',
+          'EmailComercial',
+          'EmailFacturacion',
+          'Vendedor',
+          'AgenteOrigen',
+          'Agencia',
+          'CuentaBancaria',
+          'CuentaCtb',
+          'CuentaCtbIta',
+          'RazonSocial2',
+          'Swift',
+          'IBAN',
+          'Banco',
+          'DescripcionPago',
+          'ObserRecibo',
+          'InteresesComerciales',
+          'Observaciones',
+          'ObservacionesInternas',
+          'Portes',
+          'Actividad',
+          'TratamientoFiscal',
+          'Transportista',
+          'TarjetaFidelizacion',
+          'TipoDescuento',
+          'TipoDescuentoFidelizacion',
+          'ClasificacionComercial',
+          'Tipologia',
+          'CodigoPaisCliente',
+          'CodigoPaisDireccion',
+          'RegimenImpuestos',
+          'CodigoDireccion',
+          'CodigoClienteEmpresa',
+          'EmpresaFacturacion',
+          'ReferenciaMandato',
+          'OficinaContable',
+          'OrganoGestor',
+          'UnidadTramitadora',
+          'OrganoProponente',
+          'CarnetManipulador',
+          'CodigoTransaccionSII',
+          'FidPregunta1',
+          'FidPregunta2',
+          'FidPregunta3',
+          'FidPregunta4',
+          'FidPregunta5',
+          'Sexo',
+        ] as $col
+      ) {
+        if (array_key_exists($col, $mapped) && $mapped[$col] === null) {
+          $mapped[$col] = '';
+        }
+      }
+      foreach (
+        [
+          'CuentaCtb2',
+          'Naturaleza',
+          'LimiteCredito',
+          'TarifaTrans',
+          'AlmacenTraspaso',
+          'NumeroSubvenciones',
+          'SaldoMenuDiario',
+          'AdressId',
+        ] as $col
+      ) {
+        if (array_key_exists($col, $mapped) && $mapped[$col] === null) {
+          $mapped[$col] = 0;
+        }
+      }
+      foreach (
+        [
+          'UltimaCompra',
+          'FechaFirmaMandato',
+          'FechaCaducidadCarnet',
+          'FechaTx3',
+          'FechaEntradaAdonix',
+          'FechaAltaFidelizacion',
+          'UltimaSubvencion',
+        ] as $col
+      ) {
+        if (array_key_exists($col, $mapped) && $mapped[$col] === null) {
+          $mapped[$col] = '1995-01-01 00:00:00';
+        }
+      }
+      if ($isCreate && !array_key_exists('FechaAlta', $mapped)) {
+        $mapped['FechaAlta'] = date('Y-m-d H:i:s');
+      }
+      // Legacy: ReferenciaMandato suele coincidir con Codigo si viene vacia.
+      if (
+        $isCreate
+        && array_key_exists('Codigo', $mapped)
+        && trim((string) ($mapped['ReferenciaMandato'] ?? '')) === ''
+      ) {
+        $mapped['ReferenciaMandato'] = (string) $mapped['Codigo'];
+      }
+      // Legacy actualiza LUpdate en alta/modificacion.
+      $mapped['LUpdate'] = date('Y-m-d H:i:s');
+    }
+
+    // Puestos.NivelBar = plantilla del teclado táctil; legacy la guarda con Format(n, "000").
+    if (($config['table'] ?? '') === 'Puestos' && array_key_exists('NivelBar', $mapped)) {
+      $nivelBar = trim((string) ($mapped['NivelBar'] ?? ''));
+      $mapped['NivelBar'] = ctype_digit($nivelBar) && (int) $nivelBar > 0
+        ? str_pad((string) (int) $nivelBar, 3, '0', STR_PAD_LEFT)
+        : ($nivelBar === '' ? ' ' : $nivelBar);
+    }
+
+    if ($isCreate && ($config['table'] ?? '') === 'Vendedores' && !array_key_exists('ComisionVenta', $mapped)) {
+      $mapped['ComisionVenta'] = 0;
+    }
+
+    foreach ($config['writeOnly'] ?? [] as $apiField => $sqlColumn) {
+      if (!array_key_exists($apiField, $data)) {
+        continue;
+      }
+      $plain = trim((string) $data[$apiField]);
+      if ($plain === '') {
+        continue;
+      }
+      // Vendedores.PassWord es int (PIN numerico legacy).
+      if ($sqlColumn === 'PassWord' && ($config['table'] ?? '') === 'Vendedores') {
+        if (!preg_match('/^-?\d+$/', $plain)) {
+          throw new \InvalidArgumentException('La contrasena del trabajador debe ser numerica');
+        }
+        $mapped[$sqlColumn] = (int) $plain;
+        continue;
+      }
+      // Usuarios_Ges.PassWord se guarda en texto plano (legacy).
+      $mapped[$sqlColumn] = $plain;
+    }
+
+    // Sello de modificacion (servidor): no depende del payload del cliente.
+    // Articulos.LUpdate: legacy lo pone en alta/modificacion.
+    $fieldValues = array_values($config['fields'] ?? []);
+    if (in_array('LUpdate', $fieldValues, true) || ($config['table'] ?? '') === 'Articulos') {
+      $mapped['LUpdate'] = date('Y-m-d H:i:s');
+    }
+
+    return $mapped;
+  }
+
+  /**
+   * Recorta textos al maximo de columna antes de validar (p.ej. Imp* de Puestos = 10).
+   *
+   * @param array<string, mixed> $config
+   * @param array<string, mixed> $mapped
+   */
+  private function truncateStringMaxLengths(array $config, array &$mapped): void
+  {
+    $limits = $config['stringMaxLengths'] ?? null;
+    if (!is_array($limits) || $limits === []) {
+      return;
+    }
+
+    foreach ($limits as $sqlColumn => $maxLen) {
+      if (!array_key_exists($sqlColumn, $mapped)) {
+        continue;
+      }
+      $value = $mapped[$sqlColumn];
+      if ($value === null || is_bool($value) || is_int($value) || is_float($value)) {
+        continue;
+      }
+      $text = (string) $value;
+      $max = (int) $maxLen;
+      if ($max <= 0) {
+        continue;
+      }
+      $len = function_exists('mb_strlen') ? mb_strlen($text, 'UTF-8') : strlen($text);
+      if ($len <= $max) {
+        continue;
+      }
+      $mapped[$sqlColumn] = function_exists('mb_substr')
+        ? mb_substr($text, 0, $max, 'UTF-8')
+        : substr($text, 0, $max);
+    }
+  }
+
+  private function assertStringMaxLengths(array $config, array $mapped): void
+  {
+    $limits = $config['stringMaxLengths'] ?? null;
+    if (!is_array($limits) || $limits === []) {
+      return;
+    }
+
+    $labels = array_flip($config['fields'] ?? []);
+    foreach ($limits as $sqlColumn => $maxLen) {
+      if (!array_key_exists($sqlColumn, $mapped)) {
+        continue;
+      }
+      $value = $mapped[$sqlColumn];
+      if ($value === null || is_bool($value) || is_int($value) || is_float($value)) {
+        continue;
+      }
+      $text = (string) $value;
+      $len = function_exists('mb_strlen') ? mb_strlen($text, 'UTF-8') : strlen($text);
+      if ($len <= (int) $maxLen) {
+        continue;
+      }
+      $apiField = $labels[$sqlColumn] ?? $sqlColumn;
+      throw new \InvalidArgumentException(
+        "El campo \"{$apiField}\" supera la longitud maxima de {$maxLen} caracteres (tiene {$len})"
+      );
+    }
+  }
+
+  private function validarUsuario(array $data, bool $isCreate): void
+  {
+    if ($isCreate && trim((string) ($data['codigo'] ?? '')) === '') {
+      throw new \InvalidArgumentException('El codigo es obligatorio');
+    }
+    if ($isCreate || array_key_exists('nombre', $data)) {
+      if (trim((string) ($data['nombre'] ?? '')) === '') {
+        throw new \InvalidArgumentException('El nombre es obligatorio');
+      }
+    }
+    if ($isCreate || array_key_exists('rolCodigo', $data)) {
+      if (trim((string) ($data['rolCodigo'] ?? '')) === '') {
+        throw new \InvalidArgumentException('El rol es obligatorio');
+      }
+    }
+    if ($isCreate || array_key_exists('password', $data)) {
+      if (trim((string) ($data['password'] ?? '')) === '') {
+        throw new \InvalidArgumentException('La contrasena es obligatoria');
+      }
+    }
+  }
+
+  private function ensureParametrosTienda(string $codigo, array $data): void
+  {
+    $stmt = $this->pdo->prepare('SELECT 1 FROM [Parametros] WHERE RTRIM([Empresa]) = :codigo');
+    $stmt->execute(['codigo' => $codigo]);
+    if ($stmt->fetch()) {
+      return;
+    }
+
+    $nombre = trim((string) ($data['nombre'] ?? $data['nombreFiscal'] ?? ''));
+    if ($nombre === '') {
+      $nombre = $codigo;
+    }
+    if (strlen($nombre) > 50) {
+      $nombre = substr($nombre, 0, 50);
+    }
+
+    $insert = $this->pdo->prepare(
+      'INSERT INTO [Parametros] ([Empresa], [Nombre]) VALUES (:codigo, :nombre)'
+    );
+    $insert->execute(['codigo' => $codigo, 'nombre' => $nombre]);
+  }
+
+  /** Al renombrar la tienda en Empresas_Ges, mantener Parametros.Nombre alineado. */
+  private function syncParametrosNombreTienda(string $codigo, array $data): void
+  {
+    if (!array_key_exists('nombre', $data) && !array_key_exists('nombreFiscal', $data)) {
+      return;
+    }
+
+    $nombre = trim((string) ($data['nombre'] ?? $data['nombreFiscal'] ?? ''));
+    if ($nombre === '') {
+      return;
+    }
+    if (strlen($nombre) > 50) {
+      $nombre = substr($nombre, 0, 50);
+    }
+
+    $stmt = $this->pdo->prepare(
+      'UPDATE [Parametros] SET [Nombre] = :nombre WHERE RTRIM([Empresa]) = :codigo'
+    );
+    $stmt->execute(['nombre' => $nombre, 'codigo' => trim($codigo)]);
+  }
+
+  private function validarAlmacen(array $data, ?string $codigo): void
+  {
+    $isCreate = $codigo === null;
+
+    if ($isCreate) {
+      if (!array_key_exists('codigo', $data) || $data['codigo'] === null || $data['codigo'] === '') {
+        throw new \InvalidArgumentException('El codigo es obligatorio');
+      }
+
+      $nuevoCodigo = (int) $data['codigo'];
+      if ($nuevoCodigo <= 0) {
+        throw new \InvalidArgumentException('El codigo es obligatorio');
+      }
+
+      $stmt = $this->pdo->prepare('SELECT 1 FROM [Almacenes] WHERE [Codigo] = :codigo');
+      $stmt->execute(['codigo' => $nuevoCodigo]);
+      if ($stmt->fetch()) {
+        throw new \InvalidArgumentException('Ya existe un almacen con ese codigo');
+      }
+    }
+
+    if ($isCreate || array_key_exists('descripcion', $data)) {
+      if (trim((string) ($data['descripcion'] ?? '')) === '') {
+        throw new \InvalidArgumentException('La descripcion es obligatoria');
+      }
+    }
+  }
+
+  private function validarAlmacenBaja(array $data, string $codigo): void
+  {
+    if (!array_key_exists('activo', $data) || $data['activo'] !== false) {
+      return;
+    }
+
+    $check = $this->dependencyCheckService->puedeDarDeBaja('almacenes', $codigo);
+    if (!$check['ok']) {
+      throw new DependencyException(
+        'No se puede dar de baja el registro porque tiene dependencias activas',
+        $check['dependencias']
+      );
+    }
+  }
+
+  private function validarImpuesto(array $data, ?string $codigo): void
+  {
+    if ($codigo !== null) {
+      return;
+    }
+
+    $nuevoCodigo = trim((string) ($data['codigo'] ?? ''));
+    if ($nuevoCodigo === '') {
+      throw new \InvalidArgumentException('El codigo es obligatorio');
+    }
+    if (strlen($nuevoCodigo) > 2) {
+      throw new \InvalidArgumentException('El codigo de impuesto no puede superar 2 caracteres');
+    }
+
+    $stmt = $this->pdo->prepare('SELECT 1 FROM [Impuestos] WHERE RTRIM([Codigo]) = :codigo');
+    $stmt->execute(['codigo' => $nuevoCodigo]);
+    if ($stmt->fetch()) {
+      throw new \InvalidArgumentException('Ya existe un impuesto con ese codigo');
+    }
+
+    if (trim((string) ($data['descripcion'] ?? '')) === '') {
+      throw new \InvalidArgumentException('La descripcion es obligatoria');
+    }
+
+    if (!array_key_exists('porcentajeIVA', $data) || $data['porcentajeIVA'] === null || $data['porcentajeIVA'] === '') {
+      throw new \InvalidArgumentException('El % IVA es obligatorio');
+    }
+  }
+
+  private function validarFormaPago(array $data, ?string $codigo): void
+  {
+    $esAlta = $codigo === null;
+
+    if ($esAlta) {
+      $nuevoCodigo = trim((string) ($data['codigo'] ?? ''));
+      if ($nuevoCodigo === '') {
+        throw new \InvalidArgumentException('El codigo es obligatorio');
+      }
+      if (strlen($nuevoCodigo) > 2) {
+        throw new \InvalidArgumentException('El codigo tiene maximo 2 caracteres');
+      }
+      $stmt = $this->pdo->prepare('SELECT 1 FROM [FormasPago] WHERE RTRIM([Codigo]) = :codigo');
+      $stmt->execute(['codigo' => $nuevoCodigo]);
+      if ($stmt->fetch()) {
+        throw new \InvalidArgumentException('Ya existe una forma de pago con ese codigo');
+      }
+    }
+
+    if ($esAlta || array_key_exists('descripcion', $data)) {
+      if (trim((string) ($data['descripcion'] ?? '')) === '') {
+        throw new \InvalidArgumentException('La descripcion es obligatoria');
+      }
+    }
+  }
+
+  private function validarMacrofamilia(array $data, ?string $codigo): void
+  {
+    $esAlta = $codigo === null;
+
+    if ($esAlta) {
+      $nuevoCodigo = trim((string) ($data['codigo'] ?? ''));
+      if ($nuevoCodigo === '') {
+        throw new \InvalidArgumentException('El codigo es obligatorio');
+      }
+      if (strlen($nuevoCodigo) > 20) {
+        throw new \InvalidArgumentException('El codigo admite como maximo 20 caracteres');
+      }
+      $stmt = $this->pdo->prepare('SELECT 1 FROM [MacroFamilias] WHERE RTRIM([Codigo]) = :codigo');
+      $stmt->execute(['codigo' => $nuevoCodigo]);
+      if ($stmt->fetch()) {
+        throw new \InvalidArgumentException('Ya existe una macrofamilia con ese codigo');
+      }
+    }
+
+    if ($esAlta || array_key_exists('descripcion', $data)) {
+      if (trim((string) ($data['descripcion'] ?? '')) === '') {
+        throw new \InvalidArgumentException('La descripcion es obligatoria');
+      }
+    }
+  }
+
+  private function validarActividad(array &$data, ?string $codigo): void
+  {
+    $esAlta = $codigo === null;
+
+    if ($esAlta) {
+      $nuevoCodigo = trim((string) ($data['codigo'] ?? ''));
+      if ($nuevoCodigo === '') {
+        throw new \InvalidArgumentException('El codigo es obligatorio');
+      }
+      if (strlen($nuevoCodigo) > 20) {
+        throw new \InvalidArgumentException('El codigo admite como maximo 20 caracteres');
+      }
+      $stmt = $this->pdo->prepare('SELECT 1 FROM [Actividades] WHERE RTRIM([Codigo]) = :codigo');
+      $stmt->execute(['codigo' => $nuevoCodigo]);
+      if ($stmt->fetch()) {
+        throw new \InvalidArgumentException('Ya existe una actividad con ese codigo');
+      }
+    }
+
+    if ($esAlta || array_key_exists('descripcion', $data)) {
+      if (trim((string) ($data['descripcion'] ?? '')) === '') {
+        throw new \InvalidArgumentException('La descripcion es obligatoria');
+      }
+    }
+
+    if (!$esAlta && !array_key_exists('codigoCentroCoste', $data)) {
+      return;
+    }
+
+    $codigoCentro = trim((string) ($data['codigoCentroCoste'] ?? ''));
+    if ($codigoCentro === '') {
+      $data['codigoCentroCoste'] = '';
+
+      return;
+    }
+
+    if (strlen($codigoCentro) > 10) {
+      throw new \InvalidArgumentException('El codigo de centro de coste admite como maximo 10 caracteres');
+    }
+
+    $stmt = $this->pdo->prepare(
+      'SELECT 1 FROM [CentrosCoste] WHERE RTRIM([Codigo]) = :codigo'
+    );
+    $stmt->execute(['codigo' => $codigoCentro]);
+    if (!$stmt->fetch()) {
+      throw new \InvalidArgumentException('No existe un centro de coste con ese codigo');
+    }
+
+    $data['codigoCentroCoste'] = $codigoCentro;
+  }
+
+  private function validarInteresComercial(array $data, ?string $codigo): void
+  {
+    $esAlta = $codigo === null;
+
+    if ($esAlta) {
+      $nuevoCodigo = trim((string) ($data['codigo'] ?? ''));
+      if ($nuevoCodigo === '') {
+        throw new \InvalidArgumentException('El codigo es obligatorio');
+      }
+      if (strlen($nuevoCodigo) > 2) {
+        throw new \InvalidArgumentException('El codigo admite como maximo 2 caracteres');
+      }
+      $stmt = $this->pdo->prepare(
+        'SELECT 1 FROM [InteresesComerciales] WHERE RTRIM([Codigo]) = :codigo'
+      );
+      $stmt->execute(['codigo' => $nuevoCodigo]);
+      if ($stmt->fetch()) {
+        throw new \InvalidArgumentException('Ya existe un interes comercial con ese codigo');
+      }
+    }
+
+    if ($esAlta || array_key_exists('descripcion', $data)) {
+      $desc = trim((string) ($data['descripcion'] ?? ''));
+      if ($desc === '') {
+        throw new \InvalidArgumentException('La descripcion es obligatoria');
+      }
+      if (strlen($desc) > 50) {
+        throw new \InvalidArgumentException('La descripcion admite como maximo 50 caracteres');
+      }
+    }
+  }
+
+  private function validarAgrupacion(array $data, ?string $codigo): void
+  {
+    $esAlta = $codigo === null;
+
+    if ($esAlta) {
+      $nuevoCodigo = trim((string) ($data['codigo'] ?? ''));
+      if ($nuevoCodigo === '') {
+        throw new \InvalidArgumentException('El codigo es obligatorio');
+      }
+      if (strlen($nuevoCodigo) > 6) {
+        throw new \InvalidArgumentException('El codigo admite como maximo 6 caracteres');
+      }
+      $stmt = $this->pdo->prepare('SELECT 1 FROM [Agrupaciones] WHERE RTRIM([Codigo]) = :codigo');
+      $stmt->execute(['codigo' => $nuevoCodigo]);
+      if ($stmt->fetch()) {
+        throw new \InvalidArgumentException('Ya existe una agrupacion con ese codigo');
+      }
+    }
+
+    if ($esAlta || array_key_exists('descripcion', $data)) {
+      if (trim((string) ($data['descripcion'] ?? '')) === '') {
+        throw new \InvalidArgumentException('La descripcion es obligatoria');
+      }
+    }
+  }
+
+  private function validarFamilia(array $data, ?string $codigo): void
+  {
+    $esAlta = $codigo === null;
+
+    if ($esAlta) {
+      $nuevoCodigo = trim((string) ($data['codigo'] ?? ''));
+      if ($nuevoCodigo === '') {
+        throw new \InvalidArgumentException('El codigo es obligatorio');
+      }
+      if (strlen($nuevoCodigo) > 6) {
+        throw new \InvalidArgumentException('El codigo admite como maximo 6 caracteres');
+      }
+      $stmt = $this->pdo->prepare('SELECT 1 FROM [Familias] WHERE RTRIM([Codigo]) = :codigo');
+      $stmt->execute(['codigo' => $nuevoCodigo]);
+      if ($stmt->fetch()) {
+        throw new \InvalidArgumentException('Ya existe una familia con ese codigo');
+      }
+    }
+
+    if ($esAlta || array_key_exists('descripcion', $data)) {
+      if (trim((string) ($data['descripcion'] ?? '')) === '') {
+        throw new \InvalidArgumentException('La descripcion es obligatoria');
+      }
+    }
+
+    if ($esAlta || array_key_exists('macroFamiliaCodigo', $data)) {
+      if (trim((string) ($data['macroFamiliaCodigo'] ?? '')) === '') {
+        throw new \InvalidArgumentException('La macrofamilia es obligatoria');
+      }
+    }
+  }
+
+  private function validarSubfamilia(array $data, ?string $codigo): void
+  {
+    $esAlta = $codigo === null;
+
+    if ($esAlta) {
+      $nuevoCodigo = trim((string) ($data['codigo'] ?? ''));
+      if ($nuevoCodigo === '') {
+        throw new \InvalidArgumentException('El codigo es obligatorio');
+      }
+      if (strlen($nuevoCodigo) > 6) {
+        throw new \InvalidArgumentException('El codigo admite como maximo 6 caracteres');
+      }
+      $stmt = $this->pdo->prepare('SELECT 1 FROM [Subfamilias] WHERE RTRIM([Subfamilia]) = :codigo');
+      $stmt->execute(['codigo' => $nuevoCodigo]);
+      if ($stmt->fetch()) {
+        throw new \InvalidArgumentException('Ya existe una subfamilia con ese codigo');
+      }
+    }
+
+    if ($esAlta || array_key_exists('descripcion', $data)) {
+      if (trim((string) ($data['descripcion'] ?? '')) === '') {
+        throw new \InvalidArgumentException('La descripcion es obligatoria');
+      }
+    }
+
+    if ($esAlta || array_key_exists('familiaCodigo', $data)) {
+      if (trim((string) ($data['familiaCodigo'] ?? '')) === '') {
+        throw new \InvalidArgumentException('La familia es obligatoria');
+      }
+    }
+  }
+
+  private function assertRegistroExiste(array $config, string $codigo): void
+  {
+    $codigo = trim($codigo);
+    $table = $config['table'];
+    $pk = $config['primaryKey'];
+    $pkType = $config['primaryKeyType'] ?? 'string';
+    $sql = $pkType === 'int'
+      ? "SELECT 1 FROM [{$table}] WHERE [{$pk}] = :codigo"
+      : "SELECT 1 FROM [{$table}] WHERE RTRIM([{$pk}]) = :codigo";
+    $stmt = $this->pdo->prepare($sql);
+    $this->bindPrimaryKey($stmt, ':codigo', $codigo, $config);
+    $stmt->execute();
+    if (!$stmt->fetch()) {
+      throw new \InvalidArgumentException('Registro no encontrado');
+    }
+  }
+
+  private function assertSoftDeleteColumn(string $table, string $column): void
+  {
+    $sql = sprintf("SELECT COL_LENGTH('dbo.%s', '%s')", $table, $column);
+    $length = $this->pdo->query($sql)->fetchColumn();
+    if ($length === false || $length === null) {
+      throw new \RuntimeException(
+        "Falta la columna [{$column}] en [{$table}]. Ejecute db/migrations/001-mantenimiento-extensiones.sql"
+      );
+    }
+  }
+
+  private function bindPrimaryKey(\PDOStatement $stmt, string $param, string $codigo, array $config): void
+  {
+    if (($config['primaryKeyType'] ?? 'string') === 'int') {
+      $stmt->bindValue($param, (int) $codigo, PDO::PARAM_INT);
+      return;
+    }
+
+    $stmt->bindValue($param, $codigo);
+  }
+
+  private function validarTienda(array $data, ?string $codigo): void
+  {
+    if (array_key_exists('tipoCalculoFidelizacion', $data)) {
+      $tipo = trim((string) ($data['tipoCalculoFidelizacion'] ?? ''));
+      if ($tipo !== '') {
+        $stmt = $this->pdo->prepare(
+          'SELECT 1 FROM [TiposCalculoFidelizacion]
+           WHERE RTRIM([Codigo]) = :codigo AND ISNULL([Baja], 0) = 0'
+        );
+        $stmt->execute(['codigo' => $tipo]);
+        if (!$stmt->fetch()) {
+          throw new \InvalidArgumentException('Seleccione un tipo de calculo de fidelizacion activo');
+        }
+      }
+    }
+
+    if ($codigo === null) {
+      $nuevoCodigo = trim((string) ($data['codigo'] ?? ''));
+      if ($nuevoCodigo === '') {
+        throw new \InvalidArgumentException('El codigo de tienda es obligatorio');
+      }
+      if (strlen($nuevoCodigo) > 3) {
+        throw new \InvalidArgumentException('El codigo de tienda admite como maximo 3 caracteres');
+      }
+      $stmt = $this->pdo->prepare(
+        'SELECT 1 FROM [Empresas_Ges] WHERE RTRIM(LTRIM([Codigo])) = :codigo'
+      );
+      $stmt->execute(['codigo' => $nuevoCodigo]);
+      if ($stmt->fetch()) {
+        throw new \InvalidArgumentException('Ya existe una tienda con ese codigo');
+      }
+
+      $this->assertTiendaCamposObligatorios($data, true);
+      return;
+    }
+
+    // Update parcial (p.ej. rejilla solo envia columnas visibles):
+    // validar solo los campos presentes en el payload.
+    $this->assertTiendaCamposObligatorios($data, false);
+
+    $stmt = $this->pdo->prepare('SELECT [Central], [Baja] FROM [Empresas_Ges] WHERE [Codigo] = :codigo');
+    $stmt->execute(['codigo' => $codigo]);
+    $row = $stmt->fetch();
+    if (!$row) {
+      return;
+    }
+
+    $esCentral = (int) $row['Central'] === 1;
+    if ($esCentral && array_key_exists('activo', $data) && $data['activo'] === false) {
+      throw new \InvalidArgumentException('No se puede dar de baja la tienda central');
+    }
+
+    if ($esCentral && array_key_exists('esCentral', $data) && $data['esCentral'] === false) {
+      throw new \InvalidArgumentException('No se puede quitar la marca de tienda central');
+    }
+
+    if (array_key_exists('activo', $data) && $data['activo'] === false) {
+      $check = $this->dependencyCheckService->puedeDarDeBaja('tiendas', $codigo);
+      if (!$check['ok']) {
+        throw new DependencyException(
+          'No se puede dar de baja el registro porque tiene dependencias activas',
+          $check['dependencias']
+        );
+      }
+    }
+  }
+
+  /** @param bool $obligatoriosSiFaltan true = alta (todos requeridos); false = solo si vienen en el payload */
+  private function assertTiendaCamposObligatorios(array $data, bool $obligatoriosSiFaltan): void
+  {
+    $debe = static function (string $key) use ($data, $obligatoriosSiFaltan): bool {
+      return $obligatoriosSiFaltan || array_key_exists($key, $data);
+    };
+
+    if ($debe('almacenCodigo')) {
+      $almacen = $data['almacenCodigo'] ?? null;
+      if ($almacen === null || $almacen === '' || (int) $almacen <= 0) {
+        throw new \InvalidArgumentException('El almacen es obligatorio');
+      }
+      $this->tiendaAlmacenService->assertAlmacenActivo((int) $almacen);
+    }
+
+    if ($debe('divisa') && trim((string) ($data['divisa'] ?? '')) === '') {
+      throw new \InvalidArgumentException('La divisa es obligatoria');
+    }
+
+    if ($debe('divisaAlt') && trim((string) ($data['divisaAlt'] ?? '')) === '') {
+      throw new \InvalidArgumentException('La divisa alternativa es obligatoria');
+    }
+
+    if ($debe('tarifa') && (!isset($data['tarifa']) || $data['tarifa'] === '' || $data['tarifa'] === null)) {
+      throw new \InvalidArgumentException('La tarifa es obligatoria');
+    }
+
+    if ($debe('desglosarBasesTicketIvaInc')) {
+      if (!array_key_exists('desglosarBasesTicketIvaInc', $data)) {
+        throw new \InvalidArgumentException('Debe marcar Desglosar bases ticket');
+      }
+      if (empty($data['desglosarBasesTicketIvaInc'])) {
+        throw new \InvalidArgumentException('Debe marcar Desglosar bases ticket');
+      }
+    }
+  }
+
+  private function validarTrabajador(array $data, ?string $codigo): void
+  {
+    $esAlta = $codigo === null;
+
+    if ($esAlta) {
+      $nuevoCodigo = trim((string) ($data['codigo'] ?? ''));
+      if ($nuevoCodigo === '') {
+        throw new \InvalidArgumentException('El codigo es obligatorio');
+      }
+      $stmt = $this->pdo->prepare(
+        'SELECT 1 FROM [Vendedores] WHERE RTRIM([Codigo]) = :codigo'
+      );
+      $stmt->execute(['codigo' => $nuevoCodigo]);
+      if ($stmt->fetch()) {
+        throw new \InvalidArgumentException('Ya existe un trabajador con ese codigo');
+      }
+    }
+
+    $exige = static function (string $key) use ($data, $esAlta): bool {
+      return $esAlta || array_key_exists($key, $data);
+    };
+
+    if ($exige('nombre') && trim((string) ($data['nombre'] ?? '')) === '') {
+      throw new \InvalidArgumentException('La descripcion es obligatoria');
+    }
+
+    if ($exige('usuarioCodigo') && trim((string) ($data['usuarioCodigo'] ?? '')) === '') {
+      throw new \InvalidArgumentException('El usuario es obligatorio');
+    }
+
+    $rolesPresentes = array_key_exists('agente', $data)
+      || array_key_exists('vendedor', $data)
+      || array_key_exists('operario', $data)
+      || array_key_exists('tecnico', $data);
+    if ($esAlta || $rolesPresentes) {
+      $tieneRol = !empty($data['agente'])
+        || !empty($data['vendedor'])
+        || !empty($data['operario'])
+        || !empty($data['tecnico']);
+      if (!$tieneRol) {
+        throw new \InvalidArgumentException(
+          'Debe marcar al menos un tipo: Agente, Vendedor, Operario o Tecnico'
+        );
+      }
+    }
+
+    if (array_key_exists('password', $data) && trim((string) $data['password']) !== '') {
+      if (!preg_match('/^-?\d+$/', trim((string) $data['password']))) {
+        throw new \InvalidArgumentException('La contrasena debe ser numerica');
+      }
+    }
+  }
+
+  /**
+   * @param list<array<string, mixed>> $items
+   * @return list<array<string, mixed>>
+   */
+  private function enrichActividadesCentroCoste(array $items): array
+  {
+    $codigos = [];
+    foreach ($items as $item) {
+      $c = trim((string) ($item['codigoCentroCoste'] ?? ''));
+      if ($c !== '') {
+        $codigos[$c] = true;
+      }
+    }
+
+    $descripciones = [];
+    if ($codigos !== []) {
+      $params = [];
+      $placeholders = [];
+      $i = 0;
+      foreach (array_keys($codigos) as $codigo) {
+        $key = 'cc' . $i;
+        $placeholders[] = ':' . $key;
+        $params[$key] = $codigo;
+        ++$i;
+      }
+      $sql = 'SELECT RTRIM([Codigo]) AS Codigo, RTRIM([Descripcion]) AS Descripcion
+              FROM [CentrosCoste]
+              WHERE RTRIM([Codigo]) IN (' . implode(', ', $placeholders) . ')';
+      $stmt = $this->pdo->prepare($sql);
+      foreach ($params as $key => $value) {
+        $stmt->bindValue(':' . $key, $value);
+      }
+      $stmt->execute();
+      while ($row = $stmt->fetch()) {
+        $descripciones[trim((string) ($row['Codigo'] ?? ''))] = trim((string) ($row['Descripcion'] ?? ''));
+      }
+    }
+
+    foreach ($items as $i => $item) {
+      $c = trim((string) ($item['codigoCentroCoste'] ?? ''));
+      $items[$i]['descripcionCentroCoste'] = $c === '' ? '' : ($descripciones[$c] ?? '');
+    }
+
+    return $items;
+  }
+
+  private function enrichItem(string $entidad, array $item, bool $fichaCompleta = false): array
+  {
+    if ($entidad === 'actividades') {
+      $item = $this->enrichActividadesCentroCoste([$item])[0];
+    }
+
+    if ($entidad === 'almacenes' && isset($item['codigo'])) {
+      $item['tiendasVinculadas'] = $this->tiendaAlmacenService->listTiendasPorAlmacen((int) $item['codigo']);
+    }
+
+    if ($entidad === 'articulos') {
+      $item = $this->articuloService->enrich($item);
+    }
+
+    if ($fichaCompleta && $entidad === 'clientes') {
+      $codigo = trim((string) ($item['codigo'] ?? ''));
+      if ($codigo !== '') {
+        $limite = (float) ($item['limiteCredito'] ?? 0);
+        $riesgo = $this->clientesRiesgoRepository->calcular($codigo, $limite);
+        $item['riesgoAcumulado'] = $riesgo['riesgoAcumulado'];
+        $item['riesgoPendiente'] = $riesgo['riesgoPendiente'];
+        // Legacy: «Riesgo comercial» no lee RiesgoActualAdonix, lo calcula.
+        $item['riesgoActualAdonix'] = $riesgo['riesgoComercial'];
+        $puntos = $this->fidelizacionVales()->puntosCliente(
+          trim((string) ($item['tiendaCodigo'] ?? '')),
+          $codigo
+        );
+        if ($puntos !== null) {
+          $item['acumuladoPuntos'] = $puntos['acumulados'];
+        }
+      }
+    }
+
+    if ($entidad === 'tiendas') {
+      $item['motorFidelizacion'] = 'NINGUNO';
+      $item['factorFidelizacion'] = 1;
+      $tipo = trim((string) ($item['tipoCalculoFidelizacion'] ?? ''));
+      if ($tipo !== '') {
+        $stmt = $this->pdo->prepare(
+          'SELECT TOP 1 RTRIM([Motor]) AS Motor, [Factor]
+           FROM [TiposCalculoFidelizacion]
+           WHERE RTRIM([Codigo]) = :codigo AND ISNULL([Baja], 0) = 0'
+        );
+        $stmt->execute(['codigo' => $tipo]);
+        $row = $stmt->fetch();
+        if ($row) {
+          $item['motorFidelizacion'] = trim((string) ($row['Motor'] ?? 'NINGUNO'));
+          $item['factorFidelizacion'] = (float) ($row['Factor'] ?? 1);
+        }
+      }
+    }
+
+    return $item;
+  }
+
+  private function validarTipoCalculoFidelizacion(array $data, ?string $codigo): void
+  {
+    $esAlta = $codigo === null;
+    $nuevoCodigo = trim((string) ($data['codigo'] ?? $codigo ?? ''));
+
+    if ($esAlta) {
+      if ($nuevoCodigo === '') {
+        throw new \InvalidArgumentException('El codigo es obligatorio');
+      }
+      if (strlen($nuevoCodigo) > 6) {
+        throw new \InvalidArgumentException('El codigo admite como maximo 6 caracteres');
+      }
+      $stmt = $this->pdo->prepare(
+        'SELECT 1 FROM [TiposCalculoFidelizacion] WHERE RTRIM([Codigo]) = :codigo'
+      );
+      $stmt->execute(['codigo' => $nuevoCodigo]);
+      if ($stmt->fetch()) {
+        throw new \InvalidArgumentException('Ya existe un tipo de calculo con ese codigo');
+      }
+    }
+
+    if ($esAlta || array_key_exists('nombre', $data)) {
+      if (trim((string) ($data['nombre'] ?? '')) === '') {
+        throw new \InvalidArgumentException('El nombre es obligatorio');
+      }
+    }
+
+    if ($esAlta || array_key_exists('motor', $data)) {
+      $motor = strtoupper(trim((string) ($data['motor'] ?? '')));
+      if (!in_array($motor, ['NINGUNO', 'EUROS', 'PUNTOS', 'VALE_SEMESTRAL'], true)) {
+        throw new \InvalidArgumentException('Motor de fidelizacion no reconocido');
+      }
+    }
+
+    if ($esAlta || array_key_exists('factor', $data)) {
+      $factor = (float) ($data['factor'] ?? 0);
+      if (!is_finite($factor) || $factor <= 0) {
+        throw new \InvalidArgumentException('El factor debe ser mayor que cero');
+      }
+    }
+
+    if (array_key_exists('configuracion', $data)) {
+      $configuracion = trim((string) ($data['configuracion'] ?? ''));
+      if ($configuracion !== '') {
+        json_decode($configuracion, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+          throw new \InvalidArgumentException(
+            'La configuracion adicional debe ser JSON valido'
+          );
+        }
+      }
+    }
+
+    if (!$esAlta && array_key_exists('activo', $data) && $data['activo'] === false) {
+      $check = $this->dependencyCheckService->puedeDarDeBaja(
+        'tipos-calculo-fidelizacion',
+        (string) $codigo
+      );
+      if (!$check['ok']) {
+        throw new DependencyException(
+          'No se puede dar de baja el tipo porque esta asignado a tiendas activas',
+          $check['dependencias']
+        );
+      }
+    }
+  }
+
+  private function prepararFechaAltaFidelizacion(array &$data): void
+  {
+    $tarjeta = trim((string) ($data['tarjetaFidelizacion'] ?? ''));
+    if ($tarjeta === '') {
+      return;
+    }
+
+    $fecha = trim((string) ($data['fechaAltaFidelizacion'] ?? ''));
+    if ($fecha === '' || str_starts_with($fecha, '1995-01-01')) {
+      $data['fechaAltaFidelizacion'] = date('Y-m-d');
+    }
+  }
+
+  private function prepararDatosCliente(array &$data, ?string $codigo = null): void
+  {
+    $this->prepararIban($data);
+    if (array_key_exists('referenciaMandato', $data)) {
+      $data['referenciaMandato'] = trim((string) ($data['referenciaMandato'] ?? ''));
+    }
+    $empresa = trim((string) ($data['tiendaCodigo'] ?? ''));
+    $cliente = trim((string) ($codigo ?? $data['codigo'] ?? ''));
+    if ($this->fidelizacionVales()->puntosCliente($empresa, $cliente) !== null) {
+      unset($data['acumuladoPuntos']);
+    }
+  }
+
+  private function prepararIban(array &$data): void
+  {
+    if (array_key_exists('iban', $data)) {
+      $data['iban'] = strtoupper((string) preg_replace('/\s+/', '', (string) ($data['iban'] ?? '')));
+    }
+  }
+
+  private function validarProveedorIban(array $data): void
+  {
+    if (!array_key_exists('iban', $data)) {
+      return;
+    }
+    $iban = strtoupper((string) preg_replace('/\s+/', '', (string) ($data['iban'] ?? '')));
+    if ($iban !== '' && !$this->ibanValido($iban)) {
+      throw new \InvalidArgumentException(
+        'El IBAN no es valido. Revise el pais, los digitos de control y la longitud.'
+      );
+    }
+  }
+
+  private function validarArticulo(array $data, ?string $codigo): void
+  {
+    $isCreate = $codigo === null;
+    if ($isCreate) {
+      $nuevoCodigo = trim((string) ($data['codigo'] ?? ''));
+      if ($nuevoCodigo === '') {
+        throw new \InvalidArgumentException('El codigo de articulo es obligatorio');
+      }
+      $this->articuloService->assertCodigoUnico($nuevoCodigo);
+    }
+
+    $this->assertArticuloCamposObligatorios($data, $isCreate);
+
+    if ($codigo !== null && array_key_exists('activo', $data) && $data['activo'] === false) {
+      $check = $this->dependencyCheckService->puedeDarDeBaja('articulos', $codigo);
+      if (!$check['ok']) {
+        throw new DependencyException(
+          'No se puede dar de baja el registro porque tiene dependencias activas',
+          $check['dependencias']
+        );
+      }
+    }
+  }
+
+  /**
+   * Obligatorios de ficha alineados con legacy.
+   * macroFamilia no es columna de Articulos: se valida vía Familias.MacroFamilia.
+   *
+   * @param array<string, mixed> $data
+   */
+  private function assertArticuloCamposObligatorios(array $data, bool $isCreate): void
+  {
+    $debe = static function (string $key) use ($data, $isCreate): bool {
+      return $isCreate || array_key_exists($key, $data);
+    };
+
+    if ($debe('descripcion') && trim((string) ($data['descripcion'] ?? '')) === '') {
+      throw new \InvalidArgumentException('La descripcion es obligatoria');
+    }
+    if ($debe('familia') && trim((string) ($data['familia'] ?? '')) === '') {
+      throw new \InvalidArgumentException('La familia es obligatoria');
+    }
+    if ($debe('subfamilia') && trim((string) ($data['subfamilia'] ?? '')) === '') {
+      throw new \InvalidArgumentException('La subfamilia es obligatoria');
+    }
+    if ($debe('agrupacion') && trim((string) ($data['agrupacion'] ?? '')) === '') {
+      throw new \InvalidArgumentException('La agrupacion es obligatoria');
+    }
+    if ($debe('proveedorHabitual') && trim((string) ($data['proveedorHabitual'] ?? '')) === '') {
+      throw new \InvalidArgumentException('El proveedor es obligatorio');
+    }
+    if ($debe('impuestoCodigo') && trim((string) ($data['impuestoCodigo'] ?? '')) === '') {
+      throw new \InvalidArgumentException('El impuesto es obligatorio');
+    }
+
+    $familia = trim((string) ($data['familia'] ?? ''));
+    $macroPayload = trim((string) ($data['macroFamilia'] ?? ''));
+    $debeMacro = $isCreate || array_key_exists('macroFamilia', $data) || array_key_exists('familia', $data);
+    if ($debeMacro) {
+      $macroDeFamilia = $familia !== '' ? $this->macroFamiliaDeFamilia($familia) : '';
+      $macro = $macroPayload !== '' ? $macroPayload : $macroDeFamilia;
+      if ($macro === '') {
+        throw new \InvalidArgumentException('La macrofamilia es obligatoria');
+      }
+      if ($familia !== '' && $macroDeFamilia !== '' && strcasecmp($macroDeFamilia, $macro) !== 0) {
+        throw new \InvalidArgumentException('La familia no pertenece a la macrofamilia indicada');
+      }
+      if ($familia !== '' && $macroDeFamilia === '') {
+        throw new \InvalidArgumentException('La familia seleccionada no tiene macrofamilia');
+      }
+    }
+  }
+
+  private function macroFamiliaDeFamilia(string $familiaCodigo): string
+  {
+    $stmt = $this->pdo->prepare(
+      'SELECT RTRIM(ISNULL([MacroFamilia], \'\')) FROM [Familias] WHERE RTRIM([Codigo]) = :codigo'
+    );
+    $stmt->execute(['codigo' => trim($familiaCodigo)]);
+    $val = $stmt->fetchColumn();
+    return $val === false || $val === null ? '' : trim((string) $val);
+  }
+
+  /**
+   * Campos de negocio obligatorios (legacy): razon social, NIF, forma de pago.
+   * El codigo se valida aparte (puede generarse con GenClientes).
+   */
+  private function validarClienteDatosObligatorios(array $data, bool $esAlta): void
+  {
+    if ($esAlta || array_key_exists('nombre', $data)) {
+      if (trim((string) ($data['nombre'] ?? '')) === '') {
+        throw new \InvalidArgumentException('La razon social es obligatoria');
+      }
+    }
+
+    if ($esAlta || array_key_exists('nif', $data)) {
+      if (trim((string) ($data['nif'] ?? '')) === '') {
+        throw new \InvalidArgumentException('El NIF es obligatorio');
+      }
+    }
+
+    if ($esAlta || array_key_exists('formaPago', $data)) {
+      if (trim((string) ($data['formaPago'] ?? '')) === '') {
+        throw new \InvalidArgumentException('Debe asignar una forma de pago al cliente');
+      }
+    }
+  }
+
+  private function validarCliente(array $data, ?string $codigo): void
+  {
+    $codigoActual = trim((string) ($codigo ?? ''));
+    if ($codigoActual === '') {
+      $codigoActual = trim((string) ($data['codigo'] ?? ''));
+    }
+
+    $esAlta = $codigo === null;
+
+    if ($esAlta) {
+      if ($codigoActual === '') {
+        throw new \InvalidArgumentException('El codigo de cliente es obligatorio');
+      }
+      $stmt = $this->pdo->prepare(
+        'SELECT 1 FROM [Clientes] WHERE RTRIM([Codigo]) = :codigo'
+      );
+      $stmt->execute(['codigo' => $codigoActual]);
+      if ($stmt->fetch()) {
+        throw new \InvalidArgumentException('Ya existe un cliente con ese codigo');
+      }
+    }
+
+    $this->validarClienteDatosObligatorios($data, $esAlta);
+    $this->validarClienteIbanMandatoEmail($data, $codigoActual, $esAlta);
+
+    if (array_key_exists('pjeFidelizacion', $data)) {
+      $porcentaje = (float) ($data['pjeFidelizacion'] ?? 0);
+      if (!is_finite($porcentaje) || $porcentaje < 0 || $porcentaje > 100) {
+        throw new \InvalidArgumentException(
+          'El porcentaje de fidelizacion debe estar entre 0 y 100'
+        );
+      }
+    }
+
+    $nif = trim((string) ($data['nif'] ?? ''));
+    if ($nif === '') {
+      return;
+    }
+
+    $duplicado = $this->buscarClienteActivoPorNif($nif, $codigoActual);
+    if ($duplicado !== null) {
+      throw new \InvalidArgumentException('Ya existe un cliente activo con ese NIF');
+    }
+  }
+
+  private function validarClienteIbanMandatoEmail(
+    array $data,
+    string $codigo,
+    bool $esAlta
+  ): void {
+    $actual = [];
+    if (!$esAlta && $codigo !== '') {
+      $stmt = $this->pdo->prepare(
+        'SELECT TOP 1 [IBAN], [ReferenciaMandato], [FechaFirmaMandato],
+                [FacturasEmail], [EmailFacturacion], [Email]
+         FROM [Clientes] WHERE RTRIM([Codigo]) = :codigo'
+      );
+      $stmt->execute(['codigo' => $codigo]);
+      $actual = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    $valor = static function (string $api, string $sql) use ($data, $actual) {
+      return array_key_exists($api, $data) ? $data[$api] : ($actual[$sql] ?? null);
+    };
+
+    $iban = strtoupper((string) preg_replace('/\s+/', '', (string) $valor('iban', 'IBAN')));
+    if ($iban !== '' && !$this->ibanValido($iban)) {
+      throw new \InvalidArgumentException(
+        'El IBAN no es valido. Revise el pais, los digitos de control y la longitud'
+      );
+    }
+
+    $referencia = trim((string) $valor('referenciaMandato', 'ReferenciaMandato'));
+    if (
+      $referencia !== ''
+      && (strlen($referencia) > 35 || preg_match("~^[A-Z0-9/?:().,'+\\- ]+$~i", $referencia) !== 1)
+    ) {
+      throw new \InvalidArgumentException(
+        'La referencia del mandato contiene caracteres no admitidos por SEPA'
+      );
+    }
+
+    $fechaMandato = trim((string) $valor('fechaFirmaMandato', 'FechaFirmaMandato'));
+    $fechaAceptada = $fechaMandato !== ''
+      && !str_starts_with($fechaMandato, '1995-01-01');
+    if ($fechaAceptada && $referencia === '') {
+      throw new \InvalidArgumentException(
+        'Debe indicar la referencia del mandato SEPA'
+      );
+    }
+    if ($fechaAceptada && $iban === '') {
+      throw new \InvalidArgumentException(
+        'Debe indicar el IBAN del mandato SEPA'
+      );
+    }
+
+    $facturasEmail = filter_var(
+      $valor('facturasEmail', 'FacturasEmail'),
+      FILTER_VALIDATE_BOOL
+    );
+    if ($facturasEmail) {
+      $emailFacturacion = trim((string) $valor('emailFacturacion', 'EmailFacturacion'));
+      $email = trim((string) $valor('email', 'Email'));
+      $destinatario = $emailFacturacion !== '' ? $emailFacturacion : $email;
+      if ($destinatario === '') {
+        throw new \InvalidArgumentException(
+          'El cliente envia facturas por email, pero no tiene email de facturacion ni email general'
+        );
+      }
+      if (filter_var($destinatario, FILTER_VALIDATE_EMAIL) === false) {
+        throw new \InvalidArgumentException(
+          'El email usado para enviar las facturas no es valido'
+        );
+      }
+    }
+  }
+
+  private function ibanValido(string $iban): bool
+  {
+    if (preg_match('/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/', $iban) !== 1) {
+      return false;
+    }
+
+    $reordenado = substr($iban, 4) . substr($iban, 0, 4);
+    $resto = 0;
+    foreach (str_split($reordenado) as $char) {
+      $bloque = ctype_digit($char) ? $char : (string) (ord($char) - 55);
+      foreach (str_split($bloque) as $digito) {
+        $resto = (($resto * 10) + (int) $digito) % 97;
+      }
+    }
+    return $resto === 1;
+  }
+
+  /**
+   * Busca otro cliente activo con el mismo NIF (excluye $excluirCodigo).
+   *
+   * @return array{codigo: string}|null
+   */
+  public function buscarClienteActivoPorNif(string $nif, string $excluirCodigo = ''): ?array
+  {
+    $nif = trim($nif);
+    if ($nif === '') {
+      return null;
+    }
+
+    $excluir = trim($excluirCodigo);
+    $stmt = $this->pdo->prepare(
+      'SELECT RTRIM([Codigo]) AS Codigo
+       FROM [Clientes]
+       WHERE RTRIM(ISNULL([NIF], \'\')) = :nif
+         AND ISNULL([Baja], 0) = 0'
+    );
+    $stmt->execute(['nif' => $nif]);
+    while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
+      $encontrado = trim((string) ($row['Codigo'] ?? ''));
+      if ($excluir !== '' && strcasecmp($encontrado, $excluir) === 0) {
+        continue;
+      }
+      return ['codigo' => $encontrado];
+    }
+
+    return null;
+  }
+
+  private function isBooleanField(array $config, string $apiField): bool
+  {
+    if (in_array($apiField, $config['booleanFields'] ?? [], true)) {
+      return true;
+    }
+
+    return in_array($apiField, ['esCentral', 'externo', 'central', 'esVendedor', 'esOperario', 'agente', 'vendedor', 'operario', 'tecnico', 'facturaLaCentral'], true);
+  }
+
+  private function isIntField(array $config, string $apiField): bool
+  {
+    return in_array($apiField, $config['intFields'] ?? [], true);
+  }
+
+  private function isTimeField(array $config, string $apiField): bool
+  {
+    return in_array($apiField, $config['timeFields'] ?? [], true);
+  }
+
+  private function isDateField(array $config, string $apiField): bool
+  {
+    return in_array($apiField, $config['dateFields'] ?? [], true);
+  }
+
+  private function isDateSqlColumn(string $sqlColumn): bool
+  {
+    static $datetimeColumns = [
+      'FechaAlta',
+      'UltimaCompra',
+      'LUpdate',
+      'FechaNacimiento',
+      'FechaTx3',
+      'FechaEntradaAdonix',
+      'UltimaSubvencion',
+      'FechaAltaFidelizacion',
+      'FechaFirmaMandato',
+      'FechaCaducidadCarnet',
+      'FechaBaja',
+      'HoraInicio',
+      'HoraFinal',
+      'HoraInicio2',
+      'HoraFinal2',
+    ];
+    return in_array($sqlColumn, $datetimeColumns, true);
+  }
+
+  /**
+   * Extrae HH:MM desde datetime / string para inputs type=time.
+   */
+  private function normalizeTimeValue(mixed $value): ?string
+  {
+    if ($value === null || $value === '') {
+      return null;
+    }
+    if ($value instanceof \DateTimeInterface) {
+      return $value->format('H:i');
+    }
+
+    $s = trim((string) $value);
+    if ($s === '' || strcasecmp($s, 'null') === 0) {
+      return null;
+    }
+
+    if (preg_match('/^(\d{1,2}):(\d{2})(?::\d{2})?$/', $s, $m)) {
+      return sprintf('%02d:%02d', (int) $m[1], (int) $m[2]);
+    }
+
+    $normalized = $this->normalizeDateValue($s);
+    if ($normalized !== null && preg_match('/\s(\d{2}):(\d{2}):\d{2}$/', $normalized, $m)) {
+      return sprintf('%02d:%02d', (int) $m[1], (int) $m[2]);
+    }
+
+    $ts = strtotime($s);
+    if ($ts !== false) {
+      return date('H:i', $ts);
+    }
+
+    return null;
+  }
+
+  /**
+   * Convierte HH:MM (o HH:MM:SS) a datetime SQL con fecha base 1900-01-01.
+   */
+  private function timeToSqlDateTime(mixed $value): ?string
+  {
+    $time = $this->normalizeTimeValue($value);
+    if ($time === null) {
+      return null;
+    }
+
+    return '1900-01-01 ' . $time . ':00';
+  }
+
+  /**
+   * Style 120 = yyyy-mm-dd hh:mi:ss (sin ms), independiente del idioma de SQL Server.
+   */
+  private function sqlValueExpression(string $sqlColumn, string $paramName): string
+  {
+    if ($this->isDateSqlColumn($sqlColumn)) {
+      return "CONVERT(datetime, :{$paramName}, 120)";
+    }
+    return ':' . $paramName;
+  }
+
+  /**
+   * Normaliza fechas API a Y-m-d H:i:s (sin milisegundos) o null.
+   * SQL Server datetime no admite bien literales nvarchar con .000 via ODBC.
+   */
+  private function normalizeDateValue(mixed $value): ?string
+  {
+    if ($value === null || $value === '') {
+      return null;
+    }
+    if ($value instanceof \DateTimeInterface) {
+      $year = (int) $value->format('Y');
+      return $year >= 1753 && $year <= 9999 ? $value->format('Y-m-d H:i:s') : null;
+    }
+
+    $s = trim((string) $value);
+    if ($s === '' || strcasecmp($s, 'null') === 0 || str_starts_with($s, '0000-00-00')) {
+      return null;
+    }
+
+    // Quitar zona y milisegundos: 2026-01-26T18:25:05.000Z -> 2026-01-26 18:25:05
+    $s = str_replace('T', ' ', $s);
+    $s = preg_replace('/(Z|[+-]\d{2}:?\d{2})$/', '', $s) ?? $s;
+    $s = preg_replace('/\.\d+$/', '', trim($s)) ?? $s;
+
+    if (preg_match('/^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{2}):(\d{2}):(\d{2}))?$/', $s, $m)) {
+      $year = (int) $m[1];
+      $month = (int) $m[2];
+      $day = (int) $m[3];
+      if ($year < 1753 || $year > 9999 || !checkdate($month, $day, $year)) {
+        return null;
+      }
+      $h = isset($m[4]) ? (int) $m[4] : 0;
+      $i = isset($m[5]) ? (int) $m[5] : 0;
+      $sec = isset($m[6]) ? (int) $m[6] : 0;
+      return sprintf('%04d-%02d-%02d %02d:%02d:%02d', $year, $month, $day, $h, $i, $sec);
+    }
+
+    if (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/', $s, $m)) {
+      $year = strlen($m[3]) === 2 ? 2000 + (int) $m[3] : (int) $m[3];
+      $month = (int) $m[2];
+      $day = (int) $m[1];
+      if ($year < 1753 || $year > 9999 || !checkdate($month, $day, $year)) {
+        return null;
+      }
+      return sprintf('%04d-%02d-%02d 00:00:00', $year, $month, $day);
+    }
+
+    $ts = strtotime($s);
+    if ($ts !== false) {
+      $year = (int) date('Y', $ts);
+      if ($year >= 1753 && $year <= 9999) {
+        return date('Y-m-d H:i:s', $ts);
+      }
+    }
+
+    return null;
+  }
+
+  private function isActivo(array $config, mixed $value): bool
+  {
+    $soft = $config['softDelete'] ?? null;
+    if ($soft === null) {
+      return true;
+    }
+    if (($soft['inactiveValue'] ?? null) === 'NOT_NULL') {
+      return $value === null || $value === '';
+    }
+    return (int) $value === (int) ($soft['activeValue'] ?? 0);
+  }
+
+  private function activoToSql(array $config, bool $activo): mixed
+  {
+    $soft = $config['softDelete'];
+    if (($soft['inactiveValue'] ?? null) === 'NOT_NULL') {
+      return $activo ? null : date('Y-m-d H:i:s');
+    }
+    return $activo ? ($soft['activeValue'] ?? 0) : ($soft['inactiveValue'] ?? 1);
+  }
+
+  /**
+   * Preview del siguiente codigo de proveedor (no incrementa UltProveedor).
+   *
+   * @return array{automatico: bool, codigo: ?string, empresaCodigo: ?string, ultProveedor: ?int}
+   */
+  public function siguienteCodigoProveedor(string $empresaCodigo = ''): array
+  {
+    $empresa = $this->resolverEmpresaNumeracionProveedor($empresaCodigo);
+    if ($empresa === null) {
+      return [
+        'automatico' => false,
+        'codigo' => null,
+        'empresaCodigo' => null,
+        'ultProveedor' => null,
+      ];
+    }
+
+    if (!$empresa['genProveedores']) {
+      return [
+        'automatico' => false,
+        'codigo' => null,
+        'empresaCodigo' => $empresa['codigo'],
+        'ultProveedor' => $empresa['ultProveedor'],
+      ];
+    }
+
+    $candidato = $empresa['ultProveedor'] + 1;
+    for ($i = 0; $i < 100; $i++) {
+      $codigo = $this->formatearCodigoProveedor($candidato);
+      if (!$this->existeCodigoProveedor($codigo)) {
+        return [
+          'automatico' => true,
+          'codigo' => $codigo,
+          'empresaCodigo' => $empresa['codigo'],
+          'ultProveedor' => $empresa['ultProveedor'],
+        ];
+      }
+      $candidato++;
+    }
+
+    return [
+      'automatico' => true,
+      'codigo' => $this->formatearCodigoProveedor($empresa['ultProveedor'] + 1),
+      'empresaCodigo' => $empresa['codigo'],
+      'ultProveedor' => $empresa['ultProveedor'],
+    ];
+  }
+
+  /** @param array<string, mixed> $data */
+  private function asignarCodigoProveedorSiCorresponde(array &$data, string $empresaCodigo): void
+  {
+    $empresa = $this->resolverEmpresaNumeracionProveedor($empresaCodigo);
+    if ($empresa === null || !$empresa['genProveedores']) {
+      return;
+    }
+
+    for ($i = 0; $i < 100; $i++) {
+      $nuevo = $this->reservarSiguienteCodigoProveedor($empresa['codigo']);
+      $codigo = $this->formatearCodigoProveedor($nuevo);
+      if (!$this->existeCodigoProveedor($codigo)) {
+        $data['codigo'] = $codigo;
+        return;
+      }
+    }
+
+    throw new \InvalidArgumentException(
+      'No se pudo generar un codigo de proveedor libre (revise UltProveedor en Empresas_Ges)'
+    );
+  }
+
+  private function existeCodigoProveedor(string $codigo): bool
+  {
+    $stmt = $this->pdo->prepare(
+      'SELECT 1 FROM [Proveedores] WHERE RTRIM([Codigo]) = :codigo'
+    );
+    $stmt->execute(['codigo' => trim($codigo)]);
+    return (bool) $stmt->fetchColumn();
+  }
+
+  /**
+   * @return array{codigo: string, genProveedores: bool, ultProveedor: int}|null
+   */
+  private function resolverEmpresaNumeracionProveedor(string $empresaCodigo): ?array
+  {
+    $codigo = trim($empresaCodigo);
+    if ($codigo !== '') {
+      $row = $this->leerEmpresaNumeracion($codigo);
+      if ($row !== null) {
+        return $row;
+      }
+    }
+
+    $stmt = $this->pdo->query(
+      "SELECT TOP 1 RTRIM([Codigo]) AS Codigo
+       FROM [Empresas_Ges]
+       WHERE ISNULL([Central], 0) = 1
+       ORDER BY [Codigo]"
+    );
+    $central = $stmt ? $stmt->fetchColumn() : false;
+    if ($central) {
+      $row = $this->leerEmpresaNumeracion((string) $central);
+      if ($row !== null) {
+        return $row;
+      }
+    }
+
+    $stmt = $this->pdo->query(
+      "SELECT TOP 1 RTRIM([Codigo]) AS Codigo
+       FROM [Empresas_Ges]
+       WHERE ISNULL([GenProveedores], 0) = 1
+       ORDER BY [Codigo]"
+    );
+    $any = $stmt ? $stmt->fetchColumn() : false;
+    return $any ? $this->leerEmpresaNumeracion((string) $any) : null;
+  }
+
+  /**
+   * @return array{codigo: string, genProveedores: bool, ultProveedor: int}|null
+   */
+  private function leerEmpresaNumeracion(string $codigo): ?array
+  {
+    $stmt = $this->pdo->prepare(
+      'SELECT RTRIM([Codigo]) AS Codigo,
+              CAST(ISNULL([GenProveedores], 0) AS int) AS GenProveedores,
+              CAST(ISNULL([UltProveedor], 0) AS int) AS UltProveedor
+       FROM [Empresas_Ges]
+       WHERE RTRIM([Codigo]) = :codigo'
+    );
+    $stmt->execute(['codigo' => trim($codigo)]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+      return null;
+    }
+
+    return [
+      'codigo' => (string) $row['Codigo'],
+      'genProveedores' => ((int) $row['GenProveedores']) === 1,
+      'ultProveedor' => (int) $row['UltProveedor'],
+    ];
+  }
+
+  private function reservarSiguienteCodigoProveedor(string $empresaCodigo): int
+  {
+    $this->pdo->beginTransaction();
+    try {
+      // Empresas_Ges tiene triggers: no usar OUTPUT sin INTO.
+      $stmt = $this->pdo->prepare(
+        'SELECT CAST(ISNULL([UltProveedor], 0) AS int)
+         FROM [Empresas_Ges] WITH (UPDLOCK, ROWLOCK)
+         WHERE RTRIM([Codigo]) = :codigo AND ISNULL([GenProveedores], 0) = 1'
+      );
+      $stmt->execute(['codigo' => trim($empresaCodigo)]);
+      $actual = $stmt->fetchColumn();
+      if ($actual === false || $actual === null) {
+        throw new \InvalidArgumentException(
+          'No se pudo generar el codigo de proveedor (GenProveedores inactivo o empresa no encontrada)'
+        );
+      }
+
+      $nuevoInt = (int) $actual + 1;
+      if ($nuevoInt <= 0 || $nuevoInt > 999999) {
+        throw new \InvalidArgumentException('El siguiente codigo de proveedor no es valido');
+      }
+
+      $upd = $this->pdo->prepare(
+        'UPDATE [Empresas_Ges]
+         SET [UltProveedor] = :nuevo
+         WHERE RTRIM([Codigo]) = :codigo AND ISNULL([GenProveedores], 0) = 1'
+      );
+      $upd->execute([
+        'nuevo' => $nuevoInt,
+        'codigo' => trim($empresaCodigo),
+      ]);
+      if ($upd->rowCount() === 0) {
+        // SQL Server puede reportar 0; verificar valor final.
+        $check = $this->pdo->prepare(
+          'SELECT CAST(ISNULL([UltProveedor], 0) AS int)
+           FROM [Empresas_Ges]
+           WHERE RTRIM([Codigo]) = :codigo'
+        );
+        $check->execute(['codigo' => trim($empresaCodigo)]);
+        $leido = (int) $check->fetchColumn();
+        if ($leido !== $nuevoInt) {
+          throw new \InvalidArgumentException(
+            'No se pudo generar el codigo de proveedor (GenProveedores inactivo o empresa no encontrada)'
+          );
+        }
+      }
+
+      $this->pdo->commit();
+      return $nuevoInt;
+    } catch (\Throwable $e) {
+      if ($this->pdo->inTransaction()) {
+        $this->pdo->rollBack();
+      }
+      throw $e;
+    }
+  }
+
+  private function formatearCodigoProveedor(int $numero): string
+  {
+    return (string) $numero;
+  }
+
+  /**
+   * Preview del siguiente codigo de cliente (Prefijo + UltCliente+1).
+   * Legacy: Prefijo a 3 digitos + secuencia a 6 (ej. Prefijo=1, Ult=12099 → 001012100).
+   *
+   * @return array{automatico: bool, codigo: ?string, empresaCodigo: ?string, prefijo: ?int, ultCliente: ?int}
+   */
+  public function siguienteCodigoCliente(string $empresaCodigo = ''): array
+  {
+    $empresa = $this->resolverEmpresaNumeracionCliente($empresaCodigo);
+    if ($empresa === null) {
+      return [
+        'automatico' => false,
+        'codigo' => null,
+        'empresaCodigo' => null,
+        'prefijo' => null,
+        'ultCliente' => null,
+      ];
+    }
+
+    if (!$empresa['genClientes']) {
+      return [
+        'automatico' => false,
+        'codigo' => null,
+        'empresaCodigo' => $empresa['codigo'],
+        'prefijo' => $empresa['prefijo'],
+        'ultCliente' => $empresa['ultCliente'],
+      ];
+    }
+
+    $candidato = $empresa['ultCliente'] + 1;
+    for ($i = 0; $i < 100; $i++) {
+      $codigo = $this->formatearCodigoCliente($empresa['prefijo'], $candidato);
+      if (!$this->existeCodigoCliente($codigo)) {
+        return [
+          'automatico' => true,
+          'codigo' => $codigo,
+          'empresaCodigo' => $empresa['codigo'],
+          'prefijo' => $empresa['prefijo'],
+          'ultCliente' => $empresa['ultCliente'],
+        ];
+      }
+      $candidato++;
+    }
+
+    return [
+      'automatico' => true,
+      'codigo' => $this->formatearCodigoCliente($empresa['prefijo'], $empresa['ultCliente'] + 1),
+      'empresaCodigo' => $empresa['codigo'],
+      'prefijo' => $empresa['prefijo'],
+      'ultCliente' => $empresa['ultCliente'],
+    ];
+  }
+
+  /** @param array<string, mixed> $data */
+  private function asignarCodigoClienteSiCorresponde(array &$data, string $empresaCodigo): void
+  {
+    $empresa = $this->resolverEmpresaNumeracionCliente($empresaCodigo);
+    if ($empresa === null || !$empresa['genClientes']) {
+      return;
+    }
+
+    for ($i = 0; $i < 100; $i++) {
+      $nuevo = $this->reservarSiguienteCodigoCliente($empresa['codigo']);
+      $codigo = $this->formatearCodigoCliente($empresa['prefijo'], $nuevo);
+      if (!$this->existeCodigoCliente($codigo)) {
+        $data['codigo'] = $codigo;
+        return;
+      }
+    }
+
+    throw new \InvalidArgumentException(
+      'No se pudo generar un codigo de cliente libre (revise Prefijo / UltCliente / GenClientes en Empresas_Ges)'
+    );
+  }
+
+  private function existeCodigoCliente(string $codigo): bool
+  {
+    $stmt = $this->pdo->prepare(
+      'SELECT 1 FROM [Clientes] WHERE RTRIM([Codigo]) = :codigo'
+    );
+    $stmt->execute(['codigo' => trim($codigo)]);
+    return (bool) $stmt->fetchColumn();
+  }
+
+  /**
+   * @return array{codigo: string, genClientes: bool, prefijo: int, ultCliente: int}|null
+   */
+  private function resolverEmpresaNumeracionCliente(string $empresaCodigo): ?array
+  {
+    $codigo = trim($empresaCodigo);
+    if ($codigo !== '') {
+      $row = $this->leerEmpresaNumeracionCliente($codigo);
+      if ($row !== null) {
+        return $row;
+      }
+    }
+
+    $stmt = $this->pdo->query(
+      "SELECT TOP 1 RTRIM([Codigo]) AS Codigo
+       FROM [Empresas_Ges]
+       WHERE ISNULL([Central], 0) = 1
+       ORDER BY [Codigo]"
+    );
+    $central = $stmt ? $stmt->fetchColumn() : false;
+    if ($central) {
+      $row = $this->leerEmpresaNumeracionCliente((string) $central);
+      if ($row !== null) {
+        return $row;
+      }
+    }
+
+    $stmt = $this->pdo->query(
+      "SELECT TOP 1 RTRIM([Codigo]) AS Codigo
+       FROM [Empresas_Ges]
+       WHERE ISNULL([GenClientes], 0) = 1
+       ORDER BY [Codigo]"
+    );
+    $any = $stmt ? $stmt->fetchColumn() : false;
+    return $any ? $this->leerEmpresaNumeracionCliente((string) $any) : null;
+  }
+
+  /**
+   * @return array{codigo: string, genClientes: bool, prefijo: int, ultCliente: int}|null
+   */
+  private function leerEmpresaNumeracionCliente(string $codigo): ?array
+  {
+    $stmt = $this->pdo->prepare(
+      'SELECT RTRIM([Codigo]) AS Codigo,
+              CAST(ISNULL([GenClientes], 0) AS int) AS GenClientes,
+              CAST(ISNULL([Prefijo], 0) AS int) AS Prefijo,
+              CAST(ISNULL([UltCliente], 0) AS int) AS UltCliente
+       FROM [Empresas_Ges]
+       WHERE RTRIM([Codigo]) = :codigo'
+    );
+    $stmt->execute(['codigo' => trim($codigo)]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+      return null;
+    }
+
+    return [
+      'codigo' => (string) $row['Codigo'],
+      'genClientes' => ((int) $row['GenClientes']) === 1,
+      'prefijo' => (int) $row['Prefijo'],
+      'ultCliente' => (int) $row['UltCliente'],
+    ];
+  }
+
+  private function reservarSiguienteCodigoCliente(string $empresaCodigo): int
+  {
+    $this->pdo->beginTransaction();
+    try {
+      $stmt = $this->pdo->prepare(
+        'SELECT CAST(ISNULL([UltCliente], 0) AS int)
+         FROM [Empresas_Ges] WITH (UPDLOCK, ROWLOCK)
+         WHERE RTRIM([Codigo]) = :codigo AND ISNULL([GenClientes], 0) = 1'
+      );
+      $stmt->execute(['codigo' => trim($empresaCodigo)]);
+      $actual = $stmt->fetchColumn();
+      if ($actual === false || $actual === null) {
+        throw new \InvalidArgumentException(
+          'No se pudo generar el codigo de cliente (GenClientes inactivo o empresa no encontrada)'
+        );
+      }
+
+      $nuevoInt = (int) $actual + 1;
+      if ($nuevoInt <= 0 || $nuevoInt > 999999) {
+        throw new \InvalidArgumentException('El siguiente codigo de cliente no es valido');
+      }
+
+      $upd = $this->pdo->prepare(
+        'UPDATE [Empresas_Ges]
+         SET [UltCliente] = :nuevo
+         WHERE RTRIM([Codigo]) = :codigo AND ISNULL([GenClientes], 0) = 1'
+      );
+      $upd->execute([
+        'nuevo' => $nuevoInt,
+        'codigo' => trim($empresaCodigo),
+      ]);
+      if ($upd->rowCount() === 0) {
+        $check = $this->pdo->prepare(
+          'SELECT CAST(ISNULL([UltCliente], 0) AS int)
+           FROM [Empresas_Ges]
+           WHERE RTRIM([Codigo]) = :codigo'
+        );
+        $check->execute(['codigo' => trim($empresaCodigo)]);
+        $leido = (int) $check->fetchColumn();
+        if ($leido !== $nuevoInt) {
+          throw new \InvalidArgumentException(
+            'No se pudo generar el codigo de cliente (GenClientes inactivo o empresa no encontrada)'
+          );
+        }
+      }
+
+      $this->pdo->commit();
+      return $nuevoInt;
+    } catch (\Throwable $e) {
+      if ($this->pdo->inTransaction()) {
+        $this->pdo->rollBack();
+      }
+      throw $e;
+    }
+  }
+
+  private function formatearCodigoCliente(int $prefijo, int $secuencia): string
+  {
+    // Legacy: Prefijo (3) + secuencia (6) = 9 caracteres max de Clientes.Codigo.
+    return sprintf('%03d%06d', max(0, $prefijo), max(0, $secuencia));
+  }
+
+  /**
+   * Preview del siguiente codigo de articulo (si Empresas_Ges.GenArticulos=1).
+   * Sin UltArticulo en schema: se calcula como MAX(codigos numericos)+1, con ceros a la izquierda.
+   *
+   * @return array{automatico: bool, codigo: ?string, empresaCodigo: ?string, ancho: ?int}
+   */
+  public function siguienteCodigoArticulo(string $empresaCodigo = ''): array
+  {
+    return $this->articuloGeneracionCodigos()->previewSiguiente($empresaCodigo);
+  }
+}
+
+final class DependencyException extends \RuntimeException
+{
+  private array $dependencias;
+
+  public function __construct(string $message, array $dependencias)
+  {
+    parent::__construct($message);
+    $this->dependencias = $dependencias;
+  }
+
+  public function getDependencias(): array
+  {
+    return $this->dependencias;
+  }
+}

@@ -10,8 +10,10 @@ use Descartes\Api\Services\Tpv\TpvClienteService;
 use Descartes\Api\Services\Tpv\TpvContextoService;
 use Descartes\Api\Services\Tpv\TpvTecladoService;
 use Descartes\Api\Services\Tpv\TpvTicketEsperaService;
+use Descartes\Api\Services\Ventas\ArqueoService;
 use Descartes\Api\Services\Ventas\VentaConsultaService;
 use Descartes\Api\Services\Ventas\VentaEmailService;
+use Descartes\Api\Services\Ventas\ValesTipoLegacy;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
@@ -25,6 +27,7 @@ final class TpvController
   private TpvTicketEsperaService $ticketsEspera;
   private VentaEmailService $ventaEmail;
   private VentaConsultaService $ventas;
+  private ArqueoService $arqueos;
 
   public function __construct(
     TpvContextoService $contexto,
@@ -33,7 +36,8 @@ final class TpvController
     TpvClienteService $clientes,
     TpvTicketEsperaService $ticketsEspera,
     VentaEmailService $ventaEmail,
-    VentaConsultaService $ventas
+    VentaConsultaService $ventas,
+    ArqueoService $arqueos
   ) {
     $this->contexto = $contexto;
     $this->teclado = $teclado;
@@ -42,6 +46,7 @@ final class TpvController
     $this->ticketsEspera = $ticketsEspera;
     $this->ventaEmail = $ventaEmail;
     $this->ventas = $ventas;
+    $this->arqueos = $arqueos;
   }
 
   public function listVentas(Request $request, Response $response): Response
@@ -102,6 +107,15 @@ final class TpvController
       return $this->json($response, 200, $this->contexto->resolver($empresa, $puesto));
     } catch (\InvalidArgumentException $e) {
       return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function listTeclados(Request $request, Response $response): Response
+  {
+    try {
+      return $this->json($response, 200, ['items' => $this->teclado->listarPlantillas()]);
     } catch (\Throwable $e) {
       return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
     }
@@ -328,6 +342,32 @@ final class TpvController
       return $this->json($response, 200, [
         'items' => $this->articulos->buscar($query, $tarifa, $limite, $ambito),
       ]);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  /** Emisión de vale regalo (entrada de caja subtipo R) desde TPV. */
+  public function emitirValeRegalo(Request $request, Response $response, array $args): Response
+  {
+    $body = (array) ($request->getParsedBody() ?? []);
+    if ($body === []) {
+      $body = (array) json_decode((string) $request->getBody(), true);
+    }
+    $body['subtipo'] = ValesTipoLegacy::VALE_REGALO;
+
+    try {
+      $item = $this->arqueos->movimientoCaja(
+        trim((string) ($args['empresa'] ?? '')),
+        trim((string) ($args['puesto'] ?? '')),
+        (int) ($args['sesion'] ?? 0),
+        'entrada',
+        $body
+      );
+
+      return $this->json($response, 200, $item);
     } catch (\InvalidArgumentException $e) {
       return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
     } catch (\Throwable $e) {

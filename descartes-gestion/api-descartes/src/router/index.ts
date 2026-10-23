@@ -1,0 +1,611 @@
+import { ref } from 'vue'
+import { createRouter, createWebHistory, type RouteComponent } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+import { usePermisos } from '@/composables/usePermisos'
+import { getInstalacionEstado, olvidarInstalacionEstado } from '@/api/instalacion'
+import { puedeAccederHubListados } from '@/config/listados-nav'
+import {
+  abcComprasModuloPermiso,
+  abcVentasModuloPermiso,
+  puedeAccederHubAbc,
+  puedeAccederHubAbcCompras,
+  puedeAccederHubStock,
+  stockListadoModuloPermiso,
+} from '@/config/listados-permisos'
+import LoginView from '@/views/LoginView.vue'
+import InstalacionView from '@/views/InstalacionView.vue'
+import AppLayout from '@/components/layout/AppLayout.vue'
+import HomeView from '@/views/HomeView.vue'
+
+/** Carga la pantalla al abrirla. Login, instalación, marco y inicio siguen en el arranque. */
+function vista(loader: () => Promise<{ default: RouteComponent }>) {
+  return () => loader().then((modulo) => modulo.default)
+}
+
+const EmpresaClienteView = vista(() => import('@/views/mantenimiento/EmpresaClienteView.vue'))
+const EntidadView = vista(() => import('@/views/mantenimiento/EntidadView.vue'))
+const ArticuloSeccionPlaceholder = vista(() => import('@/views/mantenimiento/ArticuloSeccionPlaceholder.vue'))
+const MacrofamiliasView = vista(() => import('@/views/mantenimiento/MacrofamiliasView.vue'))
+const FamiliasView = vista(() => import('@/views/mantenimiento/FamiliasView.vue'))
+const SubfamiliasView = vista(() => import('@/views/mantenimiento/SubfamiliasView.vue'))
+const AgrupacionesView = vista(() => import('@/views/mantenimiento/AgrupacionesView.vue'))
+const ActividadesView = vista(() => import('@/views/mantenimiento/ActividadesView.vue'))
+const InteresesComercialesView = vista(() => import('@/views/mantenimiento/InteresesComercialesView.vue'))
+const OfertaClientesView = vista(() => import('@/views/mantenimiento/OfertaClientesView.vue'))
+const CampanasView = vista(() => import('@/views/mantenimiento/CampanasView.vue'))
+const AlbaranesPeriodicosView = vista(() => import('@/views/mantenimiento/AlbaranesPeriodicosView.vue'))
+const ParametrosPuestoView = vista(() => import('@/views/mantenimiento/ParametrosPuestoView.vue'))
+const PuestosView = vista(() => import('@/views/mantenimiento/PuestosView.vue'))
+const ImpuestosView = vista(() => import('@/views/mantenimiento/ImpuestosView.vue'))
+const FormasPagoView = vista(() => import('@/views/mantenimiento/FormasPagoView.vue'))
+const ProveedoresView = vista(() => import('@/views/mantenimiento/ProveedoresView.vue'))
+const OfertaProveedoresView = vista(() => import('@/views/mantenimiento/OfertaProveedoresView.vue'))
+const TiposDescuentoView = vista(() => import('@/views/mantenimiento/TiposDescuentoView.vue'))
+const ComprasAlbaranesListView = vista(() => import('@/views/compras/ComprasAlbaranesListView.vue'))
+const CompraAlbaranDetalleView = vista(() => import('@/views/compras/CompraAlbaranDetalleView.vue'))
+const ComprasPedidosListView = vista(() => import('@/views/compras/ComprasPedidosListView.vue'))
+const CompraPedidoDetalleView = vista(() => import('@/views/compras/CompraPedidoDetalleView.vue'))
+const ComprasFacturasListView = vista(() => import('@/views/compras/ComprasFacturasListView.vue'))
+const CompraFacturaDetalleView = vista(() => import('@/views/compras/CompraFacturaDetalleView.vue'))
+const EtiquetasColaView = vista(() => import('@/views/etiquetas/EtiquetasColaView.vue'))
+const VentasListView = vista(() => import('@/views/ventas/VentasListView.vue'))
+const VentaDetalleView = vista(() => import('@/views/ventas/VentaDetalleView.vue'))
+const ArqueoView = vista(() => import('@/views/ventas/ArqueoView.vue'))
+const SituacionVentasView = vista(() => import('@/views/ventas/SituacionVentasView.vue'))
+const ArqueoDesgloseView = vista(() => import('@/views/ventas/ArqueoDesgloseView.vue'))
+const AnulacionesView = vista(() => import('@/views/ventas/AnulacionesView.vue'))
+const CobrosPagosView = vista(() => import('@/views/ventas/CobrosPagosView.vue'))
+const ValesView = vista(() => import('@/views/ventas/ValesView.vue'))
+const PedidosClientesView = vista(() => import('@/views/ventas/PedidosClientesView.vue'))
+const PedidoDetalleView = vista(() => import('@/views/ventas/PedidoDetalleView.vue'))
+const AbcVentasListadoShell = vista(() => import('@/views/listados/AbcVentasListadoShell.vue'))
+const AbcComprasListadoShell = vista(() => import('@/views/listados/AbcComprasListadoShell.vue'))
+const GeneracionFacturasManualView = vista(() => import('@/views/facturacion/GeneracionFacturasManualView.vue'))
+const GeneracionFacturasView = vista(() => import('@/views/facturacion/GeneracionFacturasView.vue'))
+const ImpresionFacturasView = vista(() => import('@/views/facturacion/ImpresionFacturasView.vue'))
+const ImpresionRecibosView = vista(() => import('@/views/facturacion/ImpresionRecibosView.vue'))
+const DiarioFacturacionView = vista(() => import('@/views/facturacion/DiarioFacturacionView.vue'))
+const AlbaranesPendientesView = vista(() => import('@/views/facturacion/AlbaranesPendientesView.vue'))
+const RetrocesoFacturaView = vista(() => import('@/views/facturacion/RetrocesoFacturaView.vue'))
+const TraspasoContableView = vista(() => import('@/views/facturacion/TraspasoContableView.vue'))
+const ConfiguracionHubView = vista(() => import('@/views/configuracion/ConfiguracionHubView.vue'))
+const DatafonoConfiguracionView = vista(() => import('@/views/configuracion/DatafonoConfiguracionView.vue'))
+const FidelizacionConfigView = vista(() => import('@/views/configuracion/FidelizacionConfigView.vue'))
+const CorreoConfigView = vista(() => import('@/views/configuracion/CorreoConfigView.vue'))
+const DocumentosPlantillasView = vista(() => import('@/views/configuracion/DocumentosPlantillasView.vue'))
+const TpvVentaView = vista(() => import('@/views/tpv/TpvVentaView.vue'))
+const ListadosHubView = vista(() => import('@/views/listados/ListadosHubView.vue'))
+const StockListadoShell = vista(() => import('@/views/listados/StockListadoShell.vue'))
+const StockMinimosListadoView = vista(() => import('@/views/listados/StockMinimosListadoView.vue'))
+const InformeIvaListadoView = vista(() => import('@/views/listados/InformeIvaListadoView.vue'))
+const InformeTicketsListadoView = vista(() => import('@/views/listados/InformeTicketsListadoView.vue'))
+const ExtractoClientesListadoView = vista(() => import('@/views/listados/ExtractoClientesListadoView.vue'))
+
+const articulosSeccionesPendientes = [
+  { path: 'mantenimiento/secciones', name: 'secciones', titulo: 'Secciones' },
+  { path: 'mantenimiento/subsecciones', name: 'subsecciones', titulo: 'Subsecciones' },
+] as const
+
+const InventarioRecuentoView = vista(() => import('@/views/inventario/InventarioRecuentoView.vue'))
+
+const router = createRouter({
+  history: createWebHistory(import.meta.env.BASE_URL),
+  routes: [
+    { path: '/login', name: 'login', component: LoginView, meta: { public: true } },
+    { path: '/instalacion', name: 'instalacion', component: InstalacionView, meta: { public: true } },
+    {
+      path: '/',
+      component: AppLayout,
+      children: [
+        { path: '', name: 'home', component: HomeView },
+        {
+          path: 'configuracion',
+          name: 'configuracion',
+          component: ConfiguracionHubView,
+          meta: { titulo: 'Configuración' },
+        },
+        {
+          path: 'configuracion/base-datos',
+          name: 'configuracion-base-datos',
+          component: InstalacionView,
+          meta: { titulo: 'Base de datos' },
+        },
+        {
+          path: 'configuracion/datafono',
+          name: 'configuracion-datafono',
+          component: DatafonoConfiguracionView,
+          meta: { titulo: 'Datáfono integrado' },
+        },
+        {
+          path: 'configuracion/fidelizacion',
+          name: 'configuracion-fidelizacion',
+          component: FidelizacionConfigView,
+          meta: { titulo: 'Fidelización', modulo: 'clientes', accion: 'ver' },
+        },
+        {
+          path: 'configuracion/correo',
+          name: 'configuracion-correo',
+          component: CorreoConfigView,
+          meta: { titulo: 'Correo' },
+        },
+        {
+          path: 'configuracion/documentos',
+          redirect: '/configuracion/albaranes',
+        },
+        {
+          path: 'configuracion/albaranes',
+          name: 'configuracion-albaranes',
+          component: DocumentosPlantillasView,
+          meta: { titulo: 'Albaranes y facturas', plantillasScope: 'albaranes' },
+        },
+        {
+          path: 'configuracion/tickets',
+          name: 'configuracion-tickets',
+          component: DocumentosPlantillasView,
+          meta: { titulo: 'Tickets', plantillasScope: 'tickets' },
+        },
+        {
+          path: 'configuracion/etiquetas',
+          name: 'configuracion-etiquetas',
+          component: DocumentosPlantillasView,
+          meta: { titulo: 'Etiquetas', plantillasScope: 'etiquetas' },
+        },
+        {
+          path: 'inventario',
+          name: 'inventario',
+          component: InventarioRecuentoView,
+          meta: { titulo: 'Recuento de inventario', modulo: 'inventario', accion: 'ver' },
+        },
+        {
+          path: 'listados',
+          name: 'listados',
+          component: ListadosHubView,
+          meta: { titulo: 'Listados', modulo: 'listados', accion: 'ver' },
+        },
+        {
+          path: 'listados/stock/:agruparPor?',
+          name: 'listados-stock',
+          component: StockListadoShell,
+          meta: { titulo: 'Listado de stock', modulo: 'listados-stock', accion: 'ver' },
+        },
+        {
+          path: 'listados/stock-minimos',
+          name: 'listados-stock-minimos',
+          component: StockMinimosListadoView,
+          meta: { titulo: 'Stock bajo mínimos', modulo: 'listados-stock-minimos', accion: 'ver' },
+        },
+        {
+          path: 'listados/informe-iva',
+          name: 'listados-informe-iva',
+          component: InformeIvaListadoView,
+          meta: { titulo: 'Informe de IVA', modulo: 'listados-informe-iva', accion: 'ver' },
+        },
+        {
+          path: 'listados/informe-tickets',
+          name: 'listados-informe-tickets',
+          component: InformeTicketsListadoView,
+          meta: { titulo: 'Informe de tickets', modulo: 'listados-informe-tickets', accion: 'ver' },
+        },
+        {
+          path: 'listados/extracto-clientes',
+          name: 'listados-extracto-clientes',
+          component: ExtractoClientesListadoView,
+          meta: { titulo: 'Extracto de clientes', modulo: 'listados-extracto-clientes', accion: 'ver' },
+        },
+        {
+          path: 'listados/abc-ventas/:dimension?',
+          name: 'listados-abc-ventas',
+          component: AbcVentasListadoShell,
+          meta: { titulo: 'ABC de ventas', modulo: 'ventas-abc', accion: 'ver' },
+        },
+        {
+          path: 'listados/abc-compras/:dimension?',
+          name: 'listados-abc-compras',
+          component: AbcComprasListadoShell,
+          meta: { titulo: 'ABC de compras', modulo: 'compras-abc', accion: 'ver' },
+        },
+        {
+          path: 'tpv',
+          name: 'tpv',
+          component: TpvVentaView,
+          meta: { titulo: 'TPV', modulo: 'tpv', accion: 'ver', contentFlush: true },
+        },
+        {
+          path: 'compras',
+          redirect: '/compras/albaranes',
+        },
+        {
+          path: 'compras/albaranes',
+          name: 'compras-albaranes',
+          component: ComprasAlbaranesListView,
+          meta: { titulo: 'Albaranes de compra', modulo: 'compras', accion: 'ver' },
+        },
+        {
+          path: 'compras/pendientes-stock',
+          name: 'compras-pendientes-stock',
+          component: ComprasAlbaranesListView,
+          props: { soloPendientesStock: true },
+          meta: { titulo: 'Pendientes de stock', modulo: 'compras', accion: 'ver' },
+        },
+        {
+          path: 'compras/pendientes-stock/:empresa/:albaran',
+          name: 'compras-pendiente-stock-detalle',
+          component: CompraAlbaranDetalleView,
+          meta: { titulo: 'Pendientes de stock', modulo: 'compras', accion: 'ver' },
+        },
+        {
+          path: 'compras/albaranes/nuevo',
+          name: 'compras-albaran-nuevo',
+          component: CompraAlbaranDetalleView,
+          meta: { titulo: 'Nuevo albarán de compra', modulo: 'compras', accion: 'crear' },
+        },
+        {
+          path: 'compras/albaranes/:empresa/:albaran',
+          name: 'compras-albaran-detalle',
+          component: CompraAlbaranDetalleView,
+          meta: { titulo: 'Albarán de compra', modulo: 'compras', accion: 'ver' },
+        },
+        // Pedidos a proveedor (US3); facturas: shell hasta US5
+        {
+          path: 'compras/pedidos',
+          name: 'compras-pedidos',
+          component: ComprasPedidosListView,
+          meta: { titulo: 'Pedidos a proveedor', modulo: 'compras', accion: 'ver' },
+        },
+        {
+          path: 'compras/pedidos/nuevo',
+          name: 'compras-pedido-nuevo',
+          component: CompraPedidoDetalleView,
+          meta: { titulo: 'Nuevo pedido a proveedor', modulo: 'compras', accion: 'crear' },
+        },
+        {
+          path: 'compras/pedidos/:empresa/:pedido',
+          name: 'compras-pedido-detalle',
+          component: CompraPedidoDetalleView,
+          meta: { titulo: 'Pedido a proveedor', modulo: 'compras', accion: 'ver' },
+        },
+        {
+          path: 'compras/facturas',
+          name: 'compras-facturas',
+          component: ComprasFacturasListView,
+          meta: { titulo: 'Facturas de proveedor', modulo: 'compras', accion: 'ver' },
+        },
+        {
+          path: 'compras/facturas/:factura',
+          name: 'compras-factura-detalle',
+          component: CompraFacturaDetalleView,
+          meta: { titulo: 'Factura de proveedor', modulo: 'compras', accion: 'ver' },
+        },
+        {
+          path: 'etiquetas',
+          name: 'etiquetas-cola',
+          component: EtiquetasColaView,
+          meta: { titulo: 'Etiquetas', modulo: 'etiquetas', accion: 'ver' },
+        },
+        {
+          path: 'ventas',
+          name: 'ventas',
+          component: VentasListView,
+          meta: { titulo: 'Ventas', modulo: 'ventas', accion: 'ver' },
+        },
+        {
+          path: 'ventas/nuevo',
+          name: 'ventas-nuevo',
+          component: VentaDetalleView,
+          meta: { titulo: 'Nueva venta', modulo: 'ventas', accion: 'crear' },
+        },
+        {
+          path: 'ventas/situacion',
+          name: 'ventas-situacion',
+          component: SituacionVentasView,
+          meta: { titulo: 'Situación de ventas', modulo: 'ventas-situacion', accion: 'ver' },
+        },
+        {
+          path: 'ventas/arqueo',
+          name: 'ventas-arqueo',
+          component: ArqueoView,
+          meta: { titulo: 'Arqueo', modulo: 'ventas-arqueo', accion: 'ver' },
+        },
+        {
+          path: 'ventas/arqueo/desglose',
+          name: 'ventas-arqueo-desglose',
+          component: ArqueoDesgloseView,
+          meta: { titulo: 'Desglose de arqueo', modulo: 'ventas-arqueo-desglose', accion: 'ver' },
+        },
+        {
+          path: 'ventas/anulaciones',
+          name: 'ventas-anulaciones',
+          component: AnulacionesView,
+          meta: { titulo: 'Anulaciones', modulo: 'ventas-anulaciones', accion: 'ver' },
+        },
+        {
+          path: 'ventas/cobros-pagos',
+          name: 'ventas-cobros-pagos',
+          component: CobrosPagosView,
+          meta: { titulo: 'Cobros y Pagos', modulo: 'ventas-cobros-pagos', accion: 'ver' },
+        },
+        {
+          path: 'ventas/vales',
+          name: 'ventas-vales',
+          component: ValesView,
+          meta: { titulo: 'Vales', modulo: 'ventas-vales', accion: 'ver' },
+        },
+        {
+          path: 'ventas/pedidos',
+          name: 'ventas-pedidos',
+          component: PedidosClientesView,
+          meta: { titulo: 'Pedidos', modulo: 'ventas-pedidos', accion: 'ver' },
+        },
+        {
+          path: 'ventas/pedidos/nuevo',
+          name: 'ventas-pedidos-nuevo',
+          component: PedidoDetalleView,
+          meta: { titulo: 'Nuevo pedido', modulo: 'ventas-pedidos', accion: 'ver' },
+        },
+        {
+          path: 'ventas/pedidos/:empresa/:pedido',
+          name: 'ventas-pedidos-detalle',
+          component: PedidoDetalleView,
+          meta: { titulo: 'Pedido', modulo: 'ventas-pedidos', accion: 'ver' },
+        },
+        {
+          path: 'ventas/abc/:dimension?',
+          redirect: (to) => ({
+            path: to.params.dimension
+              ? `/listados/abc-ventas/${String(to.params.dimension)}`
+              : '/listados/abc-ventas',
+          }),
+        },
+        {
+          path: 'facturacion',
+          redirect: '/facturacion/generacion',
+        },
+        {
+          path: 'facturacion/generacion',
+          name: 'facturacion-generacion',
+          component: GeneracionFacturasView,
+          meta: {
+            titulo: 'Generación de facturas',
+            modulo: 'facturacion-generacion',
+            accion: 'ver',
+          },
+        },
+        {
+          path: 'facturacion/manual',
+          name: 'facturacion-manual',
+          component: GeneracionFacturasManualView,
+          meta: {
+            titulo: 'Generador de facturas Manual',
+            modulo: 'facturacion-manual',
+            accion: 'ver',
+          },
+        },
+        {
+          path: 'facturacion/contabilidad',
+          name: 'facturacion-contabilidad',
+          component: TraspasoContableView,
+          meta: {
+            titulo: 'Traspaso contable',
+            modulo: 'facturacion-contabilidad',
+            accion: 'ver',
+          },
+        },
+        {
+          path: 'facturacion/impresion',
+          name: 'facturacion-impresion',
+          component: ImpresionFacturasView,
+          meta: {
+            titulo: 'Impresión de facturas',
+            modulo: 'facturacion-impresion',
+            accion: 'ver',
+          },
+        },
+        {
+          path: 'facturacion/recibos',
+          name: 'facturacion-recibos',
+          component: ImpresionRecibosView,
+          meta: {
+            titulo: 'Impresión de recibos',
+            modulo: 'facturacion-impresion',
+            accion: 'ver',
+          },
+        },
+        {
+          path: 'facturacion/diario',
+          name: 'facturacion-diario',
+          component: DiarioFacturacionView,
+          meta: {
+            titulo: 'Diario de facturación',
+            modulo: 'facturacion-diario',
+            accion: 'ver',
+          },
+        },
+        {
+          path: 'facturacion/albaranes-pendientes',
+          name: 'facturacion-albaranes-pendientes',
+          component: AlbaranesPendientesView,
+          meta: {
+            titulo: 'Albaranes pendientes de facturar',
+            modulo: 'facturacion-albaranes-pendientes',
+            accion: 'ver',
+          },
+        },
+        {
+          path: 'facturacion/retroceso',
+          name: 'facturacion-retroceso',
+          component: RetrocesoFacturaView,
+          meta: {
+            titulo: 'Retroceso de facturas',
+            modulo: 'facturacion-retroceso',
+            accion: 'ver',
+          },
+        },
+        {
+          path: 'ventas/:empresa/:tipo/:albaran',
+          name: 'ventas-detalle',
+          component: VentaDetalleView,
+          meta: { titulo: 'Detalle venta', modulo: 'ventas', accion: 'ver' },
+        },
+        { path: 'mantenimiento/empresas', name: 'empresas', component: EmpresaClienteView },
+        { path: 'mantenimiento/macrofamilias', name: 'macrofamilias', component: MacrofamiliasView },
+        { path: 'mantenimiento/familias', name: 'familias', component: FamiliasView },
+        { path: 'mantenimiento/subfamilias', name: 'subfamilias', component: SubfamiliasView },
+        { path: 'mantenimiento/agrupaciones', name: 'agrupaciones', component: AgrupacionesView },
+        { path: 'mantenimiento/actividades', name: 'actividades', component: ActividadesView },
+        {
+          path: 'mantenimiento/intereses-comerciales',
+          name: 'intereses-comerciales',
+          component: InteresesComercialesView,
+        },
+        {
+          path: 'mantenimiento/oferta-clientes',
+          name: 'oferta-clientes',
+          component: OfertaClientesView,
+        },
+        {
+          path: 'mantenimiento/campanas',
+          name: 'campanas',
+          component: CampanasView,
+        },
+        {
+          path: 'mantenimiento/albaranes-periodicos',
+          name: 'albaranes-periodicos',
+          component: AlbaranesPeriodicosView,
+          meta: {
+            titulo: 'Albaranes periódicos',
+            modulo: 'albaranes-periodicos',
+            accion: 'ver',
+          },
+        },
+        {
+          path: 'mantenimiento/puestos/parametros',
+          name: 'puestos-parametros',
+          component: ParametrosPuestoView,
+        },
+        { path: 'mantenimiento/puestos-trabajo', name: 'puestos-trabajo', component: PuestosView },
+        { path: 'mantenimiento/impuestos', name: 'impuestos', component: ImpuestosView },
+        { path: 'mantenimiento/formas-pago', name: 'formas-pago', component: FormasPagoView },
+        { path: 'mantenimiento/proveedores', name: 'proveedores', component: ProveedoresView },
+        {
+          path: 'mantenimiento/oferta-proveedores',
+          name: 'oferta-proveedores',
+          component: OfertaProveedoresView,
+          meta: { titulo: 'Ofertas proveedores' },
+        },
+        ...articulosSeccionesPendientes.map((seccion) => ({
+          path: seccion.path,
+          name: seccion.name,
+          component: ArticuloSeccionPlaceholder,
+          meta: { titulo: seccion.titulo },
+        })),
+        {
+          path: 'mantenimiento/tipos-calculo-fidelizacion',
+          redirect: '/configuracion/fidelizacion',
+        },
+        {
+          path: 'mantenimiento/tipos-descuento',
+          name: 'tipos-descuento',
+          component: TiposDescuentoView,
+          meta: { titulo: 'Tipo de descuento', modulo: 'tipos-descuento', accion: 'ver' },
+        },
+        { path: 'mantenimiento/:entidad', name: 'mantenimiento', component: EntidadView },
+      ],
+    },
+  ],
+})
+
+router.beforeEach(async (to) => {
+  // #region agent log
+  fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',hypothesisId:'D',location:'router/index.ts:beforeEach',message:'navegacion',data:{toName:to.name,toPath:to.fullPath},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  if (to.name !== 'instalacion') {
+    try {
+      const estado = await getInstalacionEstado()
+      // #region agent log
+      fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',hypothesisId:'A',location:'router/index.ts:estado',message:'estado instalacion',data:{toName:to.name,requiereAccion:estado.requiereAccion,configurado:estado.configurado,conexionOk:estado.conexionOk,esquemaOk:estado.esquemaOk,adminListo:estado.adminListo,pendientes:estado.migraciones?.pendientes?.length??null},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      if (estado.requiereAccion) {
+        return { name: 'instalacion', query: to.fullPath !== '/' ? { redirect: to.fullPath } : undefined }
+      }
+    } catch (error) {
+      // #region agent log
+      fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',hypothesisId:'E',location:'router/index.ts:catch',message:'estado fallo',data:{toName:to.name,error:error instanceof Error?error.message:String(error)},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      if (to.name !== 'login') {
+        return { name: 'instalacion' }
+      }
+    }
+  }
+
+  if (to.meta.public) return true
+
+  const auth = useAuthStore()
+  if (!auth.cargado) {
+    try {
+      await auth.fetchMe()
+    } catch {
+      olvidarInstalacionEstado()
+      return { name: 'login', query: { redirect: to.fullPath } }
+    }
+  }
+
+  const { puede } = usePermisos()
+  if (to.name === 'listados') {
+    if (!puedeAccederHubListados(puede)) {
+      return { name: 'home', query: { sinPermiso: 'listados' } }
+    }
+  } else if (to.name === 'listados-stock') {
+    const agrupar = String(to.params.agruparPor ?? '').trim()
+    if (agrupar) {
+      if (!puede(stockListadoModuloPermiso(agrupar), 'ver')) {
+        return { path: '/listados/stock', query: { sinPermiso: stockListadoModuloPermiso(agrupar) } }
+      }
+    } else if (!puedeAccederHubStock(puede)) {
+      return { name: 'home', query: { sinPermiso: 'listados-stock' } }
+    }
+  } else if (to.name === 'listados-abc-ventas') {
+    const dimension = String(to.params.dimension ?? '').trim()
+    if (dimension) {
+      if (!puede(abcVentasModuloPermiso(dimension), 'ver')) {
+        return {
+          path: '/listados/abc-ventas',
+          query: { sinPermiso: abcVentasModuloPermiso(dimension) },
+        }
+      }
+    } else if (!puedeAccederHubAbc(puede)) {
+      return { name: 'home', query: { sinPermiso: 'ventas-abc' } }
+    }
+  } else if (to.name === 'listados-abc-compras') {
+    const dimension = String(to.params.dimension ?? '').trim()
+    if (dimension) {
+      if (!puede(abcComprasModuloPermiso(dimension), 'ver')) {
+        return {
+          path: '/listados/abc-compras',
+          query: { sinPermiso: abcComprasModuloPermiso(dimension) },
+        }
+      }
+    } else if (!puedeAccederHubAbcCompras(puede)) {
+      return { name: 'home', query: { sinPermiso: 'compras-abc' } }
+    }
+  } else {
+    const modulo = to.meta.modulo as string | undefined
+    const accion = (to.meta.accion as string | undefined) ?? 'ver'
+    if (modulo && !puede(modulo, accion)) {
+      return { name: 'home', query: { sinPermiso: modulo } }
+    }
+  }
+
+  return true
+})
+
+/** Ruta anterior a la navegación actual (p. ej. reactivación KeepAlive). */
+export const routeNavigationFrom = ref<string | undefined>(undefined)
+
+/** Tras guardar cabecera en alta: foco en primera línea al abrir la ficha. */
+export const albaranCompraFocusLineas = ref<{ empresa: string; albaran: number } | null>(null)
+
+router.afterEach((_to, from) => {
+  routeNavigationFrom.value = from.fullPath
+})
+
+export default router

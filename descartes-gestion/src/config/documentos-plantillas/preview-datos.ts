@@ -13,6 +13,8 @@ export type DocumentoPreviewLinea = {
   pvp?: number
   albaranCabecera?: string
   nota?: string
+  /** Control fitosanitario: asterisco delante del código en albarán. */
+  marcaPasaporteFito?: boolean
 }
 
 export type DocumentoPreviewDatos = {
@@ -69,6 +71,8 @@ export type DocumentoPreviewDatos = {
     pagos?: { codigo: string; importe: number }[]
     codigoBarras: string
     pagina: string
+    /** Pie albarán: artículos con control fitosanitario (asterisco en línea). */
+    anotacionPasaporteFitosanitario?: string
   }
   lineas: DocumentoPreviewLinea[]
   totales: {
@@ -84,6 +88,13 @@ export type DocumentoPreviewDatos = {
   fidelizacion?: {
     puntosCompra: number
     puntosAcumulados: number
+  }
+  clubSaldo?: {
+    elegible: number
+    generado: number
+    usado: number
+    disponible: number
+    proximaCaducidad?: string | null
   }
   vencimientos: { fecha: string; importe: number }[]
   verifactu: {

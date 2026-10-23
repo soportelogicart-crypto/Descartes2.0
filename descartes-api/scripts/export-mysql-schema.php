@@ -16,7 +16,15 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 $dotenv = Dotenv\Dotenv::createImmutable(dirname(__DIR__));
 $dotenv->safeLoad();
 
-$pdo = Database::fromEnv();
+$config = Database::resolveConfig();
+if (($config['motor'] ?? 'sqlsrv') !== 'sqlsrv') {
+  fwrite(STDERR, "La configuración activa no es SQL Server.\n");
+  exit(1);
+}
+if (isset($argv[1]) && trim((string) $argv[1]) !== '') {
+  $config['database'] = trim((string) $argv[1]);
+}
+$pdo = Database::createPdo($config);
 if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'sqlsrv') {
   fwrite(STDERR, "La configuración activa no es SQL Server.\n");
   exit(1);

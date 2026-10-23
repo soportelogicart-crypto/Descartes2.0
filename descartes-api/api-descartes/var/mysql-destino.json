@@ -1,0 +1,7 @@
+{
+    "server": "plesk3.redestel.com",
+    "port": 3306,
+    "database": "topaywebapp_logia_demo",
+    "user": "logia",
+    "password": "Descartes130@"
+  }

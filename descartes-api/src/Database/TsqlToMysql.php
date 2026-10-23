@@ -10,10 +10,13 @@ namespace Descartes\Api\Database;
  */
 final class TsqlToMysql
 {
-  private const FUNCIONES = 'ISNULL|DATEADD|DATEDIFF|CONVERT|CHARINDEX|LEN|GETDATE|SCOPE_IDENTITY|NEWID|DB_NAME';
+  private const FUNCIONES = 'ISNULL|DATEADD|DATEDIFF|DATEPART|DATENAME|CONVERT|CHARINDEX|LEN|GETDATE|SCOPE_IDENTITY|NEWID|DB_NAME|STR|TRY_CAST';
 
   public static function rewrite(string $sql): string
   {
+    if (preg_match('/^\s*SET\s+IDENTITY_INSERT\b/i', $sql) === 1) {
+      return '';
+    }
     if (preg_match('/^\s*(CREATE|ALTER|DROP|SET|USE)\b/i', $sql) === 1) {
       return $sql;
     }
@@ -25,12 +28,22 @@ final class TsqlToMysql
     $strings = [];
     $sql = self::protectStrings($sql, $strings);
     $sql = self::rewriteBrackets($sql);
+    $sql = preg_replace('/\s+OUTPUT\s+INSERTED\s*\.\s*(?:`[^`]+`|\w+)/i', '', $sql) ?? $sql;
     $sql = preg_replace('/`dbo`\s*\.\s*/i', '', $sql) ?? $sql;
     $sql = preg_replace('/\bdbo\s*\.\s*/i', '', $sql) ?? $sql;
-    $sql = preg_replace('/\s+WITH\s*\(\s*NOLOCK\s*\)/i', '', $sql) ?? $sql;
+    $sql = preg_replace(
+      '/\s+WITH\s*\(\s*(?:NOLOCK|UPDLOCK|ROWLOCK|HOLDLOCK|READPAST|XLOCK|TABLOCK)(?:\s*,\s*(?:NOLOCK|UPDLOCK|ROWLOCK|HOLDLOCK|READPAST|XLOCK|TABLOCK))*\s*\)/i',
+      '',
+      $sql
+    ) ?? $sql;
     $sql = self::rewriteFunctions($sql);
     $sql = self::rewriteCastTypes($sql);
     $sql = self::rewriteTop($sql);
+    $sql = preg_replace(
+      '/\s+OFFSET\s+(\d+)\s+ROWS\s+FETCH\s+NEXT\s+(\d+)\s+ROWS\s+ONLY\s*;?\s*$/i',
+      ' LIMIT $2 OFFSET $1',
+      $sql
+    ) ?? $sql;
     $sql = str_ireplace('@@SERVERNAME', '@@hostname', $sql);
     return self::restoreStrings($sql, $strings);
   }
@@ -175,6 +188,13 @@ final class TsqlToMysql
         return 'LAST_INSERT_ID()';
       case 'DB_NAME':
         return 'DATABASE()';
+      case 'STR':
+        $expr = $args[0] ?? '0';
+        $decimales = trim($args[2] ?? '0');
+        if ($decimales === '' || $decimales === '0') {
+          return 'CAST(CAST(ROUND(' . $expr . ', 0) AS DECIMAL(20,0)) AS CHAR)';
+        }
+        return 'TRIM(CAST(ROUND(' . $expr . ', ' . $decimales . ') AS CHAR))';
       case 'LEN':
         return 'CHAR_LENGTH(' . ($args[0] ?? "''") . ')';
       case 'CHARINDEX':
@@ -192,6 +212,21 @@ final class TsqlToMysql
         $start = $args[1] ?? 'NOW()';
         $end = $args[2] ?? 'NOW()';
         return 'TIMESTAMPDIFF(' . $part . ', ' . $start . ', ' . $end . ')';
+      case 'DATEPART':
+        return self::extraerParteFecha($args[0] ?? 'day', $args[1] ?? 'NULL');
+      case 'DATENAME':
+        $parte = strtolower(trim($args[0] ?? 'weekday', " \t'\""));
+        $expr = $args[1] ?? 'NULL';
+        if ($parte === 'weekday' || $parte === 'dw') {
+          return 'DAYNAME(' . $expr . ')';
+        }
+        return self::extraerParteFecha($parte, $expr);
+      case 'TRY_CAST':
+        if (preg_match('/^(.*?)\s+AS\s+int\s*$/i', trim($inner), $m) === 1) {
+          $expr = trim($m[1]);
+          return "CASE WHEN {$expr} REGEXP '^[0-9]+$' THEN CAST({$expr} AS SIGNED) ELSE NULL END";
+        }
+        return 'NULL';
       case 'CONVERT':
         return self::rewriteConvert($args);
       default:
@@ -238,6 +273,22 @@ final class TsqlToMysql
     }
 
     return 'CAST(' . $expr . ' AS CHAR)';
+  }
+
+  private static function extraerParteFecha(string $part, string $expr): string
+  {
+    $part = strtolower(trim($part, " \t'\""));
+    return match ($part) {
+      'year', 'yy', 'yyyy' => 'YEAR(' . $expr . ')',
+      'quarter', 'qq', 'q' => 'QUARTER(' . $expr . ')',
+      'month', 'mm', 'm' => 'MONTH(' . $expr . ')',
+      'week', 'wk', 'ww', 'iso_week', 'isowk', 'isoww' => 'WEEK(' . $expr . ', 3)',
+      'hour', 'hh' => 'HOUR(' . $expr . ')',
+      'minute', 'mi', 'n' => 'MINUTE(' . $expr . ')',
+      'second', 'ss', 's' => 'SECOND(' . $expr . ')',
+      'weekday', 'dw' => 'DAYOFWEEK(' . $expr . ')',
+      default => 'DAY(' . $expr . ')',
+    };
   }
 
   private static function datePart(string $part): string

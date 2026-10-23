@@ -219,10 +219,27 @@ final class CatalogoInstalaciones
       $pdo = Database::createPdo($config);
       $pdo->query('SELECT 1');
     } catch (\Throwable $e) {
-      throw new InvalidArgumentException(
-        'No se pudo conectar con esa base: ' . $e->getMessage()
-      );
+      throw new InvalidArgumentException(self::mensajeErrorConexion($e, $config));
     }
+  }
+
+  /** @param array{tipo?: string, server?: string, database?: string, user?: string, motor?: string} $config */
+  private static function mensajeErrorConexion(\Throwable $e, array $config): string
+  {
+    $detalle = $e->getMessage();
+    $mensaje = 'No se pudo conectar con esa base: ' . $detalle;
+    if (!str_contains($detalle, '1045') || ($config['motor'] ?? '') !== 'mysql') {
+      return $mensaje;
+    }
+    $user = (string) ($config['user'] ?? '');
+    $database = (string) ($config['database'] ?? '');
+    if (!str_starts_with($user, 'u887121068_') && !str_contains($database, 'u887121068_')) {
+      return $mensaje;
+    }
+    return $mensaje
+      . ' Esa base MySQL de Hostinger solo funciona en el PHP del hosting (localhost allí). '
+      . 'En su PC con XAMPP use SQL Server, o en https://gestion.topay-comunicacion.es deje «Este PC» vacío '
+      . '(producción) y no use «Crear instalación» si la demo ya está configurada.';
   }
 
   /** @param array{tipo: string, server: string, database: string, user: string, password: string, trust_cert: bool, encrypt: bool, motor?: string} $config */

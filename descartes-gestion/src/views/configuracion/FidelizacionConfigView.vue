@@ -6,12 +6,18 @@ import FidelizacionArbolExclusion from '@/components/fidelizacion/FidelizacionAr
 import {
   estadoAutomaticoFidelizacion,
   generarValesFidelizacion,
+  eliminarClubPromocion,
+  guardarClubFidelizacion,
+  guardarClubPromocion,
   guardarPuntosFidelizacion,
   guardarSemestreFidelizacion,
+  informeClubMensual,
+  listClubPromociones,
   marcarTiendaSinPuntos,
   obtenerConfiguracionFidelizacion,
   seleccionarModeloFidelizacion,
   semestreFidelizacion,
+  type ClubPromocion,
   type FidelizacionConfiguracion,
   type FidelizacionExclusion,
   type FidelizacionEstadoAutomatico,
@@ -57,6 +63,21 @@ const modeloSeleccionado = computed(() =>
   configuracion.value?.modelos.find((m) => m.codigo === configuracion.value?.seleccionado)
 )
 const esSemestral = computed(() => modeloSeleccionado.value?.motor === 'VALE_SEMESTRAL')
+const esClub = computed(() => modeloSeleccionado.value?.motor === 'CLUB_SALDO')
+const clubExclusiones = ref<FidelizacionExclusion[]>([])
+const editandoClub = ref(false)
+const guardandoClub = ref(false)
+const promocionesClub = ref<ClubPromocion[]>([])
+const promoNueva = ref({
+  nombre: 'Promo 10% club',
+  pjeDescuento: 10 as number | null,
+  fechaInicio: '',
+  fechaFin: '',
+  activa: true,
+})
+const informeClub = ref<{ sociosNuevos: number; generadoEuros: number; canjeadoEuros: number; caducadoEuros: number } | null>(
+  null
+)
 
 onMounted(async () => {
   empresa.value = puesto.empresaCodigo ?? ''
@@ -102,9 +123,79 @@ function rellenarSemestre() {
 watch(modeloSeleccionado, () => {
   editandoPuntos.value = false
   editandoSemestre.value = false
+  editandoClub.value = false
   rellenarPuntos()
   rellenarSemestre()
+  rellenarClub()
+  if (esClub.value && empresa.value) {
+    void cargarPromocionesClub()
+  }
 })
+
+function rellenarClub() {
+  const modelo = modeloSeleccionado.value
+  if (!modelo || modelo.motor !== 'CLUB_SALDO') return
+  const guardadas = modelo.configuracion.exclusiones
+  clubExclusiones.value = Array.isArray(guardadas) ? guardadas.map((e) => ({ ...e })) : []
+}
+
+async function cargarPromocionesClub() {
+  if (!empresa.value) return
+  promocionesClub.value = await listClubPromociones(empresa.value)
+}
+
+async function guardarClub() {
+  const modelo = modeloSeleccionado.value
+  if (!modelo || modelo.motor !== 'CLUB_SALDO') return
+  guardandoClub.value = true
+  error.value = ''
+  try {
+    const guardado = await guardarClubFidelizacion({
+      codigo: modelo.codigo,
+      exclusiones: clubExclusiones.value,
+    })
+    modelo.configuracion = { ...modelo.configuracion, ...guardado }
+    editandoClub.value = false
+    mensaje.value = 'Configuración del club guardada.'
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo guardar el club')
+  } finally {
+    guardandoClub.value = false
+  }
+}
+
+async function guardarPromoClub() {
+  if (!empresa.value) return
+  try {
+    await guardarClubPromocion(empresa.value, {
+      nombre: promoNueva.value.nombre,
+      pjeDescuento: Number(promoNueva.value.pjeDescuento) || 10,
+      fechaInicio: promoNueva.value.fechaInicio,
+      fechaFin: promoNueva.value.fechaFin,
+      activa: promoNueva.value.activa,
+    })
+    await cargarPromocionesClub()
+    mensaje.value = 'Promoción guardada.'
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo guardar la promoción')
+  }
+}
+
+async function borrarPromoClub(id: number) {
+  if (!empresa.value) return
+  await eliminarClubPromocion(empresa.value, id)
+  await cargarPromocionesClub()
+}
+
+async function cargarInformeClub() {
+  if (!empresa.value) return
+  const hoy = new Date()
+  informeClub.value = await informeClubMensual(
+    empresa.value,
+    hoy.getFullYear(),
+    hoy.getMonth() + 1
+  )
+}
 
 function modificarSemestre() {
   editandoSemestre.value = true
@@ -256,6 +347,11 @@ async function seleccionar(codigo: string) {
     Seleccione un único modelo para la tienda {{ empresa }}. El círculo marcado es el programa que
     se aplicará en las ventas. Los puntos suman las compras de las tiendas que sí hacen fidelización.
     </p>
+    <p class="intro nota-vales">
+      El modelo <strong>Puntos</strong> acumula en el cliente y canjea como descuento en venta; no crea filas en
+      <em>Vales</em>. Los vales de fidelización (tipo M) solo los genera el programa <strong>Vale semestral</strong>,
+      con «Emitir vales» más abajo.
+    </p>
 
     <div class="tabla-wrap modelos">
       <table>
@@ -292,6 +388,9 @@ async function seleccionar(codigo: string) {
               </template>
               <template v-else-if="modelo.motor === 'EUROS'">
                 Acumula saldo en euros según el porcentaje del cliente.
+              </template>
+              <template v-else-if="modelo.motor === 'CLUB_SALDO'">
+                Club saldo 2,5 %, lotes 12 meses, canje desde 1 €.
               </template>
               <template v-else>Sin acumulación.</template>
             </td>
@@ -430,6 +529,68 @@ async function seleccionar(codigo: string) {
           </div>
         </div>
       </div>
+    </div>
+
+    <div v-if="esClub" class="ficha-panel">
+      <div class="toolbar">
+        <span class="toolbar-titulo">Club saldo (Ca l'Agustí)</span>
+        <div class="toolbar-spacer"></div>
+        <button
+          v-if="puedeEditarPuntos"
+          type="button"
+          class="tool-btn"
+          :disabled="editandoClub"
+          @click="editandoClub = true"
+        >
+          Modificar exclusiones
+        </button>
+        <button
+          v-if="puedeEditarPuntos && editandoClub"
+          type="button"
+          class="tool-btn primary"
+          :disabled="guardandoClub"
+          @click="guardarClub"
+        >
+          {{ guardandoClub ? 'Guardando…' : 'Guardar' }}
+        </button>
+      </div>
+      <fieldset class="bloque">
+        <legend>Artículos excluidos del club</legend>
+        <FidelizacionArbolExclusion
+          v-model="clubExclusiones"
+          :readonly="!editandoClub"
+        />
+      </fieldset>
+      <fieldset class="bloque">
+        <legend>Promociones caja (10 % incompatible con saldo)</legend>
+        <div class="ficha fila-promo">
+          <label>Nombre <input v-model="promoNueva.nombre" type="text" /></label>
+          <label>% <DecimalInput v-model="promoNueva.pjeDescuento" :decimales="2" /></label>
+          <label>Desde <input v-model="promoNueva.fechaInicio" type="datetime-local" /></label>
+          <label>Hasta <input v-model="promoNueva.fechaFin" type="datetime-local" /></label>
+          <button v-if="puedeEditarPuntos" type="button" class="tool-btn" @click="guardarPromoClub">
+            Añadir / guardar
+          </button>
+        </div>
+        <ul v-if="promocionesClub.length">
+          <li v-for="p in promocionesClub" :key="p.id">
+            {{ p.nombre }} — {{ p.pjeDescuento }} % ({{ p.fechaInicio }} → {{ p.fechaFin }})
+            <button v-if="puedeEditarPuntos" type="button" class="tool-btn" @click="borrarPromoClub(p.id)">
+              Eliminar
+            </button>
+          </li>
+        </ul>
+      </fieldset>
+      <fieldset class="bloque">
+        <legend>Informe mensual</legend>
+        <button type="button" class="tool-btn" @click="cargarInformeClub">Actualizar mes actual</button>
+        <p v-if="informeClub">
+          Socios nuevos: {{ informeClub.sociosNuevos }} · Generado:
+          {{ informeClub.generadoEuros.toFixed(2) }} € · Canjeado:
+          {{ informeClub.canjeadoEuros.toFixed(2) }} € · Caducado:
+          {{ informeClub.caducadoEuros.toFixed(2) }} €
+        </p>
+      </fieldset>
     </div>
 
     <p v-if="error" class="error">{{ error }}</p>

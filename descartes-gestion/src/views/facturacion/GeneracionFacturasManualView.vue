@@ -5,7 +5,6 @@ import {
   generarAlbaranesPeriodicos,
   generarFacturasManual,
   listarFacturasManualPendientes,
-  traspasoFacturasManual,
 } from '@/api/facturacion'
 import { api } from '@/api/client'
 import type { FacturaManualPendiente, FacturaManualGenerada, FacturasManualPeriodicosResponse } from '@/types/facturacion'
@@ -338,51 +337,6 @@ async function ejecutar() {
   }
 }
 
-async function onTraspaso() {
-  if (!puede('facturacion-manual', 'crear')) {
-    error.value = 'Sin permiso'
-    return
-  }
-  if (!form.value.empresa.trim()) {
-    error.value = 'Indique la empresa'
-    return
-  }
-  if (seleccionados.value.length === 0) {
-    error.value = 'Seleccione al menos un albarán'
-    return
-  }
-  if (
-    !window.confirm(
-      '¿Está seguro de transformar los albaranes a traspasos entre almacenes?'
-    )
-  ) {
-    return
-  }
-
-  busyExtra.value = true
-  error.value = null
-  mensaje.value = null
-  generadas.value = []
-  periodicosGenerados.value = []
-  periodicosOmitidos.value = []
-  try {
-    const result = await traspasoFacturasManual({
-      empresa: form.value.empresa.trim(),
-      albaranes: seleccionados.value.map((r) => ({
-        empresa: r.empresa,
-        tipo: r.tipo,
-        albaran: r.albaran,
-      })),
-    })
-    mensaje.value = `Creados ${result.totales.traspasos} traspaso(s) comercial(es). Los albaranes salen de facturación.`
-    await buscar()
-  } catch (e: unknown) {
-    error.value = extractApiError(e, 'No se pudieron generar los traspasos')
-  } finally {
-    busyExtra.value = false
-  }
-}
-
 function abrirGenAlb() {
   if (!form.value.empresa.trim()) {
     error.value = 'Indique la empresa'
@@ -608,9 +562,6 @@ onMounted(async () => {
         </p>
       </div>
       <div class="toolbar-actions">
-        <button type="button" class="btn" :disabled="loading || loadingOpts || busyExtra" @click="buscar">
-          {{ loading ? 'Buscando…' : 'Buscar' }}
-        </button>
         <button
           type="button"
           class="btn"
@@ -619,15 +570,6 @@ onMounted(async () => {
           @click="abrirGenAlb"
         >
           Gen.Alb
-        </button>
-        <button
-          type="button"
-          class="btn"
-          title="Generar traspaso comercial"
-          :disabled="generating || busyExtra || loading || totalSel === 0"
-          @click="onTraspaso"
-        >
-          {{ busyExtra ? '…' : 'Traspaso' }}
         </button>
         <button
           type="button"
@@ -748,6 +690,10 @@ onMounted(async () => {
               </div>
             </div>
           </fieldset>
+
+          <button type="submit" class="btn primary btn-buscar" :disabled="loading || loadingOpts || busyExtra">
+            {{ loading ? 'Buscando…' : 'Buscar' }}
+          </button>
 
           <div class="resumen">
             <div>
@@ -1070,6 +1016,10 @@ onMounted(async () => {
   background: #0f172a;
   color: #fff;
   border-color: #0f172a;
+}
+.btn-buscar {
+  width: 100%;
+  margin: 0.1rem 0 0.35rem;
 }
 
 .layout {

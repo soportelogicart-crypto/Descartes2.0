@@ -248,9 +248,6 @@ onMounted(async () => {
         <p>Recibos generados por las facturas a crédito.</p>
       </div>
       <div class="actions">
-        <button type="button" :disabled="loading" @click="buscar">
-          {{ loading ? 'Buscando…' : 'Buscar' }}
-        </button>
         <button
           type="button"
           class="primary"
@@ -296,6 +293,9 @@ onMounted(async () => {
           </div>
         </label>
         <label>Factura <input v-model="form.factura" type="number" min="1" /></label>
+        <button type="submit" class="primary btn-buscar" :disabled="loading">
+          {{ loading ? 'Buscando…' : 'Buscar' }}
+        </button>
       </form>
 
       <main>
@@ -401,6 +401,7 @@ header p { margin: .15rem 0 0; color: #64748b; font-size: .85rem; }
 button { padding: .4rem .8rem; border: 1px solid #94a3b8; border-radius: 5px; background: #fff; cursor: pointer; }
 button.primary { color: #fff; background: #0f172a; border-color: #0f172a; }
 button:disabled { opacity: .5; cursor: not-allowed; }
+.btn-buscar { width: 100%; margin: 0.1rem 0 0.35rem; }
 .layout { display: grid; grid-template-columns: 21rem minmax(0, 1fr); gap: .75rem; flex: 1; min-height: 0; }
 form { display: flex; flex-direction: column; gap: .5rem; padding: .65rem; border: 1px solid #cbd5e1; border-radius: 5px; background: #f8fafc; width: 21rem; max-width: 100%; box-sizing: border-box; align-self: start; }
 label { display: grid; gap: .15rem; font-size: .78rem; color: #334155; }

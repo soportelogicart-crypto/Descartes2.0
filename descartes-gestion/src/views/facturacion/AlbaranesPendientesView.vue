@@ -1,23 +1,25 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import {
-  descargarAlbaranPendientePdf,
-  descargarAlbaranesPendientesPdf,
-  listarAlbaranesPendientesFacturar,
-  obtenerAlbaranPendiente,
-} from '@/api/facturacion'
+import { computed, nextTick, onMounted, ref } from 'vue'
+import { listarAlbaranesPendientesFacturar, obtenerAlbaranPendiente } from '@/api/facturacion'
 import { api } from '@/api/client'
 import type { FacturaManualPendiente } from '@/types/facturacion'
 import type { VentaDetalle } from '@/types/ventas'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { useOrdenLista } from '@/composables/useOrdenCabeceraGrid'
 import { useGridRenderLimit } from '@/composables/useGridRenderLimit'
-import { abrirVentanaPreview, escribirVentanaPdf } from '@/composables/previewDocumentoVentana'
+import { imprimirListadoHtml } from '@/composables/imprimirListadoHtml'
+import { useVentanaPreviewDocumento } from '@/composables/previewDocumentoVentana'
+import {
+  imprimirA4Preparado,
+  prepararOImprimirVenta,
+  type PrepImpresionA4,
+} from '@/composables/useImpresionVentaDocumento'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import EntidadBuscarModal, {
   type EntidadBuscarResultado,
 } from '@/components/common/EntidadBuscarModal.vue'
+import VentaImpresionA4Modal from '@/components/ventas/VentaImpresionA4Modal.vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
 import DecimalInput from '@/components/common/DecimalInput.vue'
 
@@ -33,7 +35,12 @@ const saving = ref(false)
 const error = ref<string | null>(null)
 const mensaje = ref<string | null>(null)
 const items = ref<FacturaManualPendiente[]>([])
+const totalesListado = ref({ albaranes: 0, importe: 0 })
 const tiendas = ref<Opt[]>([])
+const a4Open = ref(false)
+const a4Prep = ref<PrepImpresionA4 | null>(null)
+const a4ModalRef = ref<InstanceType<typeof VentaImpresionA4Modal> | null>(null)
+const a4Imprimiendo = ref(false)
 const buscarClienteOpen = ref(false)
 const buscarClienteCampo = ref<CampoCliente>('desde')
 const buscarClienteInicial = ref('')
@@ -203,6 +210,7 @@ async function buscar() {
   try {
     const data = await listarAlbaranesPendientesFacturar(paramsConsulta())
     items.value = data.items ?? []
+    totalesListado.value = data.totales ?? { albaranes: 0, importe: 0 }
     mensaje.value = `${data.totales.albaranes} albaranes · ${data.totales.importe.toFixed(2)} €`
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudieron cargar albaranes pendientes')
@@ -212,18 +220,40 @@ async function buscar() {
   }
 }
 
-/** Valida que el blob sea un PDF real; si no, extrae el error JSON de la API. */
-async function asegurarPdf(blob: Blob, fallback: string) {
-  const head = await blob.slice(0, 5).text()
-  if (head.startsWith('%PDF')) return
-  let msg = fallback
-  try {
-    const j = JSON.parse(await blob.text()) as { error?: string }
-    if (j.error) msg = j.error
-  } catch {
-    /* ignore */
-  }
-  throw new Error(msg)
+function etiquetaSeleccionPrefactura(): string {
+  const map = {
+    todos: 'Todos',
+    con_prefactura: 'Con prefactura',
+    sin_prefactura: 'Sin prefactura',
+  } as const
+  return map[form.value.seleccion] ?? form.value.seleccion
+}
+
+function metaImpresionListado(): string[] {
+  const f = form.value
+  const tie =
+    f.empresaHasta && f.empresaHasta !== f.empresaDesde
+      ? `${f.empresaDesde} — ${f.empresaHasta}`
+      : f.empresaDesde
+  const fe =
+    f.fechaDesde || f.fechaHasta
+      ? `${f.fechaDesde || '…'} — ${f.fechaHasta || '…'}`
+      : '—'
+  const cl =
+    f.clienteDesde || f.clienteHasta
+      ? `${f.clienteDesde || '…'} — ${f.clienteHasta || '…'}`
+      : '—'
+  const alb =
+    f.albaranDesde || f.albaranHasta
+      ? `${f.albaranDesde || '…'} — ${f.albaranHasta || '…'}`
+      : '—'
+  return [
+    `Tienda: ${tie}`,
+    `Fecha: ${fe}`,
+    `Cliente: ${cl}`,
+    `Albarán: ${alb}`,
+    `Prefactura: ${etiquetaSeleccionPrefactura()}`,
+  ]
 }
 
 async function abrirDetalle(r: FacturaManualPendiente) {
@@ -248,28 +278,68 @@ function cerrarDetalle() {
   detalleError.value = null
 }
 
+async function completarPreviewA4(prep: PrepImpresionA4) {
+  a4Prep.value = prep
+  a4Open.value = true
+  await nextTick()
+  const html = (await a4ModalRef.value?.capturarHtmlFolio()) || ''
+  if (!html) {
+    preview.cerrar()
+    throw new Error('No hay plantilla configurada para este documento en el puesto')
+  }
+  preview.mostrar(html, { impresoraNombre: prep.impresoraNombre })
+}
+
 async function imprimirAlbaran() {
-  const r = detalleRef.value
-  if (!r) return
+  const venta = detalle.value
+  if (!venta) return
+  const titulo = `Albarán · Alb. ${venta.albaran}`
+  if (!preview.abrir(titulo)) {
+    detalleError.value = 'Permita las ventanas emergentes para previsualizar el documento'
+    return
+  }
   imprimiendo.value = true
   detalleError.value = null
   try {
-    const ventana = abrirVentanaPreview(`Albarán ${r.tipo}/${r.albaran}`)
-    if (!ventana) throw new Error('Permita las ventanas emergentes para previsualizar el PDF')
-    try {
-      const blob = await descargarAlbaranPendientePdf(r.empresa, r.tipo, r.albaran)
-      await asegurarPdf(blob, 'Error al generar el PDF del albarán')
-      escribirVentanaPdf(ventana, blob, `Albarán ${r.tipo}/${r.albaran}`)
-    } catch (e) {
-      if (!ventana.closed) ventana.close()
-      throw e
+    const res = await prepararOImprimirVenta(venta, {
+      puestoCodigo: String(puestoContexto.puestoCodigo || venta.puesto || ''),
+      formato: 'albaran',
+    })
+    if (res.kind === 'ticket') {
+      preview.cerrar()
+      mensaje.value = res.message
+      return
     }
+    await completarPreviewA4(res.prep)
   } catch (e: unknown) {
-    detalleError.value = extractApiError(e, 'No se pudo generar el PDF del albarán')
+    preview.cerrar()
+    detalleError.value = extractApiError(e, 'No se pudo preparar el albarán')
   } finally {
     imprimiendo.value = false
   }
 }
+
+async function confirmarImpresionAlbaran() {
+  const venta = detalle.value
+  if (!venta || !a4Prep.value) return
+  a4Imprimiendo.value = true
+  detalleError.value = null
+  try {
+    const html = (await a4ModalRef.value?.capturarHtmlFolio()) || ''
+    const msg = await imprimirA4Preparado(a4Prep.value, html, venta)
+    mensaje.value = msg
+    preview.cerrar()
+    a4Open.value = false
+  } catch (e: unknown) {
+    const msg = extractApiError(e, 'No se pudo imprimir el documento')
+    detalleError.value = msg
+    preview.notificarError(msg)
+  } finally {
+    a4Imprimiendo.value = false
+  }
+}
+
+const preview = useVentanaPreviewDocumento({ imprimir: () => confirmarImpresionAlbaran() })
 
 function num(valor: number | null | undefined): string {
   return Number(valor ?? 0).toFixed(2)
@@ -284,26 +354,49 @@ async function pdf() {
     error.value = 'Indique la tienda'
     return
   }
-  if (!items.value.length) {
-    error.value = 'Busque primero'
-    return
-  }
-  const ventana = abrirVentanaPreview('Albaranes pendientes de facturar')
-  if (!ventana) {
-    error.value = 'Permita las ventanas emergentes para previsualizar el PDF'
+  const filas = itemsFiltrados.value
+  if (!filas.length) {
+    error.value = 'Busque primero o no hay filas con los filtros actuales'
     return
   }
   saving.value = true
   error.value = null
   mensaje.value = null
   try {
-    const blob = await descargarAlbaranesPendientesPdf(paramsConsulta())
-    await asegurarPdf(blob, 'Error al generar PDF')
-    escribirVentanaPdf(ventana, blob, 'Albaranes pendientes de facturar')
-    mensaje.value = 'PDF listo para previsualizar'
+    const t = totalesListado.value
+    const res = await imprimirListadoHtml({
+      titulo: 'Albaranes pendientes de facturar',
+      metaLineas: metaImpresionListado(),
+      thead: COLUMNAS.map((c) => c.label),
+      columnas: [
+        { ancho: '10%', alineacion: 'left' },
+        { ancho: '8%', alineacion: 'right' },
+        { ancho: '6%', alineacion: 'center' },
+        { ancho: '10%', alineacion: 'left' },
+        { ancho: '28%', alineacion: 'left' },
+        { ancho: '12%', alineacion: 'left' },
+        { ancho: '10%', alineacion: 'right' },
+        { ancho: '8%', alineacion: 'center' },
+      ],
+      filas: filas.map((r) => [
+        r.fecha ?? '',
+        r.albaran ?? '',
+        r.puesto ?? '',
+        r.cliente ?? '',
+        r.razonSocial ?? '',
+        r.nif ?? '',
+        Number(r.importe ?? 0).toFixed(2),
+        r.prefactura ? 'Sí' : '',
+      ]),
+      pie: [
+        `${filas.length} albarán(es) en listado`,
+        `Total consulta: ${t.albaranes} · ${Number(t.importe).toFixed(2)} €`,
+      ],
+      filenameFallback: 'albaranes-pendientes.html',
+    })
+    mensaje.value = res.message
   } catch (e: unknown) {
-    if (!ventana.closed) ventana.close()
-    error.value = extractApiError(e, 'No se pudo generar el PDF')
+    error.value = extractApiError(e, 'No se pudo preparar la previsualización')
   } finally {
     saving.value = false
   }
@@ -329,7 +422,7 @@ onMounted(async () => {
           {{ loading ? 'Buscando…' : 'Buscar' }}
         </button>
         <button type="button" class="btn primary" :disabled="saving || !items.length" @click="pdf">
-          {{ saving ? 'PDF…' : 'Previsualizar PDF' }}
+          {{ saving ? 'Preparando…' : 'Previsualizar listado' }}
         </button>
       </div>
     </div>
@@ -505,7 +598,7 @@ onMounted(async () => {
                 :disabled="imprimiendo || detalleLoading || !detalle"
                 @click="imprimirAlbaran"
               >
-                {{ imprimiendo ? 'Imprimiendo…' : 'Imprimir' }}
+                {{ imprimiendo ? 'Preparando…' : 'Ver / imprimir' }}
               </button>
               <button type="button" class="btn" @click="cerrarDetalle">Cerrar</button>
             </div>
@@ -579,6 +672,19 @@ onMounted(async () => {
       :busqueda-inicial="buscarClienteInicial"
       @seleccionar="onClienteSeleccionado"
       @cerrar="buscarClienteOpen = false"
+    />
+
+    <VentaImpresionA4Modal
+      ref="a4ModalRef"
+      :open="a4Open"
+      :titulo="a4Prep?.titulo || 'Albarán'"
+      :plantilla="a4Prep?.plantilla ?? null"
+      :datos="a4Prep?.datos ?? null"
+      :impresora-nombre="a4Prep?.impresoraNombre || ''"
+      :imprimiendo="a4Imprimiendo"
+      oculto
+      @cerrar="a4Open = false"
+      @imprimir="confirmarImpresionAlbaran"
     />
 
   </section>

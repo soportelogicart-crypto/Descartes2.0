@@ -77,7 +77,14 @@ export async function cargarTienda(codigo: string): Promise<Record<string, unkno
 }
 
 export async function cargarPlantillasEmpresa(empresa: string): Promise<
-  { id: number; tipo: string; nombre: string; activa: boolean; definicion: DocumentoPlantilla }[]
+  {
+    id: number
+    tipo: string
+    nombre: string
+    version: number
+    activa: boolean
+    definicion: DocumentoPlantilla
+  }[]
 > {
   const { data } = await api.get('/api/mantenimiento/documento-plantillas', {
     params: { empresa: empresa.trim().toUpperCase() },
@@ -86,6 +93,7 @@ export async function cargarPlantillasEmpresa(empresa: string): Promise<
     id: Number(raw.id),
     tipo: String(raw.tipo ?? ''),
     nombre: String(raw.nombre ?? ''),
+    version: Number(raw.version ?? 0),
     activa: Boolean(raw.activa),
     definicion:
       raw.definicion && typeof raw.definicion === 'object'
@@ -124,36 +132,110 @@ function complementarPlantillaTicket(
   return { ...guardada, blocks }
 }
 
-/** Si la plantilla guardada es el esqueleto base de una versión anterior, usa la del código. */
-function plantillaVigente(guardada: DocumentoPlantilla, tipo: string): DocumentoPlantilla {
+function plantillaTienePieFito(blocks: DocumentoPlantilla['blocks']): boolean {
+  return blocks.some(
+    (b) =>
+      b.id === 'fito-pie' ||
+      (b.bind ?? []).some((p) => p === 'documento.anotacionPasaporteFitosanitario')
+  )
+}
+
+/** Añade el pie fitosanitario si la plantilla de albarán guardada no lo trae. */
+function complementarPlantillaAlbaran(
+  guardada: DocumentoPlantilla,
+  skeleton: DocumentoPlantilla
+): DocumentoPlantilla {
+  if (guardada.tipo !== 'albaran') return guardada
+  if (plantillaTienePieFito(guardada.blocks)) return guardada
+  const bloqueSkeleton = skeleton.blocks.find((b) => b.id === 'fito-pie')
+  if (!bloqueSkeleton) return guardada
+
+  const bloque = JSON.parse(JSON.stringify(bloqueSkeleton)) as (typeof guardada.blocks)[number]
+  const pie = guardada.blocks.find((b) => b.type === 'pie')
+  bloque.h = Math.max(bloque.h, 8)
+  if (pie) {
+    bloque.y = Math.max(0, pie.y - bloque.h - 2)
+    bloque.x = pie.x
+    bloque.w = pie.w
+  } else {
+    const maxY = guardada.blocks.reduce((m, b) => Math.max(m, b.y + b.h), 0)
+    bloque.y = maxY + 2
+  }
+  return { ...guardada, blocks: [...guardada.blocks, bloque] }
+}
+
+/**
+ * Plantilla a imprimir a partir de la guardada en BD.
+ * Tickets: puede completar bloques nuevos del esqueleto.
+ * A4 (albarán, factura…): no sustituir por el esqueleto del código al imprimir;
+ * eso ignoraba la plantilla elegida en el puesto si el repo subía de versión.
+ */
+function plantillaVigente(
+  guardada: DocumentoPlantilla,
+  tipo: string,
+  versionRegistro = 0
+): DocumentoPlantilla {
   const skeleton = esqueletoPorTipo(tipo, guardada.id) ?? esqueletoPorTipo(tipo)
   if (!skeleton) return guardada
+  if (tipo === 'albaran') {
+    return complementarPlantillaAlbaran(guardada, skeleton)
+  }
+  if (tipo !== 'ticket') return guardada
+
   const mismaBase = !guardada.id || guardada.id === skeleton.id
   const vGuardada = Number(guardada.version || 0)
   const vBase = Number(skeleton.version || 0)
-  if (mismaBase && vGuardada < vBase) return skeleton
+  const personalizada = versionRegistro > vGuardada
+  if (mismaBase && vGuardada < vBase && !personalizada) {
+    return complementarPlantillaTicket(skeleton, skeleton)
+  }
   return complementarPlantillaTicket(guardada, skeleton)
 }
 
 export function resolverPlantilla(
-  lista: { tipo: string; nombre: string; activa: boolean; definicion: DocumentoPlantilla }[],
+  lista: {
+    tipo: string
+    nombre: string
+    version?: number
+    activa: boolean
+    definicion: DocumentoPlantilla
+  }[],
   nombrePreferido: string,
   tipoPreferido: string
 ): DocumentoPlantilla {
-  const aplicar = (p: DocumentoPlantilla) => plantillaVigente(p, tipoPreferido)
+  const aplicar = (item: {
+    nombre: string
+    version?: number
+    definicion: DocumentoPlantilla
+  }) => {
+    return plantillaVigente(item.definicion, tipoPreferido, Number(item.version ?? 0))
+  }
   const nombre = nombrePreferido.trim()
   if (nombre) {
+    const nombreNorm = nombre.toLowerCase()
     const byName = lista.find(
       (p) =>
-        p.tipo === tipoPreferido && p.nombre.trim().toLowerCase() === nombre.toLowerCase()
+        p.tipo === tipoPreferido && p.nombre.trim().toLowerCase() === nombreNorm
     )
-    if (byName) return aplicar(byName.definicion)
+    if (byName) return aplicar(byName)
+    const byId = lista.find(
+      (p) =>
+        p.tipo === tipoPreferido &&
+        String(p.definicion?.id ?? '')
+          .trim()
+          .toLowerCase() === nombreNorm
+    )
+    if (byId) return aplicar(byId)
   }
   const activa = lista.find((p) => p.tipo === tipoPreferido && p.activa)
-  if (activa) return aplicar(activa.definicion)
+  if (activa) return aplicar(activa)
   const anyTipo = lista.find((p) => p.tipo === tipoPreferido)
-  if (anyTipo) return aplicar(anyTipo.definicion)
-  return esqueletoPorTipo(tipoPreferido) || esqueletoPorTipo('albaran')!
+  if (anyTipo) return aplicar(anyTipo)
+  const fallback = esqueletoPorTipo(tipoPreferido) || esqueletoPorTipo('albaran')!
+  if (tipoPreferido === 'albaran') {
+    return complementarPlantillaAlbaran(fallback, fallback)
+  }
+  return fallback
 }
 
 export async function resolverNombreImpresoraDoc(
@@ -210,6 +292,8 @@ export function extrasEmpresaDesdeTienda(
   literalPedidoCompra: string
   preciosIvaIncluido: boolean
   emblemaUrl: string
+  /** Empresas_Ges.PasaporteFitosanitario (tienda). */
+  pasaporteFitosanitarioEmpresa: string
 } {
   return {
     empresaNombre: String(tienda.nombre ?? tienda.nombreFiscal ?? ''),
@@ -230,6 +314,7 @@ export function extrasEmpresaDesdeTienda(
     // Empresas.SW_IVA: precios de línea con IVA incluido.
     preciosIvaIncluido: Boolean(tienda.swIva),
     emblemaUrl: '',
+    pasaporteFitosanitarioEmpresa: String(tienda.pasaporteFitosanitario ?? '').trim(),
   }
 }
 

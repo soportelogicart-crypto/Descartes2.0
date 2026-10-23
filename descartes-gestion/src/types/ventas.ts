@@ -56,6 +56,12 @@ export type VentaLinea = {
   articulo: string | null
   descripcion: string | null
   loteVenta?: string | null
+  /** Lote / pasaporte fitosanitario asignado a la línea (AlbaranesVentasLin.LoteFito). */
+  loteFito?: string | null
+  /** Metadatos del artículo (consulta / impresión). */
+  pasaporteFitosanitario?: boolean
+  lotePasaporte?: boolean
+  registroSanitario?: string | null
   cantidad: number
   precio: number
   pjeDto: number
@@ -146,6 +152,19 @@ export type VentaDetalle = VentaResumen & {
     acumulados: number
     fechaInicio?: string
     fechaFin?: string
+  }
+  clubFidelizacion?: {
+    elegible: number
+    generadoEuros: number
+    usadoEuros: number
+    disponibleEuros: number
+    proximaCaducidad?: string | null
+    modoIncompatible?: boolean
+  }
+  clubSaldoCobro?: {
+    canjeCentimos?: number
+    incompatible?: boolean
+    motivo?: string | null
   }
 }
 
@@ -291,6 +310,7 @@ export type ArqueoResponse = {
   formaPagoEfectivoSugerida?: string | null
   ultimoMovimiento?: {
     tipo?: 'entrada' | 'salida' | string
+    subtipo?: string
     formaPago?: string
     importe?: number
     deltaAcumulado?: number
@@ -408,12 +428,20 @@ export type Vale = {
   importe: number
   importeOriginal?: number
   saldoPendiente?: number
+  /** Legacy Vales.Tipo (I/R/P/S/V/M). */
+  tipo?: string
+  tipoLabel?: string
   tipoVale?: 'REGALO' | 'FIDELIZACION' | string
   fecha: string | null
   fechaCaducidad: string | null
   liquidado: boolean
   fechaLiquidacion: string | null
   tipoLiquidacion: string | null
+  formaPago?: string | null
+  motivoOperador?: string | null
+  factura?: number
+  facturaTipo?: string | null
+  albaran?: number
   caducado: boolean
 }
 

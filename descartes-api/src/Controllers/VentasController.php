@@ -14,6 +14,8 @@ use Descartes\Api\Services\Ventas\ArqueoService;
 use Descartes\Api\Services\Ventas\CobroPagoConsultaService;
 use Descartes\Api\Services\Ventas\DesgloseArqueoVentasService;
 use Descartes\Api\Services\Ventas\DispositivoPuestoService;
+use Descartes\Api\Services\Ventas\ClubPromocionesService;
+use Descartes\Api\Services\Ventas\FidelizacionClubSaldoService;
 use Descartes\Api\Services\Ventas\FidelizacionService;
 use Descartes\Api\Services\Ventas\FidelizacionValesSemestreService;
 use Descartes\Api\Services\TipoDescuentoService;
@@ -40,6 +42,8 @@ final class VentasController
   private CobroPagoConsultaService $cobrosPagos;
   private ValeService $vales;
   private FidelizacionService $fidelizacion;
+  private FidelizacionClubSaldoService $clubSaldo;
+  private ClubPromocionesService $clubPromociones;
   private FidelizacionValesSemestreService $fidelizacionVales;
   private PedidoClienteService $pedidos;
   private AbcVentasService $abcVentas;
@@ -61,6 +65,8 @@ final class VentasController
     CobroPagoConsultaService $cobrosPagos,
     ValeService $vales,
     FidelizacionService $fidelizacion,
+    FidelizacionClubSaldoService $clubSaldo,
+    ClubPromocionesService $clubPromociones,
     FidelizacionValesSemestreService $fidelizacionVales,
     PedidoClienteService $pedidos,
     AbcVentasService $abcVentas,
@@ -81,6 +87,8 @@ final class VentasController
     $this->cobrosPagos = $cobrosPagos;
     $this->vales = $vales;
     $this->fidelizacion = $fidelizacion;
+    $this->clubSaldo = $clubSaldo;
+    $this->clubPromociones = $clubPromociones;
     $this->fidelizacionVales = $fidelizacionVales;
     $this->pedidos = $pedidos;
     $this->abcVentas = $abcVentas;
@@ -873,6 +881,116 @@ final class VentasController
     }
   }
 
+  public function clubEstadoSocio(Request $request, Response $response): Response
+  {
+    $q = $request->getQueryParams();
+    try {
+      return $this->json(
+        $response,
+        200,
+        $this->clubSaldo->estadoSocio(
+          trim((string) ($q['empresa'] ?? '')),
+          trim((string) ($q['cliente'] ?? ''))
+        )
+      );
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, 'No se pudo consultar el club', 'ERROR');
+    }
+  }
+
+  public function clubPreviewTicket(Request $request, Response $response): Response
+  {
+    $body = (array) ($request->getParsedBody() ?? []);
+    try {
+      $empresa = trim((string) ($body['empresa'] ?? ''));
+      $cabecera = is_array($body['cabecera'] ?? null) ? $body['cabecera'] : [];
+      $opts = is_array($body['opts'] ?? null) ? $body['opts'] : $body;
+
+      return $this->json($response, 200, $this->clubSaldo->previewTicket($empresa, $cabecera, $opts));
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, 'No se pudo simular el ticket club', 'ERROR');
+    }
+  }
+
+  public function guardarClubFidelizacion(Request $request, Response $response): Response
+  {
+    $body = (array) ($request->getParsedBody() ?? []);
+    try {
+      return $this->json(
+        $response,
+        200,
+        $this->clubSaldo->guardarConfiguracionClub(trim((string) ($body['codigo'] ?? '')), $body)
+      );
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    }
+  }
+
+  public function listClubPromociones(Request $request, Response $response): Response
+  {
+    $q = $request->getQueryParams();
+    try {
+      return $this->json(
+        $response,
+        200,
+        $this->clubPromociones->listar(trim((string) ($q['empresa'] ?? '')))
+      );
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, 'No se pudieron listar las promociones', 'ERROR');
+    }
+  }
+
+  public function guardarClubPromocion(Request $request, Response $response): Response
+  {
+    $body = (array) ($request->getParsedBody() ?? []);
+    try {
+      return $this->json(
+        $response,
+        200,
+        $this->clubPromociones->guardar(trim((string) ($body['empresa'] ?? '')), $body)
+      );
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    }
+  }
+
+  public function eliminarClubPromocion(Request $request, Response $response, array $args): Response
+  {
+    $q = $request->getQueryParams();
+    try {
+      $this->clubPromociones->eliminar(
+        trim((string) ($q['empresa'] ?? '')),
+        (int) ($args['id'] ?? 0)
+      );
+
+      return $this->json($response, 200, ['ok' => true]);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, 'No se pudo eliminar la promoción', 'ERROR');
+    }
+  }
+
+  public function informeClubMensual(Request $request, Response $response): Response
+  {
+    $q = $request->getQueryParams();
+    try {
+      return $this->json(
+        $response,
+        200,
+        $this->clubSaldo->informeMensual(
+          trim((string) ($q['empresa'] ?? '')),
+          (int) ($q['anio'] ?? date('Y')),
+          (int) ($q['mes'] ?? date('n'))
+        )
+      );
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, 'No se pudo generar el informe', 'ERROR');
+    }
+  }
+
   public function marcarTiendaSinPuntos(Request $request, Response $response): Response
   {
     $body = (array) ($request->getParsedBody() ?? []);
@@ -956,6 +1074,28 @@ final class VentasController
       return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
     } catch (\RuntimeException $e) {
       return $this->runtimeError($response, $e);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function liquidarValesLote(Request $request, Response $response): Response
+  {
+    $body = (array) json_decode((string) $request->getBody(), true);
+    if ($body === []) {
+      $body = (array) ($request->getParsedBody() ?? []);
+    }
+    try {
+      $item = $this->vales->liquidarLote($body);
+      return $this->json($response, 200, $item);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      $code = (int) $e->getCode();
+      if ($code === 409) {
+        return ErrorResponse::json($response, 409, $e->getMessage(), 'CONFLICTO');
+      }
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
     } catch (\Throwable $e) {
       return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
     }

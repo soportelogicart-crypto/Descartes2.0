@@ -1,5 +1,5 @@
 {
-  "appUrl": "https://soportetopay.com/descartes/",
+  "appUrl": "http://213.96.60.240:9080/",
   "apiHint": "npm start = lo mismo que el otro PC (hosting). npm run dev = tu trabajo local (Vite).",
   "window": {
     "width": 1280,

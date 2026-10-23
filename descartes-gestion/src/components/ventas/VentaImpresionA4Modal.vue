@@ -53,6 +53,17 @@ async function capturarHtmlFolio(): Promise<string> {
     if (!htmlEl.style.position) htmlEl.style.position = 'absolute'
     htmlEl.style.boxSizing = 'border-box'
   })
+  clone.querySelectorAll('.type-bloque-cliente').forEach((el) => {
+    const htmlEl = el as HTMLElement
+    const inner = htmlEl.querySelector('.cliente') as HTMLElement | null
+    htmlEl.style.overflow = 'visible'
+    if (inner) {
+      const alto = Math.ceil(inner.scrollHeight + 6)
+      if (alto > htmlEl.offsetHeight) {
+        htmlEl.style.height = `${alto}px`
+      }
+    }
+  })
   return `<!doctype html><html><head><meta charset="utf-8"/><title>${props.titulo}</title>
 <style>
   @page { size: A4 portrait; margin: 0; }
@@ -69,6 +80,7 @@ async function capturarHtmlFolio(): Promise<string> {
   .folio { position: relative; width: 210mm; height: 297mm; overflow: hidden; box-sizing: border-box; background: #fff; }
   .page { position: relative; background: #fff; }
   .block { position: absolute; box-sizing: border-box; overflow: hidden; }
+  .block.type-bloque-cliente { overflow: visible; }
   table { border-collapse: collapse; width: 100%; }
   img { max-width: 100%; }
 ${documentoA4Css}
@@ -82,7 +94,12 @@ defineExpose({ capturarHtmlFolio })
   <Teleport to="body">
     <div v-if="open && oculto" class="fuera-de-pantalla" aria-hidden="true">
       <div ref="previewHost">
-        <DocumentoPlantillaPreview v-if="plantilla" :plantilla="plantilla" :datos="datos" />
+        <DocumentoPlantillaPreview
+          v-if="plantilla"
+          :plantilla="plantilla"
+          :datos="datos"
+          escala-impresion
+        />
       </div>
     </div>
 

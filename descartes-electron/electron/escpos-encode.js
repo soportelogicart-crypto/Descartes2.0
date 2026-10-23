@@ -84,6 +84,8 @@ function toPrinterBytes(text) {
     ü: 'u',
     ñ: 'n',
     ç: 'c',
+    'º': 'o',
+    'ª': 'a',
     '€': 'EUR',
     '·': '-',
     '—': '-',

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Descartes\Api\Repositories;
 
+use Descartes\Api\Database\InsertedId;
 use PDO;
 
 final class ClientesDireccionesRepository
@@ -78,7 +79,7 @@ final class ClientesDireccionesRepository
       'portes' => $this->str($data['portes'] ?? null, 1),
     ]);
 
-    $nroLin = (int) $stmt->fetchColumn();
+    $nroLin = InsertedId::leer($this->pdo, $stmt);
     $created = $this->findOne($codigo, $tipo, $nroLin);
     if ($created === null) {
       throw new \RuntimeException('No se pudo leer la direccion creada');

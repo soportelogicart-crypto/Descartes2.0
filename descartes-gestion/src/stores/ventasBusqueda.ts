@@ -27,6 +27,8 @@ export const useVentasBusquedaStore = defineStore('ventasBusqueda', () => {
   const filtrosColumna = ref<VentasFiltrosColumna>({})
   /** Tras alta de cabecera: abrir ficha en edicion aunque RouterView remonte por :key=path. */
   const abrirEnEdicion = ref<{ empresa: string; tipo: string; albaran: number } | null>(null)
+  /** TPV u otra pantalla creó/cerró ventas: el listado debe volver a pedir al servidor. */
+  const listadoObsoleto = ref(false)
 
   function clave(v: Pick<VentaResumen, 'empresa' | 'tipo' | 'albaran'>) {
     return `${v.empresa}|${v.tipo}|${v.albaran}`
@@ -47,6 +49,11 @@ export const useVentasBusquedaStore = defineStore('ventasBusqueda', () => {
     totalCargados.value = payload.total
     items.value = itemsCargados.value.map((i) => ({ ...i }))
     total.value = payload.total
+    listadoObsoleto.value = false
+  }
+
+  function marcarListadoObsoleto() {
+    listadoObsoleto.value = true
   }
 
   function setNavegacion(visibles: VentaResumen[]) {
@@ -118,5 +125,7 @@ export const useVentasBusquedaStore = defineStore('ventasBusqueda', () => {
     quitar,
     marcarAbrirEnEdicion,
     consumirAbrirEnEdicion,
+    listadoObsoleto,
+    marcarListadoObsoleto,
   }
 })

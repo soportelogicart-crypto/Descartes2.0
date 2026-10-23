@@ -449,6 +449,12 @@ final class FidelizacionValesSemestreService
         $this->pdo->rollBack();
       }
       throw $e;
+    } finally {
+      if ($this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
+        $this->pdo->prepare('SELECT RELEASE_LOCK(:recurso)')->execute([
+          'recurso' => "fidelizacion-vales:{$inicio}:{$fin}",
+        ]);
+      }
     }
 
     return [
@@ -842,6 +848,18 @@ final class FidelizacionValesSemestreService
   private function bloquearPeriodo(string $inicio, string $fin): void
   {
     $recurso = "fidelizacion-vales:{$inicio}:{$fin}";
+    if ($this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
+      $st = $this->pdo->prepare('SELECT GET_LOCK(:recurso, 15)');
+      $st->execute(['recurso' => $recurso]);
+      $resultado = (int) $st->fetchColumn();
+      if ($resultado !== 1) {
+        throw new \RuntimeException(
+          'Otro puesto está generando los vales de fidelización. Espere unos segundos.',
+          409
+        );
+      }
+      return;
+    }
     $st = $this->pdo->prepare(
       "DECLARE @resultado int;
        EXEC @resultado = sp_getapplock

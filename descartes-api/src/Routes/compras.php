@@ -48,6 +48,10 @@ return function (App $app): void {
       ->add($setPermiso('compras', 'ver'));
     $group->post('/albaranes/reservar', [ComprasController::class, 'reservarAlbaran'])
       ->add($setPermiso('compras', 'crear'));
+    $group->post('/albaranes/import-preview', [ComprasController::class, 'previewImportAlbaran'])
+      ->add($setPermiso('compras', 'crear'));
+    $group->post('/albaranes/import-preview-pdf', [ComprasController::class, 'previewImportAlbaranPdf'])
+      ->add($setPermiso('compras', 'crear'));
     $group->post('/albaranes', [ComprasController::class, 'createAlbaran'])
       ->add($setPermiso('compras', 'crear'));
     $group->get('/albaranes/{empresa}/{albaran}', [ComprasController::class, 'getAlbaran'])

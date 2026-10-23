@@ -13,9 +13,11 @@ installGlobalErrorReporting()
 
 const app = createApp(App)
 app.use(createPinia())
-app.use(router)
-registerElectronNavigation(router)
 
+// app.use(router) lanza ya la primera navegación y su guard pide el estado:
+// sin el vínculo cargado iría a la instalación por defecto.
 void cargarVinculoInstalacion().finally(() => {
+  app.use(router)
+  registerElectronNavigation(router)
   app.mount('#app')
 })

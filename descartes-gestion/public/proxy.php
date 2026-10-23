@@ -1,11 +1,23 @@
 <?php
 
 /**
- * Reenvía /descartes/api/* al XAMPP de casa (HTTP).
- * El navegador solo habla HTTPS con el hosting; así se evita
- * mixed content y ERR_SSL_PROTOCOL_ERROR.
+ * Reenvía /api/* (public/.htaccess) al PHP de Descartes en /api-descartes/public.
+ *
+ * Por defecto usa el mismo host que la gestión (no hace falta pegar dominios a mano).
+ * Pruebas contra el XAMPP de casa: descomente $backendManual abajo.
  */
-$backend = 'http://213.96.60.240:9080/descartes-api/public';
+$backendManual = '';
+// $backendManual = 'http://213.96.60.240:9080/descartes-api/public';
+
+if ($backendManual !== '') {
+  $backend = rtrim($backendManual, '/');
+} else {
+  $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+    || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower((string) $_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+  $scheme = $https ? 'https' : 'http';
+  $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+  $backend = $scheme . '://' . $host . '/api-descartes/public';
+}
 
 $uri = $_SERVER['REQUEST_URI'] ?? '';
 $path = parse_url($uri, PHP_URL_PATH) ?: '';
@@ -23,7 +35,7 @@ if (preg_match('#/descartes(/api(?:/.*)?)$#', $path, $m)) {
   $apiPath = $m[1];
 }
 
-$url = rtrim($backend, '/') . $apiPath;
+$url = $backend . $apiPath;
 if ($query) {
   $url .= '?' . $query;
 }
@@ -58,7 +70,7 @@ $raw = curl_exec($ch);
 if ($raw === false) {
   http_response_code(502);
   header('Content-Type: application/json; charset=utf-8');
-  echo json_encode(['error' => 'No se pudo contactar con la API local: ' . curl_error($ch)]);
+  echo json_encode(['error' => 'No se pudo contactar con la API: ' . curl_error($ch)]);
   curl_close($ch);
   exit;
 }

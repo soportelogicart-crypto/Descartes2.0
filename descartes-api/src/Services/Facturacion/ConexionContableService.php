@@ -37,14 +37,8 @@ final class ConexionContableService
     if (empty($row['ContaPropia'])) {
       throw new \RuntimeException("La tienda {$empresa} no tiene contabilidad propia activada", 409);
     }
-    $faltan = $this->gestion->query(
-      "SELECT COUNT(*) FROM (VALUES
-         ('AsientosCab'), ('AsientosLin'), ('FactEmitidasCab'),
-         ('FactEmitidasLin'), ('EfectosCobro'), ('Cuentas'), ('Series')
-       ) AS requeridas(nombre)
-       WHERE OBJECT_ID('dbo.' + requeridas.nombre, 'U') IS NULL"
-    )->fetchColumn();
-    if ((int) $faltan !== 0) {
+    $faltan = $this->faltanTablasContabilidad();
+    if ($faltan !== 0) {
       throw new \RuntimeException(
         'La base de datos activa no contiene todas las tablas de contabilidad integradas',
         409
@@ -62,6 +56,40 @@ final class ConexionContableService
       ),
       'apunteDiario' => !empty($row['ApunteDiario']),
     ];
+  }
+
+  private function faltanTablasContabilidad(): int
+  {
+    if ($this->gestion->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'mysql') {
+      $faltan = $this->gestion->query(
+        "SELECT COUNT(*) FROM (
+           SELECT 'AsientosCab' AS nombre
+           UNION ALL SELECT 'AsientosLin'
+           UNION ALL SELECT 'FactEmitidasCab'
+           UNION ALL SELECT 'FactEmitidasLin'
+           UNION ALL SELECT 'EfectosCobro'
+           UNION ALL SELECT 'Cuentas'
+           UNION ALL SELECT 'Series'
+         ) requeridas
+         WHERE NOT EXISTS (
+           SELECT 1 FROM information_schema.TABLES t
+           WHERE t.TABLE_SCHEMA = DATABASE()
+             AND LOWER(t.TABLE_NAME) = LOWER(requeridas.nombre)
+         )"
+      )->fetchColumn();
+
+      return (int) $faltan;
+    }
+
+    $faltan = $this->gestion->query(
+      "SELECT COUNT(*) FROM (VALUES
+         ('AsientosCab'), ('AsientosLin'), ('FactEmitidasCab'),
+         ('FactEmitidasLin'), ('EfectosCobro'), ('Cuentas'), ('Series')
+       ) AS requeridas(nombre)
+       WHERE OBJECT_ID('dbo.' + requeridas.nombre, 'U') IS NULL"
+    )->fetchColumn();
+
+    return (int) $faltan;
   }
 
   private function serie(mixed $valor, string $tipo): string

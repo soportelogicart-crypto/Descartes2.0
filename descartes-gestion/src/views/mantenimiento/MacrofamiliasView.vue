@@ -151,11 +151,11 @@ onMounted(async () => {
   await cargar()
 })
 
-async function cargar(q = serverQuery.value) {
+async function cargar(q = serverQuery.value, meta?: { silent?: boolean }) {
   mensaje.value = null
   const params: Record<string, string | number | boolean> = { page: page.value, pageSize: pageSize.value }
   if (q) params.q = q
-  await listar(params)
+  await listar(params, { silent: meta?.silent })
   if (!vistaMontada) return
   filasTodas.value = items.value.map(clonarMacrofamilia)
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))

@@ -819,6 +819,10 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
     opciones: {
       aplicarValeFidelizacion?: boolean
       aplicarPuntosFidelizacion?: boolean
+      aplicarClubSaldo?: boolean
+      clubSaldoCanjeEuros?: number
+      clubValeId?: number
+      aplicarClubPromo?: boolean
       valeCodigo?: number
       fpago2?: string
     } = {}

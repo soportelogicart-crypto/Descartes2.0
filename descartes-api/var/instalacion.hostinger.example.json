@@ -1,0 +1,10 @@
+{
+  "motor": "mysql",
+  "tipo": "local",
+  "server": "localhost",
+  "database": "u887121068_NOMBRE_BD",
+  "user": "u887121068_NOMBRE_BD",
+  "password": "COPIAR_DESDE_hPanel",
+  "trust_cert": true,
+  "encrypt": false
+}

@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import { api } from '@/api/client'
 import { extractApiError } from '@/composables/extractApiError'
 import { eanCheckDigit } from '@/config/documentos-plantillas/barcode-ean'
+import ToolIcon from '@/components/common/ToolIcon.vue'
 
 type EanFila = { ean: string; tipo: string; unidades: number }
 
@@ -220,6 +221,29 @@ async function asignar() {
   }
 }
 
+function filasConEan(): EanFila[] {
+  return filas.value
+    .map((f) => ({ ...f, ean: normalizarEanVista(f.ean) }))
+    .filter((f) => f.ean !== '')
+}
+
+/** Quita un EAN de la lista y lo persiste (incluso si era el último). */
+async function eliminarEan(index: number) {
+  if (props.readonly || saving.value || loading.value || !loaded.value) return
+  const ean = normalizarEanVista(filas.value[index]?.ean ?? '')
+  if (!ean) return
+
+  error.value = null
+  mensaje.value = null
+  const restantes = filasConEan().filter((f) => f.ean !== ean)
+  const saved = await persistir(restantes, { allowEmpty: true })
+  if (saved) {
+    mensaje.value = restantes.length
+      ? `Eliminado EAN ${ean}`
+      : `Eliminado EAN ${ean} (sin códigos restantes)`
+  }
+}
+
 async function generar() {
   if (props.readonly || saving.value || loading.value) return
   if (!loaded.value) {
@@ -346,6 +370,7 @@ async function onCerrarOverlay() {
           <thead>
             <tr>
               <th>Eans</th>
+              <th v-if="!readonly" class="col-accion" aria-label="Acciones" />
             </tr>
           </thead>
           <tbody>
@@ -368,6 +393,18 @@ async function onCerrarOverlay() {
                   @input="onEanInput(index)"
                   @blur="onEanBlur(index)"
                 />
+              </td>
+              <td v-if="!readonly" class="col-accion">
+                <button
+                  v-if="fila.ean.trim()"
+                  type="button"
+                  class="btn-borrar"
+                  title="Eliminar EAN"
+                  :disabled="saving || loading || !loaded"
+                  @click="eliminarEan(index)"
+                >
+                  <ToolIcon name="borrar" />
+                </button>
               </td>
             </tr>
           </tbody>
@@ -540,5 +577,27 @@ td input {
 
 td input:read-only {
   background: #f1f5f9;
+}
+
+.col-accion {
+  width: 2rem;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.btn-borrar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.15rem 0.25rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 3px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.btn-borrar:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 </style>

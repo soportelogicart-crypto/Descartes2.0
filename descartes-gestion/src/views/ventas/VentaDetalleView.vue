@@ -1536,6 +1536,10 @@ async function aplicarArticuloEnLinea(
     linea.cantidad = redondear2(linea.cantidad)
   }
   linea.pjeIva = await pjeIvaArticulo(art, Number(linea.pjeIva) > 0 ? Number(linea.pjeIva) : 21)
+  linea.pasaporteFitosanitario = Boolean(art.pasaporteFitosanitario)
+  linea.lotePasaporte = Boolean(art.lotePasaporte)
+  linea.registroSanitario =
+    art.registroSanitario != null ? String(art.registroSanitario).trim() : null
   linea.regalo = false
   const oferta = await ofertaDeLinea(codigo)
   linea.pjeDto = oferta.pjeDto
@@ -2684,7 +2688,7 @@ async function confirmarFinalizar() {
     const puestoVale = String(puesto.puestoCodigo || done.puesto || '').trim()
     if (puestoVale && (done.valeEmitido?.codigo || done.valeAplicado?.valeResto?.codigo)) {
       try {
-        await imprimirValesDeCierre(puestoVale, done)
+        await imprimirValesDeCierre(puestoVale, done, done.empresa)
       } catch (e: unknown) {
         error.value = extractApiError(e, 'El documento está hecho, pero no se pudo imprimir el vale')
       }

@@ -129,6 +129,8 @@ return function (App $app): void {
       ->add($setPermiso('ventas', 'ver'));
     $group->post('/vales', [VentasController::class, 'createVale'])
       ->add($setPermiso('ventas-vales', 'crear'));
+    $group->post('/vales/liquidar-lote', [VentasController::class, 'liquidarValesLote'])
+      ->add($setPermiso('ventas-vales', 'editar'));
     $group->post('/vales/{empresa}/{codigo}/liquidar', [VentasController::class, 'liquidarVale'])
       ->add($setPermiso('ventas-vales', 'editar'));
     $group->get('/fidelizacion/semestre', [VentasController::class, 'semestreFidelizacion'])
@@ -147,6 +149,20 @@ return function (App $app): void {
       ->add($setPermiso('clientes', 'ver'));
     $group->get('/fidelizacion/puntos-canje', [VentasController::class, 'puntosCanjeDisponible'])
       ->add($verDescuentoOferta);
+    $group->get('/fidelizacion/club/estado', [VentasController::class, 'clubEstadoSocio'])
+      ->add($verDescuentoOferta);
+    $group->post('/fidelizacion/club/preview', [VentasController::class, 'clubPreviewTicket'])
+      ->add($verDescuentoOferta);
+    $group->put('/fidelizacion/club', [VentasController::class, 'guardarClubFidelizacion'])
+      ->add($setPermiso('clientes', 'editar'));
+    $group->get('/fidelizacion/club/promociones', [VentasController::class, 'listClubPromociones'])
+      ->add($setPermiso('clientes', 'ver'));
+    $group->put('/fidelizacion/club/promociones', [VentasController::class, 'guardarClubPromocion'])
+      ->add($setPermiso('clientes', 'editar'));
+    $group->delete('/fidelizacion/club/promociones/{id}', [VentasController::class, 'eliminarClubPromocion'])
+      ->add($setPermiso('clientes', 'editar'));
+    $group->get('/fidelizacion/club/informe-mensual', [VentasController::class, 'informeClubMensual'])
+      ->add($setPermiso('clientes', 'ver'));
     // Cualquier usuario autenticado puede disparar la tarea idempotente al abrir el programa.
     $group->get('/fidelizacion/automatico/estado', [VentasController::class, 'estadoAutomaticoFidelizacion']);
     $group->post('/fidelizacion/automatico/generar', [VentasController::class, 'generarAutomaticamenteFidelizacion']);

@@ -75,6 +75,7 @@ const tituloModal = () => {
   if (props.entidad === 'agrupaciones') return 'Buscar agrupacion'
   if (props.entidad === 'impuestos') return 'Buscar impuesto'
   if (props.entidad === 'actividades') return 'Buscar actividad'
+  if (props.entidad === 'centros-coste') return 'Buscar centro de coste'
   if (props.entidad === 'almacenes') return 'Buscar almacen'
   if (props.entidad === 'roles') return 'Buscar rol'
   if (props.entidad === 'usuarios') return 'Buscar usuario'
@@ -332,6 +333,7 @@ function onBusquedaKeydown(e: KeyboardEvent) {
                           entidad === 'agrupaciones' ||
                           entidad === 'impuestos' ||
                           entidad === 'actividades' ||
+                          entidad === 'centros-coste' ||
                           entidad === 'almacenes' ||
                           entidad === 'roles' ||
                           entidad === 'usuarios' ||

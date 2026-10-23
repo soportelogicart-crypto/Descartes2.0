@@ -257,11 +257,12 @@ function cancelarListado() {
   loading.value = false
 }
 
-async function cargar(q = serverQuery.value) {
+async function cargar(q = serverQuery.value, meta?: { silent?: boolean }) {
   cancelarListado()
   const controller = new AbortController()
   listadoController = controller
-  loading.value = true
+  const showLoading = !meta?.silent
+  if (showLoading) loading.value = true
   error.value = null
   try {
     const params: Record<string, string | number | boolean> = {}
@@ -283,7 +284,7 @@ async function cargar(q = serverQuery.value) {
   } finally {
     if (listadoController === controller) {
       listadoController = null
-      loading.value = false
+      if (showLoading) loading.value = false
     }
   }
 }

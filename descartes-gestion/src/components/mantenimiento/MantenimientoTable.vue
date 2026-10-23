@@ -17,8 +17,8 @@ defineEmits<{
 
 <template>
   <div class="table-wrap">
-    <p v-if="loading">Cargando...</p>
-    <table v-else>
+    <p v-if="loading" class="loading-banner">Cargando...</p>
+    <table>
       <thead>
         <tr>
           <th v-for="campo in campos.slice(0, 4)" :key="campo.key">{{ campo.label }}</th>

@@ -1,0 +1,145 @@
+/**
+ * Aspecto comun de las rejillas de mantenimiento.
+ * Se importa con <style scoped src="..."> desde cada componente de rejilla
+ * para que todas compartan tamanos, colores y densidad.
+ */
+.grid-wrap {
+  width: 100%;
+  box-sizing: border-box;
+  overflow: auto;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.grid-wrap .loading,
+.grid-wrap .loading-banner {
+  margin: 0;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+  color: #334155;
+  background: #f1f5f9;
+  border-bottom: 1px solid #cbd5e1;
+}
+
+/* La tabla ocupa el recuadro; el ancho del panel manda (ver mantenimiento-listado.css). */
+.grid-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.grid-wrap th,
+.grid-wrap td {
+  border: 1px solid #cbd5e1;
+  padding: 0.1rem 0.25rem;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.grid-wrap th {
+  background: linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%);
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.grid-wrap th.ordenable {
+  cursor: pointer;
+  user-select: none;
+}
+.grid-wrap th.ordenable:hover {
+  background: #dbeafe;
+}
+.grid-wrap th .marca-orden {
+  font-size: 0.65rem;
+  margin-left: 0.2rem;
+  color: #1d4ed8;
+}
+
+.grid-wrap .col-ind {
+  width: 1.5rem;
+  text-align: center;
+  color: #1e40af;
+  font-weight: 700;
+  background: #f8fafc;
+}
+
+.grid-wrap .col-num {
+  text-align: right;
+}
+
+.grid-wrap tbody tr {
+  cursor: pointer;
+}
+
+.grid-wrap tbody tr.selected {
+  background: #dbeafe;
+}
+
+.grid-wrap tbody tr.nuevo {
+  background: #fefce8;
+}
+
+.grid-wrap tbody tr:nth-child(even):not(.selected):not(.nuevo) {
+  background: #f8fafc;
+}
+
+.grid-wrap .celda-vacia {
+  height: 1.5rem;
+}
+
+.grid-wrap .cell-input,
+.grid-wrap td select {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  border: none;
+  background: transparent;
+  padding: 0.05rem 0.15rem;
+  font-size: 0.8rem;
+  min-width: 0;
+}
+
+.grid-wrap .cell-input:focus {
+  outline: 2px solid #2563eb;
+  background: #fff;
+}
+
+.grid-wrap .cell-input:read-only {
+  color: inherit;
+}
+
+.grid-wrap input[type='checkbox'] {
+  width: 0.9rem;
+  height: 0.9rem;
+  display: block;
+  margin: 0 auto;
+}
+
+/* Fila de filtros por columna (escribir para filtrar) */
+.grid-wrap .filter-row th {
+  background: #e8eef5;
+  padding: 0.15rem;
+  font-weight: 400;
+  overflow: visible;
+  white-space: normal;
+}
+
+.grid-wrap .filter-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 400;
+  min-width: 0;
+}
+
+.grid-wrap .filter-input:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: -1px;
+}

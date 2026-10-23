@@ -242,7 +242,7 @@ export const articuloTabs: ArticuloTab[] = [
           cb('pasaporteFitosanitario', 'Control fitosanitario'),
           cb('lotePasaporte', 'Lote pasaporte'),
           cb('fitoProfesional', 'Fitosanitario prof.'),
-          inline('registroSanitario', 'Registro sanitario', { span: 2 }),
+          inline('registroSanitario', 'Registro sanitario', { span: 2, maxLength: 25 }),
           inline('codigoIntrastat', 'Codigo Intrastat', { span: 2 }),
         ],
       },

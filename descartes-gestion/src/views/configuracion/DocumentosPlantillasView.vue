@@ -28,6 +28,14 @@ import { imprimirTicketTermica } from '@/composables/impresionTicketTermica'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { listarImpresorasSistema } from '@/composables/useImpresorasSistema'
 import { cargarPuesto } from '@/composables/impresionDocumentoA4Shared'
+import {
+  buildPaqueteExportacion,
+  descargarPaquete,
+  nombreFicheroExportacion,
+  parsePaqueteImportacion,
+  type PaqueteExportacion,
+  type PlantillaExportItem,
+} from '@/composables/documentoPlantillaPortabilidad'
 
 const TIPOS_TODOS: { value: DocumentoTipo; label: string }[] = [
   { value: 'albaran', label: 'Albarán' },
@@ -67,6 +75,7 @@ const {
   crear,
   activar,
   eliminar,
+  importar,
   esqueletoPorTipo,
 } = useDocumentoPlantillasEditables()
 
@@ -122,6 +131,14 @@ const modalEsqueletoId = ref('')
 const modalError = ref<string | null>(null)
 
 const modalEsqueletosOpciones = computed(() => plantillasPorTipo(modalTipo.value))
+
+const modalImportar = ref(false)
+const importPaquete = ref<PaqueteExportacion | null>(null)
+const importPreview = ref<PlantillaExportItem[]>([])
+const importActivar = ref(false)
+const importError = ref<string | null>(null)
+
+const puedeActivarTrasImportar = computed(() => importPreview.value.length === 1)
 
 const confirmEliminar = ref(false)
 const confirmDescartar = ref(false)
@@ -530,6 +547,87 @@ function onDraftUpdate(v: DocumentoPlantilla) {
 function marcarDirty() {
   if (!silenciarDirty.value) dirty.value = true
 }
+
+function abrirModalImportar() {
+  if (!empresaCodigo.value) {
+    errorMsg.value = 'Configure la empresa del puesto para importar plantillas.'
+    return
+  }
+  importPaquete.value = null
+  importPreview.value = []
+  importActivar.value = false
+  importError.value = null
+  modalImportar.value = true
+}
+
+function cerrarModalImportar() {
+  if (guardando.value) return
+  modalImportar.value = false
+}
+
+function onExportar() {
+  if (!draft.value) {
+    errorMsg.value = 'Seleccione una plantilla para exportar.'
+    return
+  }
+  errorMsg.value = null
+  mensaje.value = null
+  const item: PlantillaExportItem = {
+    tipo: draft.value.tipo,
+    nombre: draft.value.nombre,
+    descripcion: draft.value.descripcion ?? null,
+    definicion: JSON.parse(JSON.stringify(draft.value)) as DocumentoPlantilla,
+  }
+  const paquete = buildPaqueteExportacion([item], empresaCodigo.value || '?')
+  descargarPaquete(paquete, nombreFicheroExportacion(item.tipo, item.nombre))
+  mensaje.value = dirty.value
+    ? 'Exportado el diseño actual (incluye cambios sin guardar).'
+    : 'Plantilla exportada.'
+}
+
+async function onImportFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  importError.value = null
+  importPaquete.value = null
+  importPreview.value = []
+  importActivar.value = false
+  if (!file) return
+  try {
+    const text = await file.text()
+    const parsed = parsePaqueteImportacion(text)
+    if (!parsed.ok) {
+      importError.value = parsed.error
+      return
+    }
+    importPaquete.value = parsed.paquete
+    importPreview.value = parsed.plantillas
+  } catch {
+    importError.value = 'No se pudo leer el fichero.'
+  } finally {
+    input.value = ''
+  }
+}
+
+async function confirmarImportar() {
+  if (!importPaquete.value || !empresaCodigo.value) {
+    importError.value = 'Seleccione un fichero JSON valido.'
+    return
+  }
+  importError.value = null
+  const res = await importar(empresaCodigo.value, importPaquete.value, {
+    activar: puedeActivarTrasImportar.value && importActivar.value,
+  })
+  if (!res.ok) {
+    importError.value = res.message
+    return
+  }
+  modalImportar.value = false
+  mensaje.value = res.message
+  errorMsg.value = null
+  const first = res.items?.[0]
+  if (first) cargar(first.id)
+}
 </script>
 
 <template>
@@ -545,6 +643,12 @@ function marcarDirty() {
           </p>
         </div>
         <div class="acciones">
+          <button type="button" class="btn" :disabled="guardando || !empresaCodigo" @click="abrirModalImportar">
+            Importar
+          </button>
+          <button type="button" class="btn" :disabled="!draft || guardando" @click="onExportar">
+            Exportar
+          </button>
           <button type="button" class="btn" :disabled="guardando" @click="abrirModalNueva">
             Nueva
           </button>
@@ -751,6 +855,52 @@ function marcarDirty() {
             <button type="button" class="btn" :disabled="guardando" @click="cerrarModalCrear">Cancelar</button>
             <button type="button" class="btn primary" :disabled="guardando" @click="confirmarModalCrear">
               {{ guardando ? 'Creando…' : 'Crear' }}
+            </button>
+          </footer>
+        </div>
+      </div>
+
+      <div
+        v-if="modalImportar"
+        class="overlay-crear"
+        role="dialog"
+        aria-modal="true"
+        @click.self="cerrarModalImportar"
+      >
+        <div class="modal-crear modal-importar">
+          <h3>Importar plantillas</h3>
+          <p class="intro-modal">
+            Destino: empresa <strong>{{ empresaCodigo }}</strong> (puesto actual).
+          </p>
+          <label class="campo">
+            <span>Fichero JSON</span>
+            <input type="file" accept=".json,application/json" @change="onImportFile" />
+          </label>
+          <ul v-if="importPreview.length" class="import-preview">
+            <li v-for="(p, i) in importPreview" :key="i">
+              <strong>{{ p.nombre }}</strong>
+              — {{ etiquetaTipo(p.tipo) }}, {{ p.definicion.blocks?.length ?? 0 }} bloques
+            </li>
+          </ul>
+          <p v-if="importPreview.length > 1" class="aviso-modal">
+            Varias plantillas: se importaran inactivas. Active cada una desde la lista cuando corresponda.
+          </p>
+          <label v-if="puedeActivarTrasImportar" class="campo-check">
+            <input v-model="importActivar" type="checkbox" />
+            Activar tras importar
+          </label>
+          <p v-if="importError" class="modal-err">{{ importError }}</p>
+          <footer>
+            <button type="button" class="btn" :disabled="guardando" @click="cerrarModalImportar">
+              Cancelar
+            </button>
+            <button
+              type="button"
+              class="btn primary"
+              :disabled="guardando || !importPaquete"
+              @click="confirmarImportar"
+            >
+              {{ guardando ? 'Importando…' : 'Importar' }}
             </button>
           </footer>
         </div>
@@ -1160,5 +1310,37 @@ function marcarDirty() {
   justify-content: flex-end;
   gap: 0.45rem;
   margin-top: 0.35rem;
+}
+
+.modal-importar {
+  width: min(440px, 100%);
+}
+
+.intro-modal {
+  margin: 0 0 0.75rem;
+  font-size: 0.82rem;
+  color: #475569;
+}
+
+.import-preview {
+  margin: 0 0 0.65rem;
+  padding-left: 1.1rem;
+  font-size: 0.8rem;
+  color: #334155;
+}
+
+.aviso-modal {
+  margin: 0 0 0.65rem;
+  font-size: 0.78rem;
+  color: #b45309;
+}
+
+.campo-check {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0 0 0.65rem;
+  font-size: 0.82rem;
+  cursor: pointer;
 }
 </style>

@@ -57,6 +57,7 @@ function Sync-Tree([string]$relativeDir, [string[]]$include = @('*.php', '*.htac
 
 Sync-Tree 'src'
 Sync-Tree 'public'
+Sync-Tree 'config' @('*.json')
 Sync-Tree 'database' @('*.sql')
 
 $varDir = Join-Path $xamppRoot 'var'
@@ -85,6 +86,23 @@ if ($dependenciasCambiadas) {
     }
   } finally {
     Pop-Location
+  }
+}
+
+$mirrorRoot = Join-Path $apiRoot 'api-descartes'
+if (Test-Path $mirrorRoot) {
+  foreach ($rel in @(
+      'src\Services\Ventas\VentaEscrituraService.php',
+      'src\Services\Compras\AlbaranCompraEscrituraService.php'
+    )) {
+    $srcFile = Join-Path $apiRoot ($rel -replace '/', '\')
+    $dstFile = Join-Path $mirrorRoot ($rel -replace '/', '\')
+    $dstDir = Split-Path $dstFile -Parent
+    if ((Test-Path $srcFile) -and (Test-Path $dstDir)) {
+      $content = Read-SourceText $srcFile
+      [System.IO.File]::WriteAllText($dstFile, $content, $utf8)
+      Write-Host "OK api-descartes\$rel (copia espejo hosting)"
+    }
   }
 }
 

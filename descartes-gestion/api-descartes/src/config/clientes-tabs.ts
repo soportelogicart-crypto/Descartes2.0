@@ -1,0 +1,533 @@
+import { ibanValido, normalizarIban } from '@/utils/iban'
+
+export type ClienteFieldType = 'text' | 'number' | 'checkbox' | 'textarea' | 'select' | 'date' | 'email'
+
+export type ClienteFieldLayout = 'inline' | 'checkbox' | 'textarea'
+
+export type ClienteField = {
+  key: string
+  label: string
+  type?: ClienteFieldType
+  layout?: ClienteFieldLayout
+  span?: 1 | 2 | 3 | 4
+  readOnly?: boolean
+  required?: boolean
+  maxLength?: number
+  options?: { value: string; label: string }[]
+  optionsSource?:
+    | 'tiendas'
+    | 'actividades'
+    | 'formas-pago'
+    | 'almacenes'
+    | 'trabajadores'
+    | 'clientes'
+    | 'cuentas'
+  | 'tipos-descuento'
+  /** Lupa de búsqueda (p. ej. cliente de facturación o cuenta contable). */
+  lookup?: boolean
+}
+
+export type ClienteSection = {
+  title: string
+  columns?: 2 | 3 | 4 | 5
+  fields: ClienteField[]
+  /** Secciones consecutivas con el mismo `row` se muestran en paralelo. */
+  row?: string
+}
+
+export type ClienteTab = {
+  id: string
+  label: string
+  sections: ClienteSection[]
+}
+
+function cb(key: string, label: string, extra: Partial<ClienteField> = {}): ClienteField {
+  return { key, label, type: 'checkbox', layout: 'checkbox', ...extra }
+}
+
+function inline(key: string, label: string, extra: Partial<ClienteField> = {}): ClienteField {
+  return { key, label, layout: 'inline', ...extra }
+}
+
+function area(key: string, label: string, extra: Partial<ClienteField> = {}): ClienteField {
+  return { key, label, type: 'textarea', layout: 'textarea', span: 4, ...extra }
+}
+
+export const clienteTabs: ClienteTab[] = [
+  {
+    id: 'generales',
+    label: 'Datos Generales',
+    sections: [
+      {
+        title: 'Identificacion',
+        columns: 4,
+        fields: [
+          inline('codigo', 'Codigo', { required: true, maxLength: 9 }),
+          inline('nombre', 'Razon social', { span: 3, required: true, maxLength: 50 }),
+          inline('razonSocial2', 'Razon social 2', { span: 4, maxLength: 60 }),
+          inline('nif', 'N.I.F.', { required: true, maxLength: 16 }),
+          inline('swift', 'Swift', { maxLength: 20 }),
+          inline('iban', 'IBAN', { span: 2, maxLength: 34 }),
+          inline('referenciaMandato', 'Referencia mandato', { maxLength: 35 }),
+          inline('fechaFirmaMandato', 'Fecha aceptacion', { type: 'date' }),
+          inline('tiendaCodigo', 'Tienda', { lookup: true, optionsSource: 'tiendas', maxLength: 2 }),
+        ],
+      },
+      {
+        title: 'Contacto',
+        columns: 4,
+        fields: [inline('personaContacto', 'Contacto', { span: 4, maxLength: 50 })],
+      },
+      {
+        title: 'Direccion fiscal',
+        columns: 2,
+        row: 'direcciones',
+        fields: [
+          inline('direccion', 'Direccion', { span: 2, maxLength: 50 }),
+          inline('codigoPostal', 'C.P.', { maxLength: 8 }),
+          inline('poblacion', 'Poblacion', { maxLength: 50 }),
+          inline('provincia', 'Provincia', { maxLength: 50 }),
+          inline('pais', 'Pais', { maxLength: 50 }),
+        ],
+      },
+      {
+        title: 'Direccion envio',
+        columns: 2,
+        row: 'direcciones',
+        fields: [
+          inline('direccionEnvio', 'Direccion', { span: 2, maxLength: 50 }),
+          inline('codigoPostalEnvio', 'C.P.', { maxLength: 8 }),
+          inline('poblacionEnvio', 'Poblacion', { maxLength: 50 }),
+          inline('provinciaEnvio', 'Provincia', { maxLength: 50 }),
+          inline('paisEnvio', 'Pais', { maxLength: 50 }),
+        ],
+      },
+      {
+        title: 'Comunicacion',
+        columns: 2,
+        row: 'comobs',
+        fields: [
+          inline('telefono1', 'Telefono', { maxLength: 15 }),
+          inline('telefono2', 'Movil', { maxLength: 15 }),
+          inline('fax', 'Fax', { maxLength: 15 }),
+          inline('email', 'E-Mail', { type: 'email', span: 2, maxLength: 200 }),
+          inline('emailComercial', 'E-mail. Com.', { type: 'email', span: 2, maxLength: 200 }),
+          inline('emailFacturacion', 'E-mail. Fac.', { type: 'email', span: 2, maxLength: 200 }),
+        ],
+      },
+      {
+        title: 'Observaciones',
+        columns: 2,
+        row: 'comobs',
+        fields: [
+          area('observaciones', 'Observacion', { span: 2 }),
+          area('observacionesInternas', 'Obs. internas', { span: 2 }),
+        ],
+      },
+    ],
+  },
+  {
+    id: 'marketing',
+    label: 'Marketing',
+    sections: [
+      {
+        title: 'Agentes y actividad',
+        columns: 2,
+        row: 'mkt1',
+        fields: [
+          inline('agenteOrigen', 'Agente', { lookup: true, optionsSource: 'trabajadores', maxLength: 4 }),
+          inline('vendedor', 'Representante', { lookup: true, optionsSource: 'trabajadores', maxLength: 4 }),
+          inline('actividad', 'Actividad', { lookup: true, optionsSource: 'actividades', span: 2, maxLength: 6 }),
+        ],
+      },
+      {
+        title: 'Logistica',
+        columns: 2,
+        row: 'mkt1',
+        fields: [
+          inline('tarifaTrans', 'Tarifa Trans.', { type: 'number' }),
+          inline('portes', 'Portes', {
+            type: 'select',
+            options: [
+              { value: '', label: '--' },
+              { value: 'D', label: 'Debidos' },
+              { value: 'P', label: 'Pagados' },
+              { value: 'F', label: 'Franco' },
+            ],
+          }),
+          inline('transportista', 'Transportista', { span: 2, maxLength: 25 }),
+          inline('ruta', 'Ruta', { type: 'number' }),
+        ],
+      },
+      {
+        title: 'Datos personales',
+        columns: 2,
+        row: 'mkt2',
+        fields: [
+          inline('sexo', 'Sexo', {
+            type: 'select',
+            options: [
+              { value: '', label: '--' },
+              { value: 'H', label: 'Hombre' },
+              { value: 'M', label: 'Mujer' },
+            ],
+          }),
+          inline('fechaNacimiento', 'Fecha nacimiento', { type: 'date' }),
+          inline('fechaAlta', 'Fecha alta', { type: 'date' }),
+          inline('ultimaCompra', 'Ultima compra', { type: 'date', readOnly: true }),
+          cb('activo', 'Activo'),
+          cb('profesional', 'Profesional'),
+          inline('clasificacionComercial', 'Clas. comercial', { maxLength: 6 }),
+          inline('tipologia', 'Tipologia', { maxLength: 6 }),
+          inline('carnetManipulador', 'N C. Manipulador', { maxLength: 20 }),
+          inline('fechaCaducidadCarnet', 'Caducidad', { type: 'date' }),
+        ],
+      },
+      {
+        title: 'Fidelizacion',
+        columns: 2,
+        row: 'mkt2',
+        fields: [
+          inline('tarjetaFidelizacion', 'Tarjeta fidelizacion', { maxLength: 20 }),
+          inline('fechaAltaFidelizacion', 'Fecha alta fidelizacion', { type: 'date' }),
+          inline('pjeFidelizacion', '% Fidelizacion', { type: 'number' }),
+          inline('tipoDescuentoFidelizacion', 'Tipo Dto. fidelizacion', {
+            maxLength: 6,
+            lookup: true,
+            optionsSource: 'tipos-descuento',
+          }),
+          inline('acumuladoFidelizacion', 'Acum. fidelizacion', { type: 'number' }),
+          inline('acumuladoPuntos', 'Acum. puntos', { type: 'number' }),
+        ],
+      },
+      {
+        title: 'Tarifas y descuentos',
+        columns: 2,
+        row: 'mkt3',
+        fields: [
+          inline('tarifa', 'Tarifa', { type: 'number' }),
+          inline('tipoDescuento', 'Tipo descuento', {
+            maxLength: 6,
+            lookup: true,
+            optionsSource: 'tipos-descuento',
+          }),
+          inline('dto1', 'Descuento cabecera', { type: 'number' }),
+          inline('dto2', 'Descuento linea', { type: 'number' }),
+        ],
+      },
+      {
+        title: 'Comunicaciones',
+        columns: 2,
+        row: 'mkt3',
+        fields: [
+          cb('propaganda', 'Env. propaganda'),
+          cb('facturasEmail', 'Env. facturas por Email'),
+          cb('certificarFacturas', 'Certificar'),
+          cb('copiaImpresa', 'Copia impresa'),
+          cb('facturaE', 'Factura-e'),
+          inline('oficinaContable', 'Oficina contable', { maxLength: 10 }),
+          inline('organoGestor', 'Organo gestor', { maxLength: 10 }),
+          inline('unidadTramitadora', 'Unidad tramitadora', { maxLength: 10 }),
+          inline('organoProponente', 'Organo proponente', { maxLength: 10 }),
+        ],
+      },
+    ],
+  },
+  {
+    id: 'facturacion',
+    label: 'Facturacion',
+    sections: [
+      {
+        title: 'Datos bancarios y pago',
+        columns: 2,
+        row: 'fac1',
+        fields: [
+          // Legacy: el control «Cuenta Contable» graba CuentaCtb2 (CuentaCtb esta sin usar).
+          inline('cuentaCtb2', 'Cuenta contable', {
+            maxLength: 10,
+            span: 2,
+            lookup: true,
+            optionsSource: 'cuentas',
+          }),
+          inline('agencia', 'Agencia bancaria', { maxLength: 40 }),
+          inline('cuentaBancaria', 'Cuenta bancaria', { span: 2, maxLength: 20 }),
+          inline('formaPago', 'Forma pago', {
+            lookup: true,
+            optionsSource: 'formas-pago',
+            required: true,
+            maxLength: 2,
+          }),
+          inline('tratamientoFiscal', 'Tratamiento', {
+            type: 'select',
+            options: [
+              { value: 'N', label: 'NACIONAL' },
+              { value: 'I', label: 'INTRACOMUNITARIO' },
+              { value: 'E', label: 'EXTRANJERO' },
+              // Legacy Mid("NIEP"): Canarias = P (no C)
+              { value: 'P', label: 'CANARIAS' },
+            ],
+          }),
+          inline('diaPago1', 'Dia pago 1', { type: 'number' }),
+          inline('diaPago2', 'Dia pago 2', { type: 'number' }),
+        ],
+      },
+      {
+        title: 'Riesgo y acumulados',
+        columns: 2,
+        row: 'fac1',
+        fields: [
+          inline('acumIva', 'Acumulado IVA', { type: 'number', readOnly: true }),
+          inline('saldo', 'Saldo', { type: 'number', readOnly: true }),
+          inline('limiteCredito', 'Riesgo concedido', { type: 'number' }),
+          inline('riesgoActualAdonix', 'Riesgo comercial', { type: 'number', readOnly: true }),
+          inline('riesgoAcumulado', 'Riesgo acumulado', { type: 'number', readOnly: true }),
+          inline('riesgoPendiente', 'Riesgo pendiente', { type: 'number', readOnly: true }),
+          cb('transporteDomicilio', 'Entrega en domicilio'),
+          inline('pjeTransporte', '% Inc. Transporte', { type: 'number' }),
+          inline('pjeIVATransporte', '% Impuesto', { type: 'number' }),
+        ],
+      },
+      {
+        title: 'Opciones facturacion',
+        columns: 4,
+        fields: [
+          cb('swIva', 'Aplicar IVA'),
+          inline('codigoTransaccionSII', 'Cod. Transaccion SII', { maxLength: 2 }),
+          cb('swRec', 'Recargo'),
+          cb('facturacionDesglosada', 'Desg. Fact.'),
+          cb('retIrpf', 'Aplicar % Ret. IRPF'),
+          cb('preFacturacion', 'Generar Pre-Factura'),
+          cb('asegurado', 'Asegurado'),
+          cb('cobroContraSaldo', 'Contra saldo'),
+          cb('proponerFactura', 'Proponer Factura'),
+          cb('agrupacionAgencia', 'Agrupar Mensajes'),
+          inline('copiasFactura', 'Copias Factura', { type: 'number' }),
+          inline('copiasFContado', 'Copias Contado', { type: 'number' }),
+          cb('generarTraspaso', 'Generar Traspaso en Pedidos Cliente', { span: 2 }),
+          inline('almacenTraspaso', 'Al Almacen', { lookup: true, optionsSource: 'almacenes', maxLength: 3 }),
+          cb('solicitarImpresionAlbaran', 'Solicitar Impresion Albaran', { span: 2 }),
+          cb('facturacionManual', 'Bloquear facturacion automatica', { span: 2 }),
+          inline('empresaFacturacion', 'Cliente facturacion', {
+            maxLength: 9,
+            span: 2,
+            lookup: true,
+            optionsSource: 'clientes',
+          }),
+        ],
+      },
+    ],
+  },
+]
+
+export function clienteVacio(): Record<string, unknown> {
+  return {
+    codigo: '',
+    nombre: '',
+    razonSocial2: '',
+    nif: '',
+    tiendaCodigo: '',
+    actividad: '000',
+    activo: true,
+    swIva: true,
+    swRec: false,
+    facturacionDesglosada: false,
+    propaganda: false,
+    generarTraspaso: false,
+    retIrpf: false,
+    // Sin campo en pantalla (legacy solo lo muestra en Tratecnica): se crea a 0.
+    bloqueoVenta: false,
+    solicitarImpresionAlbaran: false,
+    preFacturacion: false,
+    cobroContraSaldo: false,
+    facturasEmail: false,
+    facturacionManual: false,
+    empresaFacturacion: '',
+    proponerFactura: false,
+    copiaImpresa: false,
+    certificarFacturas: false,
+    transporteDomicilio: false,
+    agrupacionAgencia: false,
+    facturaE: false,
+    asegurado: false,
+    profesional: false,
+    tratamientoFiscal: 'N',
+    formaPago: '',
+    // Legacy mayoritario: Espana (no catalan ESPANYA)
+    pais: 'España',
+    paisEnvio: 'España',
+    portes: 'D',
+    interesesComerciales: '',
+    personaContacto: '',
+    direccion: '',
+    poblacion: '',
+    provincia: '',
+    codigoPostal: '',
+    direccionEnvio: '',
+    poblacionEnvio: '',
+    provinciaEnvio: '',
+    codigoPostalEnvio: '',
+    telefono1: '',
+    telefono2: '',
+    fax: '',
+    email: '',
+    dto1: 0,
+    dto2: 0,
+    diaPago1: 0,
+    diaPago2: 0,
+    tarifa: 0,
+    ruta: 0,
+    pjeFidelizacion: 0,
+    copiasFactura: 0,
+    copiasFContado: 0,
+    riesgoAcumulado: 0,
+    riesgoPendiente: null,
+  }
+}
+
+/** Legacy: Riesgo pendiente = Riesgo concedido - Riesgo acumulado; vacio si no hay limite. */
+export function riesgoPendienteCliente(ficha: Record<string, unknown>): number | null {
+  const limite = Number(ficha.limiteCredito ?? 0)
+  if (!limite) return null
+  return Math.round((limite - Number(ficha.riesgoAcumulado ?? 0)) * 100) / 100
+}
+
+export const CLIENTE_CAMPOS_OBLIGATORIOS: { key: string; label: string; mensaje: string }[] = [
+  { key: 'codigo', label: 'Codigo', mensaje: 'El codigo de cliente es obligatorio.' },
+  { key: 'nombre', label: 'Razon social', mensaje: 'La razon social es obligatoria.' },
+  { key: 'nif', label: 'N.I.F.', mensaje: 'El NIF es obligatorio.' },
+  {
+    key: 'formaPago',
+    label: 'Forma pago',
+    mensaje: 'Debe asignar una forma de pago al cliente.',
+  },
+]
+
+export function camposClienteObligatoriosVacios(ficha: Record<string, unknown>): string[] {
+  const vacios: string[] = []
+  if (!String(ficha.codigo ?? '').trim()) vacios.push('codigo')
+  if (!String(ficha.nombre ?? '').trim()) vacios.push('nombre')
+  if (!String(ficha.nif ?? '').trim()) vacios.push('nif')
+  if (!String(ficha.formaPago ?? '').trim()) vacios.push('formaPago')
+  return vacios
+}
+
+export function validarClienteObligatorios(ficha: Record<string, unknown>): string | null {
+  const key = camposClienteObligatoriosVacios(ficha)[0]
+  if (!key) return null
+  return (
+    CLIENTE_CAMPOS_OBLIGATORIOS.find((c) => c.key === key)?.mensaje ??
+    `El campo "${key}" es obligatorio.`
+  )
+}
+
+export { ibanValido as ibanClienteValido, normalizarIban as normalizarIbanCliente }
+
+export type ClienteValidacionUso = {
+  campo: string
+  titulo: string
+  mensaje: string
+}
+
+/** Validaciones de uso que evitan errores posteriores en SEPA y envío de facturas. */
+export function validarUsoCliente(ficha: Record<string, unknown>): ClienteValidacionUso | null {
+  if (!ibanValido(ficha.iban)) {
+    return {
+      campo: 'iban',
+      titulo: 'IBAN incorrecto',
+      mensaje: 'El IBAN no es válido. Revise el país, los dígitos de control y la longitud.',
+    }
+  }
+
+  const referencia = String(ficha.referenciaMandato ?? '').trim()
+  if (referencia && !/^[A-Z0-9/?:().,'+\-\s]{1,35}$/i.test(referencia)) {
+    return {
+      campo: 'referenciaMandato',
+      titulo: 'Mandato SEPA incorrecto',
+      mensaje:
+        'La referencia del mandato contiene caracteres no admitidos por SEPA o supera 35 caracteres.',
+    }
+  }
+
+  const fechaMandato = fechaParaInput(ficha.fechaFirmaMandato)
+  const fechaAceptada = fechaMandato !== '' && fechaMandato !== '1995-01-01'
+  if (fechaAceptada && !referencia) {
+    return {
+      campo: 'referenciaMandato',
+      titulo: 'Mandato SEPA incompleto',
+      mensaje: 'Debe indicar la referencia del mandato SEPA.',
+    }
+  }
+  if (fechaAceptada && !normalizarIban(ficha.iban)) {
+    return {
+      campo: 'iban',
+      titulo: 'Mandato SEPA incompleto',
+      mensaje: 'Debe indicar el IBAN asociado al mandato SEPA.',
+    }
+  }
+
+  if (ficha.facturasEmail) {
+    const emailFacturacion = String(ficha.emailFacturacion ?? '').trim()
+    const email = String(ficha.email ?? '').trim()
+    if (!emailFacturacion && !email) {
+      return {
+        campo: 'emailFacturacion',
+        titulo: 'Falta el correo de facturación',
+        mensaje:
+          'El cliente tiene activado el envío de facturas por email, pero no tiene E-mail Fac. ni E-Mail.',
+      }
+    }
+    const destinatario = emailFacturacion || email
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(destinatario)) {
+      return {
+        campo: emailFacturacion ? 'emailFacturacion' : 'email',
+        titulo: 'Correo de facturación incorrecto',
+        mensaje: 'El correo que se utilizará para enviar las facturas no es válido.',
+      }
+    }
+  }
+
+  return null
+}
+
+export function tabDeCampoCliente(key: string): string {
+  if (key === 'formaPago') return 'facturacion'
+  return 'generales'
+}
+
+/** Parsea InteresesComerciales (codigos de 2 chars concatenados o separados por coma). */
+export function parseInteresesComerciales(value: unknown): string[] {
+  const raw = String(value ?? '').trim()
+  if (!raw) return []
+  if (raw.includes(',') || raw.includes(';') || raw.includes(' ')) {
+    return raw
+      .split(/[,;\s]+/)
+      .map((c) => c.trim())
+      .filter(Boolean)
+  }
+  const codes: string[] = []
+  for (let i = 0; i < raw.length; i += 2) {
+    const code = raw.slice(i, i + 2).trim()
+    if (code) codes.push(code)
+  }
+  return codes
+}
+
+export function serializeInteresesComerciales(codigos: string[]): string {
+  return codigos
+    .map((c) => c.trim())
+    .filter(Boolean)
+    .join('')
+}
+
+/** Normaliza fechas ISO/SQL a yyyy-MM-dd para inputs date. */
+export function fechaParaInput(value: unknown): string {
+  if (value == null || value === '') return ''
+  const s = String(value)
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10)
+  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{2,4})/)
+  if (m) {
+    const year = m[3].length === 2 ? `20${m[3]}` : m[3]
+    return `${year}-${m[2]}-${m[1]}`
+  }
+  return ''
+}

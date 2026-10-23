@@ -103,6 +103,7 @@ export async function prepararOImprimirVenta(
     ...extras,
     literalesPuesto: literalesDesdePuesto(puesto),
     vendedorNombre,
+    plantillaTipo: meta.plantillaTipo,
   })
   const receipt = String(opciones.receiptDatafono ?? '').trim()
   let comprobanteTarjeta: ComprobanteTarjetaDatos | null = null

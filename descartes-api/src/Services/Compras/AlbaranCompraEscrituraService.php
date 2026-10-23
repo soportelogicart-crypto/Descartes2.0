@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Descartes\Api\Services\Compras;
 
+use Descartes\Api\Config\Database;
 use PDO;
 
 /**
@@ -19,6 +20,21 @@ final class AlbaranCompraEscrituraService
   {
     $this->pdo = $pdo;
     $this->consulta = $consulta;
+  }
+
+  private function motorDbEsMysql(): bool
+  {
+    $cfg = Database::resolveConfig();
+    return strtolower((string) ($cfg['motor'] ?? 'sqlsrv')) === 'mysql';
+  }
+
+  private function maxNroLinCompra(string $empresa, int $albaran): int
+  {
+    $st = $this->pdo->prepare(
+      'SELECT ISNULL(MAX(NroLin), 0) FROM AlbaranesComprasLin WHERE Empresa = :e AND Albaran = :a'
+    );
+    $st->execute(['e' => $empresa, 'a' => $albaran]);
+    return (int) $st->fetchColumn();
   }
 
   /**
@@ -1003,15 +1019,42 @@ final class AlbaranCompraEscrituraService
       'DELETE FROM AlbaranesComprasLin WHERE Empresa = :e AND Albaran = :a'
     )->execute(['e' => $empresa, 'a' => $albaran]);
 
+    $asignarNroLin = $this->motorDbEsMysql();
+    $nroLinSeq = $asignarNroLin ? $this->maxNroLinCompra($empresa, $albaran) : 0;
+    $colsNroLin = $asignarNroLin ? 'NroLin, ' : '';
+    $valsNroLin = $asignarNroLin ? ':nroLin, ' : '';
+
     $ins = $this->pdo->prepare(
       'INSERT INTO AlbaranesComprasLin (
-         Empresa, Albaran, Articulo, Descripcion, Cantidad, Precio, PjeDto,
+         Empresa, Albaran, ' . $colsNroLin . 'Articulo, Descripcion, Cantidad, Precio, PjeDto,
          Pedido, Dto1, Dto2, Dto3, ArticuloOriginal, Lote, Almacen
        ) VALUES (
-         :e, :a, :articulo, :descripcion, :cantidad, :precio, :pjeDto,
+         :e, :a, ' . $valsNroLin . ':articulo, :descripcion, :cantidad, :precio, :pjeDto,
          :pedido, :dto1, :dto2, :dto3, :articuloOriginal, :lote, :almacen
        )'
     );
+
+    // #region agent log
+    @file_put_contents(
+      'C:\\descartes-2.0\\debug-0d3608.log',
+      json_encode([
+        'sessionId' => '0d3608',
+        'runId' => 'compra-albaran-lin',
+        'hypothesisId' => 'A',
+        'location' => 'AlbaranCompraEscrituraService.php:reemplazarLineas',
+        'message' => 'Insert lineas compra',
+        'data' => [
+          'empresa' => $empresa,
+          'albaran' => $albaran,
+          'lineas' => count($lineas),
+          'asignarNroLin' => $asignarNroLin,
+          'nroLinInicial' => $nroLinSeq,
+        ],
+        'timestamp' => (int) round(microtime(true) * 1000),
+      ], JSON_UNESCAPED_UNICODE) . PHP_EOL,
+      FILE_APPEND | LOCK_EX
+    );
+    // #endregion
 
     foreach ($lineas as $lin) {
       $articulo = trim((string) ($lin['articulo'] ?? ''));
@@ -1023,7 +1066,11 @@ final class AlbaranCompraEscrituraService
         $descripcion = $this->descripcionArticulo($articulo) ?? $articulo;
       }
       $pedido = isset($lin['pedido']) && (int) $lin['pedido'] > 0 ? (int) $lin['pedido'] : 0;
-      $ins->execute([
+      if ($asignarNroLin) {
+        $nroLinPayload = (int) ($lin['nroLin'] ?? 0);
+        $nroLinSeq = $nroLinPayload > 0 ? $nroLinPayload : ($nroLinSeq + 1);
+      }
+      $params = [
         'e' => $empresa,
         'a' => $albaran,
         'articulo' => $articulo,
@@ -1038,7 +1085,11 @@ final class AlbaranCompraEscrituraService
         'articuloOriginal' => $this->nullIfEmpty($lin['articuloOriginal'] ?? null),
         'lote' => $this->nullIfEmpty($lin['lote'] ?? null),
         'almacen' => $this->intOrNull($lin['almacen'] ?? null) ?? 0,
-      ]);
+      ];
+      if ($asignarNroLin) {
+        $params['nroLin'] = $nroLinSeq;
+      }
+      $ins->execute($params);
     }
   }
 

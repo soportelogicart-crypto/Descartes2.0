@@ -60,6 +60,11 @@ final class DiarioFacturacionService
     if ((int) $totales['facturas'] >= 500) {
       $pdf->text('(Listado limitado a las primeras 500 facturas)', 8);
     }
+    $pdf->text(
+      'Base ' . number_format((float) ($totales['baseImponible'] ?? 0), 2, '.', '')
+      . ' EUR  IVA ' . number_format((float) ($totales['cuotaIva'] ?? 0), 2, '.', '') . ' EUR',
+      9
+    );
     $pdf->spacer(8);
 
     if ($items === []) {
@@ -131,6 +136,29 @@ final class DiarioFacturacionService
       true
     );
 
+    $resumen = $data['resumenPorIva'] ?? [];
+    if (is_array($resumen) && $resumen !== []) {
+      $pdf->spacer(10);
+      $pdf->text('Desglose de IVA', 11, true);
+      $filasIva = [];
+      foreach ($resumen as $fila) {
+        if (!is_array($fila)) {
+          continue;
+        }
+        $filasIva[] = [
+          number_format((float) ($fila['pjeIva'] ?? 0), 2, '.', '') . ' %',
+          number_format((float) ($fila['baseImponible'] ?? 0), 2, '.', ''),
+          number_format((float) ($fila['cuotaIva'] ?? 0), 2, '.', ''),
+        ];
+      }
+      $filasIva[] = [
+        'Total',
+        number_format((float) ($totales['baseImponible'] ?? 0), 2, '.', ''),
+        number_format((float) ($totales['cuotaIva'] ?? 0), 2, '.', ''),
+      ];
+      $pdf->table(['Tipo', 'Base', 'Cuota'], $filasIva, [80, 80, 80], ['l', 'r', 'r']);
+    }
+
     return $pdf->build();
   }
 
@@ -146,6 +174,7 @@ final class DiarioFacturacionService
     if (!isset($query['tipoCobro'])) {
       $query['tipoCobro'] = 'todas';
     }
+    $query['desgloseIva'] = true;
     // Diario: orden cronológico (legacy).
     $query['ordenFecha'] = 'asc';
     return $query;

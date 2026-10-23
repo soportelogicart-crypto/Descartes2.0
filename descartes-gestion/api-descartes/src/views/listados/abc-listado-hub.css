@@ -1,0 +1,79 @@
+/* Selector de dimensión ABC (ventas / compras). */
+
+.abc-hub {
+  max-width: 48rem;
+  padding: 0.25rem 0;
+}
+
+.abc-hub .cabecera h2 {
+  margin: 0 0 0.35rem;
+}
+
+.abc-hub .intro {
+  margin: 0 0 1rem;
+  color: #64748b;
+  font-size: 0.88rem;
+}
+
+.abc-hub .opciones {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem 0.5rem;
+  align-content: start;
+}
+
+.abc-hub .opciones li {
+  min-width: 0;
+}
+
+.abc-hub .opcion {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  align-items: flex-start;
+}
+
+.abc-hub .opcion:hover:not(:disabled) {
+  border-color: #38bdf8;
+  background: #f0f9ff;
+}
+
+.abc-hub .opcion-disabled,
+.abc-hub .opcion:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  background: #f1f5f9;
+}
+
+.abc-hub .opcion-titulo {
+  font-weight: 600;
+  color: #1e293b;
+  font-size: 0.88rem;
+  line-height: 1.2;
+}
+
+.abc-hub .opcion-desc {
+  font-size: 0.72rem;
+  line-height: 1.25;
+  color: #64748b;
+  text-align: left;
+}
+
+@media (max-width: 520px) {
+  .abc-hub .opciones {
+    grid-template-columns: 1fr;
+  }
+}

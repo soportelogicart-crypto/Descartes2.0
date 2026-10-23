@@ -42,6 +42,34 @@ final class TpvTecladoService
   }
 
   /**
+   * Catálogo de plantillas táctiles (DefPlusC).
+   *
+   * @return list<array{codigo: string, nombre: string|null}>
+   */
+  public function listarPlantillas(): array
+  {
+    $st = $this->pdo->query(
+      'SELECT RTRIM(H_GENERAL) AS codigo, RTRIM(H_NOMBRE) AS nombre
+       FROM DefPlusC
+       ORDER BY H_GENERAL'
+    );
+    if ($st === false) {
+      return [];
+    }
+    $items = [];
+    while ($row = $st->fetch(PDO::FETCH_ASSOC)) {
+      $codigo = trim((string) ($row['codigo'] ?? ''));
+      if ($codigo === '') {
+        continue;
+      }
+      $nombre = $this->trimOrNull($row['nombre'] ?? null);
+      $items[] = ['codigo' => $codigo, 'nombre' => $nombre];
+    }
+
+    return $items;
+  }
+
+  /**
    * Grupos (nivel 000) y botones del nivel pedido.
    *
    * @return array<string, mixed>|null
@@ -341,7 +369,7 @@ final class TpvTecladoService
     $inicio = $largo + 1;
     $this->pdo->prepare(
       "UPDATE DefPlus
-       SET H_NIVEL = :hasta + SUBSTRING(RTRIM(H_NIVEL), {$inicio}, 9)
+       SET H_NIVEL = CONCAT(:hasta, SUBSTRING(RTRIM(H_NIVEL), {$inicio}, 9))
        WHERE RTRIM(H_GENERAL) = :g AND LEFT(RTRIM(H_NIVEL), {$largo}) = :desde"
     )->execute([
       'hasta' => $hasta,

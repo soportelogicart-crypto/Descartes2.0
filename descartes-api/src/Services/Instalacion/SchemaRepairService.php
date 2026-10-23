@@ -30,6 +30,17 @@ final class SchemaRepairService
   public function asegurarExtensionesBase(PDO $pdo): array
   {
     $faltantesAntes = $this->extensionesFaltantes($pdo);
+    try {
+      ActividadesCentroCosteSchema::asegurar($pdo);
+    } catch (\Throwable $e) {
+      return [
+        'ok' => false,
+        'reparado' => false,
+        'faltantes' => $faltantesAntes,
+        'errores' => ['Actividades (centro de coste): ' . $e->getMessage()],
+      ];
+    }
+
     if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
       if ($faltantesAntes !== []) {
         try {
@@ -44,13 +55,15 @@ final class SchemaRepairService
         }
       }
       $restantes = $this->extensionesFaltantes($pdo);
+      $actividadesOk = ActividadesCentroCosteSchema::columnasOk($pdo);
       return [
-        'ok' => $restantes === [],
+        'ok' => $restantes === [] && $actividadesOk,
         'reparado' => $faltantesAntes !== [],
         'faltantes' => $restantes,
-        'errores' => $restantes !== []
-          ? ['Tras actualizar siguen faltando: ' . implode(', ', $restantes)]
-          : [],
+        'errores' => array_values(array_filter([
+          $restantes !== [] ? 'Tras actualizar siguen faltando: ' . implode(', ', $restantes) : null,
+          !$actividadesOk ? 'Actividades: falta CodigoCentroCoste o sobra DescripcionCentroCoste' : null,
+        ])),
       ];
     }
 
@@ -67,13 +80,15 @@ final class SchemaRepairService
     }
 
     $restantes = $this->extensionesFaltantes($pdo);
+    $actividadesOk = ActividadesCentroCosteSchema::columnasOk($pdo);
     return [
-      'ok' => $restantes === [],
+      'ok' => $restantes === [] && $actividadesOk,
       'reparado' => $faltantesAntes !== [] || $restantes === [],
       'faltantes' => $restantes,
-      'errores' => $restantes !== []
-        ? ['Tras actualizar siguen faltando: ' . implode(', ', $restantes)]
-        : [],
+      'errores' => array_values(array_filter([
+        $restantes !== [] ? 'Tras actualizar siguen faltando: ' . implode(', ', $restantes) : null,
+        !$actividadesOk ? 'Actividades: falta CodigoCentroCoste o sobra DescripcionCentroCoste' : null,
+      ])),
     ];
   }
 

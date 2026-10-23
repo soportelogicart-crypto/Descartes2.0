@@ -1,0 +1,6 @@
+{
+  "comentario": "Plantilla genérica PDF digital. Copie a {codigoProveedor}.json para afinar regex.",
+  "useHeuristics": true,
+  "suAlbaranPattern": "(?:Albar[aá]n|ALBARAN|Documento|N[º°])\\s*[:#]?\\s*([A-Z0-9][A-Z0-9./-]{2,18})",
+  "lineaPattern": ""
+}

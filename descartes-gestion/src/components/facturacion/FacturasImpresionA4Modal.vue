@@ -63,6 +63,17 @@ async function capturarHtmlFolio(): Promise<string> {
         if (!htmlEl.style.position) htmlEl.style.position = 'absolute'
         htmlEl.style.boxSizing = 'border-box'
       })
+      clone.querySelectorAll('.type-bloque-cliente').forEach((el) => {
+        const htmlEl = el as HTMLElement
+        const inner = htmlEl.querySelector('.cliente') as HTMLElement | null
+        htmlEl.style.overflow = 'visible'
+        if (inner) {
+          const alto = Math.ceil(inner.scrollHeight + 6)
+          if (alto > htmlEl.offsetHeight) {
+            htmlEl.style.height = `${alto}px`
+          }
+        }
+      })
       return clone.outerHTML
     })
     .join('')
@@ -84,6 +95,7 @@ async function capturarHtmlFolio(): Promise<string> {
   .folio:last-child { break-after: auto; }
   .page { position: relative; background: #fff; }
   .block { position: absolute; box-sizing: border-box; overflow: hidden; }
+  .block.type-bloque-cliente { overflow: visible; }
   table { border-collapse: collapse; width: 100%; }
   img { max-width: 100%; }
 ${documentoA4Css}
@@ -102,6 +114,7 @@ defineExpose({ capturarHtmlFolio })
           :key="claveDoc(doc)"
           :plantilla="doc.plantilla"
           :datos="doc.datos"
+          escala-impresion
         />
       </div>
     </div>

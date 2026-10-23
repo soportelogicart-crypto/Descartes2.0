@@ -521,7 +521,7 @@ router.beforeEach(async (to) => {
       if (estado.requiereAccion) {
         return { name: 'instalacion', query: to.fullPath !== '/' ? { redirect: to.fullPath } : undefined }
       }
-    } catch {
+    } catch (error) {
       if (to.name !== 'login') {
         return { name: 'instalacion' }
       }

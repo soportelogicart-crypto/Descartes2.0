@@ -263,6 +263,7 @@ export async function imprimirListadoHtml(opciones: {
     escribirVentanaPreview(ventana, html, {
       impresoraNombre: imp.nombre,
       puedeImprimir: true,
+      paginar: true,
     })
 
     return {

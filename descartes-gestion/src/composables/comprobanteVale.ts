@@ -1,3 +1,4 @@
+import { cargarEmblemaEmpresa } from '@/composables/cargarEmblemaEmpresa'
 import { imprimirTicketTermica } from '@/composables/impresionTicketTermica'
 import { TICKET_MARCA_BARRAS, TICKET_MARCA_GRANDE } from '@/config/documentos-plantillas/ticket-texto'
 
@@ -10,7 +11,7 @@ export type ValePapel = {
 export function textoComprobanteVale(vale: ValePapel): string {
   const importe = Number(vale.importe).toFixed(2).replace('.', ',')
   const cliente = String(vale.cliente ?? '').trim()
-  const lineas = [TICKET_MARCA_GRANDE + 'VALE', `Nº ${vale.codigo}`]
+  const lineas = [TICKET_MARCA_GRANDE + 'VALE', `No. ${vale.codigo}`]
   if (cliente) lineas.push(`Cliente ${cliente}`)
   lineas.push(TICKET_MARCA_GRANDE + `${importe} EUR`)
   lineas.push('')
@@ -18,11 +19,16 @@ export function textoComprobanteVale(vale: ValePapel): string {
   return lineas.join('\n')
 }
 
-export async function imprimirComprobanteVale(puestoCodigo: string, vale: ValePapel): Promise<void> {
+export async function imprimirComprobanteVale(
+  puestoCodigo: string,
+  vale: ValePapel,
+  opts?: { emblemaDataUrl?: string }
+): Promise<void> {
   await imprimirTicketTermica({
     puestoCodigo,
     texto: textoComprobanteVale(vale),
     tipo: 'vale',
+    emblemaDataUrl: opts?.emblemaDataUrl || undefined,
   })
 }
 
@@ -32,7 +38,8 @@ export async function imprimirValesDeCierre(
   venta: {
     valeEmitido?: ValePapel | null
     valeAplicado?: { valeResto?: ValePapel | null } | null
-  }
+  },
+  empresaCodigo?: string
 ): Promise<void> {
   const papeles: ValePapel[] = []
   if (venta.valeEmitido && Number(venta.valeEmitido.codigo) > 0) {
@@ -42,7 +49,9 @@ export async function imprimirValesDeCierre(
   if (resto && Number(resto.codigo) > 0) {
     papeles.push(resto)
   }
+  const empresa = String(empresaCodigo ?? '').trim()
+  const emblemaDataUrl = empresa ? (await cargarEmblemaEmpresa(empresa)) || undefined : undefined
   for (const papel of papeles) {
-    await imprimirComprobanteVale(puestoCodigo, papel)
+    await imprimirComprobanteVale(puestoCodigo, papel, { emblemaDataUrl })
   }
 }

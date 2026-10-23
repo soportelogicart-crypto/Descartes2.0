@@ -6,14 +6,17 @@ import {
   contarSubnivelesTeclado,
   guardarBotonTeclado,
   intercambiarBotonesTeclado,
+  listarTecladosTpv,
   obtenerNivelTeclado,
   obtenerVentaTpv,
 } from '@/api/tpv'
 import {
   enviarVentaPorEmail,
   registrarAutorizacionTarjetaAlbaran,
+  clubEstadoSocio,
   puntosCanjeDisponible,
   valeFidelizacionDisponible,
+  ventaResumenDesdeDetalle,
 } from '@/api/ventas'
 import TpvDevolucionDatafonoModal from '@/components/tpv/TpvDevolucionDatafonoModal.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -31,6 +34,7 @@ import TpvOtrasFuncionesModal from '@/components/tpv/TpvOtrasFuncionesModal.vue'
 import TpvPrecioModal from '@/components/tpv/TpvPrecioModal.vue'
 import TpvTecladoGrid from '@/components/tpv/TpvTecladoGrid.vue'
 import TpvTicketsEsperaModal from '@/components/tpv/TpvTicketsEsperaModal.vue'
+import TpvValeRegaloModal from '@/components/tpv/TpvValeRegaloModal.vue'
 import TpvTicketPanel from '@/components/tpv/TpvTicketPanel.vue'
 import TpvTicketVisorModal from '@/components/tpv/TpvTicketVisorModal.vue'
 import VentaImpresionA4Modal from '@/components/ventas/VentaImpresionA4Modal.vue'
@@ -57,6 +61,7 @@ import { useVentanaPreviewDocumento } from '@/composables/previewDocumentoVentan
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { useTpvVentaStore } from '@/stores/tpvVenta'
+import { useVentasBusquedaStore } from '@/stores/ventasBusqueda'
 import type {
   TpvArticuloPrecio,
   TpvBoton,
@@ -64,6 +69,7 @@ import type {
   TpvCliente,
   TpvFuncionExtra,
   TpvNivel,
+  TpvTecladoPlantilla,
   TpvTicketEspera,
   TpvZonaTeclado,
 } from '@/types/tpv'
@@ -74,6 +80,7 @@ const router = useRouter()
 const { puede } = usePermisos()
 const puestoStore = usePuestoContextoStore()
 const tpv = useTpvVentaStore()
+const ventasBusqueda = useVentasBusquedaStore()
 /** Ventana aparte con la previsualización A4 (sustituye al modal). */
 const preview = useVentanaPreviewDocumento({ imprimir: () => imprimirDocumentoA4() })
 
@@ -113,11 +120,32 @@ const buscarArticuloAbierto = ref(false)
 const buscarArticuloInicial = ref('')
 const buscarArticuloCantidad = ref(1)
 const otrasFuncionesAbierto = ref(false)
+const valeRegaloAbierto = ref(false)
 const consultaVentasAbierta = ref(false)
 const consultaVentasError = ref<string | null>(null)
 const ticketsEsperaAbierto = ref(false)
 const visorTicketAbierto = ref(false)
 const configurandoBotones = ref(false)
+const tecladoConfiguracion = ref('')
+const tecladosDisponibles = ref<TpvTecladoPlantilla[]>([])
+
+const tecladoActivo = computed(() => {
+  if (configurandoBotones.value) {
+    return (
+      tecladoConfiguracion.value.trim() ||
+      tpv.contexto?.tecladoGeneral?.trim() ||
+      ''
+    )
+  }
+  return tpv.contexto?.tecladoGeneral?.trim() ?? ''
+})
+
+const editandoOtroTecladoQuePuesto = computed(
+  () =>
+    configurandoBotones.value &&
+    Boolean(tpv.contexto?.tecladoGeneral) &&
+    tecladoConfiguracion.value !== tpv.contexto?.tecladoGeneral
+)
 const botonConfigurando = ref<{ boton: TpvBoton; zona: TpvZonaTeclado } | null>(null)
 const avisoBorrarBoton = ref<string | null>(null)
 const moviendoBoton = ref<{ zona: TpvZonaTeclado; posicion: number } | null>(null)
@@ -145,6 +173,10 @@ type CobroPendienteTrasDevolucion = {
   importeDatafono: number
   aplicarValeFidelizacion: boolean
   aplicarPuntosFidelizacion: boolean
+  aplicarClubSaldo: boolean
+  clubSaldoCanjeEuros: number
+  clubValeId?: number
+  aplicarClubPromo: boolean
 }
 
 const cobroPendienteTrasDevolucion = ref<CobroPendienteTrasDevolucion | null>(null)
@@ -220,12 +252,14 @@ async function onDevolucionDatafonoConfirmada(ctx: DevolucionDatafonoContexto) {
     cobroAbierto.value = true
     return
   }
-  await finalizarVentaTrasCobro(
-    pending.datos,
-    pending.importeDatafono,
-    pending.aplicarValeFidelizacion,
-    pending.aplicarPuntosFidelizacion
-  )
+  await finalizarVentaTrasCobro(pending.datos, pending.importeDatafono, {
+    aplicarValeFidelizacion: pending.aplicarValeFidelizacion,
+    aplicarPuntosFidelizacion: pending.aplicarPuntosFidelizacion,
+    aplicarClubSaldo: pending.aplicarClubSaldo,
+    clubSaldoCanjeEuros: pending.clubSaldoCanjeEuros,
+    clubValeId: pending.clubValeId,
+    aplicarClubPromo: pending.aplicarClubPromo,
+  })
 }
 
 function onDevolucionDatafonoCancelada() {
@@ -338,7 +372,9 @@ async function cargarNivel(nivel: string): Promise<boolean> {
   if (!tpv.contexto) return false
   cargandoTeclado.value = true
   try {
-    const data = await obtenerNivelTeclado(tpv.contexto.tecladoGeneral, nivel)
+    const general = tecladoActivo.value
+    if (!general) return false
+    const data = await obtenerNivelTeclado(general, nivel)
     const vacio = !data.botones.length && nivel !== nivelVuelta.value
     if (vacio && !configurandoBotones.value && !complementoActual.value) return false
     nivelData.value = data
@@ -433,7 +469,7 @@ async function editarBoton(boton: TpvBoton, zona: TpvZonaTeclado) {
     if (mover.posicion === boton.posicion) return
     try {
       await intercambiarBotonesTeclado(
-        tpv.contexto.tecladoGeneral,
+        tecladoActivo.value,
         zona === 'grupo' ? TPV_NIVEL_GRUPOS : nivelData.value.nivel,
         mover.posicion,
         boton.posicion
@@ -469,7 +505,7 @@ async function guardarConfiguracionBoton(asignacion: TpvBotonAsignacion) {
   const { boton, zona } = editando
   try {
     const nivelDestino = await guardarBotonTeclado(
-      tpv.contexto.tecladoGeneral,
+      tecladoActivo.value,
       nivelDeEdicion(zona),
       boton.posicion,
       asignacion
@@ -499,7 +535,7 @@ async function borrarConfiguracionBoton(confirmado: boolean) {
   const editando = botonConfigurando.value
   if (!tpv.contexto || !nivelData.value || !editando) return
   const { boton, zona } = editando
-  const general = tpv.contexto.tecladoGeneral
+  const general = tecladoActivo.value
   const nivel = nivelDeEdicion(zona)
   const esGrupo = zona === 'grupo' || boton.tipo === 'grupo' || boton.tipo === 'grupoVuelta'
   try {
@@ -544,10 +580,46 @@ function cancelarConfiguracionBoton() {
   void foco()
 }
 
+function etiquetaTecladoPlantilla(t: TpvTecladoPlantilla): string {
+  const nom = String(t.nombre ?? '').trim()
+  return nom ? `${t.codigo} — ${nom}` : t.codigo
+}
+
+async function prepararModoConfiguracionTeclado() {
+  try {
+    tecladosDisponibles.value = await listarTecladosTpv()
+  } catch (e: unknown) {
+    tecladosDisponibles.value = []
+    tpv.error = extractApiError(e, 'No se pudo cargar el listado de teclados')
+  }
+  const delPuesto = tpv.contexto?.tecladoGeneral?.trim() ?? ''
+  const existe = tecladosDisponibles.value.some((t) => t.codigo === delPuesto)
+  tecladoConfiguracion.value = existe
+    ? delPuesto
+    : (tecladosDisponibles.value[0]?.codigo ?? delPuesto)
+  botonConfigurando.value = null
+  moviendoBoton.value = null
+  await volverAlInicio()
+}
+
 watch(configurandoBotones, async (activo) => {
   moviendoBoton.value = null
+  if (activo) {
+    await prepararModoConfiguracionTeclado()
+    return
+  }
+  tecladoConfiguracion.value = ''
+  tecladosDisponibles.value = []
   // Al salir de configurar, un nivel que se quedó vacío vuelve al de vuelta, como legacy.
-  if (!activo && nivelData.value && !nivelData.value.botones.length) await volverAlInicio()
+  if (nivelData.value && !nivelData.value.botones.length) await volverAlInicio()
+})
+
+watch(tecladoConfiguracion, async (nuevo, anterior) => {
+  if (!configurandoBotones.value || !nuevo || nuevo === anterior) return
+  botonConfigurando.value = null
+  moviendoBoton.value = null
+  avisoBorrarBoton.value = null
+  await volverAlInicio()
 })
 
 /**
@@ -639,6 +711,8 @@ function abrirAbono() {
 async function onAbonoCreado(abono: VentaDetalle) {
   abonoAbierto.value = false
   ultimoReceiptDatafono.value = null
+  ventasBusqueda.marcarListadoObsoleto()
+  ventasBusqueda.upsertResumen(ventaResumenDesdeDetalle(abono))
   tpv.cargarVentaRecuperada(abono)
   const fp = String(abono.formasPago?.[0]?.codigo ?? '').trim()
   formaPagoSugeridaCobro.value = fp
@@ -722,6 +796,7 @@ async function foco() {
     codigoTecladoAbierto.value ||
     buscarArticuloAbierto.value ||
     otrasFuncionesAbierto.value ||
+    valeRegaloAbierto.value ||
     ticketsEsperaAbierto.value ||
     consultaVentasAbierta.value ||
     visorTicketAbierto.value ||
@@ -1021,20 +1096,35 @@ async function finalizarVentaTrasCobro(
     formaPago2?: string
   },
   importeDatafono: number,
-  aplicarValeFidelizacion: boolean,
-  aplicarPuntosFidelizacion: boolean
+  fidelizacion: {
+    aplicarValeFidelizacion: boolean
+    aplicarPuntosFidelizacion: boolean
+    aplicarClubSaldo?: boolean
+    clubSaldoCanjeEuros?: number
+    clubValeId?: number
+    aplicarClubPromo?: boolean
+  }
 ) {
   const contexto = tpv.contexto
   const formaTarjeta = datos.formaPago2
     ? contexto?.formasPago.find((item) => item.codigo === datos.formaPago2)
     : contexto?.formasPago.find((item) => item.codigo === datos.formaPago)
   const cerrada = await tpv.cobrar(datos.tipoDocumento, datos.formaPago, {
-    aplicarValeFidelizacion,
-    aplicarPuntosFidelizacion,
+    aplicarValeFidelizacion: fidelizacion.aplicarValeFidelizacion,
+    aplicarPuntosFidelizacion: fidelizacion.aplicarPuntosFidelizacion,
+    ...(fidelizacion.aplicarClubSaldo ? { aplicarClubSaldo: true } : {}),
+    ...(fidelizacion.clubSaldoCanjeEuros != null
+      ? { clubSaldoCanjeEuros: fidelizacion.clubSaldoCanjeEuros }
+      : {}),
+    ...(fidelizacion.clubValeId ? { clubValeId: fidelizacion.clubValeId } : {}),
+    ...(fidelizacion.aplicarClubPromo ? { aplicarClubPromo: true } : {}),
     ...(datos.valeCodigo ? { valeCodigo: datos.valeCodigo } : {}),
     ...(datos.formaPago2 ? { fpago2: datos.formaPago2 } : {}),
   })
   if (!cerrada) return
+
+  ventasBusqueda.marcarListadoObsoleto()
+  ventasBusqueda.upsertResumen(ventaResumenDesdeDetalle(cerrada))
 
   if (
     ultimoReceiptDatafono.value &&
@@ -1120,10 +1210,21 @@ async function finalizarVentaTrasCobro(
   const puestoVale = String(puestoStore.puestoCodigo ?? '').trim()
   if (puestoVale && (cerrada.valeEmitido?.codigo || cerrada.valeAplicado?.valeResto?.codigo)) {
     try {
-      await imprimirValesDeCierre(puestoVale, cerrada)
+      await imprimirValesDeCierre(puestoVale, cerrada, cerrada.empresa)
     } catch (e: unknown) {
       errorImpresion.value = extractApiError(e, 'La venta está hecha, pero no se pudo imprimir el vale')
     }
+  }
+  if (cerrada.clubFidelizacion) {
+    const cf = cerrada.clubFidelizacion
+    cobrado.value +=
+      ` Club: elegible ${cf.elegible.toFixed(2).replace('.', ',')} €, ` +
+      `+${cf.generadoEuros.toFixed(2).replace('.', ',')} €, ` +
+      `−${cf.usadoEuros.toFixed(2).replace('.', ',')} €, ` +
+      `disponible ${cf.disponibleEuros.toFixed(2).replace('.', ',')} €.`
+  }
+  if (cerrada.clubSaldoCobro?.incompatible && cerrada.clubSaldoCobro.motivo) {
+    cobrado.value += ` ${cerrada.clubSaldoCobro.motivo}`
   }
   if (cerrada.fidelizacionPuntos) {
     const compra = Number(cerrada.fidelizacionPuntos.compra)
@@ -1165,8 +1266,13 @@ async function onCobroConfirmado(datos: {
   const totalCobro = Number(tpv.venta?.importe ?? tpv.total)
   let aplicarValeFidelizacion = false
   let aplicarPuntosFidelizacion = false
+  let aplicarClubSaldo = false
+  let clubSaldoCanjeEuros = 0
+  let clubValeId: number | undefined
+  let aplicarClubPromo = false
   let descuentoValePrevisto = 0
   let descuentoPuntosPrevisto = 0
+  let descuentoClubPrevisto = 0
   if (requierePago && totalCobro > 0.005 && contexto && tpv.cliente?.codigo) {
     try {
       const disponible = await valeFidelizacionDisponible(contexto.empresa, tpv.cliente.codigo)
@@ -1183,24 +1289,63 @@ async function onCobroConfirmado(datos: {
       return
     }
     try {
-      const puntos = await puntosCanjeDisponible(
-        contexto.empresa,
-        tpv.cliente.codigo,
-        totalCobro - descuentoValePrevisto
-      )
-      if (puntos.aplica && puntos.euros > 0) {
-        const euros = puntos.euros.toFixed(2).replace('.', ',')
-        aplicarPuntosFidelizacion = window.confirm(
-          `Tiene ${puntos.puntos} puntos de fidelización. ` +
-            `¿Usar ${puntos.puntosUsables} (${euros} €) en esta compra?`
+      const club = await clubEstadoSocio(contexto.empresa, tpv.cliente.codigo)
+      if (club.activo && club.motor === 'CLUB_SALDO') {
+        if (club.promoIncompatible) {
+          const usarPromo = window.confirm(
+            `Hay promoción activa del ${club.promoIncompatible.pjeDescuento} % ` +
+              `(«${club.promoIncompatible.nombre}»). No se puede usar saldo ni vales del club. ` +
+              '¿Aplicar la promoción en este ticket?'
+          )
+          aplicarClubPromo = usarPromo
+        } else if (club.socio) {
+          const baseTrasVale = totalCobro - descuentoValePrevisto
+          if (club.canjeDisponible && (club.saldoEuros ?? 0) >= 1) {
+            const maxCanje = Math.min(club.saldoEuros ?? 0, baseTrasVale)
+            const euros = maxCanje.toFixed(2).replace('.', ',')
+            aplicarClubSaldo = window.confirm(
+              `Saldo club: ${(club.saldoEuros ?? 0).toFixed(2).replace('.', ',')} €. ` +
+                `¿Canjear ${euros} € en esta compra?`
+            )
+            if (aplicarClubSaldo) {
+              clubSaldoCanjeEuros = maxCanje
+              descuentoClubPrevisto = maxCanje
+            }
+          }
+          const trasCanje = baseTrasVale - descuentoClubPrevisto
+          const vale = (club.vales ?? []).find((v) => v.minCompraEuros <= trasCanje + 0.01)
+          if (vale && trasCanje > 0.005) {
+            const usarVale = window.confirm(
+              `Vale club ${vale.tipo} de ${vale.importeEuros.toFixed(2).replace('.', ',')} € ` +
+                `(mín. ${vale.minCompraEuros.toFixed(2).replace('.', ',')} €). ¿Aplicarlo?`
+            )
+            if (usarVale) {
+              clubValeId = vale.id
+              descuentoClubPrevisto += Math.min(vale.importeEuros, trasCanje)
+            }
+          }
+        }
+      } else {
+        const puntos = await puntosCanjeDisponible(
+          contexto.empresa,
+          tpv.cliente.codigo,
+          totalCobro - descuentoValePrevisto
         )
-        descuentoPuntosPrevisto = aplicarPuntosFidelizacion ? puntos.euros : 0
+        if (puntos.aplica && puntos.euros > 0) {
+          const euros = puntos.euros.toFixed(2).replace('.', ',')
+          aplicarPuntosFidelizacion = window.confirm(
+            `Tiene ${puntos.puntos} puntos de fidelización. ` +
+              `¿Usar ${puntos.puntosUsables} (${euros} €) en esta compra?`
+          )
+          descuentoPuntosPrevisto = aplicarPuntosFidelizacion ? puntos.euros : 0
+        }
       }
     } catch {
       aplicarPuntosFidelizacion = false
     }
   }
-  const topeTrasFidelizacion = totalCobro - descuentoValePrevisto - descuentoPuntosPrevisto
+  const topeTrasFidelizacion =
+    totalCobro - descuentoValePrevisto - descuentoPuntosPrevisto - descuentoClubPrevisto
   const descuentoValePapel = datos.valeCodigo
     ? Math.min(Number(datos.valeImporte ?? 0), Math.max(0, topeTrasFidelizacion))
     : 0
@@ -1217,6 +1362,10 @@ async function onCobroConfirmado(datos: {
         importeDatafono,
         aplicarValeFidelizacion,
         aplicarPuntosFidelizacion,
+        aplicarClubSaldo,
+        clubSaldoCanjeEuros,
+        clubValeId,
+        aplicarClubPromo,
       }
       devolucionAlbaranOrigen.value = Number(tpv.venta.albaranOrigenAbono ?? 0)
       cobroAbierto.value = false
@@ -1228,12 +1377,14 @@ async function onCobroConfirmado(datos: {
     if (!ok) return
   }
 
-  await finalizarVentaTrasCobro(
-    datos,
-    importeDatafono,
+  await finalizarVentaTrasCobro(datos, importeDatafono, {
     aplicarValeFidelizacion,
-    aplicarPuntosFidelizacion
-  )
+    aplicarPuntosFidelizacion,
+    aplicarClubSaldo,
+    clubSaldoCanjeEuros,
+    clubValeId,
+    aplicarClubPromo,
+  })
 }
 
 async function imprimirTrasCobro() {
@@ -1456,6 +1607,15 @@ const otrasFunciones = computed<TpvFuncionExtra[]>(() => [
     tono: 'aviso',
   },
   {
+    id: 'vale-regalo',
+    etiqueta: 'VALE REGALO',
+    ayuda: puede('tpv', 'editar')
+      ? 'Emitir un vale regalo (entrada de caja)'
+      : 'Sin permiso TPV editar',
+    deshabilitada: !tpv.contexto || tpv.guardando || !puede('tpv', 'editar'),
+    tono: 'activo',
+  },
+  {
     id: 'ticket-factura',
     etiqueta: 'TICKET A FACTURA',
     ayuda: 'Compensar un ticket ya cobrado y crear la factura de contado',
@@ -1513,6 +1673,9 @@ async function onOtraFuncion(id: string) {
     case 'abono':
       abrirAbono()
       break
+    case 'vale-regalo':
+      valeRegaloAbierto.value = true
+      return
     case 'ticket-factura':
       abrirTicketFactura()
       return
@@ -1990,9 +2153,28 @@ onMounted(() => {
             >
               TERMINAR CONFIGURACIÓN
             </button>
-            <span v-if="configurandoBotones" class="pista-teclado">
-              Toque un grupo para entrar. El lápiz lo edita o lo elimina.
-            </span>
+            <template v-if="configurandoBotones">
+              <label class="sel-teclado-config">
+                Teclado
+                <select
+                  v-model="tecladoConfiguracion"
+                  class="select-teclado-config"
+                  @mousedown.stop
+                  @click.stop
+                >
+                  <option v-for="t in tecladosDisponibles" :key="t.codigo" :value="t.codigo">
+                    {{ etiquetaTecladoPlantilla(t) }}
+                  </option>
+                </select>
+              </label>
+              <span v-if="editandoOtroTecladoQuePuesto" class="pista-teclado aviso-teclado">
+                Editando {{ tecladoConfiguracion }}; en venta este puesto usa
+                {{ tpv.contexto?.tecladoGeneral }}.
+              </span>
+              <span v-else class="pista-teclado">
+                Toque un grupo para entrar. El lápiz lo edita o lo elimina.
+              </span>
+            </template>
             <span v-else class="pista-teclado">
               {{ puedeVolver ? `Dentro de ${grupoActual.etiqueta}` : grupoActual.etiqueta }}
             </span>
@@ -2170,6 +2352,20 @@ onMounted(() => {
       :funciones="otrasFunciones"
       @ejecutar="onOtraFuncion"
       @cerrar="cerrarOtrasFunciones"
+    />
+
+    <TpvValeRegaloModal
+      :open="valeRegaloAbierto"
+      :empresa="tpv.contexto?.empresa ?? ''"
+      :puesto="tpv.contexto?.puesto ?? ''"
+      :sesion="Number(tpv.contexto?.sesion ?? 0)"
+      :formas-pago="tpv.contexto?.formasPago ?? []"
+      :cliente-codigo="tpv.cliente?.codigo ?? ''"
+      :cliente-nombre="tpv.cliente?.razonSocial ?? ''"
+      :guardando="tpv.guardando"
+      @cerrar="valeRegaloAbierto = false"
+      @hecho="(msg) => { tpv.aviso = msg; tpv.error = null }"
+      @error="(msg) => { tpv.error = msg }"
     />
 
     <TpvTicketVisorModal
@@ -2432,6 +2628,33 @@ onMounted(() => {
   color: #64748b;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.pista-teclado.aviso-teclado {
+  color: #c2410c;
+  white-space: normal;
+  line-height: 1.25;
+}
+
+.sel-teclado-config {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.select-teclado-config {
+  min-height: 2.4rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+  font-weight: 500;
+  color: #0f172a;
 }
 
 /* Migas de pan del teclado: el último paso es el grupo que se está viendo. */

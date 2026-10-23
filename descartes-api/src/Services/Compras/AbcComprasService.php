@@ -112,7 +112,7 @@ final class AbcComprasService
     $costeBase = $this->costeExpression($valor);
     $costeExpr = "({$costeBase} * {$qty})";
 
-    $albaranKey = "RTRIM(c.[Empresa]) + N'|' + CAST(c.[Albaran] AS nvarchar(20))";
+    $albaranKey = "CONCAT(RTRIM(c.[Empresa]), N'|', CAST(c.[Albaran] AS nvarchar(20)))";
 
     $unidadesExpr = "SUM({$qty})";
     if ($formatoJerarquia === 'pesoKilogramos') {

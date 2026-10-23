@@ -200,7 +200,7 @@ async function cargarOpciones() {
   optionsMap.value = next
 }
 
-async function cargar(q = serverQuery.value) {
+async function cargar(q = serverQuery.value, meta?: { silent?: boolean }) {
   mensaje.value = null
   const params: Record<string, unknown> = { page: 1, pageSize: 500 }
   if (!tieneFiltrosColumnas.value) {
@@ -210,7 +210,7 @@ async function cargar(q = serverQuery.value) {
   }
   if (filtroActivo.value === 'activos') params.activo = true
   if (filtroActivo.value === 'inactivos') params.activo = false
-  await listar(params)
+  await listar(params, { silent: meta?.silent })
   filasTodas.value = items.value.map((item) => clonarFilaGrid(item, columns.value))
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
 }

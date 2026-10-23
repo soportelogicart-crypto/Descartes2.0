@@ -1,0 +1,1258 @@
+<script setup lang="ts">
+import MantenimientoListadoButton from '@/components/mantenimiento/MantenimientoListadoButton.vue'
+import { computed, nextTick, onActivated, onMounted, onUnmounted, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
+import { useRoute, useRouter } from 'vue-router'
+import { api } from '@/api/client'
+import { extractApiError, useMantenimiento } from '@/composables/useMantenimiento'
+import { usePermisos } from '@/composables/usePermisos'
+import { filtrosIniciales, type ColumnFilter } from '@/composables/useGridColumnFilters'
+import { articuloColumns, 
+  articuloFilaVacia,
+  clonarArticuloFila,
+  type ArticuloFila,
+} from '@/config/articulos-columns'
+import {
+  ARTICULO_CAMPOS_OBLIGATORIOS,
+  articuloTabs,
+  articuloVacio,
+  camposArticuloObligatoriosVacios,
+} from '@/config/articulos-tabs'
+import ArticulosGrid from '@/components/articulos/ArticulosGrid.vue'
+import ArticuloToolbar from '@/components/articulos/ArticuloToolbar.vue'
+import ArticuloTabForm from '@/components/articulos/ArticuloTabForm.vue'
+import ArticuloSidePanels from '@/components/articulos/ArticuloSidePanels.vue'
+import ArticuloFichaPlantaModal from '@/components/articulos/ArticuloFichaPlantaModal.vue'
+import ArticuloConsultaModal from '@/components/articulos/ArticuloConsultaModal.vue'
+import ArticuloEansModal from '@/components/articulos/ArticuloEansModal.vue'
+import ArticuloEscandalloModal from '@/components/articulos/ArticuloEscandalloModal.vue'
+import ArticuloEtiquetasRapidaModal from '@/components/articulos/ArticuloEtiquetasRapidaModal.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
+import { useArticulosBusquedaStore } from '@/stores/articulosBusqueda'
+import { usePuestoContextoStore } from '@/stores/puestoContexto'
+import { resolverArticulo } from '@/api/articulos'
+import { createBarcodeScanWatcher } from '@/composables/useBarcodeScanWatcher'
+import { onEnterSiguienteCampo } from '@/composables/useEnterFieldNav'
+
+const MODULO = 'articulos'
+const ENTIDAD = 'articulos'
+const FILTER_KEYS = ['codigo', 'descripcion', 'familia', 'impuestoCodigo', 'proveedorHabitual', 'precioVen1']
+/** Texto enviado a GET …/articulos?q= (busqueda en servidor, no solo en los ~200 cargados). */
+const FILTRO_SERVidor_KEYS = [
+  'codigo',
+  'descripcion',
+  'familia',
+  'impuestoCodigo',
+  'proveedorHabitual',
+] as const
+const FILTRO_SERVidor_MS = 350
+let filtroServidorTimer: ReturnType<typeof setTimeout> | null = null
+
+const route = useRoute()
+const router = useRouter()
+const { puede } = usePermisos()
+const {
+  items,
+  total,
+  page,
+  pageSize,
+  loading,
+  error,
+  listar,
+  cancelarListado,
+  obtener,
+  crear,
+  actualizar,
+  eliminar,
+} = useMantenimiento(() => ENTIDAD)
+const puestoContexto = usePuestoContextoStore()
+const busqueda = useArticulosBusquedaStore()
+
+const puedeCrear = computed(() => puede(MODULO, 'crear'))
+const puedeEditar = computed(() => puede(MODULO, 'editar'))
+const puedeEliminar = computed(() => puede(MODULO, 'eliminar'))
+/** Impresión rápida etiquetas (005 / US1): módulo etiquetas. */
+const puedeEtiquetasVer = computed(() => puede('etiquetas', 'ver'))
+const puedeEtiquetasImprimir = computed(() => puede('etiquetas', 'editar'))
+const puedeVer = computed(() => puede(MODULO, 'ver'))
+
+/** Al recargar sobre una ficha, arrancar ya en ficha: evita el salto a la rejilla. */
+const vista = ref<'grid' | 'ficha'>(queryFichaActiva() ? 'ficha' : 'grid')
+const filasTodas = ref<ArticuloFila[]>([])
+const filaNuevaDraft = ref<ArticuloFila>(articuloFilaVacia())
+const filtros = ref<Record<string, ColumnFilter>>(filtrosIniciales(FILTER_KEYS))
+const indiceSeleccionado = ref(0)
+const mensaje = ref<string | null>(null)
+
+const familiaOpciones = ref<{ value: string; label: string }[]>([])
+const impuestoOpciones = ref<{ value: string; label: string }[]>([])
+const proveedorOpciones = ref<{ value: string; label: string }[]>([])
+
+const listadoOptionsMap = computed(() => ({
+  familias: familiaOpciones.value,
+  impuestos: impuestoOpciones.value,
+  proveedores: proveedorOpciones.value,
+}))
+
+function etiquetaOpcion(
+  opciones: { value: string; label: string }[],
+  codigo: unknown
+): string {
+  const c = String(codigo ?? '').trim()
+  if (!c) return ''
+  const hit = opciones.find((o) => o.value === c)
+  if (!hit) return ''
+  // label "01 - BEBIDAS" -> usar parte descripcion + label completo
+  const sep = hit.label.indexOf(' - ')
+  return sep >= 0 ? hit.label.slice(sep + 3) : hit.label
+}
+
+/** Mismo criterio que VentasListView: «contiene» sobre el texto visible de cada columna. */
+function normalizarBusqueda(texto: string): string {
+  return texto
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+function textoFiltroColumnaArticulo(key: string, fila: ArticuloFila): string {
+  switch (key) {
+    case 'codigo':
+      return String(fila.codigo ?? '')
+    case 'descripcion':
+      return String(fila.descripcion ?? '')
+    case 'familia':
+      return `${String(fila.familia ?? '')} ${etiquetaOpcion(familiaOpciones.value, fila.familia)}`
+    case 'impuestoCodigo':
+      return `${String(fila.impuestoCodigo ?? '')} ${etiquetaOpcion(impuestoOpciones.value, fila.impuestoCodigo)}`
+    case 'proveedorHabitual':
+      return `${String(fila.proveedorHabitual ?? '')} ${etiquetaOpcion(proveedorOpciones.value, fila.proveedorHabitual)}`
+    case 'precioVen1': {
+      const n = Number(fila.precioVen1 ?? fila.precioVenta ?? 0)
+      return Number.isFinite(n) ? n.toFixed(2) : ''
+    }
+    default:
+      return String((fila as Record<string, unknown>)[key] ?? '')
+  }
+}
+
+function filtrosColumnaActivosArticulos(): { key: string; valor: string }[] {
+  const activos: { key: string; valor: string }[] = []
+  for (const key of FILTER_KEYS) {
+    const f = filtros.value[key]
+    if (!f || f.operador === 'sin_filtro') continue
+    const v = String(f.valor ?? '').trim()
+    if (!v) continue
+    activos.push({ key, valor: normalizarBusqueda(v) })
+  }
+  return activos
+}
+
+/** Filas visibles del grid (sin fila *): base de la navegación en ficha, como itemsFiltrados en ventas. */
+const filasFiltradasGrid = computed(() => {
+  const base = filasTodas.value.filter((f) => !f._nuevo)
+  const activos = filtrosColumnaActivosArticulos()
+  if (activos.length === 0) return base
+  return base.filter((fila) =>
+    activos.every(({ key, valor }) =>
+      normalizarBusqueda(textoFiltroColumnaArticulo(key, fila)).includes(valor)
+    )
+  )
+})
+
+watch(filasFiltradasGrid, (lista) => {
+  if (!estaInstanciaEsElGrid()) return
+  busqueda.setNavegacion(lista.map((f) => clonarArticuloFila(f)))
+})
+
+const filas = computed<ArticuloFila[]>(() => {
+  const filtradas = filasFiltradasGrid.value
+  if (!puedeCrear.value) return filtradas
+  return [...filtradas, filaNuevaDraft.value]
+})
+
+watch(filas, (lista) => {
+  if (indiceSeleccionado.value >= lista.length) {
+    indiceSeleccionado.value = Math.max(0, lista.length - 1)
+  }
+})
+
+const filaSeleccionada = computed(() => filas.value[indiceSeleccionado.value] ?? null)
+const puedeMostrarEliminar = computed(
+  () => puedeEliminar.value && filaSeleccionada.value && !filaSeleccionada.value._nuevo
+)
+
+const tabActiva = ref(articuloTabs[0].id)
+const modoEdicion = ref(false)
+const esNuevo = ref(false)
+const codigoAutomatico = ref(false)
+const ficha = ref<Record<string, unknown>>({})
+
+const { items: navItems } = storeToRefs(busqueda)
+const indiceNav = computed(() => {
+  if (esNuevo.value || !ficha.value.codigo) return -1
+  return busqueda.indiceDe(ficha.value)
+})
+
+const mostrarFichaPlanta = ref(false)
+const mostrarConsulta = ref(false)
+const mostrarEans = ref(false)
+const mostrarEscandallo = ref(false)
+const mostrarEtiquetas = ref(false)
+const camposInvalidos = ref<string[]>([])
+const avisoOpen = ref(false)
+const avisoTitulo = ref('Campo obligatorio')
+const avisoMensaje = ref('')
+/** Campo que acaba de avisar el modal (para enfocar al aceptar). */
+const campoAvisoActual = ref<string | null>(null)
+const codigoInput = ref<HTMLInputElement | null>(null)
+const descripcionInput = ref<HTMLInputElement | null>(null)
+const fichaCamposRoot = ref<HTMLElement | null>(null)
+
+function onFichaCamposEnterNav(e: KeyboardEvent) {
+  onEnterSiguienteCampo(e, fichaCamposRoot.value, {
+    onUltimo: () => {
+      if (!soloLecturaFicha.value && (puedeCrear.value || puedeEditar.value)) {
+        void onGuardarFicha()
+      }
+    },
+  })
+}
+
+const codigoReadOnlyFicha = computed(() => !esNuevo.value || codigoAutomatico.value)
+
+function mostrarAviso(titulo: string, message: string) {
+  campoAvisoActual.value = null
+  avisoTitulo.value = titulo
+  avisoMensaje.value = message
+  avisoOpen.value = true
+}
+
+/** Un solo aviso: el primer campo obligatorio vacio. */
+function mostrarAvisoCampoObligatorio(key: string, message: string) {
+  campoAvisoActual.value = key
+  camposInvalidos.value = [key]
+  avisoTitulo.value = 'Campo obligatorio'
+  avisoMensaje.value = message
+  avisoOpen.value = true
+}
+
+async function cerrarAviso() {
+  const key = campoAvisoActual.value
+  avisoOpen.value = false
+  avisoMensaje.value = ''
+  campoAvisoActual.value = null
+  if (!key) return
+  await nextTick()
+  await enfocarCampo(key)
+}
+
+async function enfocarCampo(key: string) {
+  tabActiva.value = 'general'
+  await nextTick()
+  await nextTick()
+  if (key === 'codigo') {
+    codigoInput.value?.focus()
+    return
+  }
+  if (key === 'descripcion') {
+    descripcionInput.value?.focus()
+    return
+  }
+  const el = document.querySelector<HTMLElement>(`[data-field-key="${key}"]`)
+  el?.focus()
+}
+
+function esCampoInvalido(key: string) {
+  return camposInvalidos.value.includes(key)
+}
+
+function limpiarCampoInvalido(key: string) {
+  if (!camposInvalidos.value.includes(key)) return
+  camposInvalidos.value = camposInvalidos.value.filter((k) => k !== key)
+}
+
+function onFichaUpdate(next: Record<string, unknown>) {
+  ficha.value = next
+  if (camposInvalidos.value.length === 0) return
+  // Solo quita el resaltado de los campos que ya se han rellenado.
+  camposInvalidos.value = camposInvalidos.value.filter((k) => !String(next[k] ?? '').trim())
+}
+
+const tabSeleccionada = computed(() => articuloTabs.find((t) => t.id === tabActiva.value) ?? articuloTabs[0])
+const soloLecturaFicha = computed(() => !modoEdicion.value && !esNuevo.value)
+
+function quitarFilaNueva() {
+  filaNuevaDraft.value = articuloFilaVacia()
+  indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
+}
+
+onMounted(async () => {
+  if (!puedeVer.value) return
+  await cargarOpciones()
+  // El layout cachea por fullPath: abrir la ficha crea otra instancia con los filtros
+  // vacios. Sin listado no se pisa la navegacion que dejo el grid (store) con 200 filas.
+  if (!queryFichaActiva() || navItems.value.length === 0) {
+    await cargar()
+  }
+  await restaurarDesdeRuta()
+})
+
+onActivated(() => {
+  if (vista.value === 'ficha') {
+    void sincronizarRutaFicha()
+    return
+  }
+  void restaurarDesdeRuta()
+})
+
+watch(vista, (v) => {
+  if (v === 'grid') enfocarScanInput()
+})
+
+function queryFichaActiva(): boolean {
+  const codigo = String(route.query.codigo ?? '').trim()
+  return route.query.vista === 'ficha' || codigo !== '' || route.query.nuevo === '1'
+}
+
+async function sincronizarRutaFicha() {
+  if (vista.value !== 'ficha') return
+  const codigo = String(ficha.value.codigo ?? '').trim()
+  const query: Record<string, string> = { vista: 'ficha' }
+  if (esNuevo.value) {
+    query.nuevo = '1'
+    if (codigo) query.codigo = codigo
+  } else if (codigo) {
+    query.codigo = codigo
+  }
+  const mismo =
+    route.query.vista === query.vista &&
+    String(route.query.codigo ?? '') === (query.codigo ?? '') &&
+    String(route.query.nuevo ?? '') === (query.nuevo ?? '')
+  if (mismo) return
+  await router.replace({ path: route.path, query })
+}
+
+async function restaurarDesdeRuta() {
+  if (!puedeVer.value) return
+  if (!queryFichaActiva()) {
+    if (vista.value === 'ficha') resetVistaGrid()
+    else enfocarScanInput()
+    return
+  }
+  if (route.query.nuevo === '1') {
+    if (vista.value === 'ficha' && esNuevo.value) return
+    await onNuevoFicha()
+    return
+  }
+  const codigo = String(route.query.codigo ?? '').trim()
+  if (!codigo) return
+  if (vista.value === 'ficha' && String(ficha.value.codigo ?? '').trim() === codigo) return
+  await abrirFichaPorCodigo(codigo, { sincronizarRuta: false })
+}
+
+watch(
+  () =>
+    [route.query.vista, route.query.codigo, route.query.nuevo].map((v) => String(v ?? '')).join('|'),
+  () => {
+    void restaurarDesdeRuta()
+  }
+)
+
+async function cargarOpciones() {
+  const [familiasRes, impuestosRes, proveedoresRes] = await Promise.all([
+    api.get('/api/mantenimiento/familias', { params: { pageSize: 500 } }),
+    api.get('/api/mantenimiento/impuestos', { params: { activo: true, pageSize: 100 } }),
+    api.get('/api/mantenimiento/proveedores', { params: { activo: true, pageSize: 500 } }),
+  ])
+  familiaOpciones.value = (familiasRes.data.items ?? []).map((f: { codigo: string; descripcion: string }) => ({
+    value: String(f.codigo).trim(),
+    label: `${String(f.codigo).trim()} - ${f.descripcion}`,
+  }))
+  impuestoOpciones.value = (impuestosRes.data.items ?? []).map((i: { codigo: string; descripcion: string }) => ({
+    value: String(i.codigo).trim(),
+    label: `${String(i.codigo).trim()} - ${i.descripcion}`,
+  }))
+  proveedorOpciones.value = (proveedoresRes.data.items ?? []).map((p: { codigo: string; nombre: string }) => ({
+    value: String(p.codigo).trim(),
+    label: `${String(p.codigo).trim()} - ${p.nombre}`,
+  }))
+}
+
+function mapFilasDesdeApi() {
+  filasTodas.value = items.value.map((item) => clonarArticuloFila(item))
+}
+
+function qBusquedaServidor(): string {
+  for (const key of FILTRO_SERVidor_KEYS) {
+    const f = filtros.value[key]
+    if (!f || f.operador === 'sin_filtro') continue
+    const v = String(f.valor ?? '').trim()
+    if (v) return v
+  }
+  return ''
+}
+
+/** Solo la instancia que muestra la rejilla manda sobre la lista que recorre la ficha. */
+function estaInstanciaEsElGrid(): boolean {
+  return vista.value === 'grid' && !queryFichaActiva()
+}
+
+function publicarNavegacionDesdeGrid() {
+  busqueda.setNavegacion(filasFiltradasGrid.value.map((f) => clonarArticuloFila(f)))
+}
+
+async function recargarListadoGrid() {
+  mensaje.value = null
+  const q = qBusquedaServidor()
+  await listar(q ? { q } : {})
+  mapFilasDesdeApi()
+  busqueda.setResultado({
+    items: filasTodas.value.map((f) => clonarArticuloFila(f)),
+    total: total.value,
+  })
+  if (estaInstanciaEsElGrid() || navItems.value.length === 0) {
+    publicarNavegacionDesdeGrid()
+  }
+  filaNuevaDraft.value = articuloFilaVacia()
+  indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
+}
+
+async function cargar() {
+  await recargarListadoGrid()
+}
+
+function programarRecargaPorFiltros() {
+  if (vista.value !== 'grid') return
+  if (filtroServidorTimer !== null) clearTimeout(filtroServidorTimer)
+  filtroServidorTimer = setTimeout(() => {
+    filtroServidorTimer = null
+    void recargarListadoGrid()
+  }, FILTRO_SERVidor_MS)
+}
+
+watch(filtros, () => programarRecargaPorFiltros(), { deep: true })
+
+onUnmounted(() => {
+  if (filtroServidorTimer !== null) clearTimeout(filtroServidorTimer)
+})
+
+function onFiltroSearch() {
+  if (filtroServidorTimer !== null) {
+    clearTimeout(filtroServidorTimer)
+    filtroServidorTimer = null
+  }
+  void recargarListadoGrid()
+  const qCod = String(filtros.value.codigo?.valor ?? '').trim()
+  if (qCod) void intentarAbrirFichaPorReferencia(qCod)
+}
+
+/** Abre ficha si `q` es código, alternativo o EAN (escáner / Intro). */
+async function intentarAbrirFichaPorReferencia(raw: string): Promise<boolean> {
+  const q = String(raw ?? '').trim()
+  if (q.length < 4 || /\s/.test(q) || !/^[0-9A-Za-z\-]+$/.test(q)) return false
+  try {
+    const art = await resolverArticulo(q)
+    await abrirFichaPorCodigo(art.codigo)
+    return true
+  } catch {
+    return false
+  }
+}
+
+const scanCodigo = ref('')
+const scanInputRef = ref<HTMLInputElement | null>(null)
+const scanBusy = ref(false)
+
+function enfocarScanInput() {
+  if (vista.value !== 'grid') return
+  void nextTick(() => {
+    requestAnimationFrame(() => {
+      scanInputRef.value?.focus()
+      scanInputRef.value?.select()
+    })
+  })
+}
+
+async function abrirPorEscaneo(raw: string) {
+  const q = String(raw ?? '').trim()
+  if (!q || scanBusy.value || vista.value !== 'grid') return
+  scanBusy.value = true
+  mensaje.value = null
+  try {
+    const art = await resolverArticulo(q)
+    scanCodigo.value = ''
+    await abrirFichaPorCodigo(art.codigo)
+  } catch (e: unknown) {
+    mensaje.value = extractApiError(e, 'Artículo no encontrado (código / EAN)')
+    enfocarScanInput()
+  } finally {
+    scanBusy.value = false
+  }
+}
+
+const scanWatcher = createBarcodeScanWatcher((codigo) => {
+  void abrirPorEscaneo(codigo)
+})
+
+function onScanInput() {
+  scanWatcher.onInput(scanCodigo.value)
+}
+
+function onScanKeydown(e: KeyboardEvent) {
+  if (e.key !== 'Enter') return
+  e.preventDefault()
+  scanWatcher.cancel()
+  void abrirPorEscaneo(scanCodigo.value)
+}
+
+const {
+  confirmOpen,
+  confirmMessage,
+  solicitarEliminar,
+  confirmarEliminar,
+  cancelarEliminar,
+} = useEliminarFilaGrid({
+  puedeEliminar,
+  filaSeleccionada,
+  eliminarApi: eliminar,
+  recargar: cargar,
+  quitarFilaNueva,
+  setMensaje: (msg) => {
+    mensaje.value = msg
+  },
+  etiquetaEntidad: 'el articulo',
+  mensajeExito: 'Articulo eliminado',
+})
+
+function seleccionar(index: number) {
+  indiceSeleccionado.value = index
+}
+
+
+async function abrirFichaPorCodigo(codigo: string, opts?: { sincronizarRuta?: boolean }) {
+  if (filtroServidorTimer !== null) {
+    clearTimeout(filtroServidorTimer)
+    filtroServidorTimer = null
+  }
+  // Al abrir desde la rejilla, la lista visible (p. ej. 3 filas) pasa a ser la navegacion.
+  if (estaInstanciaEsElGrid()) {
+    cancelarListado()
+    publicarNavegacionDesdeGrid()
+  }
+
+  try {
+    ficha.value = await obtener(codigo)
+    if (ficha.value.precioVen1 == null && ficha.value.precioVenta != null) {
+      ficha.value.precioVen1 = ficha.value.precioVenta
+    }
+    modoEdicion.value = false
+    esNuevo.value = false
+    codigoAutomatico.value = false
+    camposInvalidos.value = []
+    tabActiva.value = 'general'
+    vista.value = 'ficha'
+    mensaje.value = null
+    if (opts?.sincronizarRuta !== false) {
+      await sincronizarRutaFicha()
+    }
+  } catch (e: unknown) {
+    mensaje.value = extractApiError(e, 'No se pudo cargar la ficha')
+    if (!ficha.value.codigo) volverAlGrid()
+  }
+}
+
+async function abrirFicha(index?: number) {
+  const idx = index ?? indiceSeleccionado.value
+  const fila = filas.value[idx]
+  if (!fila || fila._nuevo || !fila.codigo) {
+    mensaje.value = 'Seleccione un articulo existente para abrir la ficha'
+    return
+  }
+  await abrirFichaPorCodigo(String(fila.codigo))
+}
+
+async function onNuevoFicha() {
+  if (!puedeCrear.value) return
+  const vacio = articuloVacio()
+  codigoAutomatico.value = false
+  mensaje.value = null
+  camposInvalidos.value = []
+  try {
+    const empresaPuesto = String(puestoContexto.empresaCodigo ?? '').trim()
+    const { data } = await api.get('/api/mantenimiento/articulos/siguiente-codigo', {
+      params: { empresa: empresaPuesto || undefined },
+    })
+    if (data.automatico && data.codigo) {
+      vacio.codigo = String(data.codigo)
+      codigoAutomatico.value = true
+      mensaje.value = data.ean
+        ? `Codigo propuesto (tienda ${data.empresaCodigo ?? empresaPuesto}). EAN previsto: ${data.ean}`
+        : null
+    } else {
+      mensaje.value =
+        String(data.mensaje ?? '').trim() ||
+        (empresaPuesto
+          ? `No hay codigo automatico para la tienda ${data.empresaCodigo ?? empresaPuesto}. Revise «Generar articulos» y Prefijo en la ficha de tienda.`
+          : 'Configure la tienda del puesto (equipo) antes de dar de alta articulos.')
+    }
+  } catch (e: unknown) {
+    mensaje.value = extractApiError(e, 'No se pudo obtener el siguiente codigo')
+  }
+  ficha.value = vacio
+  esNuevo.value = true
+  modoEdicion.value = true
+  tabActiva.value = 'general'
+  vista.value = 'ficha'
+  await sincronizarRutaFicha()
+  await enfocarDescripcion()
+}
+
+async function enfocarDescripcion() {
+  await nextTick()
+  // Segundo tick: al venir del grid la ficha acaba de montarse.
+  await nextTick()
+  descripcionInput.value?.focus()
+}
+
+function onModificarFicha() {
+  if (!puedeEditar.value || !ficha.value.codigo) return
+  modoEdicion.value = true
+}
+
+async function onGuardarFicha() {
+  const vacios = camposArticuloObligatoriosVacios(ficha.value)
+  if (vacios.length > 0) {
+    const key = vacios[0]
+    const label = ARTICULO_CAMPOS_OBLIGATORIOS.find((c) => c.key === key)?.label ?? key
+    tabActiva.value = 'general'
+    mostrarAvisoCampoObligatorio(key, `El campo "${label}" es obligatorio.`)
+    return
+  }
+  camposInvalidos.value = []
+  try {
+    if (ficha.value.precioVen1 != null) ficha.value.precioVenta = ficha.value.precioVen1
+    if (esNuevo.value) {
+      const payload = { ...ficha.value } as Record<string, unknown>
+      const emp = String(puestoContexto.empresaCodigo ?? '').trim()
+      if (emp) payload.empresaCodigo = emp
+      const creado = await crear(payload)
+      mensaje.value = 'Articulo creado correctamente'
+      busqueda.upsertArticulo(clonarArticuloFila(creado))
+      await cargar()
+      await abrirFichaPorCodigo(String(creado.codigo))
+    } else {
+      await actualizar(String(ficha.value.codigo), ficha.value)
+      mensaje.value = 'Articulo actualizado'
+      busqueda.upsertArticulo(clonarArticuloFila(ficha.value))
+      await cargar()
+      await abrirFichaPorCodigo(String(ficha.value.codigo))
+    }
+    modoEdicion.value = false
+    esNuevo.value = false
+  } catch (e: unknown) {
+    const msg = extractApiError(e, 'No se pudo guardar el articulo')
+    mensaje.value = msg
+    mostrarAviso('Error al guardar', msg)
+  }
+}
+
+function onCancelarFicha() {
+  if (esNuevo.value) {
+    volverAlGrid()
+    return
+  }
+  modoEdicion.value = false
+  if (ficha.value.codigo) abrirFichaPorCodigo(String(ficha.value.codigo))
+}
+
+async function onBorrarFicha() {
+  if (!puedeEliminar.value || esNuevo.value || !ficha.value.codigo) return
+  if (!confirm('Dar de baja este articulo?')) return
+  try {
+    const codigo = String(ficha.value.codigo)
+    await eliminar(codigo)
+    busqueda.quitar(codigo)
+    mensaje.value = 'Articulo dado de baja'
+    await cargar()
+    volverAlGrid()
+  } catch (e: unknown) {
+    mensaje.value = extractApiError(e, 'No se pudo dar de baja')
+  }
+}
+
+function resetVistaGrid() {
+  vista.value = 'grid'
+  modoEdicion.value = false
+  esNuevo.value = false
+  codigoAutomatico.value = false
+  camposInvalidos.value = []
+  ficha.value = {}
+  scanCodigo.value = ''
+}
+
+function volverAlGrid() {
+  resetVistaGrid()
+  enfocarScanInput()
+  void router.replace({ path: route.path, query: {} })
+}
+
+function onAccionPendiente(nombre: string) {
+  const detalle: Record<string, string> = {
+    Excepciones:
+      'En BD solo aparece ExcepcionesAsignacionPedidos (Region/Proveedor/Articulo), sin uso claro. Confirma el dialogo legacy para portarlo.',
+  }
+  mensaje.value = detalle[nombre] ?? `${nombre}: pendiente de portar`
+}
+
+function onEtiquetas() {
+  if (!ficha.value.codigo || esNuevo.value) {
+    mensaje.value = 'Guarde el articulo antes de imprimir etiquetas'
+    return
+  }
+  if (!puedeEtiquetasVer.value && !puedeEtiquetasImprimir.value) {
+    mensaje.value = 'Sin permiso de etiquetas'
+    return
+  }
+  mostrarEtiquetas.value = true
+}
+
+function onEtiquetaImpresa(msg: string) {
+  mensaje.value = msg
+}
+
+function onFichaPlanta() {
+  if (!ficha.value.codigo || esNuevo.value) {
+    mensaje.value = 'Guarde el articulo antes de abrir la ficha de planta'
+    return
+  }
+  mostrarFichaPlanta.value = true
+}
+
+function onConsulta() {
+  mostrarConsulta.value = true
+}
+
+function onEans() {
+  if (!ficha.value.codigo || esNuevo.value) {
+    mensaje.value = 'Guarde el articulo antes de gestionar EAN'
+    return
+  }
+  mostrarEans.value = true
+}
+
+function onEscandallo() {
+  if (!ficha.value.codigo || esNuevo.value) {
+    mensaje.value = 'Guarde el articulo antes de gestionar el escandallo'
+    return
+  }
+  mostrarEscandallo.value = true
+}
+
+function onBloqueo() {
+  tabActiva.value = 'parametros'
+  mensaje.value = 'Bloqueos de compra/venta estan en la pestana Parametros'
+}
+
+function navArticulos(dir: 'primero' | 'anterior' | 'siguiente' | 'ultimo') {
+  const lista = navItems.value
+  if (!lista.length) return
+  let i = indiceNav.value
+  if (i < 0) i = 0
+  if (dir === 'primero') i = 0
+  else if (dir === 'ultimo') i = lista.length - 1
+  else if (dir === 'anterior') i = Math.max(0, i - 1)
+  else i = Math.min(lista.length - 1, i + 1)
+  const fila = lista[i]
+  if (fila?.codigo) void abrirFichaPorCodigo(String(fila.codigo))
+}
+</script>
+
+<template>
+  <section class="articulos-view">
+    <h2>Articulos</h2>
+
+    <p v-if="!puedeVer" class="error">No tiene permiso para ver articulos.</p>
+
+    <template v-else>
+      <p v-if="mensaje" :class="codigoAutomatico || /creado|actualizado/i.test(mensaje) ? 'msg' : 'error'">
+        {{ mensaje }}
+      </p>
+      <p v-if="error" class="error">{{ error }}</p>
+
+      <!-- GRID (mismo patron Familias) -->
+      <template v-if="vista === 'grid'">
+        <div class="mantenimiento-listado">
+        <div class="toolbar">
+          <MantenimientoListadoButton
+            titulo="Artículos"
+            :columnas="articuloColumns"
+            :filas="filas"
+            :options-map="listadoOptionsMap"
+            @aviso="mensaje = $event"
+          />
+          <button
+            v-if="puedeCrear"
+            type="button"
+            class="tool-btn"
+            :disabled="loading"
+            @click="onNuevoFicha"
+          >
+            Nuevo
+          </button>
+          <button
+            type="button"
+            class="tool-btn"
+            :disabled="!filaSeleccionada || filaSeleccionada._nuevo"
+            @click="abrirFicha()"
+          >
+            Ficha
+          </button>
+
+          <label class="scan-box" title="Escanee o escriba código / EAN y pulse Intro">
+            <span>Escanear</span>
+            <input
+              ref="scanInputRef"
+              v-model="scanCodigo"
+              type="text"
+              maxlength="32"
+              placeholder="Código / EAN"
+              :disabled="loading || scanBusy"
+              @input="onScanInput"
+              @keydown="onScanKeydown"
+            />
+          </label>
+
+          <div class="toolbar-spacer"></div>
+
+          <button
+            v-if="puedeMostrarEliminar"
+            type="button"
+            class="tool-btn danger"
+            :disabled="loading"
+            @click="solicitarEliminar"
+          >
+            Eliminar
+          </button>
+        </div>
+
+        <ArticulosGrid
+          :filas="filas"
+          :indice-seleccionado="indiceSeleccionado"
+          :familia-opciones="familiaOpciones"
+          :impuesto-opciones="impuestoOpciones"
+          :proveedor-opciones="proveedorOpciones"
+          :filterable-keys="FILTER_KEYS"
+          v-model:filters="filtros"
+          :readonly="true"
+          :loading="loading"
+          :total-servidor="total"
+          @seleccionar="seleccionar"
+          @abrir="abrirFicha"
+          @nuevo="onNuevoFicha"
+          @search="onFiltroSearch"
+        />
+
+        <p class="hint">
+          <strong>Escanear</strong> código o EAN abre la ficha. Al escribir en código, descripción, familia, etc. se busca en
+          <strong>toda la base</strong> (hasta 200 coincidencias; Intro recarga). Precio se filtra en pantalla. Doble clic o
+          <strong>*</strong> para crear.
+        </p>
+        </div>
+      </template>
+
+      <!-- FICHA detallada (legacy) -->
+      <template v-else>
+        <div ref="fichaCamposRoot" class="ficha-campos" @keydown="onFichaCamposEnterNav">
+        <div class="sticky-chrome">
+          <button type="button" class="btn-volver" @click="volverAlGrid">← Volver a la rejilla</button>
+
+          <ArticuloToolbar
+            :puede-crear="puedeCrear"
+            :puede-editar="puedeEditar"
+            :puede-eliminar="puedeEliminar"
+            :puede-guardar="puedeCrear || puedeEditar"
+            :puede-etiquetas="puedeEtiquetasVer || puedeEtiquetasImprimir"
+            :modo-edicion="modoEdicion || esNuevo"
+            :indice="indiceNav < 0 ? undefined : indiceNav"
+            :total="navItems.length"
+            :loading="loading"
+            @nuevo="onNuevoFicha"
+            @modificar="onModificarFicha"
+            @borrar="onBorrarFicha"
+            @buscar="volverAlGrid"
+            @guardar="onGuardarFicha"
+            @cancelar="onCancelarFicha"
+            @primero="navArticulos('primero')"
+            @anterior="navArticulos('anterior')"
+            @siguiente="navArticulos('siguiente')"
+            @ultimo="navArticulos('ultimo')"
+            @escandallo="onEscandallo"
+            @eans="onEans"
+            @etiquetas="onEtiquetas"
+            @ficha="onFichaPlanta"
+            @consulta="onConsulta"
+            @bloqueo="onBloqueo"
+            @excepciones="onAccionPendiente('Excepciones')"
+          />
+
+          <div class="ficha-header">
+            <label :class="{ 'campo-invalido': esCampoInvalido('codigo') }">
+              Codigo *
+              <input
+                ref="codigoInput"
+                v-model="ficha.codigo"
+                data-field-key="codigo"
+                :readonly="codigoReadOnlyFicha"
+                maxlength="18"
+                class="codigo-input"
+                required
+                @input="limpiarCampoInvalido('codigo')"
+              />
+            </label>
+            <label class="nombre-input" :class="{ 'campo-invalido': esCampoInvalido('descripcion') }">
+              Descripcion *
+              <input
+                ref="descripcionInput"
+                v-model="ficha.descripcion"
+                data-field-key="descripcion"
+                :readonly="soloLecturaFicha"
+                maxlength="50"
+                required
+                @input="limpiarCampoInvalido('descripcion')"
+              />
+            </label>
+          </div>
+
+          <div class="tabs">
+            <button
+              v-for="tab in articuloTabs"
+              :key="tab.id"
+              type="button"
+              class="tab"
+              :class="{ active: tabActiva === tab.id }"
+              @click="tabActiva = tab.id"
+            >
+              {{ tab.label }}
+            </button>
+          </div>
+        </div>
+
+        <div class="ficha-body">
+          <ArticuloTabForm
+            :sections="tabSeleccionada.sections"
+            :model-value="ficha"
+            :readonly="soloLecturaFicha"
+            :codigo-read-only="!esNuevo"
+            :invalid-keys="camposInvalidos"
+            @update:model-value="onFichaUpdate"
+          />
+          <ArticuloSidePanels :ficha="ficha" />
+        </div>
+        </div>
+      </template>
+
+      <ConfirmDialog
+        :open="confirmOpen"
+        title="Eliminar articulo"
+        :message="confirmMessage"
+        @confirm="confirmarEliminar"
+        @cancel="cancelarEliminar"
+      />
+
+      <ConfirmDialog
+        :open="avisoOpen"
+        :title="avisoTitulo"
+        :message="avisoMensaje"
+        confirm-label="Aceptar"
+        :danger="false"
+        hide-cancel
+        @confirm="cerrarAviso"
+        @cancel="cerrarAviso"
+      />
+
+      <ArticuloFichaPlantaModal
+        v-if="mostrarFichaPlanta && ficha.codigo"
+        :open="mostrarFichaPlanta"
+        :articulo-codigo="String(ficha.codigo)"
+        :articulo-descripcion="String(ficha.descripcion ?? '')"
+        :readonly="!puedeEditar"
+        @cerrar="mostrarFichaPlanta = false"
+        @guardado="abrirFichaPorCodigo(String(ficha.codigo))"
+      />
+
+      <ArticuloConsultaModal
+        v-if="mostrarConsulta"
+        :open="mostrarConsulta"
+        @cerrar="mostrarConsulta = false"
+      />
+
+      <ArticuloEansModal
+        v-if="mostrarEans && ficha.codigo"
+        :open="mostrarEans"
+        :codigo="String(ficha.codigo)"
+        :descripcion="String(ficha.descripcion ?? '')"
+        :readonly="!puedeEditar"
+        @cerrar="mostrarEans = false"
+      />
+
+      <ArticuloEtiquetasRapidaModal
+        :open="mostrarEtiquetas"
+        :codigo="String(ficha.codigo ?? '')"
+        :descripcion="String(ficha.descripcion ?? '')"
+        :precio="Number(ficha.precioVen1 ?? ficha.precioVenta ?? 0)"
+        :empresa="puestoContexto.empresaCodigo"
+        :puesto-codigo="puestoContexto.puestoCodigo"
+        :puede-imprimir="puedeEtiquetasImprimir"
+        @cerrar="mostrarEtiquetas = false"
+        @impresa="onEtiquetaImpresa"
+      />
+
+      <ArticuloEscandalloModal
+        v-if="mostrarEscandallo && ficha.codigo"
+        :open="mostrarEscandallo"
+        :codigo="String(ficha.codigo)"
+        :descripcion="String(ficha.descripcion ?? '')"
+        :readonly="!puedeEditar"
+        @cerrar="mostrarEscandallo = false"
+      />
+    </template>
+  </section>
+</template>
+
+<style scoped>
+.articulos-view h2 {
+  margin: 0 0 0.75rem;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  padding: 0.5rem;
+  background: linear-gradient(180deg, #f8fafc 0%, #e5e7eb 100%);
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+}
+
+.toolbar-spacer {
+  flex: 1;
+}
+
+.scan-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: 0.35rem;
+  font-size: 0.75rem;
+  color: #475569;
+  font-weight: 600;
+}
+
+.scan-box input {
+  width: 11rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+  font: inherit;
+  font-weight: 500;
+  color: #0f172a;
+}
+
+.scan-box input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgb(59 130 246 / 20%);
+}
+
+.tool-btn {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid #94a3b8;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.tool-btn.active {
+  background: #e0f2fe;
+  border-color: #38bdf8;
+}
+
+.tool-btn.primary {
+  background: #2563eb;
+  border-color: #1d4ed8;
+  color: #fff;
+}
+
+.tool-btn.danger {
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
+.tool-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-volver {
+  margin-bottom: 0.5rem;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid #94a3b8;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.ficha-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: end;
+  padding: 0.45rem 0.65rem;
+  background: #fff;
+  border: 1px solid #c5cdd8;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  max-width: min(1100px, 100%);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ficha-header label {
+  display: grid;
+  gap: 0.15rem;
+  font-size: 0.78rem;
+}
+
+.codigo-input {
+  width: 9rem;
+}
+
+.nombre-input {
+  flex: 1;
+  min-width: 220px;
+}
+
+.ficha-header input {
+  padding: 0.2rem 0.35rem;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  font-size: 0.8rem;
+}
+
+.ficha-header label.campo-invalido {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.ficha-header label.campo-invalido input {
+  border-color: #dc2626;
+  background: #fef2f2;
+  box-shadow: 0 0 0 1px #fecaca;
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem;
+  padding: 0.25rem 0.35rem 0;
+  background: #fff;
+  border-left: 1px solid #c5cdd8;
+  border-right: 1px solid #c5cdd8;
+  max-width: min(1100px, 100%);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.tab {
+  border: 1px solid #94a3b8;
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  background: #e8edf2;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.tab.active {
+  background: #f8fafc;
+  font-weight: 600;
+}
+
+.ficha-campos {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.ficha-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr);
+  align-items: stretch;
+  max-width: min(1100px, 100%);
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.ficha-body > * {
+  min-width: 0;
+}
+
+.msg {
+  color: #047857;
+}
+
+.error {
+  color: #b91c1c;
+}
+
+.hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+@media (max-width: 1100px) {
+  .ficha-body {
+    grid-template-columns: 1fr;
+  }
+
+  .ficha-body :deep(.side-panels) {
+    border-left: 1px solid #c5cdd8;
+  }
+
+  .ficha-body :deep(.tab-form) {
+    border-radius: 0;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .ficha-header {
+    border-radius: 8px 8px 0 0;
+  }
+
+  .nombre-input {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+@media print {
+  .toolbar,
+  .hint,
+  .btn-volver,
+  h2,
+  .sticky-chrome,
+  .ficha-body,
+  .tabs,
+  .ficha-header {
+    display: none !important;
+  }
+}
+</style>

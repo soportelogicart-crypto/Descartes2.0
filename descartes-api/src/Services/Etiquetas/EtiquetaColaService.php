@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Descartes\Api\Services\Etiquetas;
 
+use Descartes\Api\Database\InsertedId;
 use Descartes\Api\Database\SqlPagination;
 use Descartes\Api\Services\Compras\AlbaranCompraConsultaService;
 use PDO;
@@ -191,7 +192,7 @@ final class EtiquetaColaService
       'numEtiEnHoja' => $this->intOrZero($body['numEtiEnHoja'] ?? null),
       'cantidadStock' => isset($body['cantidadStock']) ? (float) $body['cantidadStock'] : 0.0,
     ]);
-    $nroLin = (int) $stmt->fetchColumn();
+    $nroLin = InsertedId::leer($this->pdo, $stmt);
     if ($nroLin <= 0) {
       throw new \RuntimeException('Línea de cola creada pero no se pudo obtener NroLin');
     }
@@ -460,7 +461,7 @@ final class EtiquetaColaService
         "SELECT TOP 1 ImpEtiquetasSinEans, ImpEtiquetasSoloEansPropios
          FROM [Empresas_Ges]
          WHERE RTRIM(Codigo) = RTRIM(:e)
-            OR RTRIM(Codigo) = RIGHT('000' + RTRIM(:e2), 3)"
+            OR RTRIM(Codigo) = RIGHT(CONCAT('000', RTRIM(:e2)), 3)"
       );
       $stmt->execute(['e' => $empresa, 'e2' => $empresa]);
       $row = $stmt->fetch(PDO::FETCH_ASSOC);

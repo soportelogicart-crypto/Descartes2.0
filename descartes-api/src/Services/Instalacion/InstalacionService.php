@@ -351,6 +351,49 @@ final class InstalacionService
    * @param array<string, mixed> $body
    * @return array{tipo: string, server: string, database: string, user: string, password: string, trust_cert: bool, encrypt: bool}
    */
+  /**
+   * Si el formulario no trae contraseña, reutiliza la guardada cuando el resto coincide.
+   *
+   * @param array<string, mixed> $body
+   * @param array<string, mixed>|null $referencia
+   * @return array<string, mixed>
+   */
+  public function bodyConPasswordGuardada(array $body, ?array $referencia): array
+  {
+    if ($referencia === null) {
+      return $body;
+    }
+    $password = (string) ($body['password'] ?? $body['dbPassword'] ?? '');
+    if ($password !== '') {
+      return $body;
+    }
+    if (!$this->mismaConexionEnBody($body, $referencia)) {
+      return $body;
+    }
+    $body['password'] = (string) ($referencia['password'] ?? '');
+    return $body;
+  }
+
+  /**
+   * @param array<string, mixed> $body
+   * @param array<string, mixed> $referencia
+   */
+  private function mismaConexionEnBody(array $body, array $referencia): bool
+  {
+    $motor = strtolower(trim((string) ($body['motor'] ?? 'sqlsrv')));
+    $refMotor = strtolower(trim((string) ($referencia['motor'] ?? 'sqlsrv')));
+    if ($motor !== $refMotor) {
+      return false;
+    }
+    $database = trim((string) ($body['database'] ?? $body['dbName'] ?? ''));
+    $server = trim((string) ($body['server'] ?? $body['dbServer'] ?? $body['serverUrl'] ?? ''));
+    $user = trim((string) ($body['user'] ?? $body['dbUser'] ?? ''));
+    return $database !== ''
+      && strcasecmp($database, (string) ($referencia['database'] ?? '')) === 0
+      && strcasecmp($user, (string) ($referencia['user'] ?? '')) === 0
+      && strcasecmp($server, (string) ($referencia['server'] ?? '')) === 0;
+  }
+
   private function normalizarConfig(array $body): array
   {
     $database = trim((string) ($body['database'] ?? $body['dbName'] ?? ''));

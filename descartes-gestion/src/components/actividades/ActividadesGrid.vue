@@ -5,7 +5,12 @@ import type { ColumnFilter } from '@/composables/useGridColumnFilters'
 import { useOrdenCabeceraGrid } from '@/composables/useOrdenCabeceraGrid'
 import GridFilterRow from '@/components/common/GridFilterRow.vue'
 
-const FILTER_COLUMNS = [{ key: 'codigo' }, { key: 'descripcion' }]
+const FILTER_COLUMNS = [
+  { key: 'codigo' },
+  { key: 'descripcion' },
+  { key: 'codigoCentroCoste' },
+  { key: 'descripcionCentroCoste' },
+]
 
 const props = defineProps<{
   filas: ActividadFila[]
@@ -45,8 +50,8 @@ function onRowDblClick(fila: ActividadFila) {
 
 <template>
   <div class="grid-wrap" :class="{ 'filter-menu-open': filterMenuOpen }">
-    <p v-if="loading" class="loading">Cargando...</p>
-    <table v-else class="actividades-grid">
+    <p v-if="loading" class="loading-banner">Cargando...</p>
+    <table class="actividades-grid">
       <thead>
         <tr>
           <th class="col-ind"></th>
@@ -59,6 +64,26 @@ function onRowDblClick(fila: ActividadFila) {
           <th class="col-descripcion ordenable" title="Ordenar por descripcion" @click="clicar('descripcion')">
             Descripcion
             <span v-if="orden?.key === 'descripcion'" class="marca-orden">{{
+              orden.dir === 'asc' ? '▲' : '▼'
+            }}</span>
+          </th>
+          <th
+            class="col-centro ordenable"
+            title="Ordenar por centro de coste"
+            @click="clicar('codigoCentroCoste')"
+          >
+            Centro coste
+            <span v-if="orden?.key === 'codigoCentroCoste'" class="marca-orden">{{
+              orden.dir === 'asc' ? '▲' : '▼'
+            }}</span>
+          </th>
+          <th
+            class="col-centro-desc ordenable"
+            title="Ordenar por descripcion centro"
+            @click="clicar('descripcionCentroCoste')"
+          >
+            Descripcion centro
+            <span v-if="orden?.key === 'descripcionCentroCoste'" class="marca-orden">{{
               orden.dir === 'asc' ? '▲' : '▼'
             }}</span>
           </th>
@@ -85,10 +110,14 @@ function onRowDblClick(fila: ActividadFila) {
           <template v-if="fila._nuevo">
             <td class="celda-vacia">&nbsp;</td>
             <td class="celda-vacia">&nbsp;</td>
+            <td class="celda-vacia">&nbsp;</td>
+            <td class="celda-vacia">&nbsp;</td>
           </template>
           <template v-else>
             <td>{{ fila.codigo }}</td>
             <td>{{ fila.descripcion }}</td>
+            <td>{{ fila.codigoCentroCoste }}</td>
+            <td>{{ fila.descripcionCentroCoste }}</td>
           </template>
         </tr>
       </tbody>
@@ -101,5 +130,8 @@ function onRowDblClick(fila: ActividadFila) {
 <style scoped>
 .col-codigo {
   width: 6rem;
+}
+.col-centro {
+  width: 7rem;
 }
 </style>

@@ -18,6 +18,28 @@ import type {
 } from '@/types/ventas'
 import type { PaymentTerminalPayload, PaymentTerminalResult } from '@/bridge/electron'
 
+/** Resumen de listado a partir de una ficha (TPV, detalle, abonos). */
+export function ventaResumenDesdeDetalle(d: VentaDetalle): VentaResumen {
+  return {
+    empresa: d.empresa,
+    tipo: d.tipo,
+    albaran: d.albaran,
+    fecha: d.fecha,
+    cliente: d.cliente,
+    razonSocial: d.razonSocial,
+    puesto: d.puesto,
+    vendedor: d.vendedor,
+    estado: d.estado,
+    importe: d.importe,
+    facturada: d.facturada,
+    bloqueado: d.bloqueado,
+    factura: d.factura,
+    facturaTipo: d.facturaTipo,
+    sesion: d.sesion,
+    albaranOrigenAbono: d.albaranOrigenAbono ?? null,
+  }
+}
+
 export type OfertaLinea = {
   pjeDto: number
   regalo: { articulo: string; cantidad: number } | null
@@ -214,6 +236,11 @@ export async function finalizarVenta(
   opciones: {
     aplicarValeFidelizacion?: boolean
     aplicarPuntosFidelizacion?: boolean
+    aplicarClubSaldo?: boolean
+    clubSaldoCanjeEuros?: number
+    clubValeId?: number
+    aplicarClubPromo?: boolean
+    altaClub?: boolean
     valeCodigo?: number
     fpago2?: string
   } = {}
@@ -346,11 +373,21 @@ export async function cerrarSesionArqueo(
   return data
 }
 
+export type MovimientoCajaPayload = {
+  formaPago: string
+  importe: number
+  concepto?: string
+  /** I|R en entrada; P|S en salida */
+  subtipo?: string
+  cliente?: string
+  fechaCaducidad?: string
+}
+
 export async function entradaCajaArqueo(
   empresa: string,
   puesto: string,
   sesion: number,
-  payload: { formaPago: string; importe: number; concepto?: string }
+  payload: MovimientoCajaPayload
 ) {
   const { data } = await api.post<ArqueoResponse>(
     `/api/ventas/sesiones/${encodeURIComponent(empresa)}/${encodeURIComponent(puesto)}/${sesion}/entrada-caja`,
@@ -363,7 +400,7 @@ export async function salidaCajaArqueo(
   empresa: string,
   puesto: string,
   sesion: number,
-  payload: { formaPago: string; importe: number; concepto?: string }
+  payload: MovimientoCajaPayload
 ) {
   const { data } = await api.post<ArqueoResponse>(
     `/api/ventas/sesiones/${encodeURIComponent(empresa)}/${encodeURIComponent(puesto)}/${sesion}/salida-caja`,
@@ -648,6 +685,95 @@ export async function puntosCanjeDisponible(empresa: string, cliente: string, im
   return data
 }
 
+export type ClubEstadoSocio = {
+  activo: boolean
+  motor?: string | null
+  socio?: boolean
+  saldoEuros?: number
+  canjeDisponible?: boolean
+  proximaCaducidad?: string | null
+  vales?: { id: number; tipo: string; importeEuros: number; minCompraEuros: number }[]
+  promoIncompatible?: { id: number; nombre: string; pjeDescuento: number } | null
+}
+
+export async function clubEstadoSocio(empresa: string, cliente: string) {
+  const { data } = await api.get<ClubEstadoSocio>('/api/ventas/fidelizacion/club/estado', {
+    params: { empresa, cliente },
+  })
+  return data
+}
+
+export type ClubPreviewTicket = {
+  aplica: boolean
+  baseElegible?: number
+  canjeEuros?: number
+  saldoGeneradoEuros?: number
+  modoIncompatible?: boolean
+  motivoIncompatible?: string | null
+}
+
+export async function clubPreviewTicket(
+  empresa: string,
+  cabecera: Record<string, unknown>,
+  opts: Record<string, unknown> = {}
+) {
+  const { data } = await api.post<ClubPreviewTicket>('/api/ventas/fidelizacion/club/preview', {
+    empresa,
+    cabecera,
+    opts,
+  })
+  return data
+}
+
+export async function guardarClubFidelizacion(payload: {
+  codigo: string
+  exclusiones: FidelizacionExclusion[]
+}) {
+  const { data } = await api.put<Record<string, unknown>>('/api/ventas/fidelizacion/club', payload)
+  return data
+}
+
+export type ClubPromocion = {
+  id: number
+  nombre: string
+  pjeDescuento: number
+  fechaInicio: string
+  fechaFin: string
+  activa: boolean
+}
+
+export async function listClubPromociones(empresa: string) {
+  const { data } = await api.get<ClubPromocion[]>('/api/ventas/fidelizacion/club/promociones', {
+    params: { empresa },
+  })
+  return data
+}
+
+export async function guardarClubPromocion(
+  empresa: string,
+  payload: Partial<ClubPromocion> & { empresa?: string }
+) {
+  const { data } = await api.put<ClubPromocion>('/api/ventas/fidelizacion/club/promociones', {
+    ...payload,
+    empresa,
+  })
+  return data
+}
+
+export async function eliminarClubPromocion(empresa: string, id: number) {
+  await api.delete(`/api/ventas/fidelizacion/club/promociones/${id}`, { params: { empresa } })
+}
+
+export async function informeClubMensual(empresa: string, anio: number, mes: number) {
+  const { data } = await api.get<{
+    sociosNuevos: number
+    generadoEuros: number
+    canjeadoEuros: number
+    caducadoEuros: number
+  }>('/api/ventas/fidelizacion/club/informe-mensual', { params: { empresa, anio, mes } })
+  return data
+}
+
 export async function marcarTiendaSinPuntos(empresa: string, sinPuntos: boolean) {
   const { data } = await api.put<FidelizacionTiendaPuntos>('/api/ventas/fidelizacion/tiendas', {
     empresa,
@@ -722,12 +848,25 @@ export async function emitirVale(payload: {
 export async function liquidarVale(
   empresa: string,
   codigo: number,
-  payload: { fechaLiquidacion: string; tipoLiquidacion: string }
+  payload: { fechaLiquidacion: string; tipoLiquidacion?: string; motivoOperador?: string }
 ) {
   const { data } = await api.post<Vale>(
     `/api/ventas/vales/${encodeURIComponent(empresa)}/${codigo}/liquidar`,
     payload
   )
+  return data
+}
+
+export async function liquidarValesLote(payload: {
+  items: { empresa: string; codigo: number }[]
+  motivoOperador: string
+  fechaLiquidacion?: string
+  tipoLiquidacion?: string
+}) {
+  const { data } = await api.post<{
+    liquidados: Vale[]
+    errores: { empresa: string; codigo: number; message: string }[]
+  }>('/api/ventas/vales/liquidar-lote', payload)
   return data
 }
 

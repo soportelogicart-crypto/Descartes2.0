@@ -16,8 +16,9 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       proxy: {
         '/api': {
-          target: 'http://localhost',
+          target: env.VITE_API_PROXY_TARGET || 'http://localhost',
           changeOrigin: true,
+          secure: true,
           rewrite: (path) =>
             path.replace(/^\/api/, env.VITE_API_PROXY_PATH || '/descartes-api-dev/public/api'),
         },

@@ -138,7 +138,7 @@ export function escribirVentanaPdf(ventana: Window, blob: Blob, titulo: string):
 export function escribirVentanaPreview(
   ventana: Window,
   html: string,
-  opciones: { impresoraNombre: string; puedeImprimir: boolean }
+  opciones: { impresoraNombre: string; puedeImprimir: boolean; paginar?: boolean }
 ): void {
   const barra =
     '<div class="preview-barra">' +
@@ -173,11 +173,164 @@ export function escribirVentanaPreview(
     .preview-barra button.primary { background: #0f766e; border-color: #0f766e; color: #fff; }
     .preview-barra button:disabled { opacity: 0.55; cursor: not-allowed; }
   }
-  @media print { .preview-barra { display: none; } .folio { margin: 0; box-shadow: none; } }
+  .folio.pagina-hoja { position: relative; overflow: hidden; margin: 0 auto 8mm; }
+  .preview-pagina {
+    position: absolute; right: 11mm; bottom: 5mm;
+    font: 9px Arial, Helvetica, sans-serif; color: #64748b;
+  }
+  @media print {
+    .preview-barra { display: none; }
+    .folio { margin: 0; box-shadow: none; }
+    .folio.pagina-hoja {
+      height: auto !important; max-height: none !important; min-height: 0 !important;
+      overflow: visible !important; box-shadow: none !important; margin: 0 !important;
+      break-after: page; page-break-after: always;
+    }
+    .folio.pagina-hoja:last-of-type { break-after: auto; page-break-after: auto; }
+    .preview-pagina { display: none !important; }
+  }
 </style>`
 
   const script = `<script>
   (function () {
+    var PAGINAR = ${opciones.paginar ? 'true' : 'false'};
+    function paginarListado() {
+      if (!PAGINAR) return 0;
+      var folio = document.querySelector('main.folio') || document.querySelector('.folio');
+      if (!folio) return 0;
+      var cs = getComputedStyle(folio);
+      var alto = parseFloat(cs.minHeight);
+      if (!alto || alto < 80) return 0;
+      var horizontal = parseFloat(cs.width) > alto;
+      function excede(hoja) { return hoja.scrollHeight > hoja.clientHeight + 2; }
+      function nueva() {
+        var p = document.createElement('main');
+        p.className = folio.className + ' pagina-hoja';
+        p.style.height = alto + 'px';
+        p.style.maxHeight = alto + 'px';
+        p.style.overflow = 'hidden';
+        p.style.width = horizontal ? cs.width : '';
+        return p;
+      }
+      folio.style.height = alto + 'px';
+      folio.style.maxHeight = alto + 'px';
+      folio.style.overflow = 'hidden';
+      if (!excede(folio)) {
+        folio.classList.add('pagina-hoja');
+        folio.style.overflow = 'hidden';
+        marcar([folio]);
+        return 1;
+      }
+      folio.style.height = '';
+      folio.style.maxHeight = '';
+      folio.style.overflow = '';
+      var cabecera = [];
+      var actual = nueva();
+      var hojas = [actual];
+      folio.before(actual);
+      function añadirCabecera(p) {
+        cabecera.forEach(function (n) { p.appendChild(n.cloneNode(true)); });
+      }
+      function saltar() {
+        actual = nueva();
+        hojas[hojas.length - 1].after(actual);
+        hojas.push(actual);
+        añadirCabecera(actual);
+      }
+      function colocarBloque(nodo) {
+        actual.appendChild(nodo);
+        if (!excede(actual)) return;
+        actual.removeChild(nodo);
+        saltar();
+        actual.appendChild(nodo);
+      }
+      function colocarTabla(tabla) {
+        var thead = tabla.tHead;
+        var filas = [];
+        var cuerpos = tabla.tBodies.length ? Array.prototype.slice.call(tabla.tBodies) : [];
+        if (cuerpos.length) {
+          cuerpos.forEach(function (tb) {
+            Array.prototype.forEach.call(tb.rows, function (tr) { filas.push(tr); });
+          });
+        } else {
+          Array.prototype.forEach.call(tabla.rows, function (tr) {
+            if (!thead || !thead.contains(tr)) filas.push(tr);
+          });
+        }
+        var tfoot = tabla.tFoot;
+        function abrir() {
+          var t = tabla.cloneNode(false);
+          if (thead) t.appendChild(thead.cloneNode(true));
+          var tb = document.createElement('tbody');
+          t.appendChild(tb);
+          actual.appendChild(t);
+          if (excede(actual)) {
+            actual.removeChild(t);
+            saltar();
+            actual.appendChild(t);
+          }
+          return { t: t, tb: tb };
+        }
+        var ctx = abrir();
+        filas.forEach(function (tr) {
+          ctx.tb.appendChild(tr);
+          if (!excede(actual)) return;
+          ctx.tb.removeChild(tr);
+          if (!ctx.tb.rows.length) { ctx.tb.appendChild(tr); return; }
+          saltar();
+          ctx = abrir();
+          ctx.tb.appendChild(tr);
+        });
+        if (tfoot) {
+          ctx.t.appendChild(tfoot);
+          if (excede(actual)) {
+            ctx.t.removeChild(tfoot);
+            saltar();
+            ctx = abrir();
+            ctx.t.appendChild(tfoot);
+          }
+        }
+      }
+      function walk(nodo, enCuerpo) {
+        if (nodo.nodeType === 3) {
+          if (enCuerpo && nodo.textContent.trim()) colocarBloque(nodo);
+          return;
+        }
+        if (nodo.nodeType !== 1) return;
+        var el = nodo;
+        var tieneTabla = el.tagName === 'TABLE' || (el.querySelector && el.querySelector('table'));
+        if (!enCuerpo && !tieneTabla) {
+          cabecera.push(el);
+          actual.appendChild(el);
+          return;
+        }
+        if (el.tagName === 'TABLE') { colocarTabla(el); return; }
+        if (tieneTabla) {
+          Array.prototype.forEach.call(el.childNodes, function (ch) { walk(ch, true); });
+          return;
+        }
+        colocarBloque(el);
+      }
+      Array.prototype.forEach.call(Array.prototype.slice.call(folio.childNodes), function (n) { walk(n, false); });
+      folio.remove();
+      marcar(hojas);
+      return hojas.length;
+    }
+    function marcar(hojas) {
+      var total = hojas.length;
+      hojas.forEach(function (h, i) {
+        var s = document.createElement('div');
+        s.className = 'preview-pagina';
+        s.textContent = 'Página ' + (i + 1) + ' / ' + total;
+        h.appendChild(s);
+      });
+    }
+    window.__paginarListado = paginarListado;
+    var nPaginas = 0;
+    try { nPaginas = paginarListado(); } catch (e) { nPaginas = -1; }
+    // #region agent log
+    fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',runId:'paginas',hypothesisId:'P',location:'previewDocumentoVentana.ts:paginarListado',message:'paginas preview',data:{paginar:PAGINAR,paginas:nPaginas},timestamp:Date.now()})}).catch(function(){});
+    // #endregion
     var btn = document.getElementById('preview-imprimir');
     var err = document.getElementById('preview-error');
     if (btn) {

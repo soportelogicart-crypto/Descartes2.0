@@ -181,7 +181,7 @@ final class AbcVentasService
     }
 
     // M.Agr. Crystal: Sum(@ImporLin, Articulo) / DistinctCount(Albaran, Articulo)
-    $albaranKey = "RTRIM(c.[Empresa]) + N'|' + RTRIM(c.[Tipo]) + N'|' + CAST(c.[Albaran] AS nvarchar(20))";
+    $albaranKey = "CONCAT(RTRIM(c.[Empresa]), N'|', RTRIM(c.[Tipo]), N'|', CAST(c.[Albaran] AS nvarchar(20)))";
 
     $unidadesExpr = 'SUM(ISNULL(l.[Cantidad], 0))';
     if ($formatoJerarquia === 'pesoKilogramos') {
@@ -1202,7 +1202,7 @@ final class AbcVentasService
       ],
       'horas' => [
         'selectCodigo' => 'CAST(DATEPART(hour, c.[Fecha]) AS nvarchar(2))',
-        'selectNombre' => "MAX(RIGHT(N'0' + CAST(DATEPART(hour, c.[Fecha]) AS nvarchar(2)), 2) + N':00')",
+        'selectNombre' => "MAX(CONCAT(RIGHT(CONCAT(N'0', CAST(DATEPART(hour, c.[Fecha]) AS nvarchar(2))), 2), N':00'))",
         'groupBy' => ['DATEPART(hour, c.[Fecha])'],
       ],
       'macrofamilias' => [
@@ -1917,8 +1917,8 @@ final class AbcVentasService
       $bucket = 'DATEPART(hour, c.[Fecha]) * 60';
       return [
         'bucketExpr' => $bucket,
-        'selectCodigo' => "RIGHT(N'0' + CAST(DATEPART(hour, c.[Fecha]) AS nvarchar(2)), 2)",
-        'selectNombre' => "MAX(RIGHT(N'0' + CAST(DATEPART(hour, c.[Fecha]) AS nvarchar(2)), 2) + N':00')",
+        'selectCodigo' => "RIGHT(CONCAT(N'0', CAST(DATEPART(hour, c.[Fecha]) AS nvarchar(2))), 2)",
+        'selectNombre' => "MAX(CONCAT(RIGHT(CONCAT(N'0', CAST(DATEPART(hour, c.[Fecha]) AS nvarchar(2))), 2), N':00'))",
         'groupBy' => ['DATEPART(hour, c.[Fecha])'],
       ];
     }
@@ -1935,7 +1935,7 @@ final class AbcVentasService
     return [
       'bucketExpr' => $bucket,
       'selectCodigo' => "CAST({$bucket} AS nvarchar(10))",
-      'selectNombre' => "MAX(RIGHT(N'0' + CAST(({$bucket}) / 60 AS nvarchar(2)), 2) + N':' + RIGHT(N'0' + CAST(({$bucket}) % 60 AS nvarchar(2)), 2))",
+      'selectNombre' => "MAX(CONCAT(RIGHT(CONCAT(N'0', CAST(({$bucket}) / 60 AS nvarchar(2))), 2), N':', RIGHT(CONCAT(N'0', CAST(({$bucket}) % 60 AS nvarchar(2))), 2)))",
       'groupBy' => [$bucket],
     ];
   }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Descartes\Api\Controllers;
 
 use Descartes\Api\Config\CatalogoInstalaciones;
+use Descartes\Api\Config\InstalacionConfig;
 use Descartes\Api\Http\ErrorResponse;
 use Descartes\Api\Services\Instalacion\InstalacionService;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -30,6 +31,7 @@ final class InstalacionController
   public function probar(Request $request, Response $response): Response
   {
     $body = (array) json_decode((string) $request->getBody(), true);
+    $body = $this->bodyConPasswordReferencia($request, $body);
     try {
       $resultado = $this->configExplicita($request) !== null
         ? $this->service->probarSinGuardar($body)
@@ -43,6 +45,7 @@ final class InstalacionController
   public function configurar(Request $request, Response $response): Response
   {
     $body = (array) json_decode((string) $request->getBody(), true);
+    $body = $this->bodyConPasswordReferencia($request, $body);
     try {
       if ($this->configExplicita($request) !== null) {
         $id = (string) ($request->getAttribute('clienteId') ?? '');
@@ -110,6 +113,13 @@ final class InstalacionController
   {
     $config = $request->getAttribute('instalacionSql');
     return is_array($config) ? $config : null;
+  }
+
+  /** @param array<string, mixed> $body @return array<string, mixed> */
+  private function bodyConPasswordReferencia(Request $request, array $body): array
+  {
+    $referencia = $this->configExplicita($request) ?? InstalacionConfig::load();
+    return $this->service->bodyConPasswordGuardada($body, $referencia);
   }
 
   /** @param array<string, mixed> $data */

@@ -4,21 +4,23 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { extractApiError, useMantenimiento } from '@/composables/useMantenimiento'
 import { useMantenimientoServerSearch } from '@/composables/useMantenimientoServerSearch'
 import { usePermisos } from '@/composables/usePermisos'
-import { COLUMNAS_CODIGO_DESCRIPCION } from '@/composables/useMantenimientoGridListado'
-import {
-  aplicarFiltrosColumnas,
-  filtrosIniciales,
-  type ColumnFilter,
-} from '@/composables/useGridColumnFilters'
 import {
   ACTIVIDAD_CAMPOS_OBLIGATORIOS,
   actividadVacia,
   camposActividadObligatoriosVacios,
   clonarActividad,
+  COLUMNAS_ACTIVIDADES_LISTADO,
   payloadActividad,
   validarActividadObligatorios,
   type ActividadFila,
 } from '@/config/actividades-columns'
+import { api } from '@/api/client'
+import EntidadLookupField from '@/components/common/EntidadLookupField.vue'
+import {
+  aplicarFiltrosColumnas,
+  filtrosIniciales,
+  type ColumnFilter,
+} from '@/composables/useGridColumnFilters'
 import ActividadesGrid from '@/components/actividades/ActividadesGrid.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
@@ -26,8 +28,8 @@ import { useEliminarFilaGrid } from '@/composables/useEliminarFilaGrid'
 
 const MODULO = 'actividades'
 const ENTIDAD = 'actividades'
-const FILTER_KEYS = ['codigo', 'descripcion']
-const SERVER_FILTER_KEYS = ['codigo', 'descripcion'] as const
+const FILTER_KEYS = ['codigo', 'descripcion', 'codigoCentroCoste', 'descripcionCentroCoste']
+const SERVER_FILTER_KEYS = ['codigo', 'descripcion', 'codigoCentroCoste', 'descripcionCentroCoste'] as const
 
 const { puede } = usePermisos()
 const { items, total, page, pageSize, loading, error, listar, cancelarListado, obtener, crear, actualizar, eliminar } =
@@ -153,11 +155,11 @@ onMounted(async () => {
   await cargar()
 })
 
-async function cargar(q = serverQuery.value) {
+async function cargar(q = serverQuery.value, meta?: { silent?: boolean }) {
   mensaje.value = null
   const params: Record<string, string | number | boolean> = { page: page.value, pageSize: pageSize.value }
   if (q) params.q = q
-  await listar(params)
+  await listar(params, { silent: meta?.silent })
   if (!vistaMontada) return
   filasTodas.value = items.value.map(clonarActividad)
   indiceSeleccionado.value = Math.min(indiceSeleccionado.value, Math.max(0, filas.value.length - 1))
@@ -210,6 +212,25 @@ async function onNuevo() {
   await nextTick()
   codigoInput.value?.focus()
   codigoInput.value?.select()
+}
+
+async function onCodigoCentroCosteChange(value: string | number | null) {
+  const codigo = value == null || value === '' ? '' : String(value).trim()
+  ficha.value.codigoCentroCoste = codigo
+  if (!codigo) {
+    ficha.value.descripcionCentroCoste = ''
+    return
+  }
+  try {
+    const { data } = await api.get(
+      `/api/mantenimiento/centros-coste/${encodeURIComponent(codigo)}`
+    )
+    ficha.value.descripcionCentroCoste = String(
+      (data as Record<string, unknown>)?.descripcion ?? ''
+    ).trim()
+  } catch {
+    ficha.value.descripcionCentroCoste = ''
+  }
 }
 
 function onModificar() {
@@ -358,7 +379,7 @@ async function onUltimo() {
         <div class="toolbar">
           <MantenimientoListadoButton
             titulo="Actividades"
-            :columnas="COLUMNAS_CODIGO_DESCRIPCION"
+            :columnas="COLUMNAS_ACTIVIDADES_LISTADO"
             :filas="filas"
             @aviso="mensaje = $event"
           />
@@ -400,8 +421,8 @@ async function onUltimo() {
         />
 
         <p class="hint">
-          Filtra por <strong>Codigo</strong> y <strong>Descripcion</strong> escribiendo bajo cada columna. Doble clic o
-          <strong>Ficha</strong> abre el detalle.
+          Filtra por <strong>Codigo</strong>, <strong>Descripcion</strong> y <strong>Centro coste</strong> escribiendo
+          bajo cada columna. Doble clic o <strong>Ficha</strong> abre el detalle.
         </p>
         </div>
       </template>
@@ -514,6 +535,34 @@ async function onUltimo() {
             />
           </label>
         </div>
+
+        <fieldset class="form-section">
+          <legend>Centro de coste</legend>
+          <div class="section-grid centro-coste-grid">
+            <label class="field">
+              <span class="field-label">Codigo centro coste</span>
+              <EntidadLookupField
+                :model-value="(ficha.codigoCentroCoste as string) ?? null"
+                entidad="centros-coste"
+                :readonly="soloLecturaFicha"
+                field-key="codigoCentroCoste"
+                empty-as-null
+                titulo-modal="Buscar centro de coste"
+                @update:model-value="onCodigoCentroCosteChange"
+              />
+            </label>
+            <label class="field">
+              <span class="field-label">Descripcion centro coste</span>
+              <input
+                v-model="ficha.descripcionCentroCoste"
+                type="text"
+                maxlength="40"
+                readonly
+                class="readonly-desc"
+              />
+            </label>
+          </div>
+        </fieldset>
       </template>
 
       <ConfirmDialog
@@ -685,6 +734,48 @@ async function onUltimo() {
 .campo-invalido input {
   border-color: #ef4444;
   background: #fef2f2;
+}
+
+.form-section {
+  margin: 0.5rem 0 0;
+  padding: 0.5rem 0.65rem 0.65rem;
+  border: 1px solid #c5cdd8;
+  border-radius: 8px;
+  background: #f0f4f8;
+  max-width: 1100px;
+}
+
+.form-section legend {
+  padding: 0 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.section-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem 0.6rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+  font-size: 0.78rem;
+}
+
+.field-label {
+  font-size: 0.72rem;
+  color: #475569;
+}
+
+.readonly-desc {
+  padding: 0.2rem 0.35rem;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  font-size: 0.8rem;
+  background: #f8fafc;
 }
 
 .msg {

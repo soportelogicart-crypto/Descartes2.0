@@ -12,6 +12,8 @@ use PDO;
  */
 final class TraspasoContableService
 {
+  private static ?bool $asientosLinTieneCentroCoste = null;
+
   private PDO $gestion;
   private ConexionContableService $conexion;
 
@@ -171,7 +173,7 @@ final class TraspasoContableService
   {
     $stmt = $this->gestion->prepare(
       "SELECT f.*, c.RazonSocial, c.NIF, c.Direccion, c.Poblacion, c.CodigoPostal,
-              c.Provincia, c.Pais, c.Telefono1, c.Fax, c.FormaPago AS FormaPagoCliente,
+              c.Actividad, c.Provincia, c.Pais, c.Telefono1, c.Fax, c.FormaPago AS FormaPagoCliente,
               c.DiaPago1, c.DiaPago2, c.Banco, c.CuentaBancaria, c.CuentaCtb,
               c.CuentaCtb2, c.CuentaCtbIta, c.Swift, c.IBAN, c.ReferenciaMandato,
               c.FechaFirmaMandato, c.EmailFacturacion, c.TratamientoFiscal,
@@ -344,11 +346,12 @@ final class TraspasoContableService
 
     $insert = $ctb->prepare(
       'INSERT INTO FactEmitidasLin (
-         Serie, UltNum, ImpBase, CodIva, PjeIva, Iva, PjeRec, Rec
+         Serie, UltNum, NumLin, ImpBase, CodIva, PjeIva, Iva, PjeRec, Rec
        ) VALUES (
-         :serie, :numero, :base, :codigoIva, :pjeIva, :iva, :pjeRec, :rec
+         :serie, :numero, :numLin, :base, :codigoIva, :pjeIva, :iva, :pjeRec, :rec
        )'
     );
+    $numLin = 0;
     for ($i = 1; $i <= 6; $i++) {
       $base = round((float) ($f["ImporteBase{$i}"] ?? 0), 2);
       $iva = round((float) ($f["ImporteIva{$i}"] ?? 0), 2);
@@ -359,9 +362,11 @@ final class TraspasoContableService
       $pjeIva = (float) ($f["PjeIva{$i}"] ?? 0);
       $pjeRec = (float) ($f["PjeRec{$i}"] ?? 0);
       $impuesto = $this->impuesto($pjeIva, $pjeRec);
+      $numLin++;
       $insert->execute([
         'serie' => $serie,
         'numero' => $numero,
+        'numLin' => $numLin,
         'base' => $base,
         'codigoIva' => $impuesto['codigo'],
         'pjeIva' => $pjeIva,
@@ -419,11 +424,29 @@ final class TraspasoContableService
          0, 0, 0
        )'
     );
+    $siguienteEfectoLibre = 1;
+    $efectosUsados = [];
     foreach ($rows as $row) {
+      $recibo = (int) $row['Recibo'];
+      if ($recibo > 0 && !isset($efectosUsados[$recibo])) {
+        $efecto = $recibo;
+      } else {
+        while (isset($efectosUsados[$siguienteEfectoLibre])) {
+          $siguienteEfectoLibre++;
+        }
+        $efecto = $siguienteEfectoLibre;
+        $siguienteEfectoLibre++;
+      }
+      $efectosUsados[$efecto] = true;
+
+      if ($this->existeEfectoCobro($ctb, $serie, $numero, $efecto)) {
+        continue;
+      }
+
       $insert->execute([
         'serie' => $serie,
         'numero' => $numero,
-        'efecto' => (int) $row['Recibo'],
+        'efecto' => $efecto,
         'cliente' => $cuentaCliente,
         'formaPago' => mb_substr(trim((string) ($f['Fpago'] ?? '')), 0, 3),
         'fecha' => date('Y-m-d H:i:s', strtotime((string) $f['Fecha'])),
@@ -435,7 +458,7 @@ final class TraspasoContableService
         'iban' => mb_substr(trim((string) ($f['IBAN'] ?? '')), 0, 34),
       ]);
     }
-    return count($rows);
+    return count($efectosUsados);
   }
 
   /** @param array<string, mixed> $f */
@@ -447,25 +470,31 @@ final class TraspasoContableService
     array $f
   ): void {
     $fecha = (string) $f['Fecha'];
-    $ctb->prepare(
-      "INSERT INTO AsientosCab (Serie, UltNum, Fecha, Periodo, Ejercicio, Tipo)
-       VALUES (:serie, :numero, CONVERT(datetime, :fecha, 120), :periodo, :ejercicio, 'N')"
-    )->execute([
-      'serie' => $serie,
-      'numero' => $numero,
-      'fecha' => date('Y-m-d', strtotime($fecha)) . ' 00:00:00',
-      'periodo' => (int) date('n', strtotime($fecha)),
-      'ejercicio' => (int) date('Y', strtotime($fecha)),
-    ]);
+    if (!$this->existeAsiento($ctb, $serie, $numero)) {
+      $ctb->prepare(
+        "INSERT INTO AsientosCab (Serie, UltNum, Fecha, Periodo, Ejercicio, Tipo)
+         VALUES (:serie, :numero, CONVERT(datetime, :fecha, 120), :periodo, :ejercicio, 'N')"
+      )->execute([
+        'serie' => $serie,
+        'numero' => $numero,
+        'fecha' => date('Y-m-d', strtotime($fecha)) . ' 00:00:00',
+        'periodo' => (int) date('n', strtotime($fecha)),
+        'ejercicio' => (int) date('Y', strtotime($fecha)),
+      ]);
+    }
 
     $nombre = mb_substr(trim((string) ($f['RazonSocial'] ?? '')), 0, 200);
     $descripcionCliente = 'Fra. ' . $f['Factura'] . ' ' . date('d/m/y', strtotime($fecha));
     $retencion = round((float) ($f['ImpRetIrpf'] ?? 0), 2);
+    $centroCosteActividad = $this->centroCosteActividadCliente($f);
+    /** @var array<string, bool> */
+    $cacheDesgloseAnalitica = [];
     $lineas = [[
       'cuenta' => $cuentaCliente,
       'descripcion' => $descripcionCliente,
       'debe' => round((float) ($f['Importe'] ?? 0) - $retencion, 2),
       'haber' => 0.0,
+      'centroCoste' => '',
     ]];
 
     $impuestosPorCuenta = [];
@@ -496,7 +525,13 @@ final class TraspasoContableService
     foreach ($impuestosPorCuenta as $cuenta => $importe) {
       $cuenta = (string) $cuenta;
       $this->validarCuenta($ctb, $cuenta);
-      $lineas[] = ['cuenta' => $cuenta, 'descripcion' => $nombre, 'debe' => 0.0, 'haber' => $importe];
+      $lineas[] = [
+        'cuenta' => $cuenta,
+        'descripcion' => $nombre,
+        'debe' => 0.0,
+        'haber' => $importe,
+        'centroCoste' => '',
+      ];
     }
 
     if (abs($retencion) >= 0.005) {
@@ -510,13 +545,26 @@ final class TraspasoContableService
         'descripcion' => $nombre,
         'debe' => $retencion,
         'haber' => 0.0,
+        'centroCoste' => '',
       ];
     }
 
     foreach ($this->basesPorCuenta($f, round($baseTotal, 2)) as $cuenta => $importe) {
       $cuenta = (string) $cuenta;
       $this->validarCuenta($ctb, $cuenta);
-      $lineas[] = ['cuenta' => $cuenta, 'descripcion' => $nombre, 'debe' => 0.0, 'haber' => $importe];
+      $centroCosteLinea = '';
+      if ($centroCosteActividad !== ''
+        && $this->cuentaLlevaCentroCoste($ctb, $cuenta, $cacheDesgloseAnalitica)
+      ) {
+        $centroCosteLinea = $centroCosteActividad;
+      }
+      $lineas[] = [
+        'cuenta' => $cuenta,
+        'descripcion' => $nombre,
+        'debe' => 0.0,
+        'haber' => $importe,
+        'centroCoste' => $centroCosteLinea,
+      ];
     }
 
     $debe = round(array_sum(array_column($lineas, 'debe')), 2);
@@ -528,24 +576,48 @@ final class TraspasoContableService
       );
     }
 
-    $insert = $ctb->prepare(
-      'INSERT INTO AsientosLin (
-         Serie, UltNum, Cuenta, DescripcionAsiento, ReferenciaAsiento,
-         ImpDebe, ImpHaber, Casado, UltNumEfecto, Efecto
-       ) VALUES (
-         :serie, :numero, :cuenta, :descripcion, \'Fra.Dif\',
-         :debe, :haber, 0, 0, 0
-       )'
-    );
+    $numLin = $this->maxNumLinAsiento($ctb, $serie, $numero);
+    if ($numLin > 0) {
+      return;
+    }
+
+    $conCentroCoste = $this->asientosLinTieneCentroCoste($ctb);
+    if ($conCentroCoste) {
+      $insert = $ctb->prepare(
+        'INSERT INTO AsientosLin (
+           Serie, UltNum, NumLin, Cuenta, DescripcionAsiento, ReferenciaAsiento,
+           ImpDebe, ImpHaber, Casado, UltNumEfecto, Efecto, CentroCoste
+         ) VALUES (
+           :serie, :numero, :numLin, :cuenta, :descripcion, \'Fra.Dif\',
+           :debe, :haber, 0, 0, 0, :centroCoste
+         )'
+      );
+    } else {
+      $insert = $ctb->prepare(
+        'INSERT INTO AsientosLin (
+           Serie, UltNum, NumLin, Cuenta, DescripcionAsiento, ReferenciaAsiento,
+           ImpDebe, ImpHaber, Casado, UltNumEfecto, Efecto
+         ) VALUES (
+           :serie, :numero, :numLin, :cuenta, :descripcion, \'Fra.Dif\',
+           :debe, :haber, 0, 0, 0
+         )'
+      );
+    }
     foreach ($lineas as $linea) {
-      $insert->execute([
+      $numLin++;
+      $params = [
         'serie' => $serie,
         'numero' => $numero,
+        'numLin' => $numLin,
         'cuenta' => $linea['cuenta'],
         'descripcion' => mb_substr($linea['descripcion'], 0, 200),
         'debe' => $linea['debe'],
         'haber' => $linea['haber'],
-      ]);
+      ];
+      if ($conCentroCoste) {
+        $params['centroCoste'] = mb_substr(trim((string) ($linea['centroCoste'] ?? '')), 0, 10);
+      }
+      $insert->execute($params);
     }
   }
 
@@ -642,6 +714,63 @@ final class TraspasoContableService
     }
   }
 
+  /** @param array<string, mixed> $factura */
+  private function centroCosteActividadCliente(array $factura): string
+  {
+    if (!array_key_exists('Actividad', $factura)) {
+      return '';
+    }
+    $codigoActividad = (int) ($factura['Actividad'] ?? 0);
+    $stmt = $this->gestion->prepare(
+      'SELECT CodigoCentroCoste FROM Actividades WHERE Codigo = :codigo'
+    );
+    $stmt->execute(['codigo' => $codigoActividad]);
+    $valor = $stmt->fetchColumn();
+    if ($valor === false) {
+      return '';
+    }
+
+    return mb_substr(trim((string) $valor), 0, 10);
+  }
+
+  /** @param array<string, bool> $cache */
+  private function cuentaLlevaCentroCoste(PDO $ctb, string $cuenta, array &$cache): bool
+  {
+    if (isset($cache[$cuenta])) {
+      return $cache[$cuenta];
+    }
+    $stmt = $ctb->prepare('SELECT DesgloseAnalitica FROM Cuentas WHERE Codigo = :cuenta');
+    $stmt->execute(['cuenta' => $cuenta]);
+    $valor = $stmt->fetchColumn();
+    $cache[$cuenta] = $valor !== false && !empty($valor);
+
+    return $cache[$cuenta];
+  }
+
+  private function asientosLinTieneCentroCoste(PDO $ctb): bool
+  {
+    if (self::$asientosLinTieneCentroCoste !== null) {
+      return self::$asientosLinTieneCentroCoste;
+    }
+    if ($ctb->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
+      $stmt = $ctb->prepare(
+        'SELECT 1 FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = \'AsientosLin\'
+           AND COLUMN_NAME = \'CentroCoste\''
+      );
+      $stmt->execute();
+      self::$asientosLinTieneCentroCoste = (bool) $stmt->fetchColumn();
+    } else {
+      $stmt = $ctb->query(
+        "SELECT CASE WHEN COL_LENGTH('dbo.AsientosLin', 'CentroCoste') IS NOT NULL THEN 1 ELSE 0 END"
+      );
+      self::$asientosLinTieneCentroCoste = (bool) ($stmt ? $stmt->fetchColumn() : 0);
+    }
+
+    return self::$asientosLinTieneCentroCoste;
+  }
+
   private function marcarTraspasada(
     string $empresa,
     string $tipo,
@@ -676,6 +805,24 @@ final class TraspasoContableService
   private function contarEfectos(PDO $ctb, string $serie, int $numero): int
   {
     $stmt = $ctb->prepare('SELECT COUNT(*) FROM EfectosCobro WHERE Serie=:serie AND UltNum=:numero');
+    $stmt->execute(['serie' => $serie, 'numero' => $numero]);
+    return (int) $stmt->fetchColumn();
+  }
+
+  private function existeEfectoCobro(PDO $ctb, string $serie, int $numero, int $efecto): bool
+  {
+    $stmt = $ctb->prepare(
+      'SELECT 1 FROM EfectosCobro WHERE Serie=:serie AND UltNum=:numero AND Efecto=:efecto'
+    );
+    $stmt->execute(['serie' => $serie, 'numero' => $numero, 'efecto' => $efecto]);
+    return $stmt->fetchColumn() !== false;
+  }
+
+  private function maxNumLinAsiento(PDO $ctb, string $serie, int $numero): int
+  {
+    $stmt = $ctb->prepare(
+      'SELECT COALESCE(MAX(NumLin), 0) FROM AsientosLin WHERE Serie=:serie AND UltNum=:numero'
+    );
     $stmt->execute(['serie' => $serie, 'numero' => $numero]);
     return (int) $stmt->fetchColumn();
   }

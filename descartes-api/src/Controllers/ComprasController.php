@@ -10,6 +10,8 @@ use Descartes\Api\Services\Compras\AlbaranCompraConsultaService;
 use InvalidArgumentException;
 use Descartes\Api\Services\Compras\AlbaranCompraConversionVentaService;
 use Descartes\Api\Services\Compras\AlbaranCompraEscrituraService;
+use Descartes\Api\Services\Compras\AlbaranCompraImportService;
+use Descartes\Api\Services\Compras\AlbaranCompraPdfImportService;
 use Descartes\Api\Services\Compras\FacturaCompraConsultaService;
 use Descartes\Api\Services\Compras\PedidoProveedorConsultaService;
 use Descartes\Api\Services\Compras\PedidoProveedorEscrituraService;
@@ -31,6 +33,8 @@ final class ComprasController
   private PedidoProveedorRecepcionService $recepcion;
   private FacturaCompraConsultaService $facturas;
   private AbcComprasService $abcCompras;
+  private AlbaranCompraImportService $importAlbaran;
+  private AlbaranCompraPdfImportService $importPdf;
 
   public function __construct(
     AlbaranCompraConsultaService $albaranes,
@@ -40,7 +44,9 @@ final class ComprasController
     PedidoProveedorEscrituraService $pedidosEscritura,
     PedidoProveedorRecepcionService $recepcion,
     FacturaCompraConsultaService $facturas,
-    AbcComprasService $abcCompras
+    AbcComprasService $abcCompras,
+    AlbaranCompraImportService $importAlbaran,
+    AlbaranCompraPdfImportService $importPdf
   ) {
     $this->albaranes = $albaranes;
     $this->escritura = $escritura;
@@ -50,6 +56,8 @@ final class ComprasController
     $this->recepcion = $recepcion;
     $this->facturas = $facturas;
     $this->abcCompras = $abcCompras;
+    $this->importAlbaran = $importAlbaran;
+    $this->importPdf = $importPdf;
   }
 
   public function ping(Request $request, Response $response): Response
@@ -95,6 +103,28 @@ final class ComprasController
         return ErrorResponse::json($response, 404, 'Albarán de compra no encontrado', 'NO_ENCONTRADO');
       }
       return $this->json($response, 200, $item);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function previewImportAlbaran(Request $request, Response $response): Response
+  {
+    try {
+      return $this->json($response, 200, $this->importAlbaran->previewFilas($this->body($request)));
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function previewImportAlbaranPdf(Request $request, Response $response): Response
+  {
+    try {
+      return $this->json($response, 200, $this->importPdf->previewPdf($this->body($request)));
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
     } catch (\Throwable $e) {
       return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
     }

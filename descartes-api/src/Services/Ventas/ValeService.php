@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Descartes\Api\Services\Ventas;
 
 use Descartes\Api\Database\SqlPagination;
+use Descartes\Api\Services\Listados\ListadosFiltrosSql;
 use PDO;
 
 final class ValeService
@@ -22,7 +23,8 @@ final class ValeService
     $page = max(1, (int) ($query['page'] ?? 1));
     $pageSize = min(500, max(1, (int) ($query['pageSize'] ?? 50)));
     $offset = ($page - 1) * $pageSize;
-    $estado = strtolower((string) ($query['estado'] ?? 'todos'));
+    $estado = strtolower((string) ($query['estado'] ?? 'pendientes'));
+    $alcance = strtolower(trim((string) ($query['alcance'] ?? 'liquidacion')));
 
     $where = ['1=1'];
     $params = [];
@@ -31,14 +33,29 @@ final class ValeService
     } elseif ($estado === 'liquidados') {
       $where[] = 'v.Liquidado = 1';
     }
+    if ($alcance === 'liquidacion') {
+      $where[] = ValesTipoLegacy::sqlAlcanceLiquidacion('v');
+    } elseif ($alcance === 'caja') {
+      $where[] = ValesTipoLegacy::sqlAlcanceCaja('v');
+    }
+    if (!empty($query['tipo'])) {
+      $tipoF = strtoupper(substr(trim((string) $query['tipo']), 0, 1));
+      $where[] = 'RTRIM(ISNULL(v.Tipo, \'\')) = :tipoFiltro';
+      $params['tipoFiltro'] = $tipoF;
+    }
     if (!empty($query['cliente'])) {
       $where[] = 'v.Cliente LIKE :cliente';
       $params['cliente'] = '%' . $query['cliente'] . '%';
     }
     if (!empty($query['empresa'])) {
       $where[] = 'v.Empresa = :empresa';
-      $params['empresa'] = $query['empresa'];
+      $params['empresa'] = trim((string) $query['empresa']);
     }
+    if (!empty($query['formaPago'])) {
+      $where[] = 'LTRIM(RTRIM(ISNULL(v.FormaPago, \'\'))) = :formaPago';
+      $params['formaPago'] = trim((string) $query['formaPago']);
+    }
+    ListadosFiltrosSql::filtroRangoFecha($where, $params, 'v.Fecha', $query, 'fechaDesde', 'fechaHasta', 'vale_f');
 
     $sqlWhere = implode(' AND ', $where);
     $countStmt = $this->pdo->prepare("SELECT COUNT(*) FROM Vales v WHERE {$sqlWhere}");
@@ -46,10 +63,15 @@ final class ValeService
     $total = (int) $countStmt->fetchColumn();
 
     $innerSql = "SELECT v.Empresa, v.Codigo, v.Cliente, v.Importe, v.Fecha, v.FechaCaducidad,
-                   v.Liquidado, v.FechaLiquidacion, v.TipoLiquidacion,
+                   v.Liquidado, v.FechaLiquidacion, v.TipoLiquidacion, v.FormaPago,
+                   RTRIM(ISNULL(v.Tipo, '')) AS Tipo,
                    RTRIM(ISNULL(v.TipoVale, 'REGALO')) AS TipoVale,
                    ISNULL(v.ImporteOriginal, v.Importe) AS ImporteOriginal,
-                   ISNULL(v.SaldoPendiente, CASE WHEN v.Liquidado = 1 THEN 0 ELSE v.Importe END) AS SaldoPendiente
+                   ISNULL(v.SaldoPendiente, CASE WHEN v.Liquidado = 1 THEN 0 ELSE v.Importe END) AS SaldoPendiente,
+                   ISNULL(v.Factura, 0) AS Factura,
+                   RTRIM(ISNULL(v.FacturaTipo, '')) AS FacturaTipo,
+                   ISNULL(v.Albaran, 0) AS Albaran,
+                   RTRIM(ISNULL(v.MotivoOperador, '')) AS MotivoOperador
             FROM Vales v
             WHERE {$sqlWhere}";
     $sql = SqlPagination::wrap($innerSql, 'v.Fecha DESC, v.Codigo DESC', $offset, $pageSize);
@@ -94,6 +116,10 @@ final class ValeService
     if (!in_array($tipoVale, ['REGALO', 'FIDELIZACION', 'DEVOLUCION'], true)) {
       throw new \InvalidArgumentException('tipoVale debe ser REGALO, FIDELIZACION o DEVOLUCION');
     }
+    $tipoLegacy = strtoupper(substr(trim((string) ($body['tipo'] ?? '')), 0, 1));
+    if ($tipoLegacy === '') {
+      $tipoLegacy = ValesTipoLegacy::desdeTipoVale($tipoVale);
+    }
 
     $texto = static function ($v, int $max): ?string {
       $s = trim((string) ($v ?? ''));
@@ -102,12 +128,12 @@ final class ValeService
     $sesion = (int) ($body['sesion'] ?? 0);
 
     $sql = 'INSERT INTO Vales (
-              Empresa, Codigo, Numero, Liquidado, Fecha, Importe, Cliente, FormaPago,
+              Empresa, Codigo, Tipo, Numero, Liquidado, Fecha, Importe, Cliente, FormaPago,
               FechaCaducidad, TrasModem, TipoVale, ImporteOriginal, SaldoPendiente,
               Puesto, Sesion, Cajero, Motivo, EmpresaOrigen
             )
             VALUES (
-              :empresa, :codigo, :numero, 0, GETDATE(), :importe, :cliente, :formaPago,
+              :empresa, :codigo, :tipo, :numero, 0, GETDATE(), :importe, :cliente, :formaPago,
               CONVERT(datetime, :fechaCad, 120), 0, :tipoVale, :importeOriginal, :saldoPendiente,
               :puesto, :sesion, :cajero, :motivo, :empresaOrigen
             )';
@@ -115,6 +141,7 @@ final class ValeService
     $stmt->execute([
       'empresa' => $empresa,
       'codigo' => $codigo,
+      'tipo' => $tipoLegacy,
       'numero' => $codigo,
       'importe' => $importe,
       'cliente' => $cliente,
@@ -136,6 +163,71 @@ final class ValeService
   /** @param array<string, mixed> $body */
   public function liquidar(string $empresa, int $codigo, array $body): array
   {
+    return $this->liquidarInterno($empresa, $codigo, $body);
+  }
+
+  /**
+   * @param array<int, array{empresa: string, codigo: int|string}> $items
+   * @param array<string, mixed> $body
+   *
+   * @return array{liquidados: list<array<string, mixed>>, errores: list<array{empresa: string, codigo: int, message: string}>}
+   */
+  public function liquidarLote(array $body): array
+  {
+    $items = $body['items'] ?? [];
+    if (!is_array($items) || $items === []) {
+      throw new \InvalidArgumentException('Debe indicar al menos un vale');
+    }
+    $motivo = trim((string) ($body['motivoOperador'] ?? ''));
+    if ($motivo === '') {
+      throw new \InvalidArgumentException('El motivo del operador es obligatorio');
+    }
+    $motivo = mb_substr($motivo, 0, 30);
+
+    $liquidados = [];
+    $errores = [];
+    $this->pdo->beginTransaction();
+    try {
+      foreach ($items as $item) {
+        if (!is_array($item)) {
+          continue;
+        }
+        $empresa = trim((string) ($item['empresa'] ?? ''));
+        $codigo = (int) ($item['codigo'] ?? 0);
+        if ($empresa === '' || $codigo <= 0) {
+          continue;
+        }
+        try {
+          $liquidados[] = $this->liquidarInterno($empresa, $codigo, array_merge($body, [
+            'motivoOperador' => $motivo,
+            'tipoLiquidacion' => $body['tipoLiquidacion'] ?? 'C',
+          ]));
+        } catch (\Throwable $e) {
+          $errores[] = [
+            'empresa' => $empresa,
+            'codigo' => $codigo,
+            'message' => $e->getMessage(),
+          ];
+        }
+      }
+      if ($liquidados === [] && $errores !== []) {
+        $this->pdo->rollBack();
+        throw new \RuntimeException($errores[0]['message'], 409);
+      }
+      $this->pdo->commit();
+    } catch (\Throwable $e) {
+      if ($this->pdo->inTransaction()) {
+        $this->pdo->rollBack();
+      }
+      throw $e;
+    }
+
+    return ['liquidados' => $liquidados, 'errores' => $errores];
+  }
+
+  /** @param array<string, mixed> $body */
+  private function liquidarInterno(string $empresa, int $codigo, array $body): array
+  {
     $vale = $this->obtenerRaw($empresa, $codigo);
     if ($vale === null) {
       throw new \RuntimeException('Vale no encontrado', 404);
@@ -149,11 +241,13 @@ final class ValeService
       : date('Y-m-d');
     $tipoLiq = isset($body['tipoLiquidacion'])
       ? substr(trim((string) $body['tipoLiquidacion']), 0, 1)
-      : '';
-
+      : 'C';
     if ($tipoLiq === '') {
-      throw new \InvalidArgumentException('tipoLiquidacion es obligatorio');
+      $tipoLiq = 'C';
     }
+    $motivoOp = isset($body['motivoOperador'])
+      ? mb_substr(trim((string) $body['motivoOperador']), 0, 30)
+      : null;
 
     $caducidad = $vale['FechaCaducidad'] ?? null;
     if ($caducidad !== null && $caducidad !== '') {
@@ -165,12 +259,14 @@ final class ValeService
 
     $upd = $this->pdo->prepare(
       'UPDATE Vales SET Liquidado = 1, SaldoPendiente = 0,
-              FechaLiquidacion = CONVERT(datetime, :fecha, 120), TipoLiquidacion = :tipo
+              FechaLiquidacion = CONVERT(datetime, :fecha, 120), TipoLiquidacion = :tipo,
+              MotivoOperador = COALESCE(:motivo, MotivoOperador)
        WHERE Empresa = :empresa AND Codigo = :codigo AND Liquidado = 0'
     );
     $upd->execute([
       'fecha' => $fechaLiq,
       'tipo' => $tipoLiq,
+      'motivo' => $motivoOp,
       'empresa' => $empresa,
       'codigo' => $codigo,
     ]);
@@ -179,6 +275,31 @@ final class ValeService
     }
 
     return $this->obtener($empresa, $codigo);
+  }
+
+  public function vincularValeDocumento(
+    string $empresaVale,
+    int $codigoVale,
+    string $empresaVenta,
+    string $facturaTipo,
+    int $factura,
+    int $albaran
+  ): void {
+    if ($codigoVale <= 0 || $factura <= 0) {
+      return;
+    }
+    $ft = substr(trim($facturaTipo), 0, 3);
+    $this->pdo->prepare(
+      'UPDATE Vales SET Factura = :factura, FacturaTipo = :ft, Albaran = :albaran, EmpresaF = :ef
+       WHERE RTRIM(Empresa) = :e AND Codigo = :codigo'
+    )->execute([
+      'factura' => $factura,
+      'ft' => $ft,
+      'albaran' => $albaran,
+      'ef' => substr(trim($empresaVenta), 0, 3),
+      'e' => trim($empresaVale),
+      'codigo' => $codigoVale,
+    ]);
   }
 
   /**
@@ -193,13 +314,14 @@ final class ValeService
     if ($empresa === '' || $cliente === '') {
       throw new \InvalidArgumentException('empresa y cliente son obligatorios');
     }
+    $m = ValesTipoLegacy::FIDELIZACION;
     $lock = $bloquear ? ' WITH (UPDLOCK, HOLDLOCK)' : '';
     $st = $this->pdo->prepare(
       "SELECT RTRIM(Empresa) AS Empresa, Codigo,
               ISNULL(SaldoPendiente, Importe) AS SaldoPendiente, FechaCaducidad
        FROM Vales{$lock}
        WHERE RTRIM(Cliente) = :c
-         AND RTRIM(ISNULL(TipoVale, 'REGALO')) = 'FIDELIZACION'
+         AND (RTRIM(ISNULL(Tipo, '')) = '{$m}' OR RTRIM(ISNULL(TipoVale, 'REGALO')) = 'FIDELIZACION')
          AND ISNULL(Liquidado, 0) = 0
          AND ISNULL(SaldoPendiente, Importe) > 0
          AND (FechaCaducidad IS NULL OR CONVERT(date, FechaCaducidad) >= CONVERT(date, GETDATE()))
@@ -224,8 +346,6 @@ final class ValeService
   }
 
   /**
-   * Consume saldo FIFO. Debe ejecutarse dentro de la transacción de cierre.
-   *
    * @return array{aplicado: float, saldoRestante: float, consumos: list<array<string, mixed>>}
    */
   public function consumirFidelizacion(
@@ -297,20 +417,20 @@ final class ValeService
     ];
   }
 
-  /** Euros de vale de fidelización ya consumidos en una venta. */
   public function importeFidelizacionConsumido(string $empresa, int $albaran): float
   {
     if ($albaran <= 0) {
       return 0.0;
     }
+    $m = ValesTipoLegacy::FIDELIZACION;
     try {
       $st = $this->pdo->prepare(
-        'SELECT ISNULL(SUM(c.Importe), 0)
+        "SELECT ISNULL(SUM(c.Importe), 0)
          FROM ValeConsumos c
          INNER JOIN Vales v ON v.Codigo = c.ValeCodigo AND RTRIM(v.Empresa) = RTRIM(c.Empresa)
          WHERE RTRIM(c.EmpresaVenta) = :e
            AND c.Albaran = :a
-           AND RTRIM(ISNULL(v.TipoVale, \'\')) = \'FIDELIZACION\''
+           AND (RTRIM(ISNULL(v.Tipo, '')) = '{$m}' OR RTRIM(ISNULL(v.TipoVale, '')) = 'FIDELIZACION')"
       );
       $st->execute(['e' => trim($empresa), 'a' => $albaran]);
 
@@ -337,32 +457,26 @@ final class ValeService
     }
   }
 
-  /**
-   * Vale de devolución pendiente, para mostrarlo antes de cobrar.
-   *
-   * @return array{empresa: string, codigo: int, cliente: string, saldo: float, tipoVale: string}
-   */
+  /** @return array{empresa: string, codigo: int, cliente: string, saldo: float, tipo: string, tipoVale: string} */
   public function consultarParaCobro(string $empresa, int $codigo): array
   {
-    $row = $this->filaDevolucionPendiente($empresa, $codigo, false);
+    $row = $this->filaCanjePendiente($empresa, $codigo, false);
     if ($row === null) {
       throw new \RuntimeException('Vale no encontrado, caducado o ya usado', 404);
     }
 
-    return $this->resumenDevolucion($row);
+    return $this->resumenCanje($row);
   }
 
   /**
-   * Descuenta el vale de la venta. Si sobra saldo, el vale usado se cierra
-   * y se emite otro con la diferencia. Debe ir dentro de la transacción de cierre.
+   * @param array{puesto?: string, sesion?: int, cajero?: string, motivo?: string, empresaOrigen?: string, fechaCaducidad?: string|null} $origen
    *
    * @return array{
    *   aplicado: float,
    *   codigo: int,
+   *   empresaVale: string,
    *   valeResto: ?array{empresa: string, codigo: int, importe: float, cliente: string}
    * }
-   *
-   * @param array{puesto?: string, sesion?: int, cajero?: string, motivo?: string, empresaOrigen?: string} $origen
    */
   public function aplicarPorCodigo(
     string $empresaVenta,
@@ -375,7 +489,7 @@ final class ValeService
     if (!$this->pdo->inTransaction()) {
       throw new \LogicException('El uso del vale requiere una transacción activa');
     }
-    $row = $this->filaDevolucionPendiente($empresaVenta, $codigo, true);
+    $row = $this->filaCanjePendiente($empresaVenta, $codigo, true);
     if ($row === null) {
       throw new \InvalidArgumentException('Vale no encontrado, caducado o ya usado');
     }
@@ -389,6 +503,10 @@ final class ValeService
     $cliente = trim((string) ($row['Cliente'] ?? ''));
     if ($cliente === '') {
       $cliente = 'ZZZZZZZZZ';
+    }
+    $tipoLegacy = strtoupper(trim((string) ($row['Tipo'] ?? '')));
+    if ($tipoLegacy === '') {
+      $tipoLegacy = ValesTipoLegacy::desdeTipoVale(trim((string) ($row['TipoVale'] ?? 'REGALO')));
     }
 
     $upd = $this->pdo->prepare(
@@ -421,11 +539,14 @@ final class ValeService
 
     $valeResto = null;
     if ($resto >= 0.005) {
+      $tipoValeResto = ValesTipoLegacy::tipoValeDesdeLegacy($tipoLegacy);
       $nuevo = $this->emitir(array_merge($origen, [
         'empresa' => $empresaVale,
         'cliente' => $cliente,
         'importe' => $resto,
-        'tipoVale' => 'DEVOLUCION',
+        'tipo' => $tipoLegacy,
+        'tipoVale' => $tipoValeResto,
+        'fechaCaducidad' => $row['FechaCaducidad'] ?? ($origen['fechaCaducidad'] ?? null),
       ]));
       $valeResto = [
         'empresa' => (string) ($nuevo['empresa'] ?? $empresaVale),
@@ -438,28 +559,29 @@ final class ValeService
     return [
       'aplicado' => $aplicado,
       'codigo' => (int) $row['Codigo'],
+      'empresaVale' => $empresaVale,
       'valeResto' => $valeResto,
     ];
   }
 
-  /**
-   * @return array<string, mixed>|null
-   */
-  private function filaDevolucionPendiente(string $empresa, int $codigo, bool $bloquear): ?array
+  /** @return array<string, mixed>|null */
+  private function filaCanjePendiente(string $empresa, int $codigo, bool $bloquear): ?array
   {
     if ($codigo <= 0) {
       return null;
     }
     $lock = $bloquear ? ' WITH (UPDLOCK, HOLDLOCK)' : '';
+    $canjeSql = ValesTipoLegacy::sqlCanjePorCodigo();
     $st = $this->pdo->prepare(
       "SELECT TOP 1 RTRIM(Empresa) AS Empresa, Codigo, RTRIM(Cliente) AS Cliente,
               ISNULL(SaldoPendiente, Importe) AS Saldo, FechaCaducidad,
+              RTRIM(ISNULL(Tipo, '')) AS Tipo,
               RTRIM(ISNULL(TipoVale, 'REGALO')) AS TipoVale
        FROM Vales{$lock}
        WHERE Codigo = :c
          AND ISNULL(Liquidado, 0) = 0
-         AND RTRIM(ISNULL(TipoVale, 'REGALO')) = 'DEVOLUCION'
          AND ISNULL(SaldoPendiente, Importe) > 0
+         AND {$canjeSql}
        ORDER BY CASE WHEN RTRIM(Empresa) = :e THEN 0 ELSE 1 END, Empresa"
     );
     $st->execute(['c' => $codigo, 'e' => trim($empresa)]);
@@ -479,14 +601,20 @@ final class ValeService
   }
 
   /** @param array<string, mixed> $row */
-  private function resumenDevolucion(array $row): array
+  private function resumenCanje(array $row): array
   {
+    $tipo = strtoupper(trim((string) ($row['Tipo'] ?? '')));
+    if ($tipo === '') {
+      $tipo = ValesTipoLegacy::desdeTipoVale(trim((string) ($row['TipoVale'] ?? 'REGALO')));
+    }
+
     return [
       'empresa' => trim((string) ($row['Empresa'] ?? '')),
       'codigo' => (int) ($row['Codigo'] ?? 0),
       'cliente' => trim((string) ($row['Cliente'] ?? '')),
       'saldo' => round((float) ($row['Saldo'] ?? 0), 2),
-      'tipoVale' => trim((string) ($row['TipoVale'] ?? 'DEVOLUCION')),
+      'tipo' => $tipo,
+      'tipoVale' => trim((string) ($row['TipoVale'] ?? ValesTipoLegacy::tipoValeDesdeLegacy($tipo))),
     ];
   }
 
@@ -503,9 +631,15 @@ final class ValeService
   {
     $stmt = $this->pdo->prepare(
       'SELECT Empresa, Codigo, Cliente, Importe, Fecha, FechaCaducidad, Liquidado, FechaLiquidacion, TipoLiquidacion,
+              RTRIM(ISNULL(Tipo, \'\')) AS Tipo,
               RTRIM(ISNULL(TipoVale, \'REGALO\')) AS TipoVale,
               ISNULL(ImporteOriginal, Importe) AS ImporteOriginal,
-              ISNULL(SaldoPendiente, CASE WHEN Liquidado = 1 THEN 0 ELSE Importe END) AS SaldoPendiente
+              ISNULL(SaldoPendiente, CASE WHEN Liquidado = 1 THEN 0 ELSE Importe END) AS SaldoPendiente,
+              ISNULL(Factura, 0) AS Factura,
+              RTRIM(ISNULL(FacturaTipo, \'\')) AS FacturaTipo,
+              ISNULL(Albaran, 0) AS Albaran,
+              RTRIM(ISNULL(MotivoOperador, \'\')) AS MotivoOperador,
+              RTRIM(ISNULL(FormaPago, \'\')) AS FormaPago
        FROM Vales WHERE Empresa = :empresa AND Codigo = :codigo'
     );
     $stmt->execute(['empresa' => $empresa, 'codigo' => $codigo]);
@@ -532,6 +666,10 @@ final class ValeService
       $cadDay = date('Y-m-d', strtotime((string) $caducidad));
       $caducado = $hoy > $cadDay;
     }
+    $tipo = strtoupper(trim((string) ($row['Tipo'] ?? '')));
+    if ($tipo === '') {
+      $tipo = ValesTipoLegacy::desdeTipoVale(trim((string) ($row['TipoVale'] ?? 'REGALO')));
+    }
 
     return [
       'empresa' => (string) $row['Empresa'],
@@ -540,7 +678,9 @@ final class ValeService
       'importe' => (float) ($row['Importe'] ?? 0),
       'importeOriginal' => (float) ($row['ImporteOriginal'] ?? $row['Importe'] ?? 0),
       'saldoPendiente' => (float) ($row['SaldoPendiente'] ?? $row['Importe'] ?? 0),
-      'tipoVale' => trim((string) ($row['TipoVale'] ?? 'REGALO')),
+      'tipo' => $tipo,
+      'tipoLabel' => ValesTipoLegacy::etiqueta($tipo),
+      'tipoVale' => trim((string) ($row['TipoVale'] ?? ValesTipoLegacy::tipoValeDesdeLegacy($tipo))),
       'fecha' => isset($row['Fecha']) && $row['Fecha'] ? date('c', strtotime((string) $row['Fecha'])) : null,
       'fechaCaducidad' => $caducidad ? date('Y-m-d', strtotime((string) $caducidad)) : null,
       'liquidado' => $liquidado,
@@ -548,6 +688,11 @@ final class ValeService
         ? date('Y-m-d', strtotime((string) $row['FechaLiquidacion']))
         : null,
       'tipoLiquidacion' => $row['TipoLiquidacion'] !== null ? trim((string) $row['TipoLiquidacion']) : null,
+      'formaPago' => isset($row['FormaPago']) ? trim((string) $row['FormaPago']) : null,
+      'motivoOperador' => isset($row['MotivoOperador']) ? trim((string) $row['MotivoOperador']) : null,
+      'factura' => (int) ($row['Factura'] ?? 0),
+      'facturaTipo' => isset($row['FacturaTipo']) ? trim((string) $row['FacturaTipo']) : null,
+      'albaran' => (int) ($row['Albaran'] ?? 0),
       'caducado' => $caducado,
     ];
   }

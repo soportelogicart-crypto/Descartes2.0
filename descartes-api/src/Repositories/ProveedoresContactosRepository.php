@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Descartes\Api\Repositories;
 
+use Descartes\Api\Database\InsertedId;
 use PDO;
 
 final class ProveedoresContactosRepository
@@ -93,7 +94,7 @@ final class ProveedoresContactosRepository
       'envioPropaganda' => !empty($data['comercial']) ? 1 : 0,
     ]);
 
-    $nroLin = (int) $stmt->fetchColumn();
+    $nroLin = InsertedId::leer($this->pdo, $stmt);
     $created = $this->findOne($codigo, self::NUM, $nroLin);
     if ($created === null) {
       throw new \RuntimeException('No se pudo leer el contacto creado');

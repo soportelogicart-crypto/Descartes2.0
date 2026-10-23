@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Descartes\Api\Services\Ventas;
 
+use Descartes\Api\Config\Database;
 use Descartes\Api\Services\Facturacion\FacturacionRetencionIrpfService;
 use Descartes\Api\Services\Facturacion\RecibosFacturaService;
 use PDO;
@@ -20,6 +21,7 @@ final class VentaEscrituraService
   private FidelizacionService $fidelizacion;
   private ValeService $vales;
   private FidelizacionValesSemestreService $fidelizacionVales;
+  private FidelizacionClubSaldoService $clubSaldo;
   private RecibosFacturaService $recibos;
   private FacturacionRetencionIrpfService $retencionIrpf;
 
@@ -30,6 +32,7 @@ final class VentaEscrituraService
     ?FidelizacionService $fidelizacion = null,
     ?ValeService $vales = null,
     ?FidelizacionValesSemestreService $fidelizacionVales = null,
+    ?FidelizacionClubSaldoService $clubSaldo = null,
     ?RecibosFacturaService $recibos = null,
     ?FacturacionRetencionIrpfService $retencionIrpf = null
   ) {
@@ -40,8 +43,24 @@ final class VentaEscrituraService
     $this->vales = $vales ?? new ValeService($pdo);
     $this->fidelizacionVales = $fidelizacionVales
       ?? new FidelizacionValesSemestreService($pdo, $this->vales);
+    $this->clubSaldo = $clubSaldo ?? new FidelizacionClubSaldoService($pdo, $this->fidelizacion);
     $this->recibos = $recibos ?? new RecibosFacturaService($pdo);
     $this->retencionIrpf = $retencionIrpf ?? new FacturacionRetencionIrpfService($pdo);
+  }
+
+  private function motorDbEsMysql(): bool
+  {
+    $cfg = Database::resolveConfig();
+    return strtolower((string) ($cfg['motor'] ?? 'sqlsrv')) === 'mysql';
+  }
+
+  private function maxNroLinVenta(string $empresa, string $tipo, int $albaran): int
+  {
+    $st = $this->pdo->prepare(
+      'SELECT ISNULL(MAX(NroLin), 0) FROM AlbaranesVentasLin WHERE Empresa = :e AND Tipo = :t AND Albaran = :a'
+    );
+    $st->execute(['e' => $empresa, 't' => $tipo, 'a' => $albaran]);
+    return (int) $st->fetchColumn();
   }
 
   public function estaBloqueado(?array $cab): bool
@@ -479,9 +498,12 @@ final class VentaEscrituraService
     $avisosFidelizacion = [];
     $resultadoValeFidelizacion = null;
     $resultadoPuntosCanje = null;
+    $resultadoClubSaldo = null;
+    $resultadoClubCierre = null;
     $puntosFidelizacion = null;
     $valeEmitido = null;
     $valeAplicado = null;
+    $clubMotorActivo = $this->clubSaldo->motorActivo($empresa);
     // Contado/ticket: forma de pago elegida (legacy Frame1/DbList2: CobroDeArqueo).
     $fpagoBody = trim((string) ($body['fpago1'] ?? ''));
     $fpago1 = $fpagoBody !== '' ? $fpagoBody : trim((string) ($this->fpagoCodigo($actual, 0)));
@@ -490,10 +512,17 @@ final class VentaEscrituraService
     }
     /** @var array{empresa: string, tipo: string, albaran: int, ticketNegativo: int, albaranTicketNegativo: int}|null $conversion */
     $conversion = null;
+    $factura = 0;
+    $facturaTipoDoc = null;
 
     $this->pdo->beginTransaction();
     try {
-      if (!$esTicketAFactura && !empty($body['aplicarValeFidelizacion']) && in_array($opcion, ['T', 'F'], true)) {
+      if (
+        !$esTicketAFactura
+        && !$clubMotorActivo
+        && !empty($body['aplicarValeFidelizacion'])
+        && in_array($opcion, ['T', 'F'], true)
+      ) {
         $clienteVale = trim((string) ($actual['cliente'] ?? ''));
         if ($clienteVale !== '' && strtoupper($clienteVale) !== 'ZZZZZZZZZ') {
           $disponible = $this->vales->fidelizacionDisponible($empresa, $clienteVale, true);
@@ -526,7 +555,56 @@ final class VentaEscrituraService
       }
 
       $resultadoPuntosCanje = null;
-      if (!$esTicketAFactura && !empty($body['aplicarPuntosFidelizacion']) && in_array($opcion, ['T', 'A', 'F'], true)) {
+      if (
+        !$esTicketAFactura
+        && $clubMotorActivo
+        && in_array($opcion, ['T', 'A', 'F'], true)
+        && trim((string) ($actual['cliente'] ?? '')) !== ''
+      ) {
+        $previewClub = $this->clubSaldo->previewTicket($empresa, $actual, $body);
+        if (
+          !empty($previewClub['aplica'])
+          && empty($previewClub['modoIncompatible'])
+        ) {
+          $dtoClub = round(
+            (float) ($previewClub['canjeEuros'] ?? 0) + (float) ($previewClub['valeEuros'] ?? 0),
+            2
+          );
+          if ($dtoClub > 0.001) {
+            $dtoYa = (float) ($actual['descuentoFidelizacion'] ?? 0);
+            $totalesClub = $this->calcularTotales((array) ($actual['lineas'] ?? []), [
+              'empresa' => $empresa,
+              'cliente' => trim((string) ($actual['cliente'] ?? '')),
+              'pjeIva1' => $actual['pjeIva1'] ?? 0,
+              'importeDtoFidelizacion' => round($dtoYa + $dtoClub, 2),
+            ]);
+            $this->actualizarTotalesFidelizacion($empresa, $tipoActual, $albaran, $totalesClub);
+            $actual = $this->consulta->obtenerFicha($empresa, $tipoActual, $albaran) ?? $actual;
+            $importe = (float) ($actual['importe'] ?? 0);
+          }
+        }
+        $resultadoClubSaldo = $this->clubSaldo->aplicarEnCobro(
+          $empresa,
+          $tipoActual,
+          $albaran,
+          $actual,
+          $body
+        );
+        if (!empty($previewClub['modoIncompatible'])) {
+          $resultadoClubSaldo = array_merge($resultadoClubSaldo, [
+            'incompatible' => true,
+            'motivo' => $previewClub['motivoIncompatible'] ?? null,
+          ]);
+        }
+        $actual = $this->consulta->obtenerFicha($empresa, $tipoActual, $albaran) ?? $actual;
+        $importe = (float) ($actual['importe'] ?? 0);
+      }
+      if (
+        !$esTicketAFactura
+        && !$clubMotorActivo
+        && !empty($body['aplicarPuntosFidelizacion'])
+        && in_array($opcion, ['T', 'A', 'F'], true)
+      ) {
         $clientePuntos = trim((string) ($actual['cliente'] ?? ''));
         $canje = $this->fidelizacion->canjeDisponible($empresa, $clientePuntos, $importe);
         if (!empty($canje['aplica'])) {
@@ -806,6 +884,21 @@ final class VentaEscrituraService
         }
       }
 
+      if ($clubMotorActivo && $conversion === null) {
+        $resultadoClubCierre = $this->clubSaldo->procesarAlCierre(
+          $empresa,
+          $actual,
+          $tipoActual,
+          $albaran,
+          $opcion,
+          $esTicketAFactura,
+          $body
+        );
+        if (!empty($resultadoClubCierre['avisos'])) {
+          $avisosFidelizacion = array_merge($avisosFidelizacion, $resultadoClubCierre['avisos']);
+        }
+      }
+
       if ($puntosFidelizacion === null && (int) ($resultadoFid['puntos'] ?? 0) > 0) {
         $puntosFidelizacion = [
           'compra' => (int) $resultadoFid['puntos'],
@@ -824,6 +917,21 @@ final class VentaEscrituraService
           'a' => $albaran,
         ]);
       }
+      }
+
+      if ($valeAplicado !== null && in_array($opcion, ['T', 'F'], true)) {
+        $numFactura = (int) $factura;
+        if ($numFactura > 0) {
+          $tipoDoc = $opcion === 'T' ? 'T' : (string) ($facturaTipoDoc ?? 'F');
+          $this->vales->vincularValeDocumento(
+            (string) ($valeAplicado['empresaVale'] ?? $empresa),
+            (int) ($valeAplicado['codigo'] ?? 0),
+            $empresa,
+            $tipoDoc,
+            $numFactura,
+            $albaran
+          );
+        }
       }
 
       $this->pdo->commit();
@@ -859,6 +967,12 @@ final class VentaEscrituraService
     }
     if ($puntosFidelizacion !== null) {
       $detalle['fidelizacionPuntos'] = $puntosFidelizacion;
+    }
+    if ($resultadoClubSaldo !== null) {
+      $detalle['clubSaldoCobro'] = $resultadoClubSaldo;
+    }
+    if ($resultadoClubCierre !== null && !empty($resultadoClubCierre['clubFidelizacion'])) {
+      $detalle['clubFidelizacion'] = $resultadoClubCierre['clubFidelizacion'];
     }
     return $detalle;
   }
@@ -956,14 +1070,52 @@ final class VentaEscrituraService
     if ((float) ($actual['importe'] ?? 0) <= 0) {
       throw new \InvalidArgumentException('Solo se puede pasar a factura un ticket de venta, no uno negativo');
     }
+    $lineasActual = is_array($actual['lineas'] ?? null) ? $actual['lineas'] : [];
+    $estadoAbonosActual = $this->consulta->resolverEstadoAbonos($empresa, $albaran, $lineasActual);
     $ya = $this->facturaDeTicketConvertido($empresa, $albaran);
     if ($ya !== null) {
       throw new \InvalidArgumentException("Este ticket ya se pasó a la factura {$ya}");
     }
 
+    $nroLinsAbonados = $estadoAbonosActual['nroLinsAbonados'];
+    $lineasRestantes = array_values(array_filter(
+      $lineasActual,
+      static function ($lin) use ($nroLinsAbonados): bool {
+        if (!is_array($lin)) {
+          return false;
+        }
+        $nro = (int) ($lin['nroLin'] ?? 0);
+        return $nro <= 0 || !in_array($nro, $nroLinsAbonados, true);
+      }
+    ));
+    $quedaArticulo = false;
+    foreach ($lineasRestantes as $lin) {
+      $art = strtoupper(trim((string) ($lin['articulo'] ?? '')));
+      if ($art !== '' && $art !== 'NO') {
+        $quedaArticulo = true;
+        break;
+      }
+    }
+    if (!$quedaArticulo) {
+      throw new \InvalidArgumentException('No queda ninguna línea por facturar: todas fueron abonadas');
+    }
+    $totalesRestantes = $nroLinsAbonados === []
+      ? null
+      : $this->calcularTotales($lineasRestantes, [
+        'empresa' => $empresa,
+        'cliente' => (string) ($actual['cliente'] ?? ''),
+        'pjeIva1' => $actual['pjeIva1'] ?? 0,
+      ]);
+    $importeRestante = $totalesRestantes === null
+      ? abs((float) ($actual['importe'] ?? 0))
+      : abs((float) ($totalesRestantes['importe'] ?? 0));
+
     $numeroTicket = (int) ($actual['factura'] ?? 0);
     $albaranNegativo = $this->reservarAlbaranEnTransaccion($empresa);
-    $this->copiarDocumentoVenta($empresa, $tipo, $albaran, 'A', $albaranNegativo, true);
+    $this->copiarDocumentoVenta($empresa, $tipo, $albaran, 'A', $albaranNegativo, true, $nroLinsAbonados);
+    if ($totalesRestantes !== null) {
+      $this->aplicarTotalesCopia($empresa, 'A', $albaranNegativo, $totalesRestantes, -1);
+    }
     $ticketNegativo = $this->nextContadorEmpresa($empresa, 'UltTicket');
     $notaNegativo = "Anulación del ticket T-{$numeroTicket} por paso a factura";
     $this->pdo->prepare(
@@ -989,7 +1141,7 @@ final class VentaEscrituraService
       'e' => $empresa,
       'a' => $albaranNegativo,
     ]);
-    $importeNegativo = -abs((float) ($actual['importe'] ?? 0));
+    $importeNegativo = -abs($importeRestante);
     $this->acumularArqueoTrasFinalizar(
       $empresa,
       $puesto,
@@ -1004,7 +1156,13 @@ final class VentaEscrituraService
     );
 
     $albaranFactura = $this->reservarAlbaranEnTransaccion($empresa);
-    $this->copiarDocumentoVenta($empresa, $tipo, $albaran, 'A', $albaranFactura, false);
+    $this->copiarDocumentoVenta($empresa, $tipo, $albaran, 'A', $albaranFactura, false, $nroLinsAbonados);
+    if ($totalesRestantes !== null) {
+      $this->aplicarTotalesCopia($empresa, 'A', $albaranFactura, $totalesRestantes, 1);
+    }
+    $stLineasCopia = $this->pdo->prepare('SELECT NroLin, Articulo, Cantidad, Importe FROM AlbaranesVentasLin WHERE Empresa = :e AND Tipo = \'A\' AND Albaran = :a ORDER BY NroLin');
+    $stLineasCopia->execute(['e' => $empresa, 'a' => $albaranFactura]);
+    $lineasCopia = $stLineasCopia->fetchAll(PDO::FETCH_ASSOC);
     $creada = $this->crearRegistroFactura(
       $empresa,
       'A',
@@ -1037,7 +1195,7 @@ final class VentaEscrituraService
       'e' => $empresa,
       'a' => $albaranFactura,
     ]);
-    $importeFactura = abs((float) ($actual['importe'] ?? 0));
+    $importeFactura = abs($importeRestante);
     $this->acumularArqueoTrasFinalizar(
       $empresa,
       $puesto,
@@ -1090,7 +1248,8 @@ final class VentaEscrituraService
     int $albaranOrigen,
     string $tipoDestino,
     int $albaranDestino,
-    bool $negativo
+    bool $negativo,
+    array $nroLinsExcluidos = []
   ): void {
     $signo = $negativo ? -1 : 1;
     $this->copiarFila(
@@ -1144,9 +1303,17 @@ final class VentaEscrituraService
         'ImporteFidelizacion' => [0, null],
       ]
     );
+    $whereLineas = 'Empresa = :e AND Tipo = :t AND Albaran = :a';
+    $excluidos = array_values(array_unique(array_filter(
+      array_map(static fn ($n): int => (int) $n, $nroLinsExcluidos),
+      static fn (int $n): bool => $n > 0
+    )));
+    if ($excluidos !== []) {
+      $whereLineas .= ' AND NroLin NOT IN (' . implode(',', $excluidos) . ')';
+    }
     $this->copiarFila(
       'AlbaranesVentasLin',
-      'Empresa = :e AND Tipo = :t AND Albaran = :a',
+      $whereLineas,
       ['e' => $empresa, 't' => $tipoOrigen, 'a' => $albaranOrigen],
       [
         'Tipo' => [$tipoDestino, null],
@@ -1164,6 +1331,50 @@ final class VentaEscrituraService
     } catch (\Throwable $e) {
       // La línea puede no tener la columna; la cabecera ya queda con RebajeStock = 0.
     }
+  }
+
+  /** @param array<string, mixed> $totales */
+  private function aplicarTotalesCopia(
+    string $empresa,
+    string $tipo,
+    int $albaran,
+    array $totales,
+    int $signo
+  ): void {
+    $s = $signo < 0 ? -1 : 1;
+    $bases = is_array($totales['bases'] ?? null) ? $totales['bases'] : [];
+    $pjes = is_array($totales['pjes'] ?? null) ? $totales['pjes'] : [];
+    $ivas = is_array($totales['ivas'] ?? null) ? $totales['ivas'] : [];
+    $this->pdo->prepare(
+      'UPDATE AlbaranesVentasCab SET
+         Importe = :importe, ImporteDtos = :importeDtos,
+         ImpFpago2 = 0, PagoaCuenta = 0,
+         ImporteBase1 = :b1, ImporteBase2 = :b2, ImporteBase3 = :b3, ImporteBase4 = :b4,
+         ImporteBase5 = 0, ImporteBase6 = 0,
+         PjeIva1 = :p1, PjeIva2 = :p2, PjeIva3 = :p3, PjeIva4 = :p4,
+         ImporteIva1 = :i1, ImporteIva2 = :i2, ImporteIva3 = :i3, ImporteIva4 = :i4,
+         ImporteIva5 = 0, ImporteIva6 = 0,
+         ImporteRec1 = 0, ImporteRec2 = 0, ImporteRec3 = 0, ImporteRec4 = 0, ImporteRec5 = 0, ImporteRec6 = 0
+       WHERE Empresa = :e AND Tipo = :t AND Albaran = :a'
+    )->execute([
+      'importe' => round(((float) ($totales['importe'] ?? 0)) * $s, 2),
+      'importeDtos' => round(((float) ($totales['descuento'] ?? 0)) * $s, 2),
+      'b1' => round(((float) ($bases[0] ?? 0)) * $s, 2),
+      'b2' => round(((float) ($bases[1] ?? 0)) * $s, 2),
+      'b3' => round(((float) ($bases[2] ?? 0)) * $s, 2),
+      'b4' => round(((float) ($bases[3] ?? 0)) * $s, 2),
+      'p1' => (float) ($pjes[0] ?? 0),
+      'p2' => (float) ($pjes[1] ?? 0),
+      'p3' => (float) ($pjes[2] ?? 0),
+      'p4' => (float) ($pjes[3] ?? 0),
+      'i1' => round(((float) ($ivas[0] ?? 0)) * $s, 2),
+      'i2' => round(((float) ($ivas[1] ?? 0)) * $s, 2),
+      'i3' => round(((float) ($ivas[2] ?? 0)) * $s, 2),
+      'i4' => round(((float) ($ivas[3] ?? 0)) * $s, 2),
+      'e' => $empresa,
+      't' => $tipo,
+      'a' => $albaran,
+    ]);
   }
 
   /** UltAlbaranVen dentro de la transacción de finalizar, sin abrir otra. */
@@ -1209,8 +1420,11 @@ final class VentaEscrituraService
     if (strlen($prefijo) > $limite) {
       $prefijo = substr($nota, 0, $limite);
     }
+    $texto = $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql'
+      ? "CONCAT(:prefijo, ISNULL(CAST(Observaciones AS nvarchar(4000)), N''))"
+      : ":prefijo + ISNULL(CAST(Observaciones AS nvarchar(4000)), N'')";
     $this->pdo->prepare(
-      "UPDATE AlbaranesVentasCab SET Observaciones = LEFT(:prefijo + ISNULL(CAST(Observaciones AS nvarchar(4000)), N''), {$limite})
+      "UPDATE AlbaranesVentasCab SET Observaciones = LEFT({$texto}, {$limite})
        WHERE Empresa = :e AND Tipo = :t AND Albaran = :a"
     )->execute([
       'prefijo' => $prefijo,
@@ -1244,13 +1458,26 @@ final class VentaEscrituraService
     if (!in_array($tabla, ['AlbaranesVentasCab', 'AlbaranesVentasLin'], true)) {
       throw new \InvalidArgumentException('Tabla no copiable');
     }
-    $cols = $this->pdo->query(
-      "SELECT c.name AS name, c.is_identity AS identidad, c.is_computed AS calculada, ty.name AS tipo
-       FROM sys.columns c
-       INNER JOIN sys.types ty ON c.user_type_id = ty.user_type_id
-       WHERE c.object_id = OBJECT_ID('{$tabla}')
-       ORDER BY c.column_id"
-    );
+    if ($this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
+      $cols = $this->pdo->prepare(
+        "SELECT COLUMN_NAME AS name,
+                IF(EXTRA LIKE '%auto_increment%', 1, 0) AS identidad,
+                IF(IFNULL(GENERATION_EXPRESSION, '') <> '', 1, 0) AS calculada,
+                DATA_TYPE AS tipo
+         FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :tabla
+         ORDER BY ORDINAL_POSITION"
+      );
+      $cols->execute(['tabla' => $tabla]);
+    } else {
+      $cols = $this->pdo->query(
+        "SELECT c.name AS name, c.is_identity AS identidad, c.is_computed AS calculada, ty.name AS tipo
+         FROM sys.columns c
+         INNER JOIN sys.types ty ON c.user_type_id = ty.user_type_id
+         WHERE c.object_id = OBJECT_ID('{$tabla}')
+         ORDER BY c.column_id"
+      );
+    }
     if ($cols === false) {
       throw new \RuntimeException("No se pudo leer la estructura de {$tabla}");
     }
@@ -1394,6 +1621,7 @@ final class VentaEscrituraService
         'articulo' => $art,
         'descripcion' => $lin['descripcion'] ?? null,
         'loteVenta' => $lin['loteVenta'] ?? null,
+        'loteFito' => $lin['loteFito'] ?? null,
         'cantidad' => $cantNeg,
         'precio' => $precio,
         'pjeDto' => $pjeDto,
@@ -1564,6 +1792,7 @@ final class VentaEscrituraService
 
       $this->insertarLineasAbono($empresa, 'A', $nuevoAlbaran, $seleccionadas, $albaran, $observacion);
       $this->devolverPuntosDelAbono($empresa, $origen, $albaran, $dtoAbono);
+      $this->devolverClubDelAbono($empresa, $origen, $albaran, $dtoAbono);
 
       $this->pdo->commit();
     } catch (\Throwable $e) {
@@ -1644,6 +1873,35 @@ final class VentaEscrituraService
   }
 
   /**
+   * @param array<string, mixed> $origen
+   */
+  private function devolverClubDelAbono(string $empresa, array $origen, int $albaranOrigen, float $dtoAbono): void
+  {
+    if (!$this->clubSaldo->motorActivo($empresa) || $dtoAbono < 0.005) {
+      return;
+    }
+    $tipoOrigen = strtoupper(trim((string) ($origen['tipo'] ?? 'A')));
+    $st = $this->pdo->prepare(
+      'SELECT ISNULL(ClubSaldoCanjeadoCentimos, 0) FROM AlbaranesVentasCab
+       WHERE Empresa = :e AND Tipo = :t AND Albaran = :a'
+    );
+    $st->execute(['e' => $empresa, 't' => $tipoOrigen, 'a' => $albaranOrigen]);
+    $canjeOrig = ((int) $st->fetchColumn()) / 100;
+    if ($canjeOrig < 0.005) {
+      return;
+    }
+    $dtoOrigen = round(max(0, (float) ($origen['descuentoFidelizacion'] ?? 0)), 2);
+    if ($dtoOrigen < 0.005) {
+      return;
+    }
+    $parte = $dtoAbono >= $dtoOrigen - 0.005
+      ? $canjeOrig
+      : round($canjeOrig * ($dtoAbono / $dtoOrigen), 2);
+    $cliente = trim((string) ($origen['cliente'] ?? ''));
+    $this->clubSaldo->devolverCanjeAbono($empresa, $cliente, $parte);
+  }
+
+  /**
    * Etiqueta legible del documento origen (albarán / ticket / factura contado).
    *
    * @param array<string, mixed> $doc
@@ -1676,33 +1934,49 @@ final class VentaEscrituraService
     int $albaranOrigen,
     string $observacion
   ): void {
+    $asignarNroLin = $this->motorDbEsMysql();
+    $nroLinSeq = $asignarNroLin ? $this->maxNroLinVenta($empresa, $tipo, $albaran) : 0;
+
     $sqlConOrigenCompleto = 'INSERT INTO AlbaranesVentasLin (
          Empresa, Tipo, Albaran, Articulo, Descripcion, Cantidad, Precio, PjeDto, Importe, PjeIva, PjeRec,
          RebajeStock, PrecioMedio, Plato, Cocina, PrecioMenu, PrecioAlterado, PrecioHabitacion,
-         PrecioTarifa, Ean, UnidadesPaquete, LoteVenta, AlbaranOrigenAbono, ObservacionDevolucion, NroLinOrigen
+         PrecioTarifa, Ean, UnidadesPaquete, LoteVenta, LoteFito, AlbaranOrigenAbono, ObservacionDevolucion, NroLinOrigen
        ) VALUES (
          :e, :t, :a, :articulo, :descripcion, :cantidad, :precio, :pjeDto, :importe, :pjeIva, 0,
          :rebajeStock, :precioMedio, 0, 0, 0, :precioAlterado, 0,
-         :precioTarifa, :ean, :unidadesPaquete, :loteVenta, :albaranOrigenAbono, :observacionDevolucion, :nroLinOrigen
+         :precioTarifa, :ean, :unidadesPaquete, :loteVenta, :loteFito, :albaranOrigenAbono, :observacionDevolucion, :nroLinOrigen
        )';
     $sqlConOrigen = 'INSERT INTO AlbaranesVentasLin (
          Empresa, Tipo, Albaran, Articulo, Descripcion, Cantidad, Precio, PjeDto, Importe, PjeIva, PjeRec,
          RebajeStock, PrecioMedio, Plato, Cocina, PrecioMenu, PrecioAlterado, PrecioHabitacion,
-         PrecioTarifa, Ean, UnidadesPaquete, LoteVenta, AlbaranOrigenAbono, ObservacionDevolucion
+         PrecioTarifa, Ean, UnidadesPaquete, LoteVenta, LoteFito, AlbaranOrigenAbono, ObservacionDevolucion
        ) VALUES (
          :e, :t, :a, :articulo, :descripcion, :cantidad, :precio, :pjeDto, :importe, :pjeIva, 0,
          :rebajeStock, :precioMedio, 0, 0, 0, :precioAlterado, 0,
-         :precioTarifa, :ean, :unidadesPaquete, :loteVenta, :albaranOrigenAbono, :observacionDevolucion
+         :precioTarifa, :ean, :unidadesPaquete, :loteVenta, :loteFito, :albaranOrigenAbono, :observacionDevolucion
        )';
     $sqlSinOrigen = 'INSERT INTO AlbaranesVentasLin (
          Empresa, Tipo, Albaran, Articulo, Descripcion, Cantidad, Precio, PjeDto, Importe, PjeIva, PjeRec,
          RebajeStock, PrecioMedio, Plato, Cocina, PrecioMenu, PrecioAlterado, PrecioHabitacion,
-         PrecioTarifa, Ean, UnidadesPaquete, LoteVenta
+         PrecioTarifa, Ean, UnidadesPaquete, LoteVenta, LoteFito
        ) VALUES (
          :e, :t, :a, :articulo, :descripcion, :cantidad, :precio, :pjeDto, :importe, :pjeIva, 0,
          :rebajeStock, :precioMedio, 0, 0, 0, :precioAlterado, 0,
-         :precioTarifa, :ean, :unidadesPaquete, :loteVenta
+         :precioTarifa, :ean, :unidadesPaquete, :loteVenta, :loteFito
        )';
+
+    if ($asignarNroLin) {
+      $inyectarNroLin = static function (string $sql): string {
+        return str_replace(
+          ['Albaran, Articulo', ':a, :articulo'],
+          ['Albaran, NroLin, Articulo', ':a, :nroLin, :articulo'],
+          $sql
+        );
+      };
+      $sqlConOrigenCompleto = $inyectarNroLin($sqlConOrigenCompleto);
+      $sqlConOrigen = $inyectarNroLin($sqlConOrigen);
+      $sqlSinOrigen = $inyectarNroLin($sqlSinOrigen);
+    }
 
     $modoInsercion = 'completo';
     try {
@@ -1718,6 +1992,7 @@ final class VentaEscrituraService
     }
 
     $metas = $this->metasArticulosLinea($lineas);
+    $fitos = $this->fitosArticulosLinea($lineas);
     foreach ($lineas as $lin) {
       $articulo = trim((string) ($lin['articulo'] ?? ''));
       if ($articulo === '') {
@@ -1763,6 +2038,9 @@ final class VentaEscrituraService
         'ean' => $this->blankIfEmpty($lin['ean'] ?? ($esComentario ? 'NO' : $articulo)),
         'unidadesPaquete' => $esComentario ? 0.0 : 1.0,
         'loteVenta' => $this->spaceIfEmpty($lin['loteVenta'] ?? null),
+        'loteFito' => $this->spaceIfEmpty(
+          $this->loteFitoParaPersistir($lin, $this->fitoDeLinea($fitos, $articulo))
+        ),
       ];
       if ($modoInsercion !== 'basico') {
         $params['albaranOrigenAbono'] = $albaranOrigen;
@@ -1771,6 +2049,10 @@ final class VentaEscrituraService
       if ($modoInsercion === 'completo') {
         $nroLinOrigen = (int) ($lin['nroLinOrigen'] ?? 0);
         $params['nroLinOrigen'] = $nroLinOrigen > 0 ? $nroLinOrigen : null;
+      }
+      if ($asignarNroLin) {
+        $nroLinSeq++;
+        $params['nroLin'] = $nroLinSeq;
       }
       try {
         $ins->execute($params);
@@ -1971,19 +2253,25 @@ final class VentaEscrituraService
   /** @param list<array<string, mixed>> $lineas */
   private function insertarLineas(string $empresa, string $tipo, int $albaran, array $lineas): void
   {
+    $asignarNroLin = $this->motorDbEsMysql();
+    $nroLinSeq = $asignarNroLin ? $this->maxNroLinVenta($empresa, $tipo, $albaran) : 0;
+
+    $colsNroLin = $asignarNroLin ? 'NroLin, ' : '';
+    $valsNroLin = $asignarNroLin ? ':nroLin, ' : '';
     $ins = $this->pdo->prepare(
       'INSERT INTO AlbaranesVentasLin (
-         Empresa, Tipo, Albaran, Articulo, Descripcion, Cantidad, Precio, PjeDto, Importe, PjeIva, PjeRec,
+         Empresa, Tipo, Albaran, ' . $colsNroLin . 'Articulo, Descripcion, Cantidad, Precio, PjeDto, Importe, PjeIva, PjeRec,
          RebajeStock, PrecioMedio, Plato, Cocina, PrecioMenu, PrecioAlterado, PrecioHabitacion,
-         PrecioTarifa, Ean, UnidadesPaquete, LoteVenta
+         PrecioTarifa, Ean, UnidadesPaquete, LoteVenta, LoteFito
        ) VALUES (
-         :e, :t, :a, :articulo, :descripcion, :cantidad, :precio, :pjeDto, :importe, :pjeIva, 0,
+         :e, :t, :a, ' . $valsNroLin . ':articulo, :descripcion, :cantidad, :precio, :pjeDto, :importe, :pjeIva, 0,
          0, :precioMedio, 0, 0, 0, :precioAlterado, 0,
-         :precioTarifa, :ean, :unidadesPaquete, :loteVenta
+         :precioTarifa, :ean, :unidadesPaquete, :loteVenta, :loteFito
        )'
     );
 
     $metas = $this->metasArticulosLinea($lineas);
+    $fitos = $this->fitosArticulosLinea($lineas);
     foreach ($lineas as $lin) {
       $articulo = trim((string) ($lin['articulo'] ?? ''));
       if ($articulo === '') {
@@ -2014,7 +2302,15 @@ final class VentaEscrituraService
           : (abs($precio - $precioTarifa) > 0.0001 ? 1 : 0);
         $pjeIva = (float) (($lin['pjeIva'] ?? 0) > 0 ? $lin['pjeIva'] : 21);
       }
-      $ins->execute([
+      if ($asignarNroLin) {
+        $nroLinPayload = (int) ($lin['nroLin'] ?? 0);
+        if ($nroLinPayload > 0) {
+          $nroLinSeq = $nroLinPayload;
+        } else {
+          $nroLinSeq++;
+        }
+      }
+      $params = [
         'e' => $empresa,
         't' => $tipo,
         'a' => $albaran,
@@ -2034,8 +2330,100 @@ final class VentaEscrituraService
             ? (float) $lin['unidadesPaquete'] : 1.0
         ),
         'loteVenta' => $this->spaceIfEmpty($lin['loteVenta'] ?? null),
-      ]);
+        'loteFito' => $this->spaceIfEmpty(
+          $this->loteFitoParaPersistir($lin, $this->fitoDeLinea($fitos, $articulo))
+        ),
+      ];
+      if ($asignarNroLin) {
+        $params['nroLin'] = $nroLinSeq;
+      }
+      $ins->execute($params);
     }
+  }
+
+  /**
+   * @param list<array<string, mixed>> $lineas
+   * @return array<string, array{pasaporteFitosanitario: bool, lotePasaporte: bool, registroSanitario: string}>
+   */
+  private function fitosArticulosLinea(array $lineas): array
+  {
+    $codigos = [];
+    foreach ($lineas as $lin) {
+      $articulo = trim((string) ($lin['articulo'] ?? ''));
+      if ($articulo !== '' && strtoupper($articulo) !== 'NO') {
+        $codigos[$articulo] = $articulo;
+      }
+    }
+    $map = [];
+    if ($codigos === []) {
+      return $map;
+    }
+    try {
+      foreach (array_chunk(array_keys($codigos), 400) as $chunk) {
+        $placeholders = [];
+        $params = [];
+        foreach ($chunk as $i => $codigo) {
+          $clave = 'c' . $i;
+          $placeholders[] = ':' . $clave;
+          $params[$clave] = $codigo;
+        }
+        $st = $this->pdo->prepare(
+          'SELECT Codigo, PasaporteFitosanitario, LotePasaporte, RegistroSanitario
+           FROM Articulos
+           WHERE Codigo IN (' . implode(', ', $placeholders) . ')'
+        );
+        $st->execute($params);
+        while ($row = $st->fetch(PDO::FETCH_ASSOC)) {
+          $codigo = rtrim(trim((string) ($row['Codigo'] ?? '')));
+          if ($codigo === '') {
+            continue;
+          }
+          $map[$codigo] = [
+            'pasaporteFitosanitario' => !empty($row['PasaporteFitosanitario']),
+            'lotePasaporte' => !empty($row['LotePasaporte']),
+            'registroSanitario' => trim((string) ($row['RegistroSanitario'] ?? '')),
+          ];
+        }
+      }
+    } catch (\Throwable $e) {
+      return [];
+    }
+    return $map;
+  }
+
+  /**
+   * @param array<string, array{pasaporteFitosanitario: bool, lotePasaporte: bool, registroSanitario: string}> $fitos
+   * @return array{pasaporteFitosanitario: bool, lotePasaporte: bool, registroSanitario: string}
+   */
+  private function fitoDeLinea(array $fitos, string $articulo): array
+  {
+    $clave = rtrim($articulo);
+    return $fitos[$clave] ?? $fitos[trim($articulo)] ?? [
+      'pasaporteFitosanitario' => false,
+      'lotePasaporte' => false,
+      'registroSanitario' => '',
+    ];
+  }
+
+  /**
+   * @param array<string, mixed> $lin
+   * @param array{pasaporteFitosanitario: bool, lotePasaporte: bool, registroSanitario: string} $fito
+   */
+  private function loteFitoParaPersistir(array $lin, array $fito): ?string
+  {
+    $explicito = trim((string) ($lin['loteFito'] ?? ''));
+    if ($explicito !== '') {
+      return mb_substr($explicito, 0, 20);
+    }
+    $loteVenta = trim((string) ($lin['loteVenta'] ?? ''));
+    if ($loteVenta !== '' && !empty($fito['lotePasaporte'])) {
+      return mb_substr($loteVenta, 0, 20);
+    }
+    $registro = trim((string) ($fito['registroSanitario'] ?? ''));
+    if ($registro !== '' && !empty($fito['pasaporteFitosanitario'])) {
+      return mb_substr($registro, 0, 20);
+    }
+    return null;
   }
 
   /**
@@ -2848,8 +3236,21 @@ final class VentaEscrituraService
   ): void {
     $fecha = $this->normalizeFecha($cab['fecha'] ?? null);
     try {
-      $this->pdo->prepare(
-        'UPDATE a SET a.[FechaUltimaVenta] = CASE
+      $sql = $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql'
+        ? 'UPDATE [Articulos] a SET a.[FechaUltimaVenta] = CASE
+           WHEN a.[FechaUltimaVenta] IS NULL
+             OR CONVERT(date, a.[FechaUltimaVenta]) < CONVERT(date, :fecha, 120)
+           THEN CONVERT(datetime, :fecha, 120)
+           ELSE a.[FechaUltimaVenta]
+         END
+         WHERE RTRIM(a.[Codigo]) IN (
+           SELECT DISTINCT RTRIM(l.[Articulo])
+           FROM [AlbaranesVentasLin] l
+           WHERE l.[Empresa] = :empresa AND l.[Tipo] = :tipo AND l.[Albaran] = :albaran
+             AND RTRIM(ISNULL(l.[Articulo], \'\')) <> \'\'
+             AND RTRIM(UPPER(l.[Articulo])) <> \'NO\'
+         )'
+        : 'UPDATE a SET a.[FechaUltimaVenta] = CASE
            WHEN a.[FechaUltimaVenta] IS NULL
              OR CONVERT(date, a.[FechaUltimaVenta]) < CONVERT(date, :fecha, 120)
            THEN CONVERT(datetime, :fecha, 120)
@@ -2862,8 +3263,8 @@ final class VentaEscrituraService
            WHERE l.[Empresa] = :empresa AND l.[Tipo] = :tipo AND l.[Albaran] = :albaran
              AND RTRIM(ISNULL(l.[Articulo], \'\')) <> \'\'
              AND RTRIM(UPPER(l.[Articulo])) <> \'NO\'
-         )'
-      )->execute([
+         )';
+      $this->pdo->prepare($sql)->execute([
         'fecha' => $fecha,
         'empresa' => $empresa,
         'tipo' => $tipo,

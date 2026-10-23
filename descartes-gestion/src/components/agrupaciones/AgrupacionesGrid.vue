@@ -45,8 +45,8 @@ function onRowDblClick(fila: AgrupacionFila) {
 
 <template>
   <div class="grid-wrap" :class="{ 'filter-menu-open': filterMenuOpen }">
-    <p v-if="loading" class="loading">Cargando...</p>
-    <table v-else class="agrupaciones-grid">
+    <p v-if="loading" class="loading-banner">Cargando...</p>
+    <table class="agrupaciones-grid">
       <thead>
         <tr>
           <th class="col-ind"></th>

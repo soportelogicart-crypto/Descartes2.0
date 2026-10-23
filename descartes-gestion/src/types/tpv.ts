@@ -103,6 +103,12 @@ export type TpvFormaPago = {
   vales: boolean
 }
 
+/** Plantilla DefPlusC (teclado táctil). */
+export type TpvTecladoPlantilla = {
+  codigo: string
+  nombre: string | null
+}
+
 export type TpvContexto = {
   empresa: string
   puesto: string

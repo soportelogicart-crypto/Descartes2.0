@@ -30,6 +30,8 @@ return function (App $app): void {
       ->add($setPermiso('tpv', 'ver'));
     $group->get('/contexto', [TpvController::class, 'getContexto'])
       ->add($setPermiso('tpv', 'ver'));
+    $group->get('/teclados', [TpvController::class, 'listTeclados'])
+      ->add($setPermiso('tpv', 'editar'));
     $group->get('/teclados/{general}/niveles/{nivel}', [TpvController::class, 'getNivelTeclado'])
       ->add($setPermiso('tpv', 'ver'));
     $group->put('/teclados/{general}/niveles/{nivel}/posiciones/{posicion}', [TpvController::class, 'guardarBotonTeclado'])
@@ -62,6 +64,9 @@ return function (App $app): void {
       ->add($setPermiso('tpv', 'eliminar'));
     $group->post('/ventas/{empresa}/{tipo}/{albaran}/email', [TpvController::class, 'emailVenta'])
       ->add($setPermiso('tpv', 'ver'));
+    /** Misma lógica que entrada-caja (subtipo R); permiso TPV, no arqueo. */
+    $group->post('/sesiones/{empresa}/{puesto}/{sesion}/vale-regalo', [VentasController::class, 'entradaCaja'])
+      ->add($setPermiso('tpv', 'editar'));
   })
     ->add(PermissionMiddleware::class)
     ->add(AuthMiddleware::class);

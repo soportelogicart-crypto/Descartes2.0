@@ -17,6 +17,8 @@ const props = defineProps<{
   plantilla: DocumentoPlantilla
   /** Si se pasa, se usan datos reales (venta) en lugar del ejemplo del diseñador. */
   datos?: DocumentoPreviewDatos | null
+  /** Captura/impresión A4: escala 1:1 (mm→px) sin reducir al ancho del contenedor. */
+  escalaImpresion?: boolean
 }>()
 
 /** ~1 mm en pantalla a 96 dpi (proporción real de un A4 en CSS). */
@@ -69,6 +71,36 @@ const datos = computed<DocumentoPreviewDatos>(() => {
 const pageStyle = computed(() => ({
   width: `${PAGE_W.value * pxPerMm.value}px`,
   height: `${PAGE_H.value * pxPerMm.value}px`,
+}))
+
+const anotacionFitoAlbaran = computed(() =>
+  String(getByPath(datos.value, 'documento.anotacionPasaporteFitosanitario') ?? '').trim()
+)
+
+const plantillaTieneBloqueFito = computed(() =>
+  props.plantilla.blocks.some(
+    (b) =>
+      b.id === 'fito-pie' ||
+      (b.bind ?? []).includes('documento.anotacionPasaporteFitosanitario')
+  )
+)
+
+/** Respaldo si la plantilla guardada no incluye el bloque del pie fitosanitario. */
+const muestraPieFitoFlotante = computed(
+  () =>
+    props.plantilla.tipo === 'albaran' &&
+    anotacionFitoAlbaran.value !== '' &&
+    !plantillaTieneBloqueFito.value
+)
+
+const fitoPieFlotanteStyle = computed(() => ({
+  left: `${10 * pxPerMm.value}px`,
+  bottom: `${14 * pxPerMm.value}px`,
+  width: `${190 * pxPerMm.value}px`,
+  height: 'auto',
+  top: 'auto',
+  fontSize: `${3.6 * pxPerMm.value}px`,
+  lineHeight: '1.25',
 }))
 
 function blockStyle(b: PlantillaBloque) {
@@ -172,6 +204,10 @@ function qrSvgUrl(payload: string): string {
 }
 
 function fitScale() {
+  if (props.escalaImpresion) {
+    pxPerMm.value = FOLIO_PX_PER_MM
+    return
+  }
   const el = wrapRef.value
   if (!el) return
   const available = Math.max(200, el.clientWidth - 48)
@@ -296,8 +332,25 @@ function tieneBind(b: PlantillaBloque, path: string): boolean {
   return (b.bind ?? []).includes(path)
 }
 
+const BIND_CLIENTE_DEFECTO = [
+  'cliente.codigo',
+  'cliente.nombre',
+  'cliente.direccion',
+  'cliente.cp',
+  'cliente.poblacion',
+  'cliente.provincia',
+  'cliente.pais',
+  'cliente.telefono',
+  'cliente.cif',
+] as const
+
+function bindCliente(b: PlantillaBloque): string[] {
+  const bind = b.bind ?? []
+  return bind.length > 0 ? bind : [...BIND_CLIENTE_DEFECTO]
+}
+
 function muestraDatoCliente(b: PlantillaBloque, path: string): boolean {
-  return tieneBind(b, path)
+  return bindCliente(b).includes(path)
 }
 
 function rotuloQr(b: PlantillaBloque): string {
@@ -463,6 +516,7 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
               :class="{
                 'campo-right': b.props?.align === 'right',
                 'campo-inline': b.props?.inline === true,
+                'campo-fito-pie': b.props?.fitoDestacado === true,
                 'fs-mm': !!textStyle(b).fontSize,
               }"
               :style="textStyle(b)"
@@ -522,6 +576,9 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
                       </template>
                       <template v-else-if="c.key === 'precioSinIva' || c.key === 'precio' || c.key === 'importe' || c.key === 'pvp'">
                         {{ formatImporte(Number(lin[c.key as keyof typeof lin] ?? 0)) }}
+                      </template>
+                      <template v-else-if="c.key === 'articulo' && lin.marcaPasaporteFito">
+                        <span class="fito-asterisco">*</span>{{ lin.articulo }}
                       </template>
                       <template v-else>
                         {{ lin[c.key as keyof typeof lin] ?? '' }}
@@ -621,6 +678,13 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
           <template v-else>
             <span class="fallback">{{ b.label || b.type }}</span>
           </template>
+        </div>
+        <div
+          v-if="muestraPieFitoFlotante"
+          class="block fito-pie-flotante campo campo-fito-pie"
+          :style="fitoPieFlotanteStyle"
+        >
+          {{ anotacionFitoAlbaran }}
         </div>
       </div>
       </div>

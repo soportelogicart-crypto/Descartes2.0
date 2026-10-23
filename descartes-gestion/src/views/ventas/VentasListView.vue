@@ -378,6 +378,10 @@ onActivated(() => {
     omitirProximoActivated.value = false
     return
   }
+  if (busqueda.listadoObsoleto) {
+    void cargar()
+    return
+  }
   // Al volver de una ficha no se recargan miles de filas: el store ya trae los cambios.
   if (busqueda.itemsCargados.length > 0 && mismosFiltrosQueElStore()) {
     items.value = busqueda.itemsCargados.map((i) => ({ ...i }))

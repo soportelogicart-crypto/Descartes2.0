@@ -11,6 +11,11 @@ import {
 } from '@/api/ventas'
 import type { ArqueoLinea, ArqueoResponse } from '@/types/ventas'
 import { extractApiError } from '@/composables/useMantenimiento'
+import {
+  cabeceraComprobanteMovimientoCaja,
+  imprimirComprobanteValeRegalo,
+  textoComprobanteValeRegalo,
+} from '@/composables/comprobanteValeRegalo'
 import { ANCHO_TICKET, centrarTicket } from '@/composables/comprobanteTarjeta'
 import { imprimirTicketTermica } from '@/composables/impresionTicketTermica'
 import { abrirCajonPuesto } from '@/composables/abrirCajonPuesto'
@@ -63,7 +68,22 @@ const descuadrePreview = ref(0)
 
 const modalMov = ref(false)
 const movTipo = ref<MovTipo>('entrada')
-const movForm = ref({ formaPago: '', importe: 0, concepto: '' })
+const OPCIONES_ENTRADA = [
+  { value: 'I', label: 'Entrada efectivo' },
+  { value: 'R', label: 'Vale regalo' },
+] as const
+const OPCIONES_SALIDA = [
+  { value: 'P', label: 'Pagos' },
+  { value: 'S', label: 'Salida de efectivo' },
+] as const
+
+const movForm = ref({
+  subtipo: 'I' as 'I' | 'R' | 'P' | 'S',
+  formaPago: '',
+  importe: 0,
+  concepto: '',
+  fechaCaducidad: '',
+})
 
 const puestoSel = computed(() => puestosAll.value.find((p) => p.value === form.value.puesto) ?? null)
 const empresaArqueo = computed(() => String(puestoSel.value?.tiendaCodigo ?? '').trim())
@@ -407,7 +427,13 @@ function abrirMovimiento(tipo: MovTipo) {
   if (tipo === 'salida' && !puedeAbrirSalida.value) return
   movTipo.value = tipo
   const primera = formasMovimiento.value[0]?.formaPago ?? ''
-  movForm.value = { formaPago: primera, importe: 0, concepto: '' }
+  movForm.value = {
+    subtipo: tipo === 'entrada' ? 'I' : 'S',
+    formaPago: primera,
+    importe: 0,
+    concepto: '',
+    fechaCaducidad: '',
+  }
   error.value = null
   modalMov.value = true
 }
@@ -430,6 +456,13 @@ async function confirmarMovimiento() {
       formaPago: movForm.value.formaPago,
       importe,
       concepto: movForm.value.concepto.trim() || undefined,
+      subtipo: movForm.value.subtipo,
+      fechaCaducidad:
+        movTipo.value === 'entrada' &&
+        movForm.value.subtipo === 'R' &&
+        movForm.value.fechaCaducidad
+          ? movForm.value.fechaCaducidad
+          : undefined,
     }
     const esSalida = movTipo.value === 'salida'
     data.value = esSalida
@@ -440,29 +473,20 @@ async function confirmarMovimiento() {
     const mov = data.value.ultimoMovimiento
     if (!esSalida) {
       const despues = mov?.acumuladoDespues
-      mensaje.value =
+      const nVale =
+        mov?.valeCodigo != null && Number(mov.valeCodigo) > 0 ? ` Vale nº ${mov.valeCodigo}.` : ''
+      const baseEntrada =
         despues != null
-          ? `Entrada de caja +${importe.toFixed(2)} en ${mov?.formaPago ?? movForm.value.formaPago}. Acumulado: ${Number(despues).toFixed(2)} (la Diferencia negativa es normal hasta introducir el arqueo físico).`
-          : `Entrada de caja registrada (+${importe.toFixed(2)} en Acumulado)`
-      const linea = data.value.lineas.find(
-        (item) => item.formaPago === (mov?.formaPago ?? movForm.value.formaPago)
-      )
-      if (linea?.abrirCajon) {
-        try {
-          await abrirCajonPuesto(pue)
-        } catch (e: unknown) {
-          error.value = extractApiError(
-            e,
-            'La entrada quedó registrada, pero no se pudo abrir el cajón'
-          )
-        }
-      }
+          ? `Entrada de caja +${importe.toFixed(2)} en ${mov?.formaPago ?? movForm.value.formaPago}. Acumulado: ${Number(despues).toFixed(2)}.${nVale}`
+          : `Entrada de caja registrada (+${importe.toFixed(2)} en Acumulado).${nVale}`
+      const avisoTicket = await imprimirComprobanteMovimiento(data.value, 'entrada')
+      mensaje.value = avisoTicket ? `${baseEntrada} ${avisoTicket}` : `${baseEntrada} (la Diferencia negativa es normal hasta introducir el arqueo físico).`
     } else {
       const base =
         mov?.acumuladoDespues != null
           ? `Salida de caja −${importe.toFixed(2)}. Acumulado ${mov.formaPago}: ${Number(mov.acumuladoDespues).toFixed(2)}`
           : `Salida de caja registrada (−${importe.toFixed(2)} en Acumulado)`
-      const avisoTicket = await imprimirComprobanteSalida(data.value)
+      const avisoTicket = await imprimirComprobanteMovimiento(data.value, 'salida')
       mensaje.value = avisoTicket ? `${base}. ${avisoTicket}` : base
     }
   } catch (e: unknown) {
@@ -484,34 +508,67 @@ function eurosTicket(n: number): string {
   return `${n.toFixed(2).replace('.', ',')} EUR`
 }
 
+function etiquetaCajeroActual(): string {
+  return String(auth.usuario?.nombre || auth.usuario?.codigo || '').trim() || '-'
+}
+
+function cabeceraComprobanteMovimiento(res: ArqueoResponse): string[] {
+  return cabeceraComprobanteMovimientoCaja(res, etiquetaCajeroActual())
+}
+
+function textoComprobanteEntrada(res: ArqueoResponse): string {
+  const mov = res.ultimoMovimiento
+  const subtipo = String(mov?.subtipo ?? 'I').toUpperCase()
+  const forma = String(mov?.formaPago ?? '').trim()
+  const linea = res.lineas.find((l) => l.formaPago === forma)
+  const desc = String(linea?.descripcion ?? '').trim()
+  const sep = ''.padEnd(ANCHO_TICKET, '-')
+  const importe = Number(mov?.importe) || 0
+  const codVale = mov?.valeCodigo != null ? Number(mov.valeCodigo) : 0
+
+  if (subtipo === 'R') {
+    return textoComprobanteValeRegalo(res, etiquetaCajeroActual())
+  }
+
+  const lines = [
+    TICKET_MARCA_GRANDE + centrarTicket('ENTRADA DE CAJA', 42),
+    '',
+    ...cabeceraComprobanteMovimiento(res),
+    sep,
+    lineaTicket('Tipo', 'Entrada efectivo'),
+    lineaTicket('Forma', desc ? `${forma} ${desc}` : forma),
+  ]
+  const concepto = String(mov?.concepto ?? '').trim()
+  if (concepto) lines.push(lineaTicket('Concepto', concepto))
+  if (codVale > 0) lines.push(lineaTicket('Vale', String(codVale)))
+  lines.push(sep)
+  lines.push(lineaTicket('IMPORTE', `+${eurosTicket(importe)}`))
+  if (mov?.acumuladoDespues != null) {
+    lines.push(lineaTicket('Acumulado', eurosTicket(Number(mov.acumuladoDespues))))
+  }
+  lines.push(sep)
+  return lines.join('\n')
+}
+
 function textoComprobanteSalida(res: ArqueoResponse): string {
   const mov = res.ultimoMovimiento
   const forma = String(mov?.formaPago ?? '').trim()
   const linea = res.lineas.find((l) => l.formaPago === forma)
   const desc = String(linea?.descripcion ?? '').trim()
-  const ahora = new Date()
-  const fecha = ahora.toLocaleString('es-ES', {
-    day: '2-digit',
-    month: '2-digit',
-    year: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-  const cajero = String(auth.usuario?.nombre || auth.usuario?.codigo || '').trim() || '-'
   const sep = ''.padEnd(ANCHO_TICKET, '-')
+  const subtipo = String(mov?.subtipo ?? 'S').toUpperCase()
+  const tituloSalida = subtipo === 'P' ? 'PAGOS' : 'SALIDA DE CAJA'
   const lines = [
-    TICKET_MARCA_GRANDE + centrarTicket('SALIDA DE CAJA', 42),
+    TICKET_MARCA_GRANDE + centrarTicket(tituloSalida, 42),
     '',
-    lineaTicket('Empresa', res.empresa),
-    lineaTicket('Puesto', res.puesto),
-    lineaTicket('Sesion', String(res.sesion)),
-    lineaTicket('Fecha', fecha),
-    lineaTicket('Cajero', cajero),
+    ...cabeceraComprobanteMovimiento(res),
     sep,
     lineaTicket('Forma', desc ? `${forma} ${desc}` : forma),
   ]
   const concepto = String(mov?.concepto ?? '').trim()
   if (concepto) lines.push(lineaTicket('Concepto', concepto))
+  const codVale = mov?.valeCodigo != null ? Number(mov.valeCodigo) : 0
+  if (codVale > 0) lines.push(lineaTicket('Vale', String(codVale)))
   lines.push(sep)
   lines.push(lineaTicket('IMPORTE', `-${eurosTicket(Number(mov?.importe) || 0)}`))
   if (mov?.acumuladoDespues != null) {
@@ -522,27 +579,43 @@ function textoComprobanteSalida(res: ArqueoResponse): string {
   return lines.join('\n')
 }
 
-/** Imprime el comprobante. Si falla, la salida ya está guardada. */
-async function imprimirComprobanteSalida(res: ArqueoResponse): Promise<string> {
-  const forma = String(res.ultimoMovimiento?.formaPago ?? '').trim()
+/** Imprime el comprobante. Si falla, el movimiento ya está guardado. */
+async function imprimirComprobanteMovimiento(
+  res: ArqueoResponse,
+  sentido: 'entrada' | 'salida'
+): Promise<string> {
+  const mov = res.ultimoMovimiento
+  const forma = String(mov?.formaPago ?? '').trim()
   const linea = res.lineas.find((l) => l.formaPago === forma)
+  const subtipo = String(mov?.subtipo ?? '').toUpperCase()
+  const esValeRegalo = sentido === 'entrada' && subtipo === 'R'
+  const texto =
+    sentido === 'entrada' ? textoComprobanteEntrada(res) : textoComprobanteSalida(res)
+  const falloMsg =
+    sentido === 'entrada'
+      ? 'La entrada quedó registrada, pero no se pudo imprimir el comprobante'
+      : 'La salida quedó registrada, pero no se pudo imprimir el comprobante'
   try {
-    const print = await imprimirTicketTermica({
-      puestoCodigo: form.value.puesto.trim(),
-      texto: textoComprobanteSalida(res),
-      tipo: 'salida-caja',
-      empresa: res.empresa,
-      sesion: res.sesion,
-      abrirCajon: Boolean(linea?.abrirCajon),
-    })
+    const print = esValeRegalo
+      ? await imprimirComprobanteValeRegalo({
+          puestoCodigo: form.value.puesto.trim(),
+          res,
+          cajeroLabel: etiquetaCajeroActual(),
+          abrirCajon: Boolean(linea?.abrirCajon),
+        })
+      : await imprimirTicketTermica({
+          puestoCodigo: form.value.puesto.trim(),
+          texto,
+          tipo: sentido === 'entrada' ? 'entrada-caja' : 'salida-caja',
+          empresa: res.empresa,
+          sesion: res.sesion,
+          abrirCajon: Boolean(linea?.abrirCajon),
+        })
     return print.stub
       ? `Comprobante (prueba): ${print.message}`
       : `Comprobante enviado a «${print.impresora}»`
   } catch (e: unknown) {
-    error.value = extractApiError(
-      e,
-      'La salida quedó registrada, pero no se pudo imprimir el comprobante'
-    )
+    error.value = extractApiError(e, falloMsg)
     return ''
   }
 }
@@ -1089,13 +1162,27 @@ onMounted(async () => {
         <p class="hint">
           <template v-if="movTipo === 'entrada'">
             Suma el importe al <strong>Acumulado</strong> (teórico). La columna Diferencia puede
-            ponerse en negativo hasta que cuente el dinero en Entrado.
+            ponerse en negativo hasta que cuente el dinero en Entrado. Al registrar se imprime un
+            comprobante en la impresora de tickets (vale regalo: con logo de tienda si existe).
           </template>
           <template v-else>
             Resta el importe del <strong>Acumulado</strong>. No puede dejarlo por debajo de cero.
             Al registrar se imprime un comprobante en la impresora de tickets.
           </template>
         </p>
+        <label>
+          Tipo
+          <select v-if="movTipo === 'entrada'" v-model="movForm.subtipo" required>
+            <option v-for="o in OPCIONES_ENTRADA" :key="o.value" :value="o.value">{{ o.label }}</option>
+          </select>
+          <select v-else v-model="movForm.subtipo" required>
+            <option v-for="o in OPCIONES_SALIDA" :key="o.value" :value="o.value">{{ o.label }}</option>
+          </select>
+        </label>
+        <label v-if="movTipo === 'entrada' && movForm.subtipo === 'R'">
+          Caducidad vale
+          <input v-model="movForm.fechaCaducidad" type="date" />
+        </label>
         <label>
           Forma de pago
           <select v-model="movForm.formaPago" required>

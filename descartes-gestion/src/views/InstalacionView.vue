@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   configurarInstalacion,
   crearInstalacionCliente,
@@ -20,6 +20,7 @@ import {
 import { extractApiError } from '@/composables/extractApiError'
 import { useAuthStore } from '@/stores/auth'
 
+const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
@@ -73,6 +74,20 @@ const ayudaServidor = computed(() => {
 })
 const tituloUsuario = computed(() => (form.motor === 'mysql' ? 'Usuario MySQL' : 'Usuario SQL'))
 const tituloClave = computed(() => (form.motor === 'mysql' ? 'Contrasena MySQL' : 'Contrasena SQL'))
+const pareceMysqlHostinger = computed(() => {
+  const db = form.database.trim()
+  const user = form.user.trim()
+  return db.includes('u887121068_') || user.startsWith('u887121068_')
+})
+const puedeOmitirPassword = computed(() => {
+  if (!estado.value?.conexionOk) return false
+  return (
+    form.motor === (estado.value.motor ?? form.motor) &&
+    form.database.trim() === (estado.value.database ?? '').trim() &&
+    form.user.trim() === (estado.value.user ?? '').trim() &&
+    form.server.trim() === (estado.value.server ?? '').trim()
+  )
+})
 
 function mostrarFeedback(tipo: FeedbackTipo, texto: string | null) {
   feedbackTipo.value = tipo
@@ -82,8 +97,10 @@ function mostrarFeedback(tipo: FeedbackTipo, texto: string | null) {
 function validarFormulario(): string | null {
   if (!form.server.trim()) return 'Indique el servidor o la URL'
   if (!form.database.trim()) return 'Indique el nombre de la base de datos'
-  if (!form.user.trim()) return 'Indique el usuario de SQL Server'
-  if (!form.password) return 'Indique la contrasena de SQL Server'
+  if (!form.user.trim()) return 'Indique el usuario de la base de datos'
+  if (!form.password && !puedeOmitirPassword.value) {
+    return 'Indique la contrasena de la base de datos'
+  }
   return null
 }
 
@@ -368,8 +385,17 @@ onMounted(() => {
         </label>
         <label>
           {{ tituloClave }}
-          <input v-model="form.password" type="password" autocomplete="new-password" />
+          <input
+            v-model="form.password"
+            type="password"
+            autocomplete="new-password"
+            :placeholder="puedeOmitirPassword ? 'Vacío = mantener la guardada en el servidor' : ''"
+          />
         </label>
+        <p v-if="pareceMysqlHostinger && estado?.origen === 'instalacion' && estado?.motor === 'sqlsrv'" class="hint aviso">
+          Esas credenciales MySQL de Hostinger no funcionan contra el XAMPP de su PC. Para desarrollo local
+          deje SQL Server; para la demo use el navegador en gestion.topay-comunicacion.es con «Este PC» vacío.
+        </p>
         <label v-if="form.motor === 'sqlsrv'" class="checkbox">
           <input v-model="form.trustCert" type="checkbox" />
           Confiar en certificado del servidor
@@ -378,9 +404,7 @@ onMounted(() => {
         <fieldset class="tipo-conexion vinculo">
           <legend>Nueva instalación</legend>
           <p class="hint">
-            Solo la primera vez. Escriba el identificador, por ejemplo prueba. La clave sale en este
-            PC y se puede copiar. El otro PC sigue en producción hasta que usted le ponga otro
-            identificador.
+            Segunda base en el mismo servidor API (identificador + clave para un PC concreto).
           </p>
           <label>
             Identificador

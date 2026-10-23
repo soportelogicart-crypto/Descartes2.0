@@ -1,0 +1,441 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Descartes\Api\Services\Instalacion;
+
+use Descartes\Api\Config\CatalogoInstalaciones;
+use Descartes\Api\Config\Database;
+use Descartes\Api\Config\InstalacionConfig;
+use InvalidArgumentException;
+use PDO;
+use RuntimeException;
+
+final class InstalacionService
+{
+  private MigrationService $migrations;
+  private InstalacionBootstrapService $bootstrap;
+  private SchemaRepairService $schemaRepair;
+
+  public function __construct(
+    MigrationService $migrations,
+    InstalacionBootstrapService $bootstrap,
+    SchemaRepairService $schemaRepair
+  ) {
+    $this->migrations = $migrations;
+    $this->bootstrap = $bootstrap;
+    $this->schemaRepair = $schemaRepair;
+  }
+
+  /**
+   * @param array<string, mixed>|null $configForzada Instalación concreta. Null = la de por defecto.
+   * @return array<string, mixed>
+   */
+  public function obtenerEstado(?array $configForzada = null): array
+  {
+    if ($configForzada !== null) {
+      $configurado = true;
+      $config = Database::prepareConfig($configForzada);
+      $origen = 'cliente';
+    } else {
+      $configurado = InstalacionConfig::isConfigured();
+      $config = Database::resolveConfig();
+      $origen = $configurado ? 'instalacion' : 'env';
+    }
+
+    $migraciones = $this->migrations->estado($config);
+    $adminListo = false;
+    $esquemaOk = false;
+    $diagnostico = null;
+    if ($migraciones['conexionOk']) {
+      try {
+        $pdo = Database::createPdo($config);
+        $diagnostico = $this->diagnosticoEsquema($pdo, $config);
+        $esquemaOk = $this->schemaRepair->extensionesFaltantes($pdo) === [];
+        $adminListo = $this->bootstrap->existeAdministrador($pdo);
+      } catch (\Throwable $e) {
+        $adminListo = false;
+        $esquemaOk = false;
+      }
+    }
+
+    $primeraVez = $configForzada === null && !$configurado;
+    $requiereAccion = !$configurado
+      || !$migraciones['conexionOk']
+      || !$esquemaOk
+      || $migraciones['pendientes'] !== []
+      || !$adminListo;
+
+    return [
+      'configurado' => $configurado,
+      'primeraVez' => $primeraVez,
+      'origen' => $origen,
+      'motor' => $config['motor'] ?? 'sqlsrv',
+      'tipo' => $config['tipo'] ?? 'local',
+      'server' => $config['server'],
+      'database' => $config['database'],
+      'user' => $config['user'] ?? '',
+      'conexionOk' => $migraciones['conexionOk'],
+      'errorConexion' => $migraciones['errorConexion'],
+      'migraciones' => [
+        'aplicadas' => $migraciones['aplicadas'],
+        'pendientes' => $migraciones['pendientes'],
+        'total' => $migraciones['total'],
+      ],
+      'adminListo' => $adminListo,
+      'esquemaOk' => $esquemaOk,
+      'diagnostico' => $diagnostico,
+      'requiereAccion' => $requiereAccion,
+      'acceso' => [
+        'usuario' => InstalacionBootstrapService::USUARIO_ADMIN,
+        'password' => InstalacionBootstrapService::PASSWORD_ADMIN,
+      ],
+    ];
+  }
+
+  /**
+   * @param array<string, mixed> $body
+   * @return array<string, mixed>
+   */
+  public function probarConexion(array $body): array
+  {
+    $config = $this->normalizarConfig($body);
+    $estado = $this->migrations->estado($config);
+    if (!$estado['conexionOk']) {
+      return [
+        'ok' => false,
+        'mensaje' => $estado['errorConexion'] ?? 'No se pudo conectar',
+      ];
+    }
+
+    InstalacionConfig::save($config);
+
+    $pendientes = count($estado['pendientes']);
+    $mensaje = 'Conexion correcta y configuracion guardada.';
+    if ($pendientes > 0) {
+      $mensaje .= " Hay {$pendientes} actualizacion(es) de estructura pendientes: pulse «Conectar y preparar programa» para aplicarlas.";
+    } else {
+      $mensaje .= ' Pulse «Conectar y preparar programa» para ejecutar las actualizaciones de tablas.';
+    }
+
+    $diagnostico = null;
+    try {
+      $pdo = Database::createPdo($config);
+      $diagnostico = $this->diagnosticoEsquema($pdo, $config);
+      if ($diagnostico['tieneRol'] && $diagnostico['tieneBaja']) {
+        $mensaje .= ' Usuarios_Ges.Rol y Usuarios_Ges.Baja ya existen en esta BD.';
+      } else {
+        $mensaje .= ' Faltan columnas Rol/Baja: se crearan al preparar el programa.';
+      }
+    } catch (\Throwable $e) {
+      // ignorar
+    }
+
+    return [
+      'ok' => true,
+      'mensaje' => $mensaje,
+      'guardado' => true,
+      'diagnostico' => $diagnostico,
+      'migraciones' => [
+        'pendientes' => $estado['pendientes'],
+        'aplicadas' => $estado['aplicadas'],
+        'total' => $estado['total'],
+      ],
+    ];
+  }
+
+  /**
+   * Comprueba una conexión y no escribe ningún fichero.
+   *
+   * @param array<string, mixed> $body
+   * @return array<string, mixed>
+   */
+  public function probarSinGuardar(array $body): array
+  {
+    $config = $this->normalizarConfig($body);
+    $estado = $this->migrations->estado($config);
+    if (!$estado['conexionOk']) {
+      return [
+        'ok' => false,
+        'guardado' => false,
+        'mensaje' => $estado['errorConexion'] ?? 'No se pudo conectar',
+      ];
+    }
+
+    return [
+      'ok' => true,
+      'guardado' => false,
+      'mensaje' => 'Conexión correcta. Aún no se ha guardado.',
+      'migraciones' => [
+        'pendientes' => $estado['pendientes'],
+        'aplicadas' => $estado['aplicadas'],
+        'total' => $estado['total'],
+      ],
+    ];
+  }
+
+  /**
+   * @param array<string, mixed> $body
+   * @return array<string, mixed>
+   */
+  public function configurarYAplicar(array $body): array
+  {
+    $config = $this->normalizarConfig($body);
+    $prueba = $this->migrations->estado($config);
+    if (!$prueba['conexionOk']) {
+      throw new InvalidArgumentException(
+        $prueba['errorConexion'] ?? 'No se pudo conectar a la base de datos'
+      );
+    }
+
+    InstalacionConfig::save($config);
+    return $this->aplicarSobre($config, false);
+  }
+
+  /**
+   * Actualiza solo el fichero de esa instalación y prepara esa base.
+   *
+   * @param array<string, mixed> $body
+   * @return array<string, mixed>
+   */
+  public function configurarEnCatalogo(string $id, array $body): array
+  {
+    $config = $this->normalizarConfig($body);
+    $prueba = $this->migrations->estado($config);
+    if (!$prueba['conexionOk']) {
+      throw new InvalidArgumentException(
+        $prueba['errorConexion'] ?? 'No se pudo conectar a la base de datos'
+      );
+    }
+
+    CatalogoInstalaciones::actualizarConexion($id, $config);
+    return $this->aplicarSobre($config, true);
+  }
+
+  /**
+   * @param array<string, mixed> $config
+   * @return array<string, mixed>
+   */
+  private function aplicarSobre(array $config, bool $esCatalogo): array
+  {
+    $resultado = $this->migrations->aplicarTodasIdempotentes($config);
+    if (!$resultado['ok']) {
+      throw new RuntimeException(
+        'Error al aplicar migraciones: ' . implode('; ', $resultado['errores'])
+      );
+    }
+
+    $pdo = Database::createPdo($config);
+    $reparacion = $this->schemaRepair->asegurarExtensionesBase($pdo);
+    if (!$reparacion['ok']) {
+      throw new RuntimeException(
+        'Error al actualizar tablas: ' . implode('; ', $reparacion['errores'])
+      );
+    }
+
+    $admin = $this->bootstrap->asegurarUsuarioAdministrador($pdo);
+
+    $estado = $esCatalogo ? $this->obtenerEstado($config) : $this->obtenerEstado();
+    $estado['diagnostico'] = $this->diagnosticoEsquema($pdo, $config);
+    $estado['mensaje'] = $this->mensajeExito($resultado['aplicadas'], $admin, $reparacion, $estado['diagnostico']);
+    $estado['ultimaEjecucion'] = [
+      'aplicadas' => $resultado['aplicadas'],
+      'errores' => $resultado['errores'],
+      'reparacionEsquema' => $reparacion,
+    ];
+    $estado['admin'] = $admin;
+    return $estado;
+  }
+
+  /**
+   * @param array<string, mixed>|null $configForzada
+   * @return array<string, mixed>
+   */
+  public function aplicarMigracionesActivas(?array $configForzada = null): array
+  {
+    $config = $configForzada !== null ? Database::prepareConfig($configForzada) : Database::resolveConfig();
+    $resultado = $this->migrations->aplicarTodasIdempotentes($config);
+    if (!$resultado['ok']) {
+      throw new RuntimeException(
+        'Error al aplicar migraciones: ' . implode('; ', $resultado['errores'])
+      );
+    }
+    $pdo = Database::createPdo($config);
+    $reparacion = $this->schemaRepair->asegurarExtensionesBase($pdo);
+    if (!$reparacion['ok']) {
+      throw new RuntimeException(
+        'Error al actualizar tablas: ' . implode('; ', $reparacion['errores'])
+      );
+    }
+    $admin = $this->bootstrap->asegurarUsuarioAdministrador($pdo);
+
+    $estado = $configForzada !== null ? $this->obtenerEstado($config) : $this->obtenerEstado();
+    $estado['diagnostico'] = $this->diagnosticoEsquema($pdo, $config);
+    $estado['ultimaEjecucion'] = [
+      'aplicadas' => $resultado['aplicadas'],
+      'errores' => $resultado['errores'],
+      'reparacionEsquema' => $reparacion,
+    ];
+    $estado['admin'] = $admin;
+    return $estado;
+  }
+
+  /**
+   * @param array{server: string, database: string} $config
+   * @return array<string, mixed>
+   */
+  private function diagnosticoEsquema(PDO $pdo, array $config): array
+  {
+    $row = $pdo->query('SELECT @@SERVERNAME AS servidorSql, DB_NAME() AS baseDatos')->fetch(PDO::FETCH_ASSOC) ?: [];
+    $columnas = [];
+    $stmt = $pdo->query(
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'Usuarios_Ges'
+       ORDER BY ORDINAL_POSITION"
+    );
+    while ($col = $stmt->fetch(PDO::FETCH_ASSOC)) {
+      $columnas[] = (string) ($col['COLUMN_NAME'] ?? '');
+    }
+
+    return [
+      'servidorConfigurado' => $config['server'] ?? '',
+      'baseDatosConfigurada' => $config['database'] ?? '',
+      'servidorSql' => trim((string) ($row['servidorSql'] ?? '')),
+      'baseDatos' => trim((string) ($row['baseDatos'] ?? '')),
+      'columnasUsuarios' => $columnas,
+      'tieneRol' => in_array('Rol', $columnas, true),
+      'tieneBaja' => in_array('Baja', $columnas, true),
+    ];
+  }
+
+  /**
+   * @param list<string> $aplicadas
+   * @param array{usuario: string, password: string, creado: bool, actualizado: bool} $admin
+   * @param array{reparado: bool, faltantes: list<string>} $reparacion
+   * @param array<string, mixed>|null $diagnostico
+   */
+  private function mensajeExito(
+    array $aplicadas,
+    array $admin,
+    array $reparacion = ['reparado' => false, 'faltantes' => []],
+    ?array $diagnostico = null
+  ): string {
+    $partes = ['Instalacion completada.'];
+    $partes[] = count($aplicadas) . ' script(s) de estructura ejecutados.';
+    if ($diagnostico !== null) {
+      $srv = $diagnostico['servidorSql'] ?? '';
+      $db = $diagnostico['baseDatos'] ?? '';
+      $partes[] = "Conectado a {$srv} / {$db}.";
+      if (($diagnostico['tieneRol'] ?? false) && ($diagnostico['tieneBaja'] ?? false)) {
+        $partes[] = 'Usuarios_Ges.Rol y Usuarios_Ges.Baja confirmados.';
+      } else {
+        $faltan = [];
+        if (!($diagnostico['tieneRol'] ?? false)) {
+          $faltan[] = 'Rol';
+        }
+        if (!($diagnostico['tieneBaja'] ?? false)) {
+          $faltan[] = 'Baja';
+        }
+        $partes[] = 'ATENCION: faltan columnas en Usuarios_Ges: ' . implode(', ', $faltan) . '.';
+      }
+    }
+    if ($admin['creado']) {
+      $partes[] = 'Usuario administrador creado.';
+    } elseif ($admin['actualizado']) {
+      $partes[] = 'Usuario administrador actualizado.';
+    }
+    return implode(' ', $partes);
+  }
+
+  /**
+   * @param array<string, mixed> $body
+   * @return array{tipo: string, server: string, database: string, user: string, password: string, trust_cert: bool, encrypt: bool}
+   */
+  /**
+   * Si el formulario no trae contraseña, reutiliza la guardada cuando el resto coincide.
+   *
+   * @param array<string, mixed> $body
+   * @param array<string, mixed>|null $referencia
+   * @return array<string, mixed>
+   */
+  public function bodyConPasswordGuardada(array $body, ?array $referencia): array
+  {
+    if ($referencia === null) {
+      return $body;
+    }
+    $password = (string) ($body['password'] ?? $body['dbPassword'] ?? '');
+    if ($password !== '') {
+      return $body;
+    }
+    if (!$this->mismaConexionEnBody($body, $referencia)) {
+      return $body;
+    }
+    $body['password'] = (string) ($referencia['password'] ?? '');
+    return $body;
+  }
+
+  /**
+   * @param array<string, mixed> $body
+   * @param array<string, mixed> $referencia
+   */
+  private function mismaConexionEnBody(array $body, array $referencia): bool
+  {
+    $motor = strtolower(trim((string) ($body['motor'] ?? 'sqlsrv')));
+    $refMotor = strtolower(trim((string) ($referencia['motor'] ?? 'sqlsrv')));
+    if ($motor !== $refMotor) {
+      return false;
+    }
+    $database = trim((string) ($body['database'] ?? $body['dbName'] ?? ''));
+    $server = trim((string) ($body['server'] ?? $body['dbServer'] ?? $body['serverUrl'] ?? ''));
+    $user = trim((string) ($body['user'] ?? $body['dbUser'] ?? ''));
+    return $database !== ''
+      && strcasecmp($database, (string) ($referencia['database'] ?? '')) === 0
+      && strcasecmp($user, (string) ($referencia['user'] ?? '')) === 0
+      && strcasecmp($server, (string) ($referencia['server'] ?? '')) === 0;
+  }
+
+  private function normalizarConfig(array $body): array
+  {
+    $database = trim((string) ($body['database'] ?? $body['dbName'] ?? ''));
+    if ($database === '') {
+      throw new InvalidArgumentException('Indique el nombre de la base de datos');
+    }
+
+    $tipo = strtolower(trim((string) ($body['tipo'] ?? 'local')));
+    if (!in_array($tipo, ['local', 'nube'], true)) {
+      $tipo = 'local';
+    }
+
+    $serverRaw = trim((string) ($body['server'] ?? $body['dbServer'] ?? $body['serverUrl'] ?? ''));
+    if ($serverRaw === '') {
+      $serverRaw = $tipo === 'nube' ? '' : 'localhost';
+    }
+    if ($serverRaw === '') {
+      throw new InvalidArgumentException('Indique el servidor o la URL de la base de datos');
+    }
+
+    $user = trim((string) ($body['user'] ?? $body['dbUser'] ?? ''));
+    if ($user === '') {
+      throw new InvalidArgumentException('Indique el usuario de la base de datos');
+    }
+
+    $motor = strtolower(trim((string) ($body['motor'] ?? 'sqlsrv')));
+    if (!in_array($motor, ['sqlsrv', 'mysql'], true)) {
+      $motor = 'sqlsrv';
+    }
+
+    return Database::prepareConfig([
+      'motor' => $motor,
+      'tipo' => $tipo,
+      'server' => $serverRaw,
+      'database' => $database,
+      'user' => $user,
+      'password' => (string) ($body['password'] ?? $body['dbPassword'] ?? ''),
+      'trust_cert' => filter_var($body['trust_cert'] ?? $body['trustCert'] ?? true, FILTER_VALIDATE_BOOL),
+      'encrypt' => filter_var(
+        $body['encrypt'] ?? ($tipo === 'nube'),
+        FILTER_VALIDATE_BOOL
+      ),
+    ]);
+  }
+}

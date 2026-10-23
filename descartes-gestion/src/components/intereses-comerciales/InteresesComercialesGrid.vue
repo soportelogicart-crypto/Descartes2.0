@@ -45,8 +45,8 @@ function onRowDblClick(fila: InteresComercialFila) {
 
 <template>
   <div class="grid-wrap" :class="{ 'filter-menu-open': filterMenuOpen }">
-    <p v-if="loading" class="loading">Cargando...</p>
-    <table v-else class="intereses-grid">
+    <p v-if="loading" class="loading-banner">Cargando...</p>
+    <table class="intereses-grid">
       <thead>
         <tr>
           <th class="col-ind"></th>

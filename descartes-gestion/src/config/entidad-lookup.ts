@@ -19,6 +19,7 @@ export type EntidadLookupId =
   | 'cuentas-ultimo-nivel'
   | 'cuentas-banco'
   | 'actividades'
+  | 'centros-coste'
   | 'almacenes'
   | 'roles'
   | 'usuarios'
@@ -40,6 +41,7 @@ export type OptionsSourceLookup =
   | 'roles'
   | 'almacenes'
   | 'actividades'
+  | 'centros-coste'
   | 'formas-pago'
   | 'clientes'
   | 'cuentas'
@@ -63,6 +65,7 @@ const SOURCE_TO_ENTIDAD: Record<OptionsSourceLookup, EntidadLookupId> = {
   roles: 'roles',
   almacenes: 'almacenes',
   actividades: 'actividades',
+  'centros-coste': 'centros-coste',
   'formas-pago': 'formas-pago',
   clientes: 'clientes',
   cuentas: 'cuentas',
@@ -89,6 +92,7 @@ const DEFAULT_MAX_LENGTH: Partial<Record<EntidadLookupId, number>> = {
   subsecciones: 6,
   agrupaciones: 6,
   actividades: 6,
+  'centros-coste': 10,
   cuentas: 10,
   'cuentas-ultimo-nivel': 10,
   'cuentas-banco': 10,

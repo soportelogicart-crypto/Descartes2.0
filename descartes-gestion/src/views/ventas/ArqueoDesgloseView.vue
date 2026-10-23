@@ -1,18 +1,16 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import {
-  descargarDesgloseArqueoPdf,
   obtenerDesgloseArqueoTextoTermico,
   obtenerDesgloseArqueoVentas,
 } from '@/api/ventas'
 import type { DesgloseArqueoVentasResponse } from '@/types/ventas'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { imprimirTicketTermica } from '@/composables/impresionTicketTermica'
-import { usePdfPreview } from '@/composables/usePdfPreview'
+import { imprimirListadoHtml } from '@/composables/imprimirListadoHtml'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { api } from '@/api/client'
-import PdfPreviewModal from '@/components/common/PdfPreviewModal.vue'
 import DecimalInput from '@/components/common/DecimalInput.vue'
 
 type Opt = { value: string; label: string }
@@ -28,7 +26,6 @@ const mensaje = ref<string | null>(null)
 const data = ref<DesgloseArqueoVentasResponse | null>(null)
 const tiendas = ref<Opt[]>([])
 const puestos = ref<Opt[]>([])
-const { pdfOpen, pdfUrl, pdfTitulo, cerrarPdf, abrirPdf } = usePdfPreview('Desglose de arqueo')
 
 function hoyIso() {
   return new Date().toISOString().slice(0, 10)
@@ -160,19 +157,101 @@ function descargarBlob(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 2000)
 }
 
+function numImpresion(n: number) {
+  return (Math.round(n * 100) / 100).toFixed(2).replace('.', ',')
+}
+
+function metaImpresionDesglose(d: DesgloseArqueoVentasResponse): string[] {
+  const f = d.filtros
+  const rango = (desde: string | number | undefined, hasta: string | number | undefined) => {
+    const a = String(desde ?? '').trim() || '—'
+    const b = String(hasta ?? '').trim() || a
+    return a === b ? a : `${a} … ${b}`
+  }
+  return [
+    `${form.value.divisa} · Formato ${d.formato} · Subtotal por ${d.subtotal}`,
+    `Tienda ${rango(f.empresaDesde, f.empresaHasta)} · Puesto ${rango(f.puestoDesde, f.puestoHasta)} · Sesión ${rango(f.sesionDesde, f.sesionHasta)}`,
+    `Fecha ${rango(f.fechaDesde, f.fechaHasta)} · Vendedor ${rango(f.vendedorDesde, f.vendedorHasta)} · Cliente ${rango(f.clienteDesde, f.clienteHasta)}`,
+    `Reservas: ${d.reservas} · Albaranes: ${d.albaranes}`,
+  ]
+}
+
+function filasImpresionDesglose(d: DesgloseArqueoVentasResponse): (string | number)[][] {
+  const filas: (string | number)[][] = []
+  for (const g of d.grupos) {
+    if (d.formato === 'desglosado') {
+      for (const l of g.lineas) {
+        filas.push([
+          g.etiqueta,
+          l.albaran,
+          l.fechaCorta,
+          l.docTipo,
+          l.puesto,
+          l.sesion,
+          l.fpago1 || '—',
+          numImpresion(l.importeContado),
+          numImpresion(l.importeCredito),
+          numImpresion(l.importe),
+        ])
+      }
+    }
+    filas.push([
+      g.etiqueta,
+      '',
+      '',
+      'Subtotal',
+      '',
+      '',
+      '',
+      numImpresion(g.contado),
+      numImpresion(g.credito),
+      numImpresion(g.total),
+    ])
+  }
+  return filas
+}
+
 async function exportarPdf() {
+  if (!data.value?.totales.documentos) return
   saving.value = true
   error.value = null
   mensaje.value = null
   try {
-    const blob = await descargarDesgloseArqueoPdf(paramsConsulta())
-    if (blob.type && blob.type.includes('json')) {
-      throw new Error('Error al generar PDF')
-    }
-    abrirPdf(blob, 'Desglose de arqueo')
-    mensaje.value = 'PDF listo para previsualizar'
+    const d = data.value
+    const t = d.totales
+    const a = d.porAgrupacion
+    const thead = [
+      'Grupo',
+      'Albarán',
+      'Fecha',
+      'Tipo',
+      'Puesto',
+      'Sesión',
+      'FP',
+      'Contado',
+      'Crédito',
+      'Total',
+    ]
+    const columnas = thead.map((_, i) => ({
+      alineacion: i <= 6 ? ('left' as const) : ('right' as const),
+    }))
+    const res = await imprimirListadoHtml({
+      titulo: 'Desglose de arqueo',
+      metaLineas: metaImpresionDesglose(d),
+      thead,
+      columnas,
+      filas: filasImpresionDesglose(d),
+      orientacion: 'horizontal',
+      pie: [
+        `${t.documentos} documentos · Contado ${numImpresion(t.contado)} € · Crédito ${numImpresion(t.credito)} € · Total ${numImpresion(t.total)} €`,
+        `Efectivo ${numImpresion(a.efectivo)} · Cheques ${numImpresion(a.cheques)} · Tarjetas ${numImpresion(a.tarjetas)} · Crédito ${numImpresion(a.credito)} · Vales ${numImpresion(a.vales)} · Otros ${numImpresion(a.otros)}`,
+      ],
+      filenameFallback: 'desglose_arqueo.html',
+    })
+    if (res.ok) mensaje.value = res.message
+    else error.value = res.message
   } catch (e: unknown) {
-    error.value = extractApiError(e, 'No se pudo generar el PDF')
+    error.value = extractApiError(e, 'No se pudo generar el listado')
   } finally {
     saving.value = false
   }
@@ -265,14 +344,6 @@ onMounted(async () => {
       <div class="toolbar-actions">
         <button
           type="button"
-          class="btn primary"
-          :disabled="loading || loadingOpts"
-          @click="consultar"
-        >
-          {{ loading ? 'Consultando…' : 'Consultar' }}
-        </button>
-        <button
-          type="button"
           class="btn"
           :disabled="saving || loading || !data?.totales.documentos"
           title="Desglose de Arqueo Registradora"
@@ -283,10 +354,11 @@ onMounted(async () => {
         <button
           type="button"
           class="btn"
-          :disabled="saving || loading || !data"
+          :disabled="saving || loading || !data?.totales.documentos"
+          title="Vista previa e impresión A4 (mismo formato que otros listados)"
           @click="exportarPdf"
         >
-          PDF
+          PDF / A4
         </button>
         <button
           type="button"
@@ -431,6 +503,10 @@ onMounted(async () => {
               <input v-model="form.fpagoHasta" type="text" maxlength="4" />
             </div>
           </fieldset>
+
+          <button type="submit" class="btn primary btn-consultar" :disabled="loading || loadingOpts">
+            {{ loading ? 'Consultando…' : 'Consultar' }}
+          </button>
         </form>
       </aside>
 
@@ -504,13 +580,6 @@ onMounted(async () => {
       </div>
     </div>
   </section>
-
-  <PdfPreviewModal
-    :open="pdfOpen"
-    :url="pdfUrl"
-    :titulo="pdfTitulo"
-    @cerrar="cerrarPdf"
-  />
 </template>
 
 <style scoped>
@@ -585,6 +654,10 @@ onMounted(async () => {
   background: #f8fafc;
   width: 100%;
   box-sizing: border-box;
+}
+.btn-consultar {
+  width: 100%;
+  margin-top: 0.15rem;
 }
 fieldset {
   border: 1px solid #cbd5e1;

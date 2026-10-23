@@ -1,5 +1,7 @@
 import { ref } from 'vue'
 import { api } from '@/api/client'
+import { importarPlantillasDocumento } from '@/api/documentoPlantillas'
+import type { PaqueteExportacion } from '@/composables/documentoPlantillaPortabilidad'
 import { extractApiError } from '@/composables/useMantenimiento'
 import type { DocumentoPlantilla } from '@/config/documentos-plantillas'
 import { documentosPlantillas } from '@/config/documentos-plantillas'
@@ -186,6 +188,41 @@ export function useDocumentoPlantillasEditables() {
     }
   }
 
+  async function importar(
+    empresaCodigo: string,
+    paquete: PaqueteExportacion,
+    opts?: { activar?: boolean }
+  ): Promise<{
+    ok: boolean
+    message: string
+    items?: DocumentoPlantillaServidor[]
+    errores?: { indice: number; nombre?: string | null; error: string }[]
+  }> {
+    const empresa = empresaCodigo.trim().toUpperCase()
+    if (!empresa) {
+      return { ok: false, message: 'No hay empresa en el puesto.' }
+    }
+    guardando.value = true
+    try {
+      const data = await importarPlantillasDocumento(empresa, paquete, opts)
+      await cargarEmpresa(empresa)
+      const ids = new Set((data.items ?? []).map((r) => Number(r.id)))
+      const creadas = items.value.filter((p) => ids.has(p.id))
+      let message = `Importadas ${data.creadas ?? creadas.length} plantilla(s) en ${empresa}.`
+      if (data.errores?.length) {
+        message += ` ${data.errores.length} entrada(s) con error.`
+      }
+      if ((paquete.plantillas?.length ?? 0) > 1 && opts?.activar) {
+        message += ' Varias plantillas: ninguna se activo automaticamente.'
+      }
+      return { ok: true, message, items: creadas, errores: data.errores }
+    } catch (e: unknown) {
+      return { ok: false, message: extractApiError(e, 'No se pudo importar') }
+    } finally {
+      guardando.value = false
+    }
+  }
+
   /** Sustituye la definición por el esqueleto base del mismo tipo (sigue en servidor al guardar). */
   function esqueletoPorTipo(tipo: string, plantillaId?: string): DocumentoPlantilla | undefined {
     if (plantillaId) {
@@ -206,6 +243,7 @@ export function useDocumentoPlantillasEditables() {
     crear,
     activar,
     eliminar,
+    importar,
     esqueletoPorTipo,
   }
 }

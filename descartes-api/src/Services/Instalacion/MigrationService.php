@@ -33,6 +33,11 @@ final class MigrationService
     '018-tarjeta-fidelizacion-dni.sql',
     '019-permisos-situacion-ventas.sql',
     '020-usuario-correo.sql',
+    '021-actividades-centro-coste.sql',
+    '022-actividades-drop-descripcion-centro-coste.sql',
+    '023-articulos-registro-sanitario.sql',
+    '024-asientos-lin-centro-coste.sql',
+    '025-club-fidelizacion-saldo.sql',
   ];
 
   /**
@@ -47,6 +52,52 @@ final class MigrationService
   public function aplicarPendientes(array $config): array
   {
     $pdo = Database::createPdo($config);
+    if ($this->esMysql($pdo)) {
+      $this->ensureMigrationTableMysql($pdo);
+      $pendientes = [];
+      foreach (self::MIGRATION_ORDER as $filename) {
+        if (!$this->isAppliedMysql($pdo, $filename)) {
+          $pendientes[] = $filename;
+        }
+      }
+      if ($pendientes === []) {
+        try {
+          ActividadesCentroCosteSchema::asegurar($pdo);
+          AsientosLinCentroCosteSchema::asegurar($pdo);
+          ClubFidelizacionSchema::asegurar($pdo);
+        } catch (\Throwable $e) {
+          return [
+            'aplicadas' => [],
+            'pendientes' => [],
+            'errores' => ['021-actividades-centro-coste.sql: ' . $e->getMessage()],
+            'ok' => false,
+          ];
+        }
+
+        return [
+          'aplicadas' => [],
+          'pendientes' => [],
+          'errores' => [],
+          'ok' => true,
+        ];
+      }
+
+      $resultado = $this->aplicarEsquemaMysql($pdo);
+      $pendientesRestantes = [];
+      foreach (self::MIGRATION_ORDER as $filename) {
+        if (!$this->isAppliedMysql($pdo, $filename)) {
+          $pendientesRestantes[] = $filename;
+        }
+      }
+
+      return [
+        'aplicadas' => $resultado['aplicadas'],
+        'pendientes' => $pendientesRestantes,
+        'errores' => $resultado['errores'],
+        'ok' => $resultado['ok'],
+      ];
+    }
+
     $this->ensureMigrationTable($pdo);
 
     $aplicadas = [];
@@ -216,9 +267,12 @@ final class MigrationService
     $aplicadas = [];
     try {
       (new MysqlSchemaService())->asegurar($pdo);
+      ActividadesCentroCosteSchema::asegurar($pdo);
+      AsientosLinCentroCosteSchema::asegurar($pdo);
+      ClubFidelizacionSchema::asegurar($pdo);
       $this->ensureMigrationTableMysql($pdo);
       foreach (self::MIGRATION_ORDER as $filename) {
-        if (!$this->isApplied($pdo, $filename)) {
+        if (!$this->isAppliedMysql($pdo, $filename)) {
           $this->markAppliedMysql($pdo, $filename);
         }
         $aplicadas[] = $filename;
@@ -274,8 +328,19 @@ final class MigrationService
 
   private function isApplied(PDO $pdo, string $filename): bool
   {
+    if ($this->esMysql($pdo)) {
+      return $this->isAppliedMysql($pdo, $filename);
+    }
     $stmt = $pdo->prepare('SELECT 1 FROM [SchemaMigrations] WHERE [Id] = :id');
     $stmt->execute(['id' => $filename]);
+    return (bool) $stmt->fetchColumn();
+  }
+
+  private function isAppliedMysql(PDO $pdo, string $filename): bool
+  {
+    $stmt = $pdo->prepare('SELECT 1 FROM `SchemaMigrations` WHERE `Id` = :id');
+    $stmt->execute(['id' => $filename]);
+
     return (bool) $stmt->fetchColumn();
   }
 

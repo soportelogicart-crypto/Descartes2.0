@@ -36,6 +36,20 @@ import EntidadBuscarModal, {
   type EntidadBuscarResultado,
 } from '@/components/common/EntidadBuscarModal.vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
+import CompraDocumentoDropZone from '@/components/compras/CompraDocumentoDropZone.vue'
+import CompraDocumentoVisor from '@/components/compras/CompraDocumentoVisor.vue'
+import CompraImportLineasModal from '@/components/compras/CompraImportLineasModal.vue'
+import {
+  previewImportAlbaranCompraPdf,
+  type AlbaranCompraImportPreviewLinea,
+} from '@/api/compras'
+import {
+  readFileAsBase64,
+  readFileAsText,
+  suAlbaranDesdeNombreArchivo,
+  type CompraArchivoKind,
+  type FilaImportCompra,
+} from '@/utils/compraDocumentoImport'
 
 const route = useRoute()
 const router = useRouter()
@@ -117,6 +131,24 @@ const pendingLineaIdx = ref(-1)
 const pvpPorArticulo = ref(new Map<string, number>())
 const tarifaPorEmpresa = ref(new Map<string, number>())
 const tarifaVentaDoc = ref(1)
+
+const importModalOpen = ref(false)
+const importCsvRaw = ref('')
+const importFilasIniciales = ref<FilaImportCompra[] | undefined>(undefined)
+const importOrigen = ref<'csv' | 'pdf' | 'manual'>('manual')
+const importPreviewLineas = ref<AlbaranCompraImportPreviewLinea[] | undefined>(undefined)
+const importPreviewAvisos = ref<string[]>([])
+const docPreviewUrl = ref<string | null>(null)
+const docPreviewMime = ref<string | null>(null)
+const docPreviewNombre = ref<string | null>(null)
+const importandoDoc = ref(false)
+
+const puedeImportarDocumento = computed(
+  () =>
+    lineasEditables.value &&
+    !!form.value.proveedor.trim() &&
+    (esNuevo.value ? pasoAlta.value === 'listo' : true)
+)
 
 function clampTarifaVenta(n: unknown): number {
   const v = Number(n)
@@ -1933,6 +1965,125 @@ function onArticuloInput(idx: number) {
   barcodeWatcher.onInput(String(form.value.lineas[idx]?.articulo ?? ''))
 }
 
+function cerrarDocPreview() {
+  if (docPreviewUrl.value?.startsWith('blob:')) {
+    URL.revokeObjectURL(docPreviewUrl.value)
+  }
+  docPreviewUrl.value = null
+  docPreviewMime.value = null
+  docPreviewNombre.value = null
+}
+
+function abrirVisorDocumento(file: File) {
+  cerrarDocPreview()
+  docPreviewUrl.value = URL.createObjectURL(file)
+  docPreviewMime.value = file.type || null
+  docPreviewNombre.value = file.name
+}
+
+function sugerirSuAlbaranDesdeArchivo(nombre: string) {
+  const sug = suAlbaranDesdeNombreArchivo(nombre)
+  if (sug && !form.value.suAlbaran.trim()) {
+    form.value.suAlbaran = sug
+  }
+}
+
+async function onDocumentoProveedor(file: File, kind: CompraArchivoKind) {
+  if (!puedeImportarDocumento.value) {
+    error.value = 'Indique el proveedor antes de importar el documento'
+    return
+  }
+  error.value = null
+  mensaje.value = null
+  sugerirSuAlbaranDesdeArchivo(file.name)
+
+  if (kind === 'pdf' || kind === 'imagen') {
+    abrirVisorDocumento(file)
+  }
+
+  if (kind === 'csv' || kind === 'texto') {
+    try {
+      importCsvRaw.value = await readFileAsText(file)
+      importFilasIniciales.value = undefined
+      importPreviewLineas.value = undefined
+      importPreviewAvisos.value = []
+      importOrigen.value = 'csv'
+      importModalOpen.value = true
+    } catch (e: unknown) {
+      error.value = extractApiError(e, 'No se pudo leer el CSV')
+    }
+    return
+  }
+
+  if (kind === 'pdf') {
+    importandoDoc.value = true
+    try {
+      const pdfBase64 = await readFileAsBase64(file)
+      const res = await previewImportAlbaranCompraPdf({
+        proveedor: form.value.proveedor.trim(),
+        empresa: form.value.empresa,
+        almacen: form.value.almacen ?? 0,
+        pdfBase64,
+      })
+      if (res.suAlbaran && !form.value.suAlbaran.trim()) {
+        form.value.suAlbaran = res.suAlbaran
+      }
+      importCsvRaw.value = ''
+      importFilasIniciales.value = undefined
+      importPreviewLineas.value = res.lineas
+      importPreviewAvisos.value = res.avisos ?? []
+      importOrigen.value = 'pdf'
+      importModalOpen.value = true
+      mensaje.value = 'Revise las líneas extraídas del PDF antes de volcarlas al albarán.'
+    } catch (e: unknown) {
+      error.value = extractApiError(
+        e,
+        'No se pudo importar el PDF. Use CSV o entrada manual si es un escaneo.'
+      )
+    } finally {
+      importandoDoc.value = false
+    }
+    return
+  }
+
+  if (kind === 'imagen') {
+    mensaje.value =
+      'Imagen adjunta como referencia. Para líneas automáticas use CSV o un PDF con texto (no escaneo).'
+    return
+  }
+
+  error.value = 'Formato no soportado. Use PDF, imagen o CSV.'
+}
+
+function volcarLineasImport(lineas: AlbaranCompraImportPreviewLinea[]) {
+  const validas = lineas.filter((l) => l.estado === 'ok' && String(l.articulo ?? '').trim())
+  if (!validas.length) {
+    error.value = 'No hay líneas válidas para volcar'
+    return
+  }
+  const existentes = form.value.lineas.filter((l) => String(l.articulo ?? '').trim())
+  const nuevas: FormLinea[] = validas.map((l) => ({
+    articulo: l.articulo,
+    descripcion: String(l.descripcion ?? '').trim(),
+    cantidad: Number(l.cantidad) || 1,
+    precio: Number(l.precio) || 0,
+    pjeDto: Number(l.pjeDto) || 0,
+    dto1: Number(l.dto1) || 0,
+    dto2: Number(l.dto2) || 0,
+    dto3: Number(l.dto3) || 0,
+    lote: '',
+    almacen: l.almacen ?? form.value.almacen,
+    pedido: null,
+    pvp: 0,
+  }))
+  form.value.lineas = [...existentes, ...nuevas]
+  if (form.value.lineas.length === 0) {
+    form.value.lineas = [lineaVacia()]
+  }
+  mensaje.value = `Importadas ${nuevas.length} línea(s). Revise y pulse Guardar.`
+  void refrescarPvpsLineas()
+}
+
 async function quitarLinea(idx: number) {
   if (!lineasEditables.value) return
   if (form.value.lineas.length <= 1) {
@@ -2136,7 +2287,7 @@ watch(
         Buscar proveedor
       </button>
     </div>
-    <p v-else-if="esNuevo && pasoAlta === 'listo'" class="ok">
+    <p v-else-if="esNuevo && pasoAlta === 'listo'" class="hint-paso">
       Intro avanza por proyecto, observaciones y Más datos. <strong>F3</strong> salta a las líneas.
       El número de albarán se asigna al pulsar <strong>Guardar</strong>.
     </p>
@@ -2149,7 +2300,7 @@ watch(
     </p>
 
     <p v-if="error" class="error">{{ error }}</p>
-    <p v-if="mensaje && !esNuevo" class="ok">{{ mensaje }}</p>
+    <p v-if="mensaje" class="ok">{{ mensaje }}</p>
     <p v-if="loading && !ficha && !esNuevo" class="msg">Cargando...</p>
 
     <template v-if="ficha || esNuevo">
@@ -2346,6 +2497,27 @@ watch(
           </section>
         </details>
       </div>
+
+      <div
+        v-if="puedeImportarDocumento || docPreviewUrl"
+        class="entrada-doc-row"
+      >
+        <CompraDocumentoDropZone
+          v-if="puedeImportarDocumento"
+          class="entrada-doc-drop"
+          :disabled="importandoDoc"
+          @file="onDocumentoProveedor"
+        />
+        <CompraDocumentoVisor
+          v-if="docPreviewUrl"
+          class="entrada-doc-visor"
+          :url="docPreviewUrl"
+          :mime="docPreviewMime"
+          :nombre="docPreviewNombre"
+          @close="cerrarDocPreview"
+        />
+      </div>
+      <p v-if="importandoDoc" class="ok">Analizando PDF…</p>
 
       <div
         v-if="!esNuevo || pasoAlta === 'listo'"
@@ -2554,6 +2726,19 @@ watch(
       :busqueda-inicial="articuloBusquedaInicial"
       @seleccionar="onArticuloSeleccionado"
       @cerrar="buscarArticuloOpen = false"
+    />
+    <CompraImportLineasModal
+      :open="importModalOpen"
+      :proveedor="form.proveedor"
+      :empresa="form.empresa"
+      :almacen="form.almacen ?? 0"
+      :csv-raw="importCsvRaw"
+      :filas-iniciales="importFilasIniciales"
+      :origen="importOrigen"
+      :preview-inicial="importPreviewLineas"
+      :avisos-iniciales="importPreviewAvisos"
+      @close="importModalOpen = false"
+      @confirm="volcarLineasImport"
     />
     <ConfirmDialog
       :open="confirmBorrar"
@@ -2827,6 +3012,11 @@ watch(
   color: #166534;
   margin: 0;
 }
+.hint-paso {
+  color: #475569;
+  margin: 0;
+  font-size: 0.9rem;
+}
 .msg {
   color: #475569;
 }
@@ -3028,6 +3218,25 @@ watch(
 .combo-input .btn-buscar:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.entrada-doc-row {
+  display: grid;
+  grid-template-columns: 1fr minmax(220px, 36%);
+  gap: 0.65rem;
+  margin: 0.5rem 0 0.35rem;
+  align-items: stretch;
+}
+.entrada-doc-drop {
+  min-width: 0;
+}
+.entrada-doc-visor {
+  min-width: 0;
+}
+@media (max-width: 900px) {
+  .entrada-doc-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .lineas-panel {
@@ -3258,6 +3467,25 @@ td input {
   height: 1.45rem;
   box-sizing: border-box;
 }
+.entrada-doc-row {
+  display: grid;
+  grid-template-columns: 1fr minmax(220px, 36%);
+  gap: 0.65rem;
+  margin: 0.5rem 0 0.35rem;
+  align-items: stretch;
+}
+.entrada-doc-drop {
+  min-width: 0;
+}
+.entrada-doc-visor {
+  min-width: 0;
+}
+@media (max-width: 900px) {
+  .entrada-doc-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 .lineas-panel {
   width: 100%;
   max-width: 100%;

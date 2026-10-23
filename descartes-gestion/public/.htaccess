@@ -1,5 +1,5 @@
 RewriteEngine On
-RewriteBase /descartes/
+RewriteBase /
 DirectoryIndex index.php index.html
 
 <IfModule mod_headers.c>
@@ -16,4 +16,4 @@ RewriteRule ^api(/.*)?$ proxy.php [L,QSA]
 RewriteRule ^index\.php$ - [L]
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule . /descartes/index.php [L]
+RewriteRule . /index.php [L]

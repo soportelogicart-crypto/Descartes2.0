@@ -151,7 +151,13 @@ function sectionZoneClass(section: ArticuloSection) {
     >
     <fieldset
       class="form-section"
-      :class="section.title === 'Clasificacion' ? 'section-clasificacion' : ''"
+      :class="{
+        'section-clasificacion': section.title === 'Clasificacion',
+        'section-resumen-stock': section.title === 'Resumen stock',
+        'section-checkboxes': section.fields.every((f) => f.type === 'checkbox' || f.layout === 'checkbox')
+          || section.title === 'Bloqueos y flags'
+          || section.title === 'Estado',
+      }"
     >
       <legend>{{ section.title }}</legend>
       <div
@@ -237,6 +243,7 @@ function sectionZoneClass(section: ArticuloSection) {
             :data-field-key="field.key"
             :value="String(modelValue[field.key] ?? '')"
             :readonly="isReadOnly(field)"
+            :maxlength="field.maxLength"
             @input="updateField(field.key, ($event.target as HTMLInputElement).value)"
           />
         </div>
@@ -256,9 +263,10 @@ function sectionZoneClass(section: ArticuloSection) {
   border: 1px solid #c5cdd8;
   border-radius: 0 0 8px 0;
   min-height: 320px;
-  max-width: 1100px;
+  max-width: min(1100px, 100%);
   width: 100%;
   box-sizing: border-box;
+  min-width: 0;
 }
 
 .tab-form-tarifas {
@@ -518,6 +526,26 @@ select:disabled {
   --lookup-codigo-w: 3.35rem;
 }
 
+.section-resumen-stock .field-inline .field-label {
+  white-space: normal;
+  line-height: 1.15;
+}
+
+.field-textarea textarea {
+  width: 100%;
+  max-width: 100%;
+}
+
+@media (max-width: 900px) {
+  .tab-form-tarifas {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      'especiales'
+      'precios'
+      'costes';
+  }
+}
+
 @media (max-width: 720px) {
   .tab-form-tarifas {
     grid-template-columns: 1fr;
@@ -525,6 +553,33 @@ select:disabled {
       'especiales'
       'precios'
       'costes';
+  }
+
+  .section-grid.cols-4,
+  .section-headers.cols-4,
+  .section-checkboxes .section-grid.cols-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .section-grid.cols-2,
+  .section-headers.cols-2,
+  .section-resumen-stock .section-grid.cols-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .section-grid.flow-column {
+    grid-auto-flow: row;
+    grid-template-rows: none;
+  }
+
+  .field.span-2,
+  .field.span-3,
+  .field.span-4 {
+    grid-column: span 1;
+  }
+
+  .section-checkboxes .field.span-2 {
+    grid-column: span 2;
   }
 }
 </style>

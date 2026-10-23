@@ -471,9 +471,6 @@ onMounted(async () => {
         </p>
       </div>
       <div class="toolbar-actions">
-        <button type="button" class="btn" :disabled="loading || loadingOpts" @click="consultar">
-          {{ loading ? 'Consultando…' : 'Consultar' }}
-        </button>
         <button
           type="button"
           class="btn primary"
@@ -667,6 +664,10 @@ onMounted(async () => {
               </div>
             </div>
           </fieldset>
+
+          <button type="submit" class="btn primary btn-buscar" :disabled="loading || loadingOpts">
+            {{ loading ? 'Consultando…' : 'Consultar' }}
+          </button>
 
           <div v-if="preview" class="resumen">
             <div>
@@ -906,6 +907,10 @@ onMounted(async () => {
   background: #0f172a;
   color: #fff;
   border-color: #0f172a;
+}
+.btn-buscar {
+  width: 100%;
+  margin: 0.1rem 0 0.35rem;
 }
 .layout {
   display: grid;

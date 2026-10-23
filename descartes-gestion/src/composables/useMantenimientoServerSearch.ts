@@ -4,7 +4,7 @@ import type { ColumnFilter } from '@/composables/useGridColumnFilters'
 interface MantenimientoServerSearchOptions {
   filters: Ref<Record<string, ColumnFilter>>
   serverKeys: MaybeRefOrGetter<readonly string[]>
-  reload: (q: string) => void | Promise<void>
+  reload: (q: string, options?: { silent?: boolean }) => void | Promise<void>
   cancel?: () => void
   enabled?: MaybeRefOrGetter<boolean>
   debounceMs?: number
@@ -36,7 +36,7 @@ export function useMantenimientoServerSearch(options: MantenimientoServerSearchO
   function reloadNow() {
     clearPending()
     if (options.enabled !== undefined && !toValue(options.enabled)) return
-    void options.reload(query.value)
+    void options.reload(query.value, { silent: true })
   }
 
   watch(query, () => {

@@ -1,0 +1,1017 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Descartes\Api\Services\Ventas;
+
+use Descartes\Api\Database\SqlPagination;
+use PDO;
+
+final class VentaConsultaService
+{
+  private PDO $pdo;
+
+  public function __construct(PDO $pdo)
+  {
+    $this->pdo = $pdo;
+  }
+
+  /** @param array<string, mixed> $query */
+  public function listar(array $query): array
+  {
+    $page = max(1, (int) ($query['page'] ?? 1));
+    // El listado de ventas se carga completo (sin paginacion en pantalla): admite bloques grandes.
+    $pageSize = min(5000, max(1, (int) ($query['pageSize'] ?? 50)));
+    $offset = ($page - 1) * $pageSize;
+
+    $where = ['1=1'];
+    $params = [];
+
+    if ($this->fechaIsoValida($query['fechaDesde'] ?? null)) {
+      $where[] = 'c.Fecha >= CONVERT(datetime, :fechaDesde, 120)';
+      $params['fechaDesde'] = substr((string) $query['fechaDesde'], 0, 10) . ' 00:00:00';
+    }
+    if ($this->fechaIsoValida($query['fechaHasta'] ?? null)) {
+      $where[] = 'c.Fecha <= CONVERT(datetime, :fechaHasta, 120)';
+      $params['fechaHasta'] = substr((string) $query['fechaHasta'], 0, 10) . ' 23:59:59';
+    }
+    if (!empty($query['puesto'])) {
+      $where[] = 'c.Puesto = :puesto';
+      $params['puesto'] = $query['puesto'];
+    }
+    if (!empty($query['vendedor'])) {
+      $where[] = 'c.Vendedor = :vendedor';
+      $params['vendedor'] = $query['vendedor'];
+    }
+    if (!empty($query['cliente'])) {
+      $where[] = '(c.Cliente LIKE :cliente OR c.RazonSocial LIKE :clienteNombre)';
+      $params['cliente'] = '%' . $query['cliente'] . '%';
+      $params['clienteNombre'] = '%' . $query['cliente'] . '%';
+    }
+    if (!empty($query['estado'])) {
+      $where[] = 'c.Estado = :estado';
+      $params['estado'] = $query['estado'];
+    }
+    if (!empty($query['empresa'])) {
+      $empresa = $this->normalizarEmpresaCodigo((string) $query['empresa']);
+      $where[] = 'RTRIM(c.Empresa) = :empresa';
+      $params['empresa'] = $empresa;
+    }
+    if (isset($query['documento']) && trim((string) $query['documento']) !== '') {
+      $documento = (int) $query['documento'];
+      if ($documento > 0) {
+        // El cajero puede conocer el número interno de albarán o el visible
+        // de ticket/factura; se admiten ambos para localizar el origen.
+        $where[] = '(c.Albaran = :documentoAlbaran OR c.Factura = :documentoFactura)';
+        $params['documentoAlbaran'] = $documento;
+        $params['documentoFactura'] = $documento;
+      }
+    }
+    // Los filtros de columna del grid son parciales: "152" debe encontrar 1523.
+    $albaranTexto = $this->soloDigitos($query['albaranTexto'] ?? null);
+    if ($albaranTexto !== '') {
+      $where[] = 'CAST(c.Albaran AS varchar(20)) LIKE :albaranTexto';
+      $params['albaranTexto'] = '%' . $albaranTexto . '%';
+    }
+    $facturaTexto = $this->soloDigitos($query['facturaTexto'] ?? null);
+    if ($facturaTexto !== '') {
+      $where[] = 'CAST(c.Factura AS varchar(20)) LIKE :facturaTexto';
+      $params['facturaTexto'] = '%' . $facturaTexto . '%';
+    }
+
+    $this->aplicarFiltroClaseDocumento($where, $query);
+
+    $sqlWhere = implode(' AND ', $where);
+
+    $countStmt = $this->pdo->prepare("SELECT COUNT(*) FROM AlbaranesVentasCab c WHERE {$sqlWhere}");
+    $countStmt->execute($params);
+    $total = (int) $countStmt->fetchColumn();
+
+    $innerSql = "SELECT c.Empresa, c.Tipo, c.Albaran, c.Fecha, c.Cliente, c.RazonSocial, c.Puesto,
+                   c.Vendedor, c.Estado, c.Importe, c.Factura, c.FacturaTipo, c.Sesion,
+                   c.AlbaranOrigenAbono
+            FROM AlbaranesVentasCab c
+            WHERE {$sqlWhere}";
+    $sql = SqlPagination::wrap($innerSql, 'Albaran DESC, Fecha DESC, Empresa ASC', $offset, $pageSize);
+    $stmt = $this->pdo->prepare($sql);
+    foreach ($params as $k => $v) {
+      $stmt->bindValue(':' . $k, $v);
+    }
+    SqlPagination::bind($stmt, $offset, $pageSize);
+    $stmt->execute();
+
+    $items = [];
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+      $items[] = $this->mapResumen($row);
+    }
+
+    return [
+      'items' => $items,
+      'total' => $total,
+      'page' => $page,
+      'pageSize' => $pageSize,
+    ];
+  }
+
+  public function obtener(string $empresa, string $tipo, int $albaran): ?array
+  {
+    return $this->obtenerFicha($empresa, $tipo, $albaran);
+  }
+
+  /** Detalle completo para ficha de Gestion (cabecera + lineas). */
+  public function obtenerFicha(string $empresa, string $tipo, int $albaran): ?array
+  {
+    $stmt = $this->pdo->prepare(
+      'SELECT Empresa, Tipo, Albaran, Fecha, Cliente, RazonSocial, RazonSocial2, NIF, Puesto, Vendedor,
+              Representante, Transporte, DireccionEnvio, PoblacionEnvio, CodigoPostalEnvio,
+              ProvinciaEnvio, PaisEnvio, Telefono, Telefono2, Fax, Email, Almacen, Pedido,
+              Referencia1, Referencia2, NumeroDeSerie, Observaciones, SujetoPasivo, Portes, Estado, Impreso,
+              Importe, Factura, FacturaTipo, Sesion, Mesa, Tarifa, FechaEntrega,
+              ImporteDtos, ImporteDtoFidelizacion, PjeDto,
+              PuntosFidelizacionCompra, PuntosFidelizacionAcumulados,
+              Fpago1, Fpago2, Fpago3, ImpFpago1, ImpFpago2,
+              ImporteBase1, ImporteBase2, ImporteBase3, ImporteBase4, ImporteBase5, ImporteBase6,
+              PjeIva1, PjeIva2, PjeIva3, PjeIva4, PjeIva5, PjeIva6,
+              ImporteIva1, ImporteIva2, ImporteIva3, ImporteIva4, ImporteIva5, ImporteIva6,
+              AlbaranOrigenAbono
+       FROM AlbaranesVentasCab
+       WHERE Empresa = :empresa AND Tipo = :tipo AND Albaran = :albaran'
+    );
+    $stmt->execute(['empresa' => $empresa, 'tipo' => $tipo, 'albaran' => $albaran]);
+    $cab = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$cab) {
+      return null;
+    }
+
+    $linStmt = $this->pdo->prepare(
+      'SELECT NroLin, Articulo, Descripcion, LoteVenta, LoteFito, Cantidad, Precio, PjeDto, Importe, PjeIva
+       FROM AlbaranesVentasLin
+       WHERE Empresa = :empresa AND Tipo = :tipo AND Albaran = :albaran
+       ORDER BY NroLin'
+    );
+    $linStmt->execute(['empresa' => $empresa, 'tipo' => $tipo, 'albaran' => $albaran]);
+
+    $lineas = [];
+    while ($lin = $linStmt->fetch(PDO::FETCH_ASSOC)) {
+      $lineas[] = [
+        'nroLin' => (int) $lin['NroLin'],
+        'articulo' => $lin['Articulo'],
+        'descripcion' => $lin['Descripcion'],
+        'loteVenta' => $lin['LoteVenta'],
+        'loteFito' => $lin['LoteFito'] ?? null,
+        'cantidad' => (float) ($lin['Cantidad'] ?? 0),
+        'precio' => (float) ($lin['Precio'] ?? 0),
+        'pjeDto' => (float) ($lin['PjeDto'] ?? 0),
+        'importe' => (float) ($lin['Importe'] ?? 0),
+        'pjeIva' => (float) ($lin['PjeIva'] ?? 0),
+      ];
+    }
+    $this->enriquecerLineasFitosanitario($lineas);
+
+    $detalle = $this->mapResumen($cab);
+    $detalle['razonSocial2'] = $cab['RazonSocial2'] ?? null;
+    $detalle['nif'] = $cab['NIF'] ?? null;
+    $detalle['representante'] = $cab['Representante'] ?? null;
+    $detalle['transporte'] = $cab['Transporte'] ?? null;
+    $detalle['direccionEnvio'] = $cab['DireccionEnvio'] ?? null;
+    $detalle['poblacionEnvio'] = $cab['PoblacionEnvio'] ?? null;
+    $detalle['codigoPostalEnvio'] = $cab['CodigoPostalEnvio'] ?? null;
+    $detalle['provinciaEnvio'] = $cab['ProvinciaEnvio'] ?? null;
+    $detalle['paisEnvio'] = $cab['PaisEnvio'] ?? null;
+    $detalle['telefono'] = $cab['Telefono'] ?? null;
+    $detalle['telefono2'] = $cab['Telefono2'] ?? null;
+    $detalle['fax'] = $cab['Fax'] ?? null;
+    $detalle['email'] = $cab['Email'] ?? null;
+    $detalle['almacen'] = isset($cab['Almacen']) && $cab['Almacen'] !== null ? (int) $cab['Almacen'] : null;
+    $detalle['pedido'] = isset($cab['Pedido']) && $cab['Pedido'] !== null && (int) $cab['Pedido'] > 0
+      ? (int) $cab['Pedido'] : null;
+    $detalle['referencia1'] = $cab['Referencia1'] ?? null;
+    $detalle['referencia2'] = $cab['Referencia2'] ?? null;
+    $detalle['numeroDeSerie'] = $cab['NumeroDeSerie'] !== null ? trim((string) $cab['NumeroDeSerie']) : null;
+    $detalle['observaciones'] = isset($cab['Observaciones']) ? trim((string) $cab['Observaciones']) : null;
+    $detalle['sujetoPasivo'] = !empty($cab['SujetoPasivo']);
+    $detalle['portes'] = $cab['Portes'] ?? null;
+    $detalle['mesa'] = isset($cab['Mesa']) && $cab['Mesa'] !== null ? (int) $cab['Mesa'] : null;
+    $detalle['tarifa'] = isset($cab['Tarifa']) && $cab['Tarifa'] !== null ? (int) $cab['Tarifa'] : null;
+    $detalle['fechaEntrega'] = $this->fmtDate($cab['FechaEntrega'] ?? null);
+    $detalle['bruto'] = (float) ($cab['ImporteBase1'] ?? 0);
+    $detalle['descuento'] = (float) ($cab['ImporteDtos'] ?? 0);
+    $detalle['descuentoFidelizacion'] = (float) ($cab['ImporteDtoFidelizacion'] ?? 0);
+    $puntosCompra = (float) ($cab['PuntosFidelizacionCompra'] ?? 0);
+    $puntosAcumulados = (float) ($cab['PuntosFidelizacionAcumulados'] ?? 0);
+    if ($puntosCompra != 0.0 || $puntosAcumulados != 0.0) {
+      $detalle['fidelizacionPuntos'] = [
+        'compra' => $puntosCompra,
+        'acumulados' => $puntosAcumulados,
+      ];
+    }
+    $detalle['iva'] = (float) ($cab['ImporteIva1'] ?? 0);
+    $detalle['pjeIva1'] = (float) ($cab['PjeIva1'] ?? 0);
+    $detalle['pjeDto'] = (float) ($cab['PjeDto'] ?? 0);
+    $detalle['formasPago'] = $this->mapFormasPago($cab);
+    $detalle['importesIva'] = $this->mapImportesIva($cab);
+    $detalle['impreso'] = !empty($cab['Impreso']);
+    $detalle['lineas'] = $lineas;
+    $this->enriquecerClienteFichaImpresion($detalle);
+    $this->enriquecerDatosImpresion($detalle);
+    $this->enriquecerFacturaAbono($detalle);
+    $this->enriquecerAlbaranesFactura($detalle);
+    $this->enriquecerConversionTicket($detalle);
+
+    return $detalle;
+  }
+
+  /**
+   * Si la cabecera del albarán no trae dirección/teléfono (común en documentos antiguos),
+   * rellena desde la ficha de Clientes para impresión.
+   *
+   * @param array<string, mixed> $detalle
+   */
+  private function enriquecerClienteFichaImpresion(array &$detalle): void
+  {
+    $codigo = trim((string) ($detalle['cliente'] ?? ''));
+    if ($codigo === '') {
+      return;
+    }
+
+    try {
+      $st = $this->pdo->prepare(
+        'SELECT TOP 1 RazonSocial, NIF, Direccion, CodigoPostal, Poblacion, Provincia, Pais, Telefono1
+         FROM Clientes WHERE Codigo = :cliente'
+      );
+      $st->execute(['cliente' => $codigo]);
+      $row = $st->fetch(PDO::FETCH_ASSOC);
+      if ($row === false) {
+        return;
+      }
+
+      if (trim((string) ($detalle['razonSocial'] ?? '')) === '') {
+        $detalle['razonSocial'] = trim((string) ($row['RazonSocial'] ?? ''));
+      }
+      if (trim((string) ($detalle['nif'] ?? '')) === '') {
+        $detalle['nif'] = trim((string) ($row['NIF'] ?? ''));
+      }
+      if (trim((string) ($detalle['direccionEnvio'] ?? '')) === '') {
+        $detalle['direccionEnvio'] = trim((string) ($row['Direccion'] ?? ''));
+      }
+      if (trim((string) ($detalle['codigoPostalEnvio'] ?? '')) === '') {
+        $detalle['codigoPostalEnvio'] = trim((string) ($row['CodigoPostal'] ?? ''));
+      }
+      if (trim((string) ($detalle['poblacionEnvio'] ?? '')) === '') {
+        $detalle['poblacionEnvio'] = trim((string) ($row['Poblacion'] ?? ''));
+      }
+      if (trim((string) ($detalle['provinciaEnvio'] ?? '')) === '') {
+        $detalle['provinciaEnvio'] = trim((string) ($row['Provincia'] ?? ''));
+      }
+      if (trim((string) ($detalle['paisEnvio'] ?? '')) === '') {
+        $detalle['paisEnvio'] = trim((string) ($row['Pais'] ?? ''));
+      }
+      if (trim((string) ($detalle['telefono'] ?? '')) === '') {
+        $detalle['telefono'] = trim((string) ($row['Telefono1'] ?? ''));
+      }
+    } catch (\Throwable $e) {
+      // No bloquear la ficha si falla el enriquecimiento.
+    }
+  }
+
+  /**
+   * Datos específicos de la plantilla de factura diferida: cuenta bancaria
+   * del cliente, literal de forma de pago y vencimientos de la factura.
+   *
+   * @param array<string, mixed> $detalle
+   */
+  private function enriquecerDatosImpresion(array &$detalle): void
+  {
+    $detalle['clienteCuentaBancaria'] = null;
+    $detalle['clienteIban'] = null;
+    $detalle['clienteSwift'] = null;
+    $detalle['clienteBanco'] = null;
+    $detalle['formaPagoDescripcion'] = null;
+    $detalle['formaPagoTipo'] = null;
+    $detalle['formaPagoNota'] = null;
+    $detalle['vencimientos'] = [];
+    $detalle['pjeRetIrpf'] = 0.0;
+    $detalle['basRetIrpf'] = 0.0;
+    $detalle['impRetIrpf'] = 0.0;
+    $detalle['importeFactura'] = null;
+    $detalle['importeLiquido'] = null;
+
+    $cliente = trim((string) ($detalle['cliente'] ?? ''));
+    if ($cliente !== '') {
+      try {
+        $st = $this->pdo->prepare(
+          'SELECT TOP 1 CuentaBancaria, IBAN, Swift, Agencia, Banco
+           FROM Clientes WHERE Codigo = :cliente'
+        );
+        $st->execute(['cliente' => $cliente]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if ($row !== false) {
+          $detalle['clienteCuentaBancaria'] = trim((string) ($row['CuentaBancaria'] ?? ''));
+          $detalle['clienteIban'] = trim((string) ($row['IBAN'] ?? ''));
+          $detalle['clienteSwift'] = trim((string) ($row['Swift'] ?? ''));
+          $agencia = trim((string) ($row['Agencia'] ?? ''));
+          $detalle['clienteBanco'] = $agencia !== '' ? $agencia : trim((string) ($row['Banco'] ?? ''));
+        }
+      } catch (\Throwable $e) {
+        // Los datos bancarios no deben impedir abrir la ficha.
+      }
+    }
+
+    $factura = (int) ($detalle['factura'] ?? 0);
+    $facturaTipo = strtoupper(trim((string) ($detalle['facturaTipo'] ?? '')));
+    $empresa = trim((string) ($detalle['empresa'] ?? ''));
+    if ($empresa === '' || $factura <= 0 || !in_array($facturaTipo, ['F', 'A'], true)) {
+      return;
+    }
+
+    try {
+      $st = $this->pdo->prepare(
+        'SELECT TOP 1 fp.Descripcion, fp.Tipo, fp.Nota, f.PjeRetIrpf, f.BasRetIrpf, f.ImpRetIrpf,
+                f.Importe, f.PagoACuenta
+         FROM Facturas f
+         LEFT JOIN FormasPago fp ON fp.Codigo = f.Fpago
+         WHERE f.Empresa = :empresa AND f.FacturaTipo = :tipo AND f.Factura = :factura'
+      );
+      $st->execute(['empresa' => $empresa, 'tipo' => $facturaTipo, 'factura' => $factura]);
+      $facturaRow = $st->fetch(PDO::FETCH_ASSOC);
+      if ($facturaRow !== false) {
+        $detalle['formaPagoDescripcion'] = trim((string) ($facturaRow['Descripcion'] ?? '')) ?: null;
+        $detalle['formaPagoTipo'] = trim((string) ($facturaRow['Tipo'] ?? '')) ?: null;
+        $detalle['formaPagoNota'] = trim((string) ($facturaRow['Nota'] ?? '')) ?: null;
+        $detalle['pjeRetIrpf'] = round((float) ($facturaRow['PjeRetIrpf'] ?? 0), 4);
+        $detalle['basRetIrpf'] = round((float) ($facturaRow['BasRetIrpf'] ?? 0), 2);
+        $detalle['impRetIrpf'] = round((float) ($facturaRow['ImpRetIrpf'] ?? 0), 2);
+        $importeFactura = round((float) ($facturaRow['Importe'] ?? 0), 2);
+        $detalle['importeFactura'] = $importeFactura;
+        $detalle['importeLiquido'] = round(
+          $importeFactura
+          - $detalle['impRetIrpf']
+          - (float) ($facturaRow['PagoACuenta'] ?? 0),
+          2
+        );
+      }
+
+      $st = $this->pdo->prepare(
+        'SELECT Vencimiento, Importe
+         FROM Recibos
+         WHERE Empresa = :empresa AND FacturaTipo = :tipo AND Factura = :factura
+         ORDER BY Recibo'
+      );
+      $st->execute(['empresa' => $empresa, 'tipo' => $facturaTipo, 'factura' => $factura]);
+      while ($row = $st->fetch(PDO::FETCH_ASSOC)) {
+        $detalle['vencimientos'][] = [
+          'fecha' => $this->fmtDate($row['Vencimiento'] ?? null),
+          'importe' => round((float) ($row['Importe'] ?? 0), 2),
+        ];
+      }
+    } catch (\Throwable $e) {
+      // La impresión mantiene los datos básicos aunque falle este enriquecimiento.
+    }
+  }
+
+  /**
+   * Datos de Facturas para saber si el documento admite abono parcial por líneas
+   * (ticket / factura contado / albarán cerrado). Crédito (Estado G) → rectificativa.
+   *
+   * @param array<string, mixed> $detalle
+   */
+  private function enriquecerFacturaAbono(array &$detalle): void
+  {
+    $ft = strtoupper(trim((string) ($detalle['facturaTipo'] ?? '')));
+    $factura = (int) ($detalle['factura'] ?? 0);
+    $sesion = (int) ($detalle['sesion'] ?? 0);
+    $esAbonoAlb = ((int) ($detalle['albaranOrigenAbono'] ?? 0) > 0)
+      || ((float) ($detalle['importe'] ?? 0) < 0);
+
+    $detalle['facturaEstado'] = null;
+    $detalle['facturaContadoDiferida'] = false;
+
+    if ($ft === 'F' && $factura > 0) {
+      $empresa = (string) ($detalle['empresa'] ?? '');
+      try {
+        $st = $this->pdo->prepare(
+          'SELECT TOP 1 Estado, FacturaContadoDiferida
+           FROM Facturas
+           WHERE Empresa = :e AND FacturaTipo = :ft AND Factura = :f'
+        );
+        $st->execute(['e' => $empresa, 'ft' => $ft, 'f' => $factura]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if ($row !== false) {
+          $detalle['facturaEstado'] = $row['Estado'] !== null ? trim((string) $row['Estado']) : null;
+          $detalle['facturaContadoDiferida'] = !empty($row['FacturaContadoDiferida']);
+        }
+      } catch (\Throwable $e) {
+        // Sin bloqueo de ficha si falla el lookup.
+      }
+    }
+
+    $detalle['permiteAbonoParcial'] = $this->calcularPermiteAbonoParcial(
+      $ft,
+      $factura,
+      $sesion,
+      $esAbonoAlb,
+      $detalle['facturaEstado'] ?? null,
+      !empty($detalle['facturaContadoDiferida'])
+    );
+
+    $detalle['origenDocumento'] = null;
+    $origenAlb = (int) ($detalle['albaranOrigenAbono'] ?? 0);
+    if ($origenAlb > 0) {
+      $detalle['origenDocumento'] = $this->resolverOrigenDocumentoAbono(
+        (string) ($detalle['empresa'] ?? ''),
+        $origenAlb
+      );
+    }
+
+    $detalle['abonosExistentes'] = [];
+    $detalle['nroLinsAbonados'] = [];
+    if (!$esAbonoAlb && !empty($detalle['permiteAbonoParcial'])) {
+      $estadoAb = $this->resolverEstadoAbonos(
+        (string) ($detalle['empresa'] ?? ''),
+        (int) ($detalle['albaran'] ?? 0),
+        is_array($detalle['lineas'] ?? null) ? $detalle['lineas'] : []
+      );
+      $detalle['abonosExistentes'] = $estadoAb['abonosExistentes'];
+      $detalle['nroLinsAbonados'] = $estadoAb['nroLinsAbonados'];
+    }
+  }
+
+  /**
+   * Abonos previos y líneas del documento origen ya abonadas por completo.
+   *
+   * @param list<array<string, mixed>> $lineasOrig
+   * @return array{
+   *   abonosExistentes: list<array{albaran: int, fecha: string|null, importe: float}>,
+   *   nroLinsAbonados: list<int>
+   * }
+   */
+  public function resolverEstadoAbonos(string $empresa, int $albaranOrigen, array $lineasOrig): array
+  {
+    if ($empresa === '' || $albaranOrigen <= 0) {
+      return ['abonosExistentes' => [], 'nroLinsAbonados' => []];
+    }
+
+    $abonosExistentes = [];
+    try {
+      $st = $this->pdo->prepare(
+        'SELECT Albaran, Fecha, Importe
+         FROM AlbaranesVentasCab
+         WHERE Empresa = :e AND Tipo = \'A\' AND AlbaranOrigenAbono = :orig
+         ORDER BY Albaran'
+      );
+      $st->execute(['e' => $empresa, 'orig' => $albaranOrigen]);
+      while ($row = $st->fetch(PDO::FETCH_ASSOC)) {
+        $abonosExistentes[] = [
+          'albaran' => (int) $row['Albaran'],
+          'fecha' => $this->fmtDate($row['Fecha'] ?? null),
+          'importe' => (float) ($row['Importe'] ?? 0),
+        ];
+      }
+    } catch (\Throwable $e) {
+      return ['abonosExistentes' => [], 'nroLinsAbonados' => []];
+    }
+
+    if ($abonosExistentes === []) {
+      // #region agent log
+      @file_put_contents('C:\\descartes-2.0\\debug-0d3608.log', json_encode(['sessionId' => '0d3608', 'runId' => 'pre-fix-venta-abono-factura', 'hypothesisId' => 'B,C', 'location' => 'VentaConsultaService.php:resolverEstadoAbonos', 'message' => 'Estado de abonos sin documentos hijos', 'data' => ['empresa' => $empresa, 'albaranOrigen' => $albaranOrigen, 'lineasOrigen' => array_values(array_map(static fn (array $l): array => ['nroLin' => (int) ($l['nroLin'] ?? 0), 'articulo' => (string) ($l['articulo'] ?? ''), 'cantidad' => (float) ($l['cantidad'] ?? 0)], array_filter($lineasOrig, 'is_array')))], 'timestamp' => (int) round(microtime(true) * 1000)], JSON_UNESCAPED_UNICODE) . PHP_EOL, FILE_APPEND | LOCK_EX);
+      // #endregion
+      return ['abonosExistentes' => [], 'nroLinsAbonados' => []];
+    }
+
+    $resultado = [
+      'abonosExistentes' => $abonosExistentes,
+      'nroLinsAbonados' => $this->nroLinsAbonadosDesdeBd($empresa, $albaranOrigen, $lineasOrig),
+    ];
+    // #region agent log
+    @file_put_contents('C:\\descartes-2.0\\debug-0d3608.log', json_encode(['sessionId' => '0d3608', 'runId' => 'pre-fix-venta-abono-factura', 'hypothesisId' => 'B,C', 'location' => 'VentaConsultaService.php:resolverEstadoAbonos', 'message' => 'Estado de abonos resuelto', 'data' => ['empresa' => $empresa, 'albaranOrigen' => $albaranOrigen, 'abonos' => array_map(static fn (array $a): array => ['albaran' => $a['albaran'], 'importe' => $a['importe']], $abonosExistentes), 'nroLinsAbonados' => $resultado['nroLinsAbonados']], 'timestamp' => (int) round(microtime(true) * 1000)], JSON_UNESCAPED_UNICODE) . PHP_EOL, FILE_APPEND | LOCK_EX);
+    // #endregion
+    return $resultado;
+  }
+
+  /**
+   * @param list<array<string, mixed>> $lineasOrig
+   * @return list<int>
+   */
+  private function nroLinsAbonadosDesdeBd(string $empresa, int $albaranOrigen, array $lineasOrig): array
+  {
+    try {
+      $st = $this->pdo->prepare(
+        'SELECT DISTINCT l.NroLinOrigen
+         FROM AlbaranesVentasLin l
+         INNER JOIN AlbaranesVentasCab c
+           ON c.Empresa = l.Empresa AND c.Tipo = l.Tipo AND c.Albaran = l.Albaran
+         WHERE c.Empresa = :e AND c.Tipo = \'A\' AND c.AlbaranOrigenAbono = :orig
+           AND l.NroLinOrigen IS NOT NULL AND l.NroLinOrigen > 0
+           AND UPPER(RTRIM(l.Articulo)) <> \'NO\''
+      );
+      $st->execute(['e' => $empresa, 'orig' => $albaranOrigen]);
+      $nroLins = [];
+      while ($row = $st->fetch(PDO::FETCH_ASSOC)) {
+        $n = (int) $row['NroLinOrigen'];
+        if ($n > 0) {
+          $nroLins[] = $n;
+        }
+      }
+      if ($nroLins !== []) {
+        sort($nroLins);
+        // #region agent log
+        @file_put_contents('C:\\descartes-2.0\\debug-0d3608.log', json_encode(['sessionId' => '0d3608', 'runId' => 'pre-fix-venta-abono-factura', 'hypothesisId' => 'C', 'location' => 'VentaConsultaService.php:nroLinsAbonadosDesdeBd', 'message' => 'Relacion de lineas por NroLinOrigen', 'data' => ['empresa' => $empresa, 'albaranOrigen' => $albaranOrigen, 'nroLins' => $nroLins], 'timestamp' => (int) round(microtime(true) * 1000)], JSON_UNESCAPED_UNICODE) . PHP_EOL, FILE_APPEND | LOCK_EX);
+        // #endregion
+        return array_values(array_unique($nroLins));
+      }
+    } catch (\Throwable $e) {
+      // Columna NroLinOrigen ausente o error de consulta: emparejar por cantidades.
+    }
+
+    // #region agent log
+    @file_put_contents('C:\\descartes-2.0\\debug-0d3608.log', json_encode(['sessionId' => '0d3608', 'runId' => 'pre-fix-venta-abono-factura', 'hypothesisId' => 'C', 'location' => 'VentaConsultaService.php:nroLinsAbonadosDesdeBd', 'message' => 'Relacion de lineas por cantidades', 'data' => ['empresa' => $empresa, 'albaranOrigen' => $albaranOrigen], 'timestamp' => (int) round(microtime(true) * 1000)], JSON_UNESCAPED_UNICODE) . PHP_EOL, FILE_APPEND | LOCK_EX);
+    // #endregion
+    return $this->nroLinsAbonadosPorCantidad($empresa, $albaranOrigen, $lineasOrig);
+  }
+
+  /**
+   * @param list<array<string, mixed>> $lineasOrig
+   * @return list<int>
+   */
+  private function nroLinsAbonadosPorCantidad(string $empresa, int $albaranOrigen, array $lineasOrig): array
+  {
+    $abonoLines = [];
+    try {
+      $st = $this->pdo->prepare(
+        'SELECT l.Articulo, l.Cantidad, l.Precio, l.PjeDto, l.LoteVenta
+         FROM AlbaranesVentasLin l
+         INNER JOIN AlbaranesVentasCab c
+           ON c.Empresa = l.Empresa AND c.Tipo = l.Tipo AND c.Albaran = l.Albaran
+         WHERE c.Empresa = :e AND c.Tipo = \'A\' AND c.AlbaranOrigenAbono = :orig
+           AND UPPER(RTRIM(l.Articulo)) <> \'NO\''
+      );
+      $st->execute(['e' => $empresa, 'orig' => $albaranOrigen]);
+      while ($row = $st->fetch(PDO::FETCH_ASSOC)) {
+        $abonoLines[] = $row;
+      }
+    } catch (\Throwable $e) {
+      return [];
+    }
+
+    if ($abonoLines === []) {
+      return [];
+    }
+
+    $pool = [];
+    foreach ($abonoLines as $row) {
+      $key = $this->claveLineaAbono($row);
+      $pool[$key] = ($pool[$key] ?? 0.0) + abs((float) ($row['Cantidad'] ?? 0));
+    }
+
+    $nroLinsAbonados = [];
+    foreach ($lineasOrig as $lin) {
+      if (!is_array($lin)) {
+        continue;
+      }
+      $nro = (int) ($lin['nroLin'] ?? 0);
+      $art = trim((string) ($lin['articulo'] ?? ''));
+      if ($nro <= 0 || $art === '' || strtoupper($art) === 'NO') {
+        continue;
+      }
+      $cantOrig = abs((float) ($lin['cantidad'] ?? 0));
+      if ($cantOrig < 0.0001) {
+        continue;
+      }
+      $key = $this->claveLineaAbono([
+        'Articulo' => $art,
+        'Precio' => $lin['precio'] ?? 0,
+        'PjeDto' => $lin['pjeDto'] ?? 0,
+        'LoteVenta' => $lin['loteVenta'] ?? null,
+      ]);
+      $abonado = $pool[$key] ?? 0.0;
+      if ($abonado >= $cantOrig - 0.0001) {
+        $nroLinsAbonados[] = $nro;
+        $pool[$key] = max(0.0, $abonado - $cantOrig);
+      }
+    }
+
+    sort($nroLinsAbonados);
+    return $nroLinsAbonados;
+  }
+
+  /** @param array<string, mixed> $row */
+  private function claveLineaAbono(array $row): string
+  {
+    $art = strtoupper(trim((string) ($row['Articulo'] ?? $row['articulo'] ?? '')));
+    $precio = round((float) ($row['Precio'] ?? $row['precio'] ?? 0), 4);
+    $dto = round((float) ($row['PjeDto'] ?? $row['pjeDto'] ?? 0), 4);
+    $lote = strtoupper(trim((string) ($row['LoteVenta'] ?? $row['loteVenta'] ?? '')));
+    return "{$art}|{$precio}|{$dto}|{$lote}";
+  }
+
+  /**
+   * @return array{albaran: int, tipo: string|null, facturaTipo: string|null, factura: int|null, etiqueta: string}|null
+   */
+  private function resolverOrigenDocumentoAbono(string $empresa, int $albaranOrigen): ?array
+  {
+    if ($empresa === '' || $albaranOrigen <= 0) {
+      return null;
+    }
+    try {
+      $st = $this->pdo->prepare(
+        'SELECT TOP 1 Tipo, FacturaTipo, Factura
+         FROM AlbaranesVentasCab
+         WHERE Empresa = :e AND Albaran = :a
+         ORDER BY CASE WHEN Tipo = \'A\' THEN 0 ELSE 1 END'
+      );
+      $st->execute(['e' => $empresa, 'a' => $albaranOrigen]);
+      $row = $st->fetch(PDO::FETCH_ASSOC);
+      if ($row === false) {
+        return [
+          'albaran' => $albaranOrigen,
+          'tipo' => null,
+          'facturaTipo' => null,
+          'factura' => null,
+          'etiqueta' => "Albarán {$albaranOrigen}",
+        ];
+      }
+      $tipo = $row['Tipo'] !== null ? trim((string) $row['Tipo']) : null;
+      $ft = strtoupper(trim((string) ($row['FacturaTipo'] ?? '')));
+      $factura = isset($row['Factura']) && (int) $row['Factura'] > 0 ? (int) $row['Factura'] : null;
+      $etiqueta = "Albarán {$albaranOrigen}";
+      if ($ft === 'T' && $factura !== null) {
+        $etiqueta = "Ticket T-{$factura} (albarán {$albaranOrigen})";
+      } elseif ($ft === 'F' && $factura !== null) {
+        $etiqueta = "Factura F-{$factura} (albarán {$albaranOrigen})";
+      } elseif ($ft === 'A' && $factura !== null) {
+        $etiqueta = "Abono A-{$factura} (albarán {$albaranOrigen})";
+      }
+      return [
+        'albaran' => $albaranOrigen,
+        'tipo' => $tipo,
+        'facturaTipo' => $ft !== '' ? $ft : null,
+        'factura' => $factura,
+        'etiqueta' => $etiqueta,
+      ];
+    } catch (\Throwable $e) {
+      return [
+        'albaran' => $albaranOrigen,
+        'tipo' => null,
+        'facturaTipo' => null,
+        'factura' => null,
+        'etiqueta' => "Albarán {$albaranOrigen}",
+      ];
+    }
+  }
+
+  private function calcularPermiteAbonoParcial(
+    string $ft,
+    int $factura,
+    int $sesion,
+    bool $esAbonoAlb,
+    ?string $facturaEstado,
+    bool $contadoDiferida
+  ): bool {
+    if ($esAbonoAlb) {
+      return false;
+    }
+    // Albarán cerrado (crédito pendiente de facturar).
+    if (($ft === '' || $ft === 'Z') && $factura <= 0 && $sesion > 0) {
+      return true;
+    }
+    // Ticket tipificado.
+    if ($ft === 'T' && $factura > 0) {
+      return true;
+    }
+    // Factura de contado (Estado F). Crédito/diferida (G) no.
+    if ($ft === 'F' && $factura > 0) {
+      $fe = strtoupper(trim((string) $facturaEstado));
+      if ($contadoDiferida || $fe === 'G') {
+        return false;
+      }
+      return $fe === 'F';
+    }
+    return false;
+  }
+
+  /** @param array<string, mixed> $row */
+  private function mapResumen(array $row): array
+  {
+    $factura = $row['Factura'] !== null && $row['Factura'] !== '' ? (int) $row['Factura'] : null;
+
+    $tipo = (string) $row['Tipo'];
+    $facturaTipo = $row['FacturaTipo'] !== null ? trim((string) $row['FacturaTipo']) : null;
+    $ft = strtoupper((string) ($facturaTipo ?? ''));
+    $esTicket = $ft === 'T' && $factura !== null && $factura > 0;
+    $facturada = $factura !== null && $factura > 0;
+    // Solo factura/abono bloquean del todo; el ticket puede pasar a factura.
+    $bloqueado = $ft === 'F' || $ft === 'A';
+
+    return [
+      'empresa' => (string) $row['Empresa'],
+      'tipo' => $tipo,
+      'albaran' => (int) $row['Albaran'],
+      'fecha' => $this->fmtDate($row['Fecha'] ?? null),
+      'cliente' => $row['Cliente'],
+      'razonSocial' => $row['RazonSocial'],
+      'puesto' => $row['Puesto'],
+      'vendedor' => $row['Vendedor'],
+      'estado' => $row['Estado'],
+      'importe' => (float) ($row['Importe'] ?? 0),
+      'facturada' => $facturada,
+      'bloqueado' => $bloqueado,
+      'esTicket' => $esTicket,
+      'factura' => $factura,
+      'facturaTipo' => $row['FacturaTipo'] ?? null,
+      'sesion' => isset($row['Sesion']) && $row['Sesion'] !== null ? (int) $row['Sesion'] : null,
+      'albaranOrigenAbono' => isset($row['AlbaranOrigenAbono']) && (int) $row['AlbaranOrigenAbono'] > 0
+        ? (int) $row['AlbaranOrigenAbono']
+        : null,
+    ];
+  }
+
+  /** @param array<string, mixed> $cab */
+  private function mapFormasPago(array $cab): array
+  {
+    $out = [];
+    $slots = [
+      ['Fpago1', 'ImpFpago1'],
+      ['Fpago2', 'ImpFpago2'],
+    ];
+    foreach ($slots as [$fp, $imp]) {
+      $codigo = trim((string) ($cab[$fp] ?? ''));
+      if ($codigo === '') {
+        continue;
+      }
+      $out[] = [
+        'codigo' => $codigo,
+        'importe' => (float) ($cab[$imp] ?? 0),
+      ];
+    }
+    $fp3 = trim((string) ($cab['Fpago3'] ?? ''));
+    if ($fp3 !== '') {
+      $resto = (float) ($cab['Importe'] ?? 0)
+        - (float) ($cab['ImpFpago1'] ?? 0)
+        - (float) ($cab['ImpFpago2'] ?? 0);
+      $out[] = ['codigo' => $fp3, 'importe' => max(0.0, $resto)];
+    }
+    return $out;
+  }
+
+  /** @param array<string, mixed> $cab */
+  private function mapImportesIva(array $cab): array
+  {
+    $out = [];
+    for ($i = 1; $i <= 6; $i++) {
+      $base = (float) ($cab["ImporteBase{$i}"] ?? 0);
+      $iva = (float) ($cab["ImporteIva{$i}"] ?? 0);
+      $pje = (float) ($cab["PjeIva{$i}"] ?? 0);
+      if ($base == 0.0 && $iva == 0.0 && $pje == 0.0) {
+        continue;
+      }
+      $out[] = ['pjeIva' => $pje, 'base' => $base, 'iva' => $iva];
+    }
+    return $out;
+  }
+
+  private function fmtDate($value): ?string
+  {
+    if ($value === null || $value === '') {
+      return null;
+    }
+    if ($value instanceof \DateTimeInterface) {
+      return $value->format('c');
+    }
+    $ts = strtotime((string) $value);
+    return $ts ? date('c', $ts) : (string) $value;
+  }
+
+  private function fechaIsoValida($value): bool
+  {
+    if ($value === null || $value === '') {
+      return false;
+    }
+    return (bool) preg_match('/^\d{4}-\d{2}-\d{2}/', (string) $value);
+  }
+
+  /** @param mixed $value */
+  private function soloDigitos($value): string
+  {
+    if ($value === null) {
+      return '';
+    }
+    return preg_replace('/\D+/', '', (string) $value) ?? '';
+  }
+
+  private function normalizarEmpresaCodigo(string $empresa): string
+  {
+    $empresa = trim($empresa);
+    if ($empresa !== '' && ctype_digit($empresa)) {
+      return (string) (int) $empresa;
+    }
+
+    return $empresa;
+  }
+
+  /** Factura creada al compensar este ticket con un ticket negativo. */
+  private function enriquecerConversionTicket(array &$detalle): void
+  {
+    $detalle['facturaConversion'] = null;
+    $ft = strtoupper(trim((string) ($detalle['facturaTipo'] ?? '')));
+    $albaran = (int) ($detalle['albaran'] ?? 0);
+    $empresa = trim((string) ($detalle['empresa'] ?? ''));
+    if ($ft !== 'T' || $albaran <= 0 || $empresa === '') {
+      return;
+    }
+    try {
+      $st = $this->pdo->prepare(
+        'SELECT TOP 1 Factura FROM Facturas
+         WHERE Empresa = :e AND ISNULL(TrasformacionTicketFactura, 0) = 1
+           AND AlbaranTicketTransformado = :a'
+      );
+      $st->execute(['e' => $empresa, 'a' => $albaran]);
+      $n = $st->fetchColumn();
+      if ($n !== false && (int) $n > 0) {
+        $detalle['facturaConversion'] = (int) $n;
+      }
+    } catch (\Throwable $e) {
+      $detalle['facturaConversion'] = null;
+    }
+  }
+
+  /**
+   * Albaranes de venta agrupados en la misma factura o ticket (copia «Otra venta»).
+   *
+   * @param array<string, mixed> $detalle
+   */
+  private function enriquecerAlbaranesFactura(array &$detalle): void
+  {
+    $detalle['albaranesFactura'] = [];
+    $factura = (int) ($detalle['factura'] ?? 0);
+    $ft = strtoupper(trim((string) ($detalle['facturaTipo'] ?? '')));
+    if ($factura <= 0 || !in_array($ft, ['F', 'T'], true)) {
+      return;
+    }
+    $empresa = trim((string) ($detalle['empresa'] ?? ''));
+    if ($empresa === '') {
+      return;
+    }
+    $detalle['albaranesFactura'] = $this->listarAlbaranesMismaFactura($empresa, $ft, $factura);
+  }
+
+  /**
+   * @return list<array{empresa: string, tipo: string, albaran: int, fecha: string|null, cliente: string, importe: float}>
+   */
+  private function listarAlbaranesMismaFactura(string $empresa, string $facturaTipo, int $factura): array
+  {
+    try {
+      $sql = "SELECT a.Empresa, a.Tipo, a.Albaran, a.Fecha, a.Cliente, a.Importe
+              FROM AlbaranesVentasCab a
+              WHERE a.FacturaTipo = :ft AND a.Factura = :f
+                AND (a.EmpresaFacturacion = :e OR (ISNULL(a.EmpresaFacturacion, '') = '' AND a.Empresa = :e2))
+              ORDER BY a.Albaran";
+      $st = $this->pdo->prepare($sql);
+      $st->execute(['ft' => $facturaTipo, 'f' => $factura, 'e' => $empresa, 'e2' => $empresa]);
+    } catch (\Throwable $e) {
+      $sql = "SELECT a.Empresa, a.Tipo, a.Albaran, a.Fecha, a.Cliente, a.Importe
+              FROM AlbaranesVentasCab a
+              WHERE a.Empresa = :e AND a.FacturaTipo = :ft AND a.Factura = :f
+              ORDER BY a.Albaran";
+      $st = $this->pdo->prepare($sql);
+      $st->execute(['e' => $empresa, 'ft' => $facturaTipo, 'f' => $factura]);
+    }
+    $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $out = [];
+    foreach ($rows as $r) {
+      $out[] = [
+        'empresa' => trim((string) ($r['Empresa'] ?? '')),
+        'tipo' => trim((string) ($r['Tipo'] ?? '')),
+        'albaran' => (int) ($r['Albaran'] ?? 0),
+        'fecha' => $this->fmtDate($r['Fecha'] ?? null),
+        'cliente' => trim((string) ($r['Cliente'] ?? '')),
+        'importe' => round((float) ($r['Importe'] ?? 0), 2),
+      ];
+    }
+    return $out;
+  }
+
+  /**
+   * Clase comercial del documento (legacy: Tipo cabecera suele ser 'A'; se usa FacturaTipo).
+   *
+   * @param list<string> $where
+   * @param array<string, mixed> $query
+   */
+  private function aplicarFiltroClaseDocumento(array &$where, array $query): void
+  {
+    $clase = strtolower(trim((string) ($query['claseDocumento'] ?? '')));
+    if ($clase === '') {
+      $tipoLegacy = strtoupper(trim((string) ($query['tipo'] ?? '')));
+      if ($tipoLegacy === 'P') {
+        $clase = 'presupuesto';
+      } elseif ($tipoLegacy === 'A') {
+        $clase = 'albaran';
+      } elseif ($tipoLegacy === 'F') {
+        $clase = 'factura';
+      } elseif ($tipoLegacy === 'T') {
+        $clase = 'ticket';
+      } else {
+        return;
+      }
+    }
+
+    switch ($clase) {
+      case 'factura':
+        $where[] = "RTRIM(c.FacturaTipo) = 'F'";
+        break;
+      case 'presupuesto':
+        $where[] = "RTRIM(c.FacturaTipo) = 'R'";
+        break;
+      case 'ticket':
+        $where[] = "RTRIM(c.FacturaTipo) = 'T'";
+        break;
+      case 'albaran':
+        $where[] = "(c.FacturaTipo IS NULL OR LTRIM(RTRIM(c.FacturaTipo)) = '' OR RTRIM(c.FacturaTipo) = 'A')";
+        break;
+      default:
+        break;
+    }
+  }
+
+  /**
+   * Añade flags y registro sanitario del artículo para impresión de pasaporte fitosanitario.
+   *
+   * @param list<array<string, mixed>> $lineas
+   */
+  private function enriquecerLineasFitosanitario(array &$lineas): void
+  {
+    if ($lineas === []) {
+      return;
+    }
+    $fitos = $this->fitosArticulosPorCodigo($this->codigosArticuloEnLineas($lineas));
+    foreach ($lineas as &$lin) {
+      $art = rtrim(trim((string) ($lin['articulo'] ?? '')));
+      if ($art === '' || strtoupper($art) === 'NO') {
+        continue;
+      }
+      $meta = $fitos[$art] ?? $fitos[trim($art)] ?? null;
+      if ($meta === null) {
+        continue;
+      }
+      $lin['pasaporteFitosanitario'] = $meta['pasaporteFitosanitario'];
+      $lin['lotePasaporte'] = $meta['lotePasaporte'];
+      $lin['registroSanitario'] = $meta['registroSanitario'];
+    }
+    unset($lin);
+  }
+
+  /** @param list<array<string, mixed>> $lineas @return list<string> */
+  private function codigosArticuloEnLineas(array $lineas): array
+  {
+    $codigos = [];
+    foreach ($lineas as $lin) {
+      $art = trim((string) ($lin['articulo'] ?? ''));
+      if ($art !== '' && strtoupper($art) !== 'NO') {
+        $codigos[$art] = $art;
+      }
+    }
+    return array_values($codigos);
+  }
+
+  /**
+   * @param list<string> $codigos
+   * @return array<string, array{pasaporteFitosanitario: bool, lotePasaporte: bool, registroSanitario: string}>
+   */
+  private function fitosArticulosPorCodigo(array $codigos): array
+  {
+    $map = [];
+    if ($codigos === []) {
+      return $map;
+    }
+    try {
+      foreach (array_chunk($codigos, 400) as $chunk) {
+        $placeholders = [];
+        $params = [];
+        foreach ($chunk as $i => $codigo) {
+          $clave = 'c' . $i;
+          $placeholders[] = ':' . $clave;
+          $params[$clave] = $codigo;
+        }
+        $st = $this->pdo->prepare(
+          'SELECT Codigo, PasaporteFitosanitario, LotePasaporte, RegistroSanitario
+           FROM Articulos
+           WHERE Codigo IN (' . implode(', ', $placeholders) . ')'
+        );
+        $st->execute($params);
+        while ($row = $st->fetch(PDO::FETCH_ASSOC)) {
+          $codigo = rtrim(trim((string) ($row['Codigo'] ?? '')));
+          if ($codigo === '') {
+            continue;
+          }
+          $map[$codigo] = [
+            'pasaporteFitosanitario' => !empty($row['PasaporteFitosanitario']),
+            'lotePasaporte' => !empty($row['LotePasaporte']),
+            'registroSanitario' => trim((string) ($row['RegistroSanitario'] ?? '')),
+          ];
+        }
+      }
+    } catch (\Throwable $e) {
+      return [];
+    }
+    return $map;
+  }
+}

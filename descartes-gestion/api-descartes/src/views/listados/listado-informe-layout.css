@@ -1,0 +1,254 @@
+/* Panel + cabecera compartidos (Informe IVA, listados de stock, …). */
+
+.ventas-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 0.65rem;
+  flex-shrink: 0;
+}
+
+.head h2 {
+  margin: 0;
+}
+
+.hint {
+  color: #64748b;
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.btn-accion {
+  padding: 0.45rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid #94a3b8;
+  background: #fff;
+  color: #1e293b;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.88rem;
+}
+
+.btn-accion:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.layout-busqueda {
+  display: grid;
+  grid-template-columns: minmax(16rem, 20rem) minmax(0, 1fr);
+  gap: 0.75rem;
+  flex: 1;
+  min-height: 0;
+}
+
+.panel-filtros {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.65rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #f8fafc;
+  min-width: 0;
+  align-self: start;
+  max-height: 100%;
+  overflow-y: auto;
+}
+
+.panel-filtros fieldset {
+  margin: 0;
+  padding: 0.45rem 0.5rem 0.55rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #fff;
+  min-width: 0;
+}
+
+.panel-filtros legend {
+  padding: 0 0.3rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.bloque-opciones {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.bloque-opciones label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.75rem;
+  color: #475569;
+}
+
+.bloque-opciones select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.35rem 0.4rem;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+  font: inherit;
+  background: #fff;
+}
+
+.bloque-intervalos {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.rango-head,
+.rango-row {
+  display: grid;
+  grid-template-columns: 4.2rem 1fr 1fr;
+  gap: 0.3rem;
+  align-items: center;
+}
+
+.rango-head {
+  margin-bottom: 0;
+  font-size: 0.72rem;
+  color: #64748b;
+  text-align: center;
+}
+
+.rango-head span:first-child {
+  text-align: left;
+}
+
+.rango-label {
+  font-size: 0.75rem;
+  color: #475569;
+}
+
+.rango-row input,
+.rango-row select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0.2rem 0.35rem;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 0.78rem;
+  line-height: 1.25;
+  background: #fff;
+}
+
+.rango-row input[type='date'] {
+  font-size: 0.75rem;
+  padding: 0.18rem 0.3rem;
+}
+
+.rango-row :deep(input) {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.78rem;
+  line-height: 1.25;
+}
+
+.con-lupa {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.con-lupa input {
+  flex: 1;
+  min-width: 0;
+}
+
+.btn-lupa {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.55rem;
+  height: 1.55rem;
+  padding: 0;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  background: #fff;
+  cursor: pointer;
+  color: #334155;
+  flex-shrink: 0;
+}
+
+.btn-lupa:hover {
+  background: #e0f2fe;
+  border-color: #38bdf8;
+}
+
+.btn-buscar {
+  margin-top: 0.25rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid #1d4ed8;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 600;
+  font: inherit;
+}
+
+.btn-buscar:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.panel-listado {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.panel-listado .error {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 0.88rem;
+}
+
+.panel-listado .ok {
+  margin: 0;
+  color: #15803d;
+  font-size: 0.88rem;
+}
+
+.panel-listado .msg,
+.panel-listado .empty {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+@media (max-width: 900px) {
+  .ventas-view {
+    height: auto;
+  }
+  .layout-busqueda {
+    grid-template-columns: 1fr;
+  }
+}

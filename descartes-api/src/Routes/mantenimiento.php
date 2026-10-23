@@ -217,6 +217,8 @@ return function (App $app): void {
     $group->get('/documento-plantillas/{id}', [DocumentoPlantillasController::class, 'get']);
     $group->post('/documento-plantillas', [DocumentoPlantillasController::class, 'create'])
       ->add($setPermisoModulo('facturacion', 'editar'));
+    $group->post('/documento-plantillas/importar', [DocumentoPlantillasController::class, 'importar'])
+      ->add($setPermisoModulo('facturacion', 'editar'));
     $group->post('/documento-plantillas/sembrar', [DocumentoPlantillasController::class, 'sembrar'])
       ->add($setPermisoModulo('facturacion', 'editar'));
     $group->put('/documento-plantillas/{id}', [DocumentoPlantillasController::class, 'update'])

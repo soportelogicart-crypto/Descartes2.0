@@ -6,7 +6,7 @@ export const plantillaAlbaran: DocumentoPlantilla = {
   tipo: 'albaran',
   nombre: 'Albarán estándar',
   descripcion: 'Plantilla base según albarán legacy (Garden Center Gaià)',
-  version: 5,
+  version: 7,
   page: {
     format: 'A4',
     orientation: 'portrait',
@@ -163,6 +163,16 @@ export const plantillaAlbaran: DocumentoPlantilla = {
       h: 28,
       bind: ['totales.base', 'totales.ivas', 'totales.importe'],
       props: { etiquetaTotal: 'IMPORTE EU' },
+    },
+    {
+      id: 'fito-pie',
+      type: 'campo',
+      x: 10,
+      y: 276,
+      w: 190,
+      h: 6,
+      bind: ['documento.anotacionPasaporteFitosanitario'],
+      props: { ocultarVacio: true, fontSizeMm: 3.6, fitoDestacado: true },
     },
     {
       id: 'pie',

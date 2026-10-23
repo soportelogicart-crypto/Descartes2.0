@@ -1,0 +1,9 @@
+{
+  "motor": "mysql",
+  "tipo": "local",
+  "server": "127.0.0.1",
+  "database": "logia_demo",
+  "user": "root",
+  "password": "",
+  "_nota": "Copiar a C:\\xampp\\htdocs\\descartes-api-dev\\var\\instalacion.json (y opcionalmente descartes-api\\var). No commitear instalacion.json con secretos."
+}

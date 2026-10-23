@@ -367,7 +367,7 @@ function tablaGrupoHtml(g: AbcVentasGrupo, d: AbcVentasResponse): string {
 </section>`
 }
 
-const LEGACY_PRINT_CSS = `
+export const LEGACY_PRINT_CSS = `
 body { font-size: 10px; color: #111; }
 .legacy-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 4px; }
 .legacy-tit { font-size: 22px; font-weight: 700; font-style: italic; color: #006f6f; margin: 0; }

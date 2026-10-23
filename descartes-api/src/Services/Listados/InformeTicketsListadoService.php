@@ -72,14 +72,16 @@ final class InformeTicketsListadoService
             FROM [AlbaranesVentasCab] c
             LEFT JOIN [Empresas_Ges] eg
               ON RTRIM(eg.[Codigo]) = RTRIM(c.[Empresa])
-            OUTER APPLY (
-              SELECT SUM(ISNULL(l.[Cantidad], 0)) AS numeroArticulos
+            LEFT JOIN (
+              SELECT l.[Empresa], l.[Tipo], l.[Albaran],
+                     SUM(ISNULL(l.[Cantidad], 0)) AS numeroArticulos
               FROM [AlbaranesVentasLin] l
-              WHERE l.[Empresa] = c.[Empresa]
-                AND l.[Tipo] = c.[Tipo]
-                AND l.[Albaran] = c.[Albaran]
-                AND RTRIM(UPPER(ISNULL(l.[Articulo], ''))) <> 'NO'
+              WHERE RTRIM(UPPER(ISNULL(l.[Articulo], ''))) <> 'NO'
+              GROUP BY l.[Empresa], l.[Tipo], l.[Albaran]
             ) articulos
+              ON articulos.[Empresa] = c.[Empresa]
+             AND articulos.[Tipo] = c.[Tipo]
+             AND articulos.[Albaran] = c.[Albaran]
             WHERE " . implode(' AND ', $where) . '
             ORDER BY RTRIM(c.[Empresa]), c.[Fecha], c.[Factura], c.[Albaran]';
 
@@ -176,7 +178,11 @@ final class InformeTicketsListadoService
 
     $sql = "SELECT DISTINCT RTRIM(v.divisa) AS divisa
             FROM [Empresas_Ges] eg
-            CROSS APPLY (VALUES (eg.[Divisa]), (eg.[DivisaAlt])) v(divisa)
+            INNER JOIN (
+              SELECT [Codigo], [Divisa] AS divisa FROM [Empresas_Ges]
+              UNION ALL
+              SELECT [Codigo], [DivisaAlt] FROM [Empresas_Ges]
+            ) v ON v.[Codigo] = eg.[Codigo]
             WHERE RTRIM(ISNULL(v.divisa, '')) <> ''";
     if ($where !== []) {
       $sql .= ' AND ' . implode(' AND ', $where);

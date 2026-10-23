@@ -93,6 +93,36 @@ export type AlbaranCompraPayload = {
   lineas: AlbaranCompraLinea[]
 }
 
+export type AlbaranCompraImportFilaEntrada = {
+  codigo: string
+  cantidad?: number
+  precio?: number
+  descripcion?: string
+  dto?: number
+}
+
+export type AlbaranCompraImportPreviewLinea = {
+  codigoLeido: string
+  articulo: string
+  descripcion: string
+  cantidad: number
+  precio: number
+  pjeDto?: number
+  dto1?: number
+  dto2?: number
+  dto3?: number
+  almacen?: number | null
+  estado: 'ok' | 'no_encontrado' | 'bloqueado' | string
+  estadoLabel: string
+}
+
+export type AlbaranCompraImportPreviewResult = {
+  lineas: AlbaranCompraImportPreviewLinea[]
+  avisos: string[]
+  suAlbaran?: string | null
+  textoDetectado?: string
+}
+
 export type AlbaranCompraListParams = {
   empresa?: string
   proveedor?: string

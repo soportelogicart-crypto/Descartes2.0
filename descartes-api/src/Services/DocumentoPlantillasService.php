@@ -207,6 +207,85 @@ final class DocumentoPlantillasService
   }
 
   /**
+   * Importa plantillas exportadas (JSON portable) a una empresa.
+   *
+   * @param array<string, mixed> $body
+   * @return array{items: list<array<string, mixed>>, creadas: int, errores: list<array<string, mixed>>}
+   */
+  public function importar(string $empresaCodigo, array $body): array
+  {
+    $empresa = $this->normEmpresa($empresaCodigo);
+    if ($empresa === '') {
+      throw new \InvalidArgumentException('empresaCodigo es obligatorio');
+    }
+
+    $plantillas = $body['plantillas'] ?? null;
+    if ($plantillas === null && isset($body['paquete']) && is_array($body['paquete'])) {
+      $pkg = $body['paquete'];
+      $formato = trim((string) ($pkg['formato'] ?? ''));
+      if ($formato !== '' && $formato !== 'descartes-documento-plantilla') {
+        throw new \InvalidArgumentException('formato de paquete no reconocido');
+      }
+      $plantillas = $pkg['plantillas'] ?? [];
+    }
+
+    if (!is_array($plantillas) || $plantillas === []) {
+      throw new \InvalidArgumentException('plantillas debe ser un array no vacio');
+    }
+
+    $activar = !empty($body['activar']) && count($plantillas) === 1;
+
+    $items = [];
+    $errores = [];
+    foreach ($plantillas as $i => $raw) {
+      if (!is_array($raw)) {
+        $errores[] = ['indice' => $i, 'error' => 'entrada invalida'];
+        continue;
+      }
+      try {
+        $def = $raw['definicion'] ?? null;
+        if (!is_array($def) || !isset($def['blocks']) || !is_array($def['blocks'])) {
+          throw new \InvalidArgumentException('definicion.blocks es obligatorio');
+        }
+        $tipo = trim((string) ($raw['tipo'] ?? $def['tipo'] ?? ''));
+        $nombre = trim((string) ($raw['nombre'] ?? $def['nombre'] ?? ''));
+        if ($tipo === '' || $nombre === '') {
+          throw new \InvalidArgumentException('tipo y nombre son obligatorios');
+        }
+        $def['tipo'] = $tipo;
+        $def['nombre'] = $nombre;
+
+        $items[] = $this->crear([
+          'empresaCodigo' => $empresa,
+          'tipo' => $tipo,
+          'nombre' => $nombre,
+          'descripcion' => $this->nullIfEmpty((string) ($raw['descripcion'] ?? '')),
+          'definicion' => $def,
+          'activa' => $activar,
+        ]);
+      } catch (\Throwable $e) {
+        $errores[] = [
+          'indice' => $i,
+          'nombre' => is_string($raw['nombre'] ?? null) ? $raw['nombre'] : null,
+          'error' => $e->getMessage(),
+        ];
+      }
+    }
+
+    if ($items === [] && $errores !== []) {
+      throw new \InvalidArgumentException(
+        'No se importo ninguna plantilla: ' . (string) ($errores[0]['error'] ?? 'error desconocido')
+      );
+    }
+
+    return [
+      'items' => $items,
+      'creadas' => count($items),
+      'errores' => $errores,
+    ];
+  }
+
+  /**
    * @param array<string, mixed> $row
    * @return array<string, mixed>
    */

@@ -316,9 +316,27 @@ export type FacturasManualPeriodicosResponse = {
   }
 }
 
-export type FacturaDiarioItem = FacturaImpresionItem
+export type DesgloseIvaDiario = {
+  pjeIva: number
+  baseImponible: number
+  cuotaIva: number
+  pjeRec?: number
+  cuotaRec?: number
+}
 
-export type FacturasDiarioListResponse = FacturasImpresionListResponse
+export type FacturaDiarioItem = FacturaImpresionItem & {
+  desgloseIva?: DesgloseIvaDiario[]
+  baseImponible?: number
+  cuotaIva?: number
+  pjeIrpf?: number
+  cuotaIrpf?: number
+}
+
+export type FacturasDiarioListResponse = {
+  items: FacturaDiarioItem[]
+  resumenPorIva?: DesgloseIvaDiario[]
+  totales: { facturas: number; importe: number; baseImponible?: number; cuotaIva?: number }
+}
 
 /** PDF del diario: mismos filtros que el listado (informe tabular). */
 export type FacturasDiarioPdfBody = {

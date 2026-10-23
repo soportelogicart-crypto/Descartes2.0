@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS `__MigracionUnificadaLog` (
 CREATE TABLE IF NOT EXISTS `Actividades` (
   `Codigo` smallint NOT NULL DEFAULT 0,
   `Descripcion` varchar(40),
+  `CodigoCentroCoste` varchar(10) DEFAULT '',
   PRIMARY KEY (`Codigo`)
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
 
@@ -1281,17 +1282,6 @@ CREATE TABLE IF NOT EXISTS `AsientosLin` (
   KEY `ix_AsientosLin_NumLin` (`NumLin`)
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE IF NOT EXISTS `AsistenteConsultas` (
-  `Id` int NOT NULL AUTO_INCREMENT,
-  `Usuario` varchar(20) NOT NULL,
-  `Nombre` varchar(80) NOT NULL,
-  `TextoUsuario` text NOT NULL,
-  `Tool` varchar(40) NOT NULL,
-  `ParamsJson` longtext,
-  `CreadoEn` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`Id`)
-) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
-
 CREATE TABLE IF NOT EXISTS `Autorizaciones` (
   `Empresa` varchar(3) NOT NULL,
   `Puesto` varchar(2) NOT NULL,
@@ -1682,7 +1672,7 @@ CREATE TABLE IF NOT EXISTS `Clientes` (
   `ObserRecibo` varchar(50),
   `RazonSocial2` varchar(60),
   `Sexo` varchar(1),
-  `TarjetaFidelizacion` varchar(8),
+  `TarjetaFidelizacion` varchar(20),
   `TipoDescuento` varchar(6),
   `ClasificacionComercial` varchar(6),
   `Tipologia` varchar(6),
@@ -2250,7 +2240,22 @@ CREATE TABLE IF NOT EXISTS `Empresas` (
   `CtaRemesaDescuento` varchar(10),
   `CtaInteresesDescuento` varchar(10),
   `CtaServiciosBancarios` varchar(10),
-  `CtaEfectosImpagados` varchar(10)
+  `CtaEfectosImpagados` varchar(10),
+  `UltOrdenFabricacion` int DEFAULT 0,
+  `LitPiePedidoCompra` longtext,
+  `PathExcelEstadisticas` varchar(100),
+  `CentroCoste` varchar(10),
+  `BloqueoFidelizacion` tinyint(1) DEFAULT 0,
+  `SorteosActivos` tinyint(1) DEFAULT 0,
+  `AdressId` int,
+  `MailEnvioActivo` tinyint(1) NOT NULL DEFAULT 0,
+  `MailSmtpHost` text,
+  `MailSmtpPort` int,
+  `MailCifrado` varchar(10),
+  `MailSmtpUsuario` varchar(255),
+  `MailSmtpClave` longtext,
+  `MailFromAddress` varchar(255),
+  `MailFromName` varchar(100)
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `Empresas_Ges` (
@@ -2922,7 +2927,7 @@ CREATE TABLE IF NOT EXISTS `FidelizacionLiquidaciones` (
 
 CREATE TABLE IF NOT EXISTS `FormasPago` (
   `Codigo` varchar(2) NOT NULL,
-  `Descripcion` varchar(40),
+  `Descripcion` varchar(50),
   `Cambio` float DEFAULT 0,
   `Decimales` smallint DEFAULT 0,
   `NumVtos` smallint DEFAULT 0,
@@ -2966,9 +2971,9 @@ CREATE TABLE IF NOT EXISTS `FormasPago` (
   `ControlPagare` tinyint(1) DEFAULT 0,
   `OrdenAparicionVenta` int DEFAULT 0,
   `FPagoActivaConPermiso` tinyint(1) DEFAULT 0,
-  `Baja` tinyint(1) NOT NULL DEFAULT 0,
   `Contado` tinyint(1),
   `CuentaContable` varchar(15),
+  `Baja` tinyint(1) NOT NULL DEFAULT 0,
   PRIMARY KEY (`Codigo`)
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
 
@@ -3949,7 +3954,8 @@ CREATE TABLE IF NOT EXISTS `Periodos` (
 
 CREATE TABLE IF NOT EXISTS `Permisos` (
   `Codigo` varchar(6) NOT NULL,
-  `Programa` varchar(45) NOT NULL
+  `Programa` varchar(45) NOT NULL,
+  PRIMARY KEY (`Codigo`, `Programa`)
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `Permisos_Comedor` (
@@ -3958,10 +3964,9 @@ CREATE TABLE IF NOT EXISTS `Permisos_Comedor` (
   PRIMARY KEY (`N_TARJETA`)
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE IF NOT EXISTS `Permisos_Ges` (
+CREATE TABLE IF NOT EXISTS `Permisos_Ctb` (
   `Codigo` varchar(6) NOT NULL,
-  `Programa` varchar(45) NOT NULL,
-  PRIMARY KEY (`Codigo`, `Programa`)
+  `Programa` varchar(45) NOT NULL
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `personal_access_tokens` (
@@ -5179,6 +5184,7 @@ CREATE TABLE IF NOT EXISTS `TiposRetencion` (
   `PjeRet` float,
   `CuentaCtb` varchar(10),
   `RetencionSobreTotal` tinyint(1),
+  `CuentaCtbDeudor` varchar(10),
   PRIMARY KEY (`Codigo`)
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
 
@@ -5222,7 +5228,7 @@ CREATE TABLE IF NOT EXISTS `Usuarios` (
   `Password` varchar(8),
   `Idioma` varchar(5),
   `Paleta` varchar(20),
-  `Rol` varchar(10)
+  `AyudasMenu` tinyint(1)
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `Usuarios_Ges` (

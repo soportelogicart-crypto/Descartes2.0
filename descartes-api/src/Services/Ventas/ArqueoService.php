@@ -9,10 +9,12 @@ use PDO;
 final class ArqueoService
 {
   private PDO $pdo;
+  private ValeService $vales;
 
-  public function __construct(PDO $pdo)
+  public function __construct(PDO $pdo, ?ValeService $vales = null)
   {
     $this->pdo = $pdo;
+    $this->vales = $vales ?? new ValeService($pdo);
   }
 
   /**
@@ -441,7 +443,7 @@ final class ArqueoService
    * entrada si Entrado no se ha actualizado: es esperado, no un signo invertido.
    *
    * @param 'entrada'|'salida' $tipo
-   * @param array{formaPago?: string, importe?: float|int, concepto?: string} $body
+   * @param array{formaPago?: string, importe?: float|int, concepto?: string, subtipo?: string, cliente?: string, fechaCaducidad?: string, cajero?: string} $body
    * @return array<string, mixed>
    */
   public function movimientoCaja(
@@ -511,7 +513,11 @@ final class ArqueoService
     }
 
     $concepto = trim((string) ($body['concepto'] ?? ''));
-    $valeTipo = $tipo === 'entrada' ? 'I' : 'S';
+    $valeTipo = $this->resolverSubtipoMovimientoCaja($tipo, $body);
+    $cajero = $this->cajeroDelPuesto($puesto);
+    if ($cajero === null && !empty($body['cajero'])) {
+      $cajero = substr(trim((string) $body['cajero']), 0, 4) ?: null;
+    }
 
     $this->pdo->beginTransaction();
     try {
@@ -523,6 +529,13 @@ final class ArqueoService
               ImporteEntradaEfectivo = ISNULL(ImporteEntradaEfectivo, 0) + :imp
            WHERE Empresa = :e AND Puesto = :p AND Sesion = :s'
         )->execute(['imp' => $importe, 'e' => $empresa, 'p' => $puesto, 's' => $sesion]);
+      } elseif ($valeTipo === ValesTipoLegacy::PAGOS) {
+        $this->pdo->prepare(
+          'UPDATE Sesiones SET
+              Pagos = ISNULL(Pagos, 0) + 1,
+              ImportePagos = ISNULL(ImportePagos, 0) + :imp
+           WHERE Empresa = :e AND Puesto = :p AND Sesion = :s'
+        )->execute(['imp' => $importe, 'e' => $empresa, 'p' => $puesto, 's' => $sesion]);
       } else {
         $this->pdo->prepare(
           'UPDATE Sesiones SET
@@ -532,15 +545,38 @@ final class ArqueoService
         )->execute(['imp' => $importe, 'e' => $empresa, 'p' => $puesto, 's' => $sesion]);
       }
 
-      $valeCodigo = $this->insertarValeMovimientoCaja(
-        $empresa,
-        $puesto,
-        $sesion,
-        $valeTipo,
-        $formaPago,
-        $importe,
-        $concepto
-      );
+      if ($valeTipo === ValesTipoLegacy::VALE_REGALO) {
+        $clienteVale = trim((string) ($body['cliente'] ?? ''));
+        if ($clienteVale === '') {
+          $clienteVale = 'ZZZZZZZZZ';
+        }
+        $emitido = $this->vales->emitir([
+          'empresa' => $empresa,
+          'cliente' => $clienteVale,
+          'importe' => $importe,
+          'formaPago' => $formaPago,
+          'tipoVale' => 'REGALO',
+          'tipo' => ValesTipoLegacy::VALE_REGALO,
+          'puesto' => $puesto,
+          'sesion' => $sesion,
+          'cajero' => $cajero,
+          'motivo' => $concepto !== '' ? $concepto : null,
+          'fechaCaducidad' => $body['fechaCaducidad'] ?? null,
+          'empresaOrigen' => $empresa,
+        ]);
+        $valeCodigo = (int) ($emitido['codigo'] ?? 0);
+      } else {
+        $valeCodigo = $this->insertarValeMovimientoCaja(
+          $empresa,
+          $puesto,
+          $sesion,
+          $valeTipo,
+          $formaPago,
+          $importe,
+          $concepto,
+          $cajero
+        );
+      }
 
       $this->pdo->commit();
     } catch (\Throwable $e) {
@@ -552,6 +588,7 @@ final class ArqueoService
     $detalle = $this->obtener($empresa, $puesto, $sesion);
     $detalle['ultimoMovimiento'] = [
       'tipo' => $tipo,
+      'subtipo' => $valeTipo,
       'formaPago' => $formaPago,
       'importe' => $importe,
       'deltaAcumulado' => $delta,
@@ -563,8 +600,31 @@ final class ArqueoService
     return $detalle;
   }
 
+  /** @param array<string, mixed> $body */
+  private function resolverSubtipoMovimientoCaja(string $sentido, array $body): string
+  {
+    $raw = strtoupper(substr(trim((string) ($body['subtipo'] ?? '')), 0, 1));
+    if ($raw === '') {
+      return $sentido === 'entrada'
+        ? ValesTipoLegacy::ENTRADA_EFECTIVO
+        : ValesTipoLegacy::SALIDA_EFECTIVO;
+    }
+    if ($sentido === 'entrada') {
+      if (!in_array($raw, [ValesTipoLegacy::ENTRADA_EFECTIVO, ValesTipoLegacy::VALE_REGALO], true)) {
+        throw new \InvalidArgumentException('subtipo de entrada debe ser I (efectivo) o R (vale regalo)');
+      }
+
+      return $raw;
+    }
+    if (!in_array($raw, [ValesTipoLegacy::PAGOS, ValesTipoLegacy::SALIDA_EFECTIVO], true)) {
+      throw new \InvalidArgumentException('subtipo de salida debe ser P (pagos) o S (salida efectivo)');
+    }
+
+    return $raw;
+  }
+
   /**
-   * Legacy: fila en Vales Tipo I/S para entrada/salida de caja.
+   * Legacy: fila en Vales Tipo I/S/P para entrada/salida de caja.
    * Devuelve codigo del vale o null si el esquema no admite la insercion.
    */
   private function insertarValeMovimientoCaja(
@@ -574,7 +634,8 @@ final class ArqueoService
     string $tipo,
     string $formaPago,
     float $importe,
-    string $concepto
+    string $concepto,
+    ?string $cajero = null
   ): ?int {
     $st = $this->pdo->prepare(
       'SELECT ISNULL(MAX(Codigo), 0) + 1 FROM Vales WITH (UPDLOCK, HOLDLOCK) WHERE Empresa = :e'
@@ -589,15 +650,16 @@ final class ArqueoService
         'INSERT INTO Vales (
             Empresa, EmpresaOrigen, Codigo, Tipo, Numero, Liquidado,
             Puesto, Sesion, Fecha, Importe, TrasModem, Cliente,
-            Motivo, Concepto, FormaPago
+            Motivo, Concepto, FormaPago, Cajero
          ) VALUES (
-            :e, :e, :c, :tipo, 0, 0,
+            :e, :e, :c, :tipo, :numero, 0,
             :p, :s, GETDATE(), :imp, 0, \' \',
-            :motivo, :concepto, :fp
+            :motivo, :concepto, :fp, :cajero
          )'
       )->execute([
         'e' => $empresa,
         'c' => $codigo,
+        'numero' => $codigo,
         'tipo' => $tipo,
         'p' => $puesto,
         's' => $sesion,
@@ -605,6 +667,7 @@ final class ArqueoService
         'motivo' => $motivo,
         'concepto' => $conceptoDb,
         'fp' => substr($formaPago, 0, 2),
+        'cajero' => $cajero !== null && $cajero !== '' ? substr($cajero, 0, 4) : null,
       ]);
       return $codigo;
     } catch (\Throwable $e) {
@@ -1320,5 +1383,49 @@ th{background:#f1f5f9}
     }
     $ts = strtotime((string) $v);
     return $ts === false ? null : date('Y-m-d H:i:s', $ts);
+  }
+
+  /** Trabajador del puesto (legacy: Cajero en Vales). */
+  private function cajeroDelPuesto(string $puesto): ?string
+  {
+    $puesto = trim($puesto);
+    if ($puesto === '' || $puesto === '99') {
+      return $this->cajeroDelUsuarioSesion();
+    }
+    try {
+      $stmt = $this->pdo->prepare(
+        'SELECT RTRIM(Trabajador) FROM Puestos WHERE RTRIM(Puesto) = :puesto'
+      );
+      $stmt->execute(['puesto' => $puesto]);
+      $codigo = trim((string) ($stmt->fetchColumn() ?: ''));
+      if ($codigo !== '') {
+        return substr($codigo, 0, 4);
+      }
+    } catch (\Throwable $e) {
+      // Columna Trabajador ausente en esquemas antiguos.
+    }
+
+    return $this->cajeroDelUsuarioSesion();
+  }
+
+  private function cajeroDelUsuarioSesion(): ?string
+  {
+    $usuario = trim((string) ($_SESSION['usuario']['codigo'] ?? ''));
+    if ($usuario === '') {
+      return null;
+    }
+    try {
+      $stmt = $this->pdo->prepare(
+        'SELECT TOP 1 RTRIM(Codigo) FROM Vendedores
+         WHERE RTRIM(Usuario) = :u AND ISNULL(Baja, 0) = 0
+         ORDER BY CASE WHEN RTRIM(Codigo) = :mismo THEN 0 ELSE 1 END, Codigo'
+      );
+      $stmt->execute(['u' => $usuario, 'mismo' => $usuario]);
+      $codigo = trim((string) ($stmt->fetchColumn() ?: ''));
+
+      return $codigo !== '' ? substr($codigo, 0, 4) : null;
+    } catch (\Throwable $e) {
+      return null;
+    }
   }
 }

@@ -185,6 +185,18 @@ export function lineasTotalesTicket(
     out.push(g('Puntos de esta compra', importeCorto(d.fidelizacion.puntosCompra)))
     out.push(g('Puntos acumulados', importeCorto(d.fidelizacion.puntosAcumulados)))
   }
+  if (d.clubSaldo) {
+    out.push({ tipo: 'grande', texto: '' })
+    out.push(g('Compra elegible club', importeCorto(d.clubSaldo.elegible)))
+    out.push(g('Saldo generado hoy', importeCorto(d.clubSaldo.generado)))
+    if (d.clubSaldo.usado > 0) {
+      out.push(g('Saldo usado', `-${importeCorto(d.clubSaldo.usado)}`))
+    }
+    out.push(g('Saldo disponible', importeCorto(d.clubSaldo.disponible)))
+    if (d.clubSaldo.proximaCaducidad) {
+      out.push(g('Prox. caducidad', String(d.clubSaldo.proximaCaducidad).slice(0, 10)))
+    }
+  }
   return out
 }
 

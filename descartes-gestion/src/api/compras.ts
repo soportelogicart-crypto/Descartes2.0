@@ -4,6 +4,8 @@ import type {
   AbcComprasFiltros,
   AbcComprasResponse,
   AlbaranCompraDetalle,
+  AlbaranCompraImportFilaEntrada,
+  AlbaranCompraImportPreviewResult,
   AlbaranCompraListParams,
   AlbaranCompraPayload,
   AlbaranCompraResumen,
@@ -65,6 +67,35 @@ export async function crearAlbaranCompra(
   const { data } = await api.post<AlbaranCompraDetalle>('/api/compras/albaranes', payload)
   return data
 }
+
+export async function previewImportAlbaranCompra(body: {
+  proveedor: string
+  empresa: string
+  almacen: number
+  filas: AlbaranCompraImportFilaEntrada[]
+}): Promise<AlbaranCompraImportPreviewResult> {
+  const { data } = await api.post<AlbaranCompraImportPreviewResult>(
+    '/api/compras/albaranes/import-preview',
+    body
+  )
+  return data
+}
+
+export async function previewImportAlbaranCompraPdf(body: {
+  proveedor: string
+  empresa: string
+  almacen: number
+  pdfBase64: string
+}): Promise<AlbaranCompraImportPreviewResult> {
+  const { data } = await api.post<AlbaranCompraImportPreviewResult>(
+    '/api/compras/albaranes/import-preview-pdf',
+    body,
+    { timeout: 120000 }
+  )
+  return data
+}
+
+export type { AlbaranCompraImportPreviewLinea } from '@/types/compras'
 
 /** Reserva el siguiente nº (UltAlbaranCom) sin grabar cabecera. */
 export async function reservarAlbaranCompra(payload: {

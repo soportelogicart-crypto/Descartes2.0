@@ -45,5 +45,9 @@ descartes-gestion/node_modules/
 descartes-api/vendor/
 descartes-api/var/instalacion.json
 descartes-api/var/clientes/*.json
+descartes-api/var/mysql-destino.json
+descartes-api/var/migracion-logia-demo.log
+descartes-api/var/logia-demo-datos.sql
+descartes-api/var/logia-demo-hosting.sql.gz
 descartes-api/storage/logs/*
 !descartes-api/storage/logs/.gitignore

@@ -118,13 +118,39 @@ return [
     'primaryKey' => 'Codigo',
     'modulo' => 'actividades',
     'hardDelete' => true,
+    'searchColumns' => ['Codigo', 'Descripcion', 'CodigoCentroCoste'],
+    'fields' => [
+      'codigo' => 'Codigo',
+      'descripcion' => 'Descripcion',
+      'codigoCentroCoste' => 'CodigoCentroCoste',
+    ],
+    'stringMaxLengths' => [
+      'CodigoCentroCoste' => 10,
+    ],
+    'createDefaults' => [
+      'Descripcion' => '',
+      'CodigoCentroCoste' => '',
+    ],
+  ],
+  'centros-coste' => [
+    'table' => 'CentrosCoste',
+    'primaryKey' => 'Codigo',
+    'modulo' => 'actividades',
+    'hardDelete' => true,
     'searchColumns' => ['Codigo', 'Descripcion'],
     'fields' => [
       'codigo' => 'Codigo',
       'descripcion' => 'Descripcion',
+      'producto' => 'Producto',
+    ],
+    'stringMaxLengths' => [
+      'Codigo' => 10,
+      'Descripcion' => 40,
+      'Producto' => 10,
     ],
     'createDefaults' => [
       'Descripcion' => '',
+      'Producto' => '',
     ],
   ],
   'intereses-comerciales' => [

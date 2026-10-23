@@ -29,6 +29,25 @@ final class ConfigEquipoRepository
 
   public function upsert(string $equipoId, string $empresaCodigo, string $puestoCodigo): void
   {
+    if ($this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
+      $stmt = $this->pdo->prepare(
+        'INSERT INTO [ConfigEquipo] ([EquipoId], [EmpresaCodigo], [PuestoCodigo], [Actualizado])
+         VALUES (:id, :empresa, :puesto, GETDATE())
+         ON DUPLICATE KEY UPDATE
+           [EmpresaCodigo] = :empresa2,
+           [PuestoCodigo] = :puesto2,
+           [Actualizado] = GETDATE()'
+      );
+      $stmt->execute([
+        'id' => $equipoId,
+        'empresa' => $empresaCodigo,
+        'puesto' => $puestoCodigo,
+        'empresa2' => $empresaCodigo,
+        'puesto2' => $puestoCodigo,
+      ]);
+      return;
+    }
+
     $stmt = $this->pdo->prepare(
       'MERGE [ConfigEquipo] AS target
        USING (SELECT :id AS EquipoId) AS source

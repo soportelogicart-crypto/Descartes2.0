@@ -62,8 +62,8 @@ function cellValue(fila: AlmacenFila, col: AlmacenColumn) {
 
 <template>
   <div class="grid-wrap">
-    <p v-if="loading" class="loading">Cargando...</p>
-    <table v-else class="almacenes-grid">
+    <p v-if="loading" class="loading-banner">Cargando...</p>
+    <table class="almacenes-grid">
       <thead>
         <tr>
           <th class="col-ind"></th>

@@ -58,8 +58,8 @@ function onRowDblClick(fila: FamiliaFila) {
 
 <template>
   <div class="grid-wrap" :class="{ 'filter-menu-open': filterMenuOpen }">
-    <p v-if="loading" class="loading">Cargando...</p>
-    <table v-else class="familias-grid">
+    <p v-if="loading" class="loading-banner">Cargando...</p>
+    <table class="familias-grid">
       <thead>
         <tr>
           <th class="col-ind"></th>

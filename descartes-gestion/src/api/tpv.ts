@@ -6,8 +6,10 @@ import type {
   TpvCliente,
   TpvContexto,
   TpvNivel,
+  TpvTecladoPlantilla,
   TpvTicketEspera,
 } from '@/types/tpv'
+import type { ArqueoResponse } from '@/types/ventas'
 import type { VentaDetalle, VentaResumen } from '@/types/ventas'
 
 export async function pingTpv(): Promise<{ ok: boolean; modulo: string }> {
@@ -23,6 +25,11 @@ export async function obtenerContextoTpv(empresa: string, puesto: string): Promi
     ...data,
     formasPago: Array.isArray(data.formasPago) ? data.formasPago : [],
   }
+}
+
+export async function listarTecladosTpv(): Promise<TpvTecladoPlantilla[]> {
+  const { data } = await api.get<{ items: TpvTecladoPlantilla[] }>('/api/tpv/teclados')
+  return Array.isArray(data.items) ? data.items : []
 }
 
 export async function obtenerNivelTeclado(general: string, nivel: string): Promise<TpvNivel> {
@@ -167,6 +174,29 @@ export async function ponerTicketEnEsperaTpv(
   const { data } = await api.post<VentaDetalle>(
     `/api/tpv/ventas/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}/en-espera`,
     { puesto }
+  )
+  return data
+}
+
+export type EmitirValeRegaloTpvPayload = {
+  formaPago: string
+  importe: number
+  /** Entrada de caja tipo vale regalo (legacy R). */
+  subtipo: 'R'
+  concepto?: string
+  fechaCaducidad?: string
+  cliente?: string
+}
+
+export async function emitirValeRegaloTpv(
+  empresa: string,
+  puesto: string,
+  sesion: number,
+  payload: EmitirValeRegaloTpvPayload
+): Promise<ArqueoResponse> {
+  const { data } = await api.post<ArqueoResponse>(
+    `/api/tpv/sesiones/${encodeURIComponent(empresa)}/${encodeURIComponent(puesto)}/${sesion}/vale-regalo`,
+    payload
   )
   return data
 }

@@ -12,7 +12,7 @@ use PDO;
  */
 final class FidelizacionService
 {
-  private const MOTORES_REGISTRADOS = ['NINGUNO', 'EUROS', 'PUNTOS', 'VALE_SEMESTRAL'];
+  private const MOTORES_REGISTRADOS = ['NINGUNO', 'EUROS', 'PUNTOS', 'VALE_SEMESTRAL', 'CLUB_SALDO'];
   /** Árbol de exclusión: Macrofamilia → Familia → Subfamilia → Artículo. */
   private const NIVELES_EXCLUSION = ['M', 'F', 'S', 'A'];
   private const MAX_EXCLUSIONES = 2000;
@@ -83,6 +83,9 @@ final class FidelizacionService
     // El programa semestral calcula los puntos desde las ventas cerradas;
     // no usa los acumulados incrementales de Clientes.
     if ($motor === 'VALE_SEMESTRAL') {
+      return ['avisos' => $avisos, 'aplicado' => true, 'puntos' => 0, 'acumulados' => 0.0];
+    }
+    if ($motor === 'CLUB_SALDO') {
       return ['avisos' => $avisos, 'aplicado' => true, 'puntos' => 0, 'acumulados' => 0.0];
     }
 
@@ -804,6 +807,72 @@ final class FidelizacionService
     $this->actualizarAcumuladoPuntos($cliente, $puntos);
 
     return $puntos;
+  }
+
+  public function motorTienda(string $empresa): ?string
+  {
+    if (!$this->schemaListo()) {
+      return null;
+    }
+    $politica = $this->cargarPoliticaTienda($empresa);
+    if ($politica === null || !empty($politica['bloqueo'])) {
+      return null;
+    }
+    $tipoCodigo = trim((string) ($politica['tipoCalculo'] ?? ''));
+    if ($tipoCodigo === '') {
+      return null;
+    }
+    $tipo = $this->cargarTipoCalculo($tipoCodigo);
+
+    return $tipo === null
+      ? null
+      : strtoupper(trim((string) ($tipo['motor'] ?? 'NINGUNO')));
+  }
+
+  /**
+   * @param array<string, true> $exclusionesClaves
+   */
+  public function baseElegibleCabecera(array $cabecera, array $exclusionesClaves = []): float
+  {
+    $ambito = $exclusionesClaves !== []
+      ? ['configurado' => true, 'exclusiones' => $exclusionesClaves]
+      : null;
+
+    return $this->calcularBaseElegible($cabecera, $ambito);
+  }
+
+  /**
+   * @return array{codigo: string, motor: string, factor: float, configuracion: array<string, mixed>}|null
+   */
+  public function tipoCalculoTienda(string $empresa): ?array
+  {
+    if (!$this->schemaListo()) {
+      return null;
+    }
+    $politica = $this->cargarPoliticaTienda($empresa);
+    if ($politica === null || !empty($politica['bloqueo'])) {
+      return null;
+    }
+    $tipoCodigo = trim((string) ($politica['tipoCalculo'] ?? ''));
+    if ($tipoCodigo === '') {
+      return null;
+    }
+    $tipo = $this->cargarTipoCalculo($tipoCodigo);
+    if ($tipo === null) {
+      return null;
+    }
+    $cfgRaw = $tipo['configuracion'] ?? '';
+    $cfg = is_string($cfgRaw) ? json_decode($cfgRaw, true) : $cfgRaw;
+    if (!is_array($cfg)) {
+      $cfg = [];
+    }
+
+    return [
+      'codigo' => $tipoCodigo,
+      'motor' => strtoupper(trim((string) ($tipo['motor'] ?? ''))),
+      'factor' => (float) ($tipo['factor'] ?? 1),
+      'configuracion' => $cfg,
+    ];
   }
 
   private function numeroConfig(mixed $value, string $campo): float

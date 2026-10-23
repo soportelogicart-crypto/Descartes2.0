@@ -109,8 +109,22 @@ final class MantenimientoService
       'ImpFabricacion',
       'ImpCorte',
     ];
+    $esMysql = $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
     foreach ($columnas as $col) {
       if (!$this->columnExists('Puestos', $col)) {
+        continue;
+      }
+      if ($esMysql) {
+        // COL_LENGTH traducido solo dice si existe; text no tiene límite que ampliar.
+        $stmt = $this->pdo->prepare(
+          "SELECT CHARACTER_MAXIMUM_LENGTH FROM information_schema.COLUMNS
+           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Puestos' AND COLUMN_NAME = ?"
+        );
+        $stmt->execute([$col]);
+        $len = (int) $stmt->fetchColumn();
+        if ($len > 0 && $len < 100) {
+          $this->pdo->exec(sprintf('ALTER TABLE `Puestos` MODIFY `%s` varchar(100) NULL', $col));
+        }
         continue;
       }
       // nvarchar(N) => COL_LENGTH = 2*N; ampliar si sigue corto (< 200 = nvarchar(100))
@@ -123,6 +137,28 @@ final class MantenimientoService
       }
     }
     $done = true;
+  }
+
+  /** LOGIA y algunos esquemas legacy no traen RegistroSanitario; sin columna el UPDATE lo omite en silencio. */
+  private function ensureArticulosRegistroSanitario(): void
+  {
+    static $done = false;
+    if ($done) {
+      return;
+    }
+    $done = true;
+    if ($this->columnExists('Articulos', 'RegistroSanitario')) {
+      return;
+    }
+    $esMysql = $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'mysql';
+    if ($esMysql) {
+      $this->pdo->exec(
+        'ALTER TABLE `Articulos` ADD COLUMN `RegistroSanitario` varchar(25) NULL DEFAULT \'\''
+      );
+    } else {
+      $this->pdo->exec('ALTER TABLE [Articulos] ADD [RegistroSanitario] nvarchar(25) NULL');
+    }
+    $this->columnExistsCache[strtolower('Articulos') . '.' . strtolower('RegistroSanitario')] = true;
   }
 
   private function canFilterActivo(array $config, string $table): bool
@@ -173,6 +209,11 @@ final class MantenimientoService
         $params['qProvCod'] = $like;
         $params['qProvNom'] = $like;
       }
+      if ($entidad === 'actividades') {
+        $like = '%' . $query['q'] . '%';
+        $parts[] = "EXISTS (SELECT 1 FROM [CentrosCoste] cc WHERE RTRIM(cc.[Codigo]) = RTRIM([{$table}].[CodigoCentroCoste]) AND cc.[Descripcion] LIKE :qCcDesc)";
+        $params['qCcDesc'] = $like;
+      }
       $where[] = '(' . implode(' OR ', $parts) . ')';
     }
 
@@ -215,6 +256,8 @@ final class MantenimientoService
     }
     if ($entidad === 'articulos') {
       $items = $this->articuloService->enrichMany($items);
+    } elseif ($entidad === 'actividades') {
+      $items = $this->enrichActividadesCentroCoste($items);
     } else {
       foreach ($items as $i => $item) {
         $items[$i] = $this->enrichItem($entidad, $item, false);
@@ -279,6 +322,7 @@ final class MantenimientoService
       $this->validarTienda($data, null);
     }
     if ($entidad === 'articulos') {
+      $this->ensureArticulosRegistroSanitario();
       $empresaCodigo = trim((string) ($data['empresaCodigo'] ?? ''));
       unset($data['empresaCodigo']);
       $this->articuloGeneracionCodigos()->aplicarEnAlta($data, $empresaCodigo);
@@ -421,6 +465,7 @@ final class MantenimientoService
       $this->validarTienda($data, $codigo);
     }
     if ($entidad === 'articulos') {
+      $this->ensureArticulosRegistroSanitario();
       $this->validarArticulo($data, $codigo);
     }
     if ($entidad === 'clientes') {
@@ -813,6 +858,14 @@ final class MantenimientoService
       && $mapped['Descripcion'] === null
     ) {
       $mapped['Descripcion'] = '';
+    }
+
+    if (
+      ($config['table'] ?? '') === 'Actividades'
+      && array_key_exists('CodigoCentroCoste', $mapped)
+      && $mapped['CodigoCentroCoste'] === null
+    ) {
+      $mapped['CodigoCentroCoste'] = '';
     }
 
     // Clientes: textos/numeros opcionales en ''/0 (legacy), no NULL.
@@ -1226,7 +1279,7 @@ final class MantenimientoService
     }
   }
 
-  private function validarActividad(array $data, ?string $codigo): void
+  private function validarActividad(array &$data, ?string $codigo): void
   {
     $esAlta = $codigo === null;
 
@@ -1250,6 +1303,31 @@ final class MantenimientoService
         throw new \InvalidArgumentException('La descripcion es obligatoria');
       }
     }
+
+    if (!$esAlta && !array_key_exists('codigoCentroCoste', $data)) {
+      return;
+    }
+
+    $codigoCentro = trim((string) ($data['codigoCentroCoste'] ?? ''));
+    if ($codigoCentro === '') {
+      $data['codigoCentroCoste'] = '';
+
+      return;
+    }
+
+    if (strlen($codigoCentro) > 10) {
+      throw new \InvalidArgumentException('El codigo de centro de coste admite como maximo 10 caracteres');
+    }
+
+    $stmt = $this->pdo->prepare(
+      'SELECT 1 FROM [CentrosCoste] WHERE RTRIM([Codigo]) = :codigo'
+    );
+    $stmt->execute(['codigo' => $codigoCentro]);
+    if (!$stmt->fetch()) {
+      throw new \InvalidArgumentException('No existe un centro de coste con ese codigo');
+    }
+
+    $data['codigoCentroCoste'] = $codigoCentro;
   }
 
   private function validarInteresComercial(array $data, ?string $codigo): void
@@ -1569,8 +1647,58 @@ final class MantenimientoService
     }
   }
 
+  /**
+   * @param list<array<string, mixed>> $items
+   * @return list<array<string, mixed>>
+   */
+  private function enrichActividadesCentroCoste(array $items): array
+  {
+    $codigos = [];
+    foreach ($items as $item) {
+      $c = trim((string) ($item['codigoCentroCoste'] ?? ''));
+      if ($c !== '') {
+        $codigos[$c] = true;
+      }
+    }
+
+    $descripciones = [];
+    if ($codigos !== []) {
+      $params = [];
+      $placeholders = [];
+      $i = 0;
+      foreach (array_keys($codigos) as $codigo) {
+        $key = 'cc' . $i;
+        $placeholders[] = ':' . $key;
+        $params[$key] = $codigo;
+        ++$i;
+      }
+      $sql = 'SELECT RTRIM([Codigo]) AS Codigo, RTRIM([Descripcion]) AS Descripcion
+              FROM [CentrosCoste]
+              WHERE RTRIM([Codigo]) IN (' . implode(', ', $placeholders) . ')';
+      $stmt = $this->pdo->prepare($sql);
+      foreach ($params as $key => $value) {
+        $stmt->bindValue(':' . $key, $value);
+      }
+      $stmt->execute();
+      while ($row = $stmt->fetch()) {
+        $descripciones[trim((string) ($row['Codigo'] ?? ''))] = trim((string) ($row['Descripcion'] ?? ''));
+      }
+    }
+
+    foreach ($items as $i => $item) {
+      $c = trim((string) ($item['codigoCentroCoste'] ?? ''));
+      $items[$i]['descripcionCentroCoste'] = $c === '' ? '' : ($descripciones[$c] ?? '');
+    }
+
+    return $items;
+  }
+
   private function enrichItem(string $entidad, array $item, bool $fichaCompleta = false): array
   {
+    if ($entidad === 'actividades') {
+      $item = $this->enrichActividadesCentroCoste([$item])[0];
+    }
+
     if ($entidad === 'almacenes' && isset($item['codigo'])) {
       $item['tiendasVinculadas'] = $this->tiendaAlmacenService->listTiendasPorAlmacen((int) $item['codigo']);
     }

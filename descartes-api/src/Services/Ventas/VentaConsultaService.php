@@ -144,7 +144,7 @@ final class VentaConsultaService
     }
 
     $linStmt = $this->pdo->prepare(
-      'SELECT NroLin, Articulo, Descripcion, LoteVenta, Cantidad, Precio, PjeDto, Importe, PjeIva
+      'SELECT NroLin, Articulo, Descripcion, LoteVenta, LoteFito, Cantidad, Precio, PjeDto, Importe, PjeIva
        FROM AlbaranesVentasLin
        WHERE Empresa = :empresa AND Tipo = :tipo AND Albaran = :albaran
        ORDER BY NroLin'
@@ -158,6 +158,7 @@ final class VentaConsultaService
         'articulo' => $lin['Articulo'],
         'descripcion' => $lin['Descripcion'],
         'loteVenta' => $lin['LoteVenta'],
+        'loteFito' => $lin['LoteFito'] ?? null,
         'cantidad' => (float) ($lin['Cantidad'] ?? 0),
         'precio' => (float) ($lin['Precio'] ?? 0),
         'pjeDto' => (float) ($lin['PjeDto'] ?? 0),
@@ -165,6 +166,7 @@ final class VentaConsultaService
         'pjeIva' => (float) ($lin['PjeIva'] ?? 0),
       ];
     }
+    $this->enriquecerLineasFitosanitario($lineas);
 
     $detalle = $this->mapResumen($cab);
     $detalle['razonSocial2'] = $cab['RazonSocial2'] ?? null;
@@ -210,12 +212,66 @@ final class VentaConsultaService
     $detalle['importesIva'] = $this->mapImportesIva($cab);
     $detalle['impreso'] = !empty($cab['Impreso']);
     $detalle['lineas'] = $lineas;
+    $this->enriquecerClienteFichaImpresion($detalle);
     $this->enriquecerDatosImpresion($detalle);
     $this->enriquecerFacturaAbono($detalle);
     $this->enriquecerAlbaranesFactura($detalle);
     $this->enriquecerConversionTicket($detalle);
 
     return $detalle;
+  }
+
+  /**
+   * Si la cabecera del albarán no trae dirección/teléfono (común en documentos antiguos),
+   * rellena desde la ficha de Clientes para impresión.
+   *
+   * @param array<string, mixed> $detalle
+   */
+  private function enriquecerClienteFichaImpresion(array &$detalle): void
+  {
+    $codigo = trim((string) ($detalle['cliente'] ?? ''));
+    if ($codigo === '') {
+      return;
+    }
+
+    try {
+      $st = $this->pdo->prepare(
+        'SELECT TOP 1 RazonSocial, NIF, Direccion, CodigoPostal, Poblacion, Provincia, Pais, Telefono1
+         FROM Clientes WHERE Codigo = :cliente'
+      );
+      $st->execute(['cliente' => $codigo]);
+      $row = $st->fetch(PDO::FETCH_ASSOC);
+      if ($row === false) {
+        return;
+      }
+
+      if (trim((string) ($detalle['razonSocial'] ?? '')) === '') {
+        $detalle['razonSocial'] = trim((string) ($row['RazonSocial'] ?? ''));
+      }
+      if (trim((string) ($detalle['nif'] ?? '')) === '') {
+        $detalle['nif'] = trim((string) ($row['NIF'] ?? ''));
+      }
+      if (trim((string) ($detalle['direccionEnvio'] ?? '')) === '') {
+        $detalle['direccionEnvio'] = trim((string) ($row['Direccion'] ?? ''));
+      }
+      if (trim((string) ($detalle['codigoPostalEnvio'] ?? '')) === '') {
+        $detalle['codigoPostalEnvio'] = trim((string) ($row['CodigoPostal'] ?? ''));
+      }
+      if (trim((string) ($detalle['poblacionEnvio'] ?? '')) === '') {
+        $detalle['poblacionEnvio'] = trim((string) ($row['Poblacion'] ?? ''));
+      }
+      if (trim((string) ($detalle['provinciaEnvio'] ?? '')) === '') {
+        $detalle['provinciaEnvio'] = trim((string) ($row['Provincia'] ?? ''));
+      }
+      if (trim((string) ($detalle['paisEnvio'] ?? '')) === '') {
+        $detalle['paisEnvio'] = trim((string) ($row['Pais'] ?? ''));
+      }
+      if (trim((string) ($detalle['telefono'] ?? '')) === '') {
+        $detalle['telefono'] = trim((string) ($row['Telefono1'] ?? ''));
+      }
+    } catch (\Throwable $e) {
+      // No bloquear la ficha si falla el enriquecimiento.
+    }
   }
 
   /**
@@ -416,13 +472,20 @@ final class VentaConsultaService
     }
 
     if ($abonosExistentes === []) {
+      // #region agent log
+      @file_put_contents('C:\\descartes-2.0\\debug-0d3608.log', json_encode(['sessionId' => '0d3608', 'runId' => 'pre-fix-venta-abono-factura', 'hypothesisId' => 'B,C', 'location' => 'VentaConsultaService.php:resolverEstadoAbonos', 'message' => 'Estado de abonos sin documentos hijos', 'data' => ['empresa' => $empresa, 'albaranOrigen' => $albaranOrigen, 'lineasOrigen' => array_values(array_map(static fn (array $l): array => ['nroLin' => (int) ($l['nroLin'] ?? 0), 'articulo' => (string) ($l['articulo'] ?? ''), 'cantidad' => (float) ($l['cantidad'] ?? 0)], array_filter($lineasOrig, 'is_array')))], 'timestamp' => (int) round(microtime(true) * 1000)], JSON_UNESCAPED_UNICODE) . PHP_EOL, FILE_APPEND | LOCK_EX);
+      // #endregion
       return ['abonosExistentes' => [], 'nroLinsAbonados' => []];
     }
 
-    return [
+    $resultado = [
       'abonosExistentes' => $abonosExistentes,
       'nroLinsAbonados' => $this->nroLinsAbonadosDesdeBd($empresa, $albaranOrigen, $lineasOrig),
     ];
+    // #region agent log
+    @file_put_contents('C:\\descartes-2.0\\debug-0d3608.log', json_encode(['sessionId' => '0d3608', 'runId' => 'pre-fix-venta-abono-factura', 'hypothesisId' => 'B,C', 'location' => 'VentaConsultaService.php:resolverEstadoAbonos', 'message' => 'Estado de abonos resuelto', 'data' => ['empresa' => $empresa, 'albaranOrigen' => $albaranOrigen, 'abonos' => array_map(static fn (array $a): array => ['albaran' => $a['albaran'], 'importe' => $a['importe']], $abonosExistentes), 'nroLinsAbonados' => $resultado['nroLinsAbonados']], 'timestamp' => (int) round(microtime(true) * 1000)], JSON_UNESCAPED_UNICODE) . PHP_EOL, FILE_APPEND | LOCK_EX);
+    // #endregion
+    return $resultado;
   }
 
   /**
@@ -451,12 +514,18 @@ final class VentaConsultaService
       }
       if ($nroLins !== []) {
         sort($nroLins);
+        // #region agent log
+        @file_put_contents('C:\\descartes-2.0\\debug-0d3608.log', json_encode(['sessionId' => '0d3608', 'runId' => 'pre-fix-venta-abono-factura', 'hypothesisId' => 'C', 'location' => 'VentaConsultaService.php:nroLinsAbonadosDesdeBd', 'message' => 'Relacion de lineas por NroLinOrigen', 'data' => ['empresa' => $empresa, 'albaranOrigen' => $albaranOrigen, 'nroLins' => $nroLins], 'timestamp' => (int) round(microtime(true) * 1000)], JSON_UNESCAPED_UNICODE) . PHP_EOL, FILE_APPEND | LOCK_EX);
+        // #endregion
         return array_values(array_unique($nroLins));
       }
     } catch (\Throwable $e) {
       // Columna NroLinOrigen ausente o error de consulta: emparejar por cantidades.
     }
 
+    // #region agent log
+    @file_put_contents('C:\\descartes-2.0\\debug-0d3608.log', json_encode(['sessionId' => '0d3608', 'runId' => 'pre-fix-venta-abono-factura', 'hypothesisId' => 'C', 'location' => 'VentaConsultaService.php:nroLinsAbonadosDesdeBd', 'message' => 'Relacion de lineas por cantidades', 'data' => ['empresa' => $empresa, 'albaranOrigen' => $albaranOrigen], 'timestamp' => (int) round(microtime(true) * 1000)], JSON_UNESCAPED_UNICODE) . PHP_EOL, FILE_APPEND | LOCK_EX);
+    // #endregion
     return $this->nroLinsAbonadosPorCantidad($empresa, $albaranOrigen, $lineasOrig);
   }
 
@@ -861,5 +930,88 @@ final class VentaConsultaService
       default:
         break;
     }
+  }
+
+  /**
+   * Añade flags y registro sanitario del artículo para impresión de pasaporte fitosanitario.
+   *
+   * @param list<array<string, mixed>> $lineas
+   */
+  private function enriquecerLineasFitosanitario(array &$lineas): void
+  {
+    if ($lineas === []) {
+      return;
+    }
+    $fitos = $this->fitosArticulosPorCodigo($this->codigosArticuloEnLineas($lineas));
+    foreach ($lineas as &$lin) {
+      $art = rtrim(trim((string) ($lin['articulo'] ?? '')));
+      if ($art === '' || strtoupper($art) === 'NO') {
+        continue;
+      }
+      $meta = $fitos[$art] ?? $fitos[trim($art)] ?? null;
+      if ($meta === null) {
+        continue;
+      }
+      $lin['pasaporteFitosanitario'] = $meta['pasaporteFitosanitario'];
+      $lin['lotePasaporte'] = $meta['lotePasaporte'];
+      $lin['registroSanitario'] = $meta['registroSanitario'];
+    }
+    unset($lin);
+  }
+
+  /** @param list<array<string, mixed>> $lineas @return list<string> */
+  private function codigosArticuloEnLineas(array $lineas): array
+  {
+    $codigos = [];
+    foreach ($lineas as $lin) {
+      $art = trim((string) ($lin['articulo'] ?? ''));
+      if ($art !== '' && strtoupper($art) !== 'NO') {
+        $codigos[$art] = $art;
+      }
+    }
+    return array_values($codigos);
+  }
+
+  /**
+   * @param list<string> $codigos
+   * @return array<string, array{pasaporteFitosanitario: bool, lotePasaporte: bool, registroSanitario: string}>
+   */
+  private function fitosArticulosPorCodigo(array $codigos): array
+  {
+    $map = [];
+    if ($codigos === []) {
+      return $map;
+    }
+    try {
+      foreach (array_chunk($codigos, 400) as $chunk) {
+        $placeholders = [];
+        $params = [];
+        foreach ($chunk as $i => $codigo) {
+          $clave = 'c' . $i;
+          $placeholders[] = ':' . $clave;
+          $params[$clave] = $codigo;
+        }
+        $st = $this->pdo->prepare(
+          'SELECT Codigo, PasaporteFitosanitario, LotePasaporte, RegistroSanitario
+           FROM Articulos
+           WHERE Codigo IN (' . implode(', ', $placeholders) . ')'
+        );
+        $st->execute($params);
+        while ($row = $st->fetch(PDO::FETCH_ASSOC)) {
+          $codigo = rtrim(trim((string) ($row['Codigo'] ?? '')));
+          if ($codigo === '') {
+            continue;
+          }
+          $map[$codigo] = [
+            'pasaporteFitosanitario' => !empty($row['PasaporteFitosanitario']),
+            'lotePasaporte' => !empty($row['LotePasaporte']),
+            'registroSanitario' => trim((string) ($row['RegistroSanitario'] ?? '')),
+          ];
+        }
+      }
+    } catch (\Throwable $e) {
+      return [];
+    }
+    return $map;
   }
 }

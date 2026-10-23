@@ -107,6 +107,26 @@ final class DocumentoPlantillasController
     }
   }
 
+  public function importar(Request $request, Response $response): Response
+  {
+    $body = (array) ($request->getParsedBody() ?? []);
+    if ($body === []) {
+      $body = (array) json_decode((string) $request->getBody(), true);
+    }
+    $empresa = trim((string) ($body['empresaCodigo'] ?? ''));
+    if ($empresa === '') {
+      return ErrorResponse::json($response, 400, 'empresaCodigo es obligatorio', 'VALIDACION');
+    }
+    try {
+      $result = $this->service->importar($empresa, $body);
+      return $this->json($response, 200, $result);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
   public function sembrar(Request $request, Response $response): Response
   {
     $body = (array) ($request->getParsedBody() ?? []);

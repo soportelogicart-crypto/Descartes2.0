@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Descartes\Api\Repositories;
 
+use Descartes\Api\Database\InsertedId;
 use PDO;
 
 final class DocumentoPlantillasRepository
@@ -19,6 +20,25 @@ final class DocumentoPlantillasRepository
   public function ensureTable(): void
   {
     if ($this->tableChecked) {
+      return;
+    }
+    if ($this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
+      $this->pdo->exec(
+        "CREATE TABLE IF NOT EXISTS `DocumentoPlantillas` (
+           `Id` int NOT NULL AUTO_INCREMENT,
+           `EmpresaCodigo` varchar(3) NOT NULL DEFAULT '',
+           `Tipo` varchar(40) NOT NULL,
+           `Nombre` varchar(100) NOT NULL,
+           `Descripcion` varchar(250) NULL,
+           `Version` int NOT NULL DEFAULT 1,
+           `Activa` tinyint(1) NOT NULL DEFAULT 0,
+           `Definicion` longtext NOT NULL,
+           `Creado` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+           `Actualizado` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+           PRIMARY KEY (`Id`)
+         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+      );
+      $this->tableChecked = true;
       return;
     }
     $this->pdo->exec(
@@ -114,8 +134,7 @@ final class DocumentoPlantillasRepository
       'activa' => !empty($data['activa']) ? 1 : 0,
       'definicion' => $data['definicion'],
     ]);
-    $id = $st->fetchColumn();
-    return (int) $id;
+    return InsertedId::leer($this->pdo, $st);
   }
 
   /**

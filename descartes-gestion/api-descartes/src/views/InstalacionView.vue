@@ -1,0 +1,683 @@
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import {
+  configurarInstalacion,
+  crearInstalacionCliente,
+  getInstalacionEstado,
+  olvidarInstalacionEstado,
+  probarInstalacion,
+  type InstalacionEstado,
+  type InstalacionDiagnostico,
+  type MotorBd,
+  type TipoConexionBd,
+} from '@/api/instalacion'
+import {
+  guardarVinculoInstalacion,
+  quitarVinculoInstalacion,
+  vinculoEnMemoria,
+} from '@/api/vinculoInstalacion'
+import { extractApiError } from '@/composables/extractApiError'
+import { useAuthStore } from '@/stores/auth'
+
+const route = useRoute()
+const router = useRouter()
+const auth = useAuthStore()
+
+const form = reactive({
+  motor: 'sqlsrv' as MotorBd,
+  tipo: 'local' as TipoConexionBd,
+  server: 'localhost',
+  database: '',
+  user: '',
+  password: '',
+  trustCert: true,
+})
+
+const estado = ref<InstalacionEstado | null>(null)
+const completado = ref(false)
+const credenciales = ref<{ usuario: string; password: string } | null>(null)
+const mensaje = ref<string | null>(null)
+const error = ref<string | null>(null)
+const probando = ref(false)
+const guardando = ref(false)
+const unidoA = ref(vinculoEnMemoria()?.id ?? '')
+const unionId = ref('')
+const unionClave = ref('')
+const nuevaId = ref('')
+const claveNueva = ref<string | null>(null)
+const uniendo = ref(false)
+const creando = ref(false)
+
+type FeedbackTipo = 'ok' | 'error' | 'info' | 'loading' | null
+const feedbackTipo = ref<FeedbackTipo>(null)
+const feedbackTexto = ref<string | null>(null)
+
+const diagnostico = ref<InstalacionDiagnostico | null>(null)
+const mostrarDiagnostico = ref(false)
+
+const esPrimeraVez = computed(() => estado.value?.primeraVez ?? !estado.value?.configurado)
+const editandoUna = computed(() => unidoA.value !== '')
+const diagnosticoActual = computed(() => diagnostico.value ?? estado.value?.diagnostico ?? null)
+const necesitaActualizarEsquema = computed(
+  () => estado.value?.conexionOk === true && estado.value?.esquemaOk === false
+)
+const tituloServidor = computed(() => {
+  if (form.motor === 'mysql') return 'Servidor MySQL'
+  return form.tipo === 'nube' ? 'URL del servidor SQL' : 'Servidor SQL (local / red)'
+})
+const ayudaServidor = computed(() => {
+  if (form.motor === 'mysql') return 'Ej: localhost, localhost:3306 o 192.168.x.x'
+  return form.tipo === 'nube'
+    ? 'Ej: mi-empresa.database.windows.net (Azure SQL) o la URL que le haya dado su proveedor.'
+    : 'Ej: wslogicartbd, localhost, .\\SQLEXPRESS o 192.168.x.x'
+})
+const tituloUsuario = computed(() => (form.motor === 'mysql' ? 'Usuario MySQL' : 'Usuario SQL'))
+const tituloClave = computed(() => (form.motor === 'mysql' ? 'Contrasena MySQL' : 'Contrasena SQL'))
+
+function mostrarFeedback(tipo: FeedbackTipo, texto: string | null) {
+  feedbackTipo.value = tipo
+  feedbackTexto.value = texto
+}
+
+function validarFormulario(): string | null {
+  if (!form.server.trim()) return 'Indique el servidor o la URL'
+  if (!form.database.trim()) return 'Indique el nombre de la base de datos'
+  if (!form.user.trim()) return 'Indique el usuario de SQL Server'
+  if (!form.password) return 'Indique la contrasena de SQL Server'
+  return null
+}
+
+async function cerrarSesion() {
+  try {
+    await auth.logout()
+  } catch {
+    auth.usuario = null
+    auth.permisos = {}
+    auth.cargado = false
+  }
+}
+
+async function onUnirPc() {
+  error.value = null
+  uniendo.value = true
+  try {
+    await cerrarSesion()
+    await guardarVinculoInstalacion(unionId.value, unionClave.value)
+    olvidarInstalacionEstado()
+    window.location.reload()
+  } catch (e: unknown) {
+    error.value = e instanceof Error ? e.message : extractApiError(e, 'No se pudo unir este PC')
+    mostrarFeedback('error', error.value)
+    uniendo.value = false
+  }
+}
+
+async function onQuitarUnion() {
+  error.value = null
+  uniendo.value = true
+  try {
+    await cerrarSesion()
+    await quitarVinculoInstalacion()
+    olvidarInstalacionEstado()
+    window.location.reload()
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo quitar la instalación de este PC')
+    mostrarFeedback('error', error.value)
+    uniendo.value = false
+  }
+}
+
+async function onGuardarPc() {
+  const id = unionId.value.trim()
+  const clave = unionClave.value.trim()
+  if (!id && !clave) {
+    await onQuitarUnion()
+    return
+  }
+  await onUnirPc()
+}
+
+async function onCrearInstalacion() {
+  const validacion = validarFormulario()
+  if (!nuevaId.value.trim()) {
+    error.value = 'Indique el identificador de la instalación nueva'
+    mostrarFeedback('error', error.value)
+    return
+  }
+  if (validacion) {
+    error.value = validacion
+    mostrarFeedback('error', validacion)
+    return
+  }
+  creando.value = true
+  error.value = null
+  claveNueva.value = null
+  try {
+    const creada = await crearInstalacionCliente(nuevaId.value, form)
+    await guardarVinculoInstalacion(creada.id, creada.clave)
+    await cerrarSesion()
+    olvidarInstalacionEstado()
+    window.location.reload()
+    return
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo crear la instalación')
+    mostrarFeedback('error', error.value)
+  } finally {
+    creando.value = false
+  }
+}
+
+async function cargarEstado() {
+  error.value = null
+  try {
+    estado.value = await getInstalacionEstado({ refrescar: true })
+    diagnostico.value = estado.value.diagnostico ?? null
+    if (estado.value.motor) form.motor = estado.value.motor
+    if (estado.value.tipo) form.tipo = estado.value.tipo
+    if (estado.value.server) form.server = estado.value.server
+    if (estado.value.database) form.database = estado.value.database
+    if (estado.value.user) form.user = estado.value.user
+    // #region agent log
+    fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',runId:'post-fix',hypothesisId:'B',location:'InstalacionView.vue:cargarEstado',message:'pantalla conexion',data:{routeName:route.name,routePath:route.path,requiereAccion:estado.value.requiereAccion},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+  } catch {
+    error.value = 'No se pudo contactar con la API. Compruebe que Apache/XAMPP esta en marcha.'
+    mostrarFeedback('error', error.value)
+  }
+}
+
+async function onProbar() {
+  mensaje.value = null
+  error.value = null
+
+  const validacion = validarFormulario()
+  if (validacion) {
+    error.value = validacion
+    mostrarFeedback('error', validacion)
+    return
+  }
+
+  probando.value = true
+  mostrarFeedback(
+    'loading',
+    editandoUna.value ? 'Comprobando conexión…' : 'Comprobando conexion y guardando configuracion…'
+  )
+  try {
+    const res = await probarInstalacion(form)
+    if (res.ok) {
+      diagnostico.value = (res as { diagnostico?: InstalacionDiagnostico }).diagnostico ?? null
+      mostrarDiagnostico.value = true
+      mostrarFeedback('ok', 'Conexion correcta y guardada.')
+      await cargarEstado()
+    } else {
+      error.value = res.mensaje || 'No se pudo conectar'
+      mostrarFeedback('error', error.value)
+    }
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo comprobar la conexion.')
+    mostrarFeedback('error', error.value)
+  } finally {
+    probando.value = false
+  }
+}
+
+async function onGuardar() {
+  const validacion = validarFormulario()
+  if (validacion) {
+    error.value = validacion
+    mostrarFeedback('error', validacion)
+    return
+  }
+
+  guardando.value = true
+  mensaje.value = null
+  error.value = null
+  mostrarFeedback('loading', 'Conectando, actualizando tablas y preparando usuario administrador…')
+  try {
+    const res = await configurarInstalacion(form)
+    estado.value = res
+    diagnostico.value = res.diagnostico ?? null
+    mostrarDiagnostico.value = true
+    completado.value = !res.requiereAccion && (res.diagnostico?.tieneRol ?? true) && (res.diagnostico?.tieneBaja ?? true)
+    credenciales.value = res.acceso ?? { usuario: 'ADM', password: 'admin123' }
+    mensaje.value = res.mensaje ?? 'Instalacion completada'
+    mostrarFeedback('ok', 'Base de datos preparada.')
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo completar la instalacion')
+    mostrarFeedback('error', error.value)
+  } finally {
+    guardando.value = false
+  }
+}
+
+async function irAlLogin() {
+  try {
+    await auth.logout()
+  } catch {
+    auth.usuario = null
+    auth.permisos = {}
+    auth.cargado = false
+  }
+  const loginUrl = router.resolve({ name: 'login' }).href
+  window.location.assign(loginUrl)
+}
+
+onMounted(() => {
+  const vinculo = vinculoEnMemoria()
+  unidoA.value = vinculo?.id ?? ''
+  unionId.value = vinculo?.id ?? ''
+  unionClave.value = vinculo?.clave ?? ''
+  void auth.fetchMe().catch(() => {
+    auth.cargado = true
+  })
+  void cargarEstado()
+})
+</script>
+
+<template>
+  <div class="instalacion">
+    <div v-if="completado" class="card card-exito">
+      <h1>¡Listo!</h1>
+      <p class="intro">Entre con ADM / admin123.</p>
+      <details v-if="diagnosticoActual" class="diagnostico">
+        <summary>Detalle de conexion</summary>
+        <p>{{ diagnosticoActual.servidorSql }} / {{ diagnosticoActual.baseDatos }}</p>
+      </details>
+      <div class="credenciales">
+        <p>Use estas credenciales para entrar:</p>
+        <dl>
+          <dt>Usuario</dt>
+          <dd>{{ credenciales?.usuario ?? 'ADM' }}</dd>
+          <dt>Contrasena</dt>
+          <dd>{{ credenciales?.password ?? 'admin123' }}</dd>
+        </dl>
+      </div>
+      <button type="button" @click="irAlLogin">Ir al login</button>
+    </div>
+
+    <form v-else class="card" @submit.prevent="onGuardar">
+      <div class="card-scroll">
+        <h1>{{ esPrimeraVez ? 'Bienvenido a Descartes' : 'Conexion a la base de datos' }}</h1>
+        <p class="intro">
+          Cada PC elige su base. La de producción es la que no tiene identificador. Un identificador
+          solo afecta al PC donde se guarda. Cambiarlo aquí no cambia el otro PC.
+        </p>
+
+        <fieldset class="tipo-conexion vinculo">
+          <legend>Este PC</legend>
+          <p class="hint">
+            <template v-if="editandoUna">
+              Ahora usa «{{ unidoA }}». Para dejarlo en producción, borre los dos campos y pulse
+              Guardar en este PC.
+            </template>
+            <template v-else>
+              Ahora usa la base de producción. Para una base de prueba, escriba su identificador y
+              su clave.
+            </template>
+          </p>
+          <label>
+            Identificador de este PC
+            <input v-model="unionId" autocomplete="off" placeholder="vacío = producción" />
+          </label>
+          <label>
+            Clave
+            <input v-model="unionClave" autocomplete="off" placeholder="la que salió al crear" />
+          </label>
+          <button type="button" class="secundario" :disabled="uniendo" @click="onGuardarPc">
+            {{ uniendo ? 'Guardando…' : 'Guardar en este PC' }}
+          </button>
+        </fieldset>
+
+        <fieldset class="tipo-conexion">
+          <legend>Motor de la base</legend>
+          <label class="radio">
+            <input v-model="form.motor" type="radio" value="sqlsrv" />
+            SQL Server
+          </label>
+          <label class="radio">
+            <input v-model="form.motor" type="radio" value="mysql" />
+            MySQL
+          </label>
+        </fieldset>
+
+        <fieldset v-if="form.motor === 'sqlsrv'" class="tipo-conexion">
+          <legend>Tipo de conexion</legend>
+          <label class="radio">
+            <input v-model="form.tipo" type="radio" value="local" />
+            Servidor local / red
+          </label>
+          <label class="radio">
+            <input v-model="form.tipo" type="radio" value="nube" />
+            Base de datos en la nube
+          </label>
+        </fieldset>
+
+        <label>
+          {{ tituloServidor }}
+          <input
+            v-model="form.server"
+            autocomplete="off"
+            :placeholder="form.motor === 'mysql' ? 'localhost:3306' : form.tipo === 'nube' ? 'mi-servidor.database.windows.net' : 'wslogicartbd'"
+          />
+          <span class="hint">{{ ayudaServidor }}</span>
+        </label>
+        <label>
+          Nombre de la base de datos
+          <input v-model="form.database" autocomplete="off" placeholder="Ej: LOGIA" />
+        </label>
+        <label>
+          {{ tituloUsuario }}
+          <input v-model="form.user" autocomplete="off" :placeholder="form.motor === 'mysql' ? 'Ej: root' : 'Ej: sa'" />
+        </label>
+        <label>
+          {{ tituloClave }}
+          <input v-model="form.password" type="password" autocomplete="new-password" />
+        </label>
+        <label v-if="form.motor === 'sqlsrv'" class="checkbox">
+          <input v-model="form.trustCert" type="checkbox" />
+          Confiar en certificado del servidor
+        </label>
+
+        <fieldset class="tipo-conexion vinculo">
+          <legend>Nueva instalación</legend>
+          <p class="hint">
+            Solo la primera vez. Escriba el identificador, por ejemplo prueba. La clave sale en este
+            PC y se puede copiar. El otro PC sigue en producción hasta que usted le ponga otro
+            identificador.
+          </p>
+          <label>
+            Identificador
+            <input v-model="nuevaId" autocomplete="off" placeholder="demo" />
+          </label>
+          <button
+            type="button"
+            class="secundario"
+            :disabled="creando || guardando"
+            @click="onCrearInstalacion"
+          >
+            {{ creando ? 'Creando…' : 'Crear instalación' }}
+          </button>
+          <p v-if="claveNueva" class="clave-nueva">
+            Clave de <strong>{{ nuevaId }}</strong>: <code>{{ claveNueva }}</code>
+          </p>
+        </fieldset>
+
+        <details
+          v-if="mostrarDiagnostico && diagnosticoActual"
+          class="diagnostico"
+          :open="necesitaActualizarEsquema"
+        >
+          <summary>Detalle de conexion</summary>
+          <p>{{ diagnosticoActual.servidorSql }} / {{ diagnosticoActual.baseDatos }}</p>
+          <p v-if="diagnosticoActual.tieneRol && diagnosticoActual.tieneBaja" class="diag-ok">
+            Usuarios_Ges.Rol y Usuarios_Ges.Baja: OK
+          </p>
+          <p v-else class="diag-alerta">Faltan columnas Rol o Baja en Usuarios.</p>
+        </details>
+      </div>
+
+      <div
+        v-if="feedbackTexto || necesitaActualizarEsquema"
+        class="feedback"
+        :class="{
+          'feedback-ok': feedbackTipo === 'ok',
+          'feedback-error': feedbackTipo === 'error',
+          'feedback-info': feedbackTipo === 'loading',
+          'feedback-aviso': necesitaActualizarEsquema && feedbackTipo !== 'error',
+        }"
+        role="status"
+        aria-live="polite"
+      >
+        {{
+          feedbackTexto
+            ?? (necesitaActualizarEsquema ? 'Faltan cambios de tablas. Pulse «Conectar y preparar».' : '')
+        }}
+      </div>
+
+      <div class="acciones">
+        <p v-if="!editandoUna" class="hint acciones-aviso">
+          Comprobar y Conectar cambian la base de producción, la de todos los PC sin identificador.
+        </p>
+        <button type="button" class="secundario" :disabled="probando || guardando" @click="onProbar">
+          {{ probando ? 'Comprobando…' : 'Comprobar' }}
+        </button>
+        <button type="submit" :disabled="guardando || probando">
+          {{ guardando ? 'Preparando…' : 'Conectar y preparar' }}
+        </button>
+      </div>
+    </form>
+  </div>
+</template>
+
+<style scoped>
+.instalacion {
+  min-height: 100%;
+  display: grid;
+  align-content: start;
+  justify-items: center;
+  padding: 1rem;
+  background: #f1f5f9;
+}
+
+.card {
+  width: min(100%, 480px);
+  max-height: calc(100vh - 2rem);
+  background: #fff;
+  border-radius: 12px;
+  padding: 0;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.card-scroll {
+  padding: 1.25rem 1.25rem 0.5rem;
+  overflow-y: auto;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.card-exito {
+  padding: 1.5rem;
+  text-align: center;
+  display: grid;
+  gap: 0.75rem;
+  overflow-y: auto;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.intro {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #64748b;
+  line-height: 1.45;
+}
+
+.vinculo {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.clave-nueva {
+  margin: 0;
+  padding: 0.55rem 0.65rem;
+  background: #ecfdf5;
+  border: 1px solid #6ee7b7;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+
+.diagnostico {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.diagnostico summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #475569;
+}
+
+.diagnostico p {
+  margin: 0.35rem 0 0;
+}
+
+.diag-ok {
+  color: #166534;
+}
+
+.diag-alerta {
+  color: #b45309;
+}
+
+.feedback {
+  flex-shrink: 0;
+  margin: 0 1.25rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  line-height: 1.35;
+  border: 1px solid transparent;
+}
+
+.feedback-aviso {
+  background: #fffbeb;
+  border-color: #fcd34d;
+  color: #92400e;
+}
+
+.feedback-ok {
+  background: #ecfdf5;
+  border-color: #6ee7b7;
+  color: #065f46;
+}
+
+.feedback-error {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  color: #991b1b;
+}
+
+.feedback-info {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #1e40af;
+}
+
+.tipo-conexion {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.75rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.tipo-conexion legend {
+  padding: 0 0.25rem;
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.radio {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+}
+
+.hint {
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+label.checkbox {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+input[type='text'],
+input[type='password'] {
+  padding: 0.5rem 0.65rem;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+}
+
+.credenciales {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  padding: 1rem;
+  text-align: left;
+}
+
+.credenciales dl {
+  margin: 0.5rem 0 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.35rem 1rem;
+}
+
+.credenciales dt {
+  font-weight: 600;
+  color: #166534;
+}
+
+.credenciales dd {
+  margin: 0;
+  font-family: ui-monospace, monospace;
+}
+
+.acciones {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem 1.25rem;
+  border-top: 1px solid #e2e8f0;
+  background: #fff;
+}
+
+.acciones-aviso {
+  flex: 1 1 100%;
+  margin: 0;
+}
+
+button {
+  padding: 0.55rem 0.9rem;
+  border: none;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+}
+
+button.secundario {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+</style>

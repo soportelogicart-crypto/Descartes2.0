@@ -132,6 +132,13 @@ return function (App $app): void {
     $c->get(PDO::class),
     $c->get(\Descartes\Api\Services\Compras\AlbaranCompraConsultaService::class)
   ));
+  $container->set(\Descartes\Api\Services\Compras\AlbaranCompraImportService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Compras\AlbaranCompraImportService(
+    $c->get(PDO::class),
+    $c->get(\Descartes\Api\Repositories\ArtBarrasRepository::class)
+  ));
+  $container->set(\Descartes\Api\Services\Compras\AlbaranCompraPdfImportService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Compras\AlbaranCompraPdfImportService(
+    $c->get(\Descartes\Api\Services\Compras\AlbaranCompraImportService::class)
+  ));
   $container->set(\Descartes\Api\Services\Compras\AlbaranCompraConversionVentaService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Compras\AlbaranCompraConversionVentaService(
     $c->get(PDO::class),
     $c->get(\Descartes\Api\Services\Compras\AlbaranCompraConsultaService::class),
@@ -174,6 +181,13 @@ return function (App $app): void {
   $container->set(\Descartes\Api\Services\Ventas\FidelizacionService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\FidelizacionService(
     $c->get(PDO::class)
   ));
+  $container->set(\Descartes\Api\Services\Ventas\FidelizacionClubSaldoService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\FidelizacionClubSaldoService(
+    $c->get(PDO::class),
+    $c->get(\Descartes\Api\Services\Ventas\FidelizacionService::class)
+  ));
+  $container->set(\Descartes\Api\Services\Ventas\ClubPromocionesService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\ClubPromocionesService(
+    $c->get(PDO::class)
+  ));
   $container->set(\Descartes\Api\Services\Facturacion\RecibosFacturaService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\RecibosFacturaService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Facturacion\FacturacionRetencionIrpfService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\FacturacionRetencionIrpfService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Ventas\VentaEscrituraService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\VentaEscrituraService(
@@ -183,6 +197,7 @@ return function (App $app): void {
     $c->get(\Descartes\Api\Services\Ventas\FidelizacionService::class),
     $c->get(\Descartes\Api\Services\Ventas\ValeService::class),
     $c->get(\Descartes\Api\Services\Ventas\FidelizacionValesSemestreService::class),
+    $c->get(\Descartes\Api\Services\Ventas\FidelizacionClubSaldoService::class),
     $c->get(\Descartes\Api\Services\Facturacion\RecibosFacturaService::class),
     $c->get(\Descartes\Api\Services\Facturacion\FacturacionRetencionIrpfService::class)
   ));

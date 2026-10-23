@@ -2,7 +2,7 @@ import type {
   DocumentoPreviewDatos,
   DocumentoPreviewLinea,
 } from '@/config/documentos-plantillas/preview-datos'
-import type { VentaDetalle } from '@/types/ventas'
+import type { VentaDetalle, VentaLinea } from '@/types/ventas'
 
 function fmtFecha(iso: string | null | undefined): string {
   if (!iso) return ''
@@ -20,6 +20,22 @@ function fmtHora(iso: string | null | undefined): string {
 
 function redondear2(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100
+}
+
+/** Artículos con Control fitosanitario (Articulos.PasaporteFitosanitario). */
+export function lineaRequiereAsteriscoPasaporteFito(l: VentaLinea): boolean {
+  return Boolean(l.pasaporteFitosanitario)
+}
+
+export const TEXTO_PIE_PASAPORTE_FITOSANITARIO_ALBARAN =
+  'Los artículos con asterisco están amparados con el pasaporte Fitosanitario'
+
+/** Pie de albarán cuando hay líneas con asterisco; número = Empresas.PasaporteFitosanitario. */
+export function anotacionPiePasaporteFitosanitario(pasaporteEmpresa: string, hayLineasMarcadas: boolean): string {
+  if (!hayLineasMarcadas) return ''
+  const num = String(pasaporteEmpresa ?? '').trim()
+  if (num) return `${TEXTO_PIE_PASAPORTE_FITOSANITARIO_ALBARAN} ${num}`
+  return `${TEXTO_PIE_PASAPORTE_FITOSANITARIO_ALBARAN}.`
 }
 
 /** Oculta los 4 últimos dígitos. Si ya contiene XXXX, no la toca. */
@@ -86,6 +102,9 @@ export function ventaAPreviewDatos(
     emblemaUrl?: string
     /** Nombre del cajero (Trabajadores); la venta solo guarda el código. */
     vendedorNombre?: string
+    pasaporteFitosanitarioEmpresa?: string
+    /** Asterisco en línea + pie fitosanitario (solo albarán A4). */
+    plantillaTipo?: string
   } = {}
 ): DocumentoPreviewDatos {
   const ivas = (venta.importesIva ?? []).map((x) => ({
@@ -109,6 +128,8 @@ export function ventaAPreviewDatos(
     banco: venta.clienteBanco,
   })
   const lits = (extras.literalesPuesto ?? []).slice(0, nLit)
+  const anotacionFitoAlbaran = String(extras.plantillaTipo ?? '').trim() === 'albaran'
+  let hayLineasFito = false
   const lineas: DocumentoPreviewLinea[] = []
   for (const l of venta.lineas ?? []) {
     const art = String(l.articulo ?? '').trim()
@@ -131,6 +152,8 @@ export function ventaAPreviewDatos(
       }
       continue
     }
+    const marcaFito = anotacionFitoAlbaran && lineaRequiereAsteriscoPasaporteFito(l)
+    if (marcaFito) hayLineasFito = true
     const precio = Number(l.precio) || 0
     const pje = Number(l.pjeIva) || 0
     const factor = 1 + pje / 100
@@ -145,6 +168,7 @@ export function ventaAPreviewDatos(
       pjeIva: pje,
       importe: Number(l.importe) || 0,
       pvp: conIva ? precio : redondear2(precio * factor),
+      marcaPasaporteFito: marcaFito || undefined,
     })
   }
 
@@ -162,6 +186,10 @@ export function ventaAPreviewDatos(
       albaranCabecera: `Albarán ${venta.empresa}-${venta.albaran} de Fecha ${fmtFecha(venta.fecha)}`,
     })
   }
+
+  const anotacionPasaporteFitosanitario = anotacionFitoAlbaran
+    ? anotacionPiePasaporteFitosanitario(extras.pasaporteFitosanitarioEmpresa ?? '', hayLineasFito)
+    : ''
 
   return {
     empresa: {
@@ -214,6 +242,7 @@ export function ventaAPreviewDatos(
         .map((f) => ({ codigo: String(f.codigo).trim(), importe: Number(f.importe) || 0 })),
       codigoBarras: `*${venta.empresa || ''}${venta.albaran || ''}*`,
       pagina: '1/1',
+      anotacionPasaporteFitosanitario,
     },
     lineas,
     totales: {
@@ -236,6 +265,15 @@ export function ventaAPreviewDatos(
       ? {
           puntosCompra: redondear2(venta.fidelizacionPuntos.compra),
           puntosAcumulados: redondear2(venta.fidelizacionPuntos.acumulados),
+        }
+      : undefined,
+    clubSaldo: venta.clubFidelizacion
+      ? {
+          elegible: redondear2(venta.clubFidelizacion.elegible),
+          generado: redondear2(venta.clubFidelizacion.generadoEuros),
+          usado: redondear2(venta.clubFidelizacion.usadoEuros),
+          disponible: redondear2(venta.clubFidelizacion.disponibleEuros),
+          proximaCaducidad: venta.clubFidelizacion.proximaCaducidad ?? null,
         }
       : undefined,
     vencimientos: (venta.vencimientos ?? []).map((v) => ({

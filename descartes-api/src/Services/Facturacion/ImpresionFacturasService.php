@@ -35,6 +35,22 @@ final class ImpresionFacturasService
       $orderSql = 'ORDER BY f.Fecha DESC, f.FacturaTipo DESC, f.Factura DESC';
     }
 
+    $conDesglose = !empty($query['desgloseIva']);
+    $columnasIva = '';
+    if ($conDesglose) {
+      $partes = [];
+      for ($i = 1; $i <= 6; $i++) {
+        $partes[] = "ISNULL(f.ImporteBase{$i}, 0) AS ImporteBase{$i}";
+        $partes[] = "ISNULL(f.ImporteIva{$i}, 0) AS ImporteIva{$i}";
+        $partes[] = "ISNULL(f.PjeIva{$i}, 0) AS PjeIva{$i}";
+        $partes[] = "ISNULL(f.PjeRec{$i}, 0) AS PjeRec{$i}";
+        $partes[] = "ISNULL(f.ImporteRec{$i}, 0) AS ImporteRec{$i}";
+      }
+      $partes[] = 'ISNULL(f.PjeRetIrpf, 0) AS PjeRetIrpf';
+      $partes[] = 'ISNULL(f.ImpRetIrpf, 0) AS ImpRetIrpf';
+      $columnasIva = ",\n        " . implode(",\n        ", $partes);
+    }
+
     // El grid filtra por columna sobre lo devuelto: conviene no recortar de más.
     $sql = "SELECT TOP 5000
         f.Empresa, f.FacturaTipo, f.Factura, f.Fecha, f.Cliente, f.Importe, f.Fpago,
@@ -44,7 +60,7 @@ final class ImpresionFacturasService
         ISNULL(
           NULLIF(LTRIM(RTRIM(c.EmailFacturacion)), ''),
           LTRIM(RTRIM(ISNULL(c.Email, '')))
-        ) AS EmailDestino
+        ) AS EmailDestino{$columnasIva}
       FROM Facturas f
       INNER JOIN Clientes c ON c.Codigo = f.Cliente
       WHERE {$where}
@@ -56,6 +72,10 @@ final class ImpresionFacturasService
 
     $items = [];
     $importe = 0.0;
+    $baseTotal = 0.0;
+    $cuotaTotal = 0.0;
+    /** @var array<string, array{pjeIva: float, baseImponible: float, cuotaIva: float}> $resumen */
+    $resumen = [];
     foreach ($rows as $r) {
       $imp = (float) ($r['Importe'] ?? 0);
       $importe += $imp;
@@ -63,7 +83,7 @@ final class ImpresionFacturasService
       $contadoDif = !empty($r['FacturaContadoDiferida']);
       // Crédito/generación (G) o contado diferido → diferida; resto contado.
       $tipoCobro = ($estado === 'G' || $contadoDif) ? 'diferida' : 'contado';
-      $items[] = [
+      $item = [
         'empresa' => trim((string) ($r['Empresa'] ?? '')),
         'facturaTipo' => trim((string) ($r['FacturaTipo'] ?? '')),
         'factura' => (int) ($r['Factura'] ?? 0),
@@ -79,15 +99,81 @@ final class ImpresionFacturasService
         'facturaContadoDiferida' => $contadoDif,
         'tipoCobro' => $tipoCobro,
       ];
+      if ($conDesglose) {
+        $desglose = $this->desgloseIvaFila($r);
+        $base = 0.0;
+        $cuota = 0.0;
+        foreach ($desglose as $d) {
+          $base += $d['baseImponible'];
+          $cuota += $d['cuotaIva'];
+          $clave = number_format($d['pjeIva'], 2, '.', '');
+          if (!isset($resumen[$clave])) {
+            $resumen[$clave] = ['pjeIva' => $d['pjeIva'], 'baseImponible' => 0.0, 'cuotaIva' => 0.0];
+          }
+          $resumen[$clave]['baseImponible'] += $d['baseImponible'];
+          $resumen[$clave]['cuotaIva'] += $d['cuotaIva'];
+        }
+        $item['desgloseIva'] = $desglose;
+        $item['baseImponible'] = round($base, 2);
+        $item['cuotaIva'] = round($cuota, 2);
+        $item['pjeIrpf'] = round((float) ($r['PjeRetIrpf'] ?? 0), 2);
+        $item['cuotaIrpf'] = round((float) ($r['ImpRetIrpf'] ?? 0), 2);
+        $baseTotal += $base;
+        $cuotaTotal += $cuota;
+      }
+      $items[] = $item;
     }
 
-    return [
-      'items' => $items,
-      'totales' => [
-        'facturas' => count($items),
-        'importe' => round($importe, 2),
-      ],
+    $totales = [
+      'facturas' => count($items),
+      'importe' => round($importe, 2),
     ];
+    $respuesta = [
+      'items' => $items,
+      'totales' => $totales,
+    ];
+    if ($conDesglose) {
+      $resumenPorIva = array_values($resumen);
+      foreach ($resumenPorIva as &$fila) {
+        $fila['baseImponible'] = round($fila['baseImponible'], 2);
+        $fila['cuotaIva'] = round($fila['cuotaIva'], 2);
+      }
+      unset($fila);
+      usort($resumenPorIva, static fn (array $a, array $b): int => $a['pjeIva'] <=> $b['pjeIva']);
+      $respuesta['resumenPorIva'] = $resumenPorIva;
+      $respuesta['totales']['baseImponible'] = round($baseTotal, 2);
+      $respuesta['totales']['cuotaIva'] = round($cuotaTotal, 2);
+    }
+
+    return $respuesta;
+  }
+
+  /**
+   * @param array<string, mixed> $row
+   * @return list<array{pjeIva: float, baseImponible: float, cuotaIva: float, pjeRec: float, cuotaRec: float}>
+   */
+  private function desgloseIvaFila(array $row): array
+  {
+    $out = [];
+    for ($i = 1; $i <= 6; $i++) {
+      $base = (float) ($row["ImporteBase{$i}"] ?? 0);
+      $cuota = (float) ($row["ImporteIva{$i}"] ?? 0);
+      $pje = round((float) ($row["PjeIva{$i}"] ?? 0), 2);
+      $pjeRec = round((float) ($row["PjeRec{$i}"] ?? 0), 2);
+      $cuotaRec = (float) ($row["ImporteRec{$i}"] ?? 0);
+      if (abs($base) < 0.005 && abs($cuota) < 0.005 && abs($cuotaRec) < 0.005) {
+        continue;
+      }
+      $out[] = [
+        'pjeIva' => $pje,
+        'baseImponible' => round($base, 2),
+        'cuotaIva' => round($cuota, 2),
+        'pjeRec' => $pjeRec,
+        'cuotaRec' => round($cuotaRec, 2),
+      ];
+    }
+
+    return $out;
   }
 
   /**
