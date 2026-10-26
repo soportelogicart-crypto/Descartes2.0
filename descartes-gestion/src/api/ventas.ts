@@ -241,6 +241,11 @@ export async function finalizarVenta(
     clubValeId?: number
     aplicarClubPromo?: boolean
     altaClub?: boolean
+    consentimientoEmail?: boolean
+    consentimientoWhatsApp?: boolean
+    email?: string
+    telefono?: string
+    fechaNacimiento?: string
     valeCodigo?: number
     fpago2?: string
   } = {}
@@ -694,6 +699,7 @@ export type ClubEstadoSocio = {
   proximaCaducidad?: string | null
   vales?: { id: number; tipo: string; importeEuros: number; minCompraEuros: number }[]
   promoIncompatible?: { id: number; nombre: string; pjeDescuento: number } | null
+  altaClub?: boolean
 }
 
 export async function clubEstadoSocio(empresa: string, cliente: string) {

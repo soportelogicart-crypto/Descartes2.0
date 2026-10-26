@@ -43,7 +43,12 @@ final class FidelizacionClubSaldoService
       return $vacio;
     }
     if (!$this->esSocioClub($cliente)) {
-      return array_merge($vacio, ['activo' => true, 'motor' => 'CLUB_SALDO', 'socio' => false]);
+      return array_merge($vacio, [
+        'activo' => true,
+        'motor' => 'CLUB_SALDO',
+        'socio' => false,
+        'altaClub' => false,
+      ]);
     }
     $cfg = $this->configClub($tipo['configuracion']);
     $this->caducarLotesVencidos($cliente);
@@ -62,6 +67,7 @@ final class FidelizacionClubSaldoService
       'proximaCaducidad' => $this->proximaCaducidad($cliente),
       'vales' => $vales,
       'promoIncompatible' => $promo,
+      'altaClub' => $this->tieneAltaClub($cliente),
       'config' => [
         'pjeAcumulacion' => $cfg['pjeAcumulacion'],
         'minSaldoCanjeVisibleEuros' => $cfg['minSaldoCanjeVisibleEuros'],
@@ -299,7 +305,7 @@ final class FidelizacionClubSaldoService
       't' => $tipoDoc,
       'a' => $albaran,
     ]);
-    $this->evaluarValeBienvenida($empresa, $cliente, $cfg, $base, $bodyAlta);
+    $bienvenidaEuros = $this->evaluarValeBienvenida($empresa, $cliente, $cfg, $bodyAlta);
     $this->evaluarValeCumpleanos($empresa, $cliente, $cfg, $base);
     $this->sincronizarAcumuladoVisible($cliente);
     $this->caducarLotesVencidos($cliente);
@@ -314,6 +320,7 @@ final class FidelizacionClubSaldoService
         'disponibleEuros' => round($this->saldoCentimosDisponibles($cliente) / 100, 2),
         'proximaCaducidad' => $this->proximaCaducidad($cliente),
         'modoIncompatible' => $incompatible,
+        'bienvenidaEuros' => $bienvenidaEuros,
       ],
     ];
   }
@@ -832,21 +839,39 @@ final class FidelizacionClubSaldoService
     $ahora = date('Y-m-d H:i:s');
     $email = !empty($bodyAlta['consentimientoEmail']);
     $wa = !empty($bodyAlta['consentimientoWhatsApp']);
+    $emailTexto = trim((string) ($bodyAlta['email'] ?? ''));
+    $telefono = trim((string) ($bodyAlta['telefono'] ?? ''));
+    $nacimiento = $this->fechaNacimientoAlta($bodyAlta['fechaNacimiento'] ?? null);
+    $extra = '';
+    $params = [
+      'f' => $ahora,
+      'e' => $email ? 1 : 0,
+      'w' => $wa ? 1 : 0,
+      'cons' => ($email || $wa) ? 1 : 0,
+      'c' => trim($cliente),
+    ];
+    if ($emailTexto !== '') {
+      $extra .= ', Email = :email';
+      $params['email'] = substr($emailTexto, 0, 100);
+    }
+    if ($telefono !== '') {
+      $extra .= ', Telefono1 = :tel';
+      $params['tel'] = substr($telefono, 0, 15);
+    }
+    if ($nacimiento !== null) {
+      $extra .= ', FechaNacimiento = :nac';
+      $params['nac'] = $nacimiento;
+    }
     if ($this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
       $this->pdo->prepare(
         'UPDATE Clientes SET
            FechaAltaClub = IFNULL(FechaAltaClub, :f),
            ConsentimientoEmailClub = :e,
            ConsentimientoWhatsAppClub = :w,
-           ConsentimientoClubEn = IF(:cons = 1, :f, ConsentimientoClubEn)
+           ConsentimientoClubEn = IF(:cons = 1, :f, ConsentimientoClubEn)'
+        . $extra . '
          WHERE TRIM(Codigo) = :c'
-      )->execute([
-        'f' => $ahora,
-        'e' => $email ? 1 : 0,
-        'w' => $wa ? 1 : 0,
-        'cons' => ($email || $wa) ? 1 : 0,
-        'c' => trim($cliente),
-      ]);
+      )->execute($params);
 
       return;
     }
@@ -855,44 +880,62 @@ final class FidelizacionClubSaldoService
          FechaAltaClub = COALESCE(FechaAltaClub, :f),
          ConsentimientoEmailClub = :e,
          ConsentimientoWhatsAppClub = :w,
-         ConsentimientoClubEn = CASE WHEN :cons = 1 THEN :f ELSE ConsentimientoClubEn END
+         ConsentimientoClubEn = CASE WHEN :cons = 1 THEN :f ELSE ConsentimientoClubEn END'
+      . $extra . '
        WHERE RTRIM(Codigo) = :c'
-    )->execute([
-      'f' => $ahora,
-      'e' => $email ? 1 : 0,
-      'w' => $wa ? 1 : 0,
-      'cons' => ($email || $wa) ? 1 : 0,
-      'c' => trim($cliente),
-    ]);
+    )->execute($params);
+  }
+
+  private function fechaNacimientoAlta(mixed $value): ?string
+  {
+    $texto = trim((string) $value);
+    if ($texto === '') {
+      return null;
+    }
+    $dt = \DateTime::createFromFormat('Y-m-d', substr($texto, 0, 10));
+    if ($dt === false) {
+      return null;
+    }
+
+    return $dt->format('Y-m-d');
+  }
+
+  private function tieneAltaClub(string $cliente): bool
+  {
+    $st = $this->pdo->prepare(
+      'SELECT FechaAltaClub FROM Clientes WHERE RTRIM(Codigo) = :c'
+    );
+    $st->execute(['c' => trim($cliente)]);
+    $valor = $st->fetchColumn();
+
+    return $valor !== false && $valor !== null && trim((string) $valor) !== '';
   }
 
   /**
-   * @param array<string, mixed> $cfg
-   * @param array<string, mixed> $bodyAlta
+   * El vale se crea en el alta y se usa en una compra posterior (mínimo en el propio vale).
+   *
+   * @return float|null euros emitidos
    */
   private function evaluarValeBienvenida(
     string $empresa,
     string $cliente,
     array $cfg,
-    float $baseElegible,
     array $bodyAlta
-  ): void {
+  ): ?float {
     if (empty($bodyAlta['emitirBienvenida']) && empty($bodyAlta['altaClub'])) {
-      return;
+      return null;
     }
     $b = $cfg['bienvenida'];
-    $min = (float) ($b['minCompraElegible'] ?? 30);
-    if ($baseElegible + 0.001 < $min) {
-      return;
-    }
     $st = $this->pdo->prepare(
       'SELECT COUNT(*) FROM FidelizacionValesClub WHERE RTRIM(Cliente) = :c AND Tipo = \'BIENVENIDA\''
     );
     $st->execute(['c' => trim($cliente)]);
     if ((int) $st->fetchColumn() > 0) {
-      return;
+      return null;
     }
     $this->emitirValeClub($empresa, $cliente, 'BIENVENIDA', $b);
+
+    return round((float) ($b['importe'] ?? 5), 2);
   }
 
   /** @param array<string, mixed> $cfg */
@@ -920,7 +963,7 @@ final class FidelizacionClubSaldoService
     if ((time() - $alta) < $diasMin * 86400) {
       return;
     }
-    if ((int) date('m-d') !== (int) date('m-d', $nac)) {
+    if (date('m-d') !== date('m-d', $nac)) {
       return;
     }
     $st2 = $this->pdo->prepare(

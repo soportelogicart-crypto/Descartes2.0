@@ -268,6 +268,26 @@ final class MigrationService
     try {
       (new MysqlSchemaService())->asegurar($pdo);
       ActividadesCentroCosteSchema::asegurar($pdo);
+      // #region agent log
+      @file_put_contents(
+        'C:\\descartes-2.0\\debug-0d3608.log',
+        json_encode([
+          'sessionId' => '0d3608',
+          'runId' => 'before-fix',
+          'hypothesisId' => 'H1-H3',
+          'location' => __FILE__ . ':' . __LINE__,
+          'message' => 'Preparing MySQL installation schemas',
+          'data' => [
+            'migrationService' => __FILE__,
+            'asientosClassLoaded' => class_exists(AsientosLinCentroCosteSchema::class),
+            'asientosClassFile' => __DIR__ . DIRECTORY_SEPARATOR . 'AsientosLinCentroCosteSchema.php',
+            'asientosClassFileExists' => is_file(__DIR__ . DIRECTORY_SEPARATOR . 'AsientosLinCentroCosteSchema.php'),
+          ],
+          'timestamp' => (int) round(microtime(true) * 1000),
+        ], JSON_UNESCAPED_SLASHES) . PHP_EOL,
+        FILE_APPEND | LOCK_EX
+      );
+      // #endregion
       AsientosLinCentroCosteSchema::asegurar($pdo);
       ClubFidelizacionSchema::asegurar($pdo);
       $this->ensureMigrationTableMysql($pdo);

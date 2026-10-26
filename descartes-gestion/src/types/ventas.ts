@@ -160,6 +160,7 @@ export type VentaDetalle = VentaResumen & {
     disponibleEuros: number
     proximaCaducidad?: string | null
     modoIncompatible?: boolean
+    bienvenidaEuros?: number | null
   }
   clubSaldoCobro?: {
     canjeCentimos?: number

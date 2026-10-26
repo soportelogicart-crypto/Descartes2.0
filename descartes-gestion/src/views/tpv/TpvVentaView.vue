@@ -24,6 +24,7 @@ import TpvAbonoModal from '@/components/tpv/TpvAbonoModal.vue'
 import TpvTicketFacturaModal from '@/components/tpv/TpvTicketFacturaModal.vue'
 import TpvArticuloBuscarModal from '@/components/tpv/TpvArticuloBuscarModal.vue'
 import TpvBotonConfigModal from '@/components/tpv/TpvBotonConfigModal.vue'
+import TpvAltaClubModal, { type AltaClubDatos } from '@/components/tpv/TpvAltaClubModal.vue'
 import TpvClienteModal from '@/components/tpv/TpvClienteModal.vue'
 import TpvCobroModal from '@/components/tpv/TpvCobroModal.vue'
 import TpvCodigoModal from '@/components/tpv/TpvCodigoModal.vue'
@@ -177,6 +178,12 @@ type CobroPendienteTrasDevolucion = {
   clubSaldoCanjeEuros: number
   clubValeId?: number
   aplicarClubPromo: boolean
+  altaClub?: boolean
+  consentimientoEmail?: boolean
+  consentimientoWhatsApp?: boolean
+  email?: string
+  telefono?: string
+  fechaNacimiento?: string
 }
 
 const cobroPendienteTrasDevolucion = ref<CobroPendienteTrasDevolucion | null>(null)
@@ -259,6 +266,12 @@ async function onDevolucionDatafonoConfirmada(ctx: DevolucionDatafonoContexto) {
     clubSaldoCanjeEuros: pending.clubSaldoCanjeEuros,
     clubValeId: pending.clubValeId,
     aplicarClubPromo: pending.aplicarClubPromo,
+    altaClub: pending.altaClub,
+    consentimientoEmail: pending.consentimientoEmail,
+    consentimientoWhatsApp: pending.consentimientoWhatsApp,
+    email: pending.email,
+    telefono: pending.telefono,
+    fechaNacimiento: pending.fechaNacimiento,
   })
 }
 
@@ -1103,6 +1116,12 @@ async function finalizarVentaTrasCobro(
     clubSaldoCanjeEuros?: number
     clubValeId?: number
     aplicarClubPromo?: boolean
+    altaClub?: boolean
+    consentimientoEmail?: boolean
+    consentimientoWhatsApp?: boolean
+    email?: string
+    telefono?: string
+    fechaNacimiento?: string
   }
 ) {
   const contexto = tpv.contexto
@@ -1118,6 +1137,16 @@ async function finalizarVentaTrasCobro(
       : {}),
     ...(fidelizacion.clubValeId ? { clubValeId: fidelizacion.clubValeId } : {}),
     ...(fidelizacion.aplicarClubPromo ? { aplicarClubPromo: true } : {}),
+    ...(fidelizacion.altaClub
+      ? {
+          altaClub: true,
+          consentimientoEmail: fidelizacion.consentimientoEmail,
+          consentimientoWhatsApp: fidelizacion.consentimientoWhatsApp,
+          email: fidelizacion.email,
+          telefono: fidelizacion.telefono,
+          fechaNacimiento: fidelizacion.fechaNacimiento,
+        }
+      : {}),
     ...(datos.valeCodigo ? { valeCodigo: datos.valeCodigo } : {}),
     ...(datos.formaPago2 ? { fpago2: datos.formaPago2 } : {}),
   })
@@ -1222,6 +1251,11 @@ async function finalizarVentaTrasCobro(
       `+${cf.generadoEuros.toFixed(2).replace('.', ',')} €, ` +
       `−${cf.usadoEuros.toFixed(2).replace('.', ',')} €, ` +
       `disponible ${cf.disponibleEuros.toFixed(2).replace('.', ',')} €.`
+    if (cf.bienvenidaEuros) {
+      const vale = cf.bienvenidaEuros.toFixed(2).replace('.', ',')
+      cobrado.value +=
+        ` Vale de bienvenida de ${vale} €, para una compra posterior de al menos 30 €.`
+    }
   }
   if (cerrada.clubSaldoCobro?.incompatible && cerrada.clubSaldoCobro.motivo) {
     cobrado.value += ` ${cerrada.clubSaldoCobro.motivo}`
@@ -1250,6 +1284,23 @@ async function finalizarVentaTrasCobro(
   tpv.cerrarTicket()
 }
 
+const altaClubAbierto = ref(false)
+let altaClubEspera: ((datos: AltaClubDatos | null) => void) | null = null
+
+function pedirAltaClub(): Promise<AltaClubDatos | null> {
+  return new Promise((resolve) => {
+    altaClubEspera = resolve
+    altaClubAbierto.value = true
+  })
+}
+
+function cerrarAltaClub(datos: AltaClubDatos | null) {
+  altaClubAbierto.value = false
+  const espera = altaClubEspera
+  altaClubEspera = null
+  espera?.(datos)
+}
+
 async function onCobroConfirmado(datos: {
   tipoDocumento: string
   formaPago: string
@@ -1270,6 +1321,12 @@ async function onCobroConfirmado(datos: {
   let clubSaldoCanjeEuros = 0
   let clubValeId: number | undefined
   let aplicarClubPromo = false
+  let altaClub = false
+  let consentimientoEmail = false
+  let consentimientoWhatsApp = false
+  let emailAlta = ''
+  let telefonoAlta = ''
+  let fechaNacimientoAlta = ''
   let descuentoValePrevisto = 0
   let descuentoPuntosPrevisto = 0
   let descuentoClubPrevisto = 0
@@ -1291,6 +1348,19 @@ async function onCobroConfirmado(datos: {
     try {
       const club = await clubEstadoSocio(contexto.empresa, tpv.cliente.codigo)
       if (club.activo && club.motor === 'CLUB_SALDO') {
+        if (!club.altaClub && tpv.cliente.codigo !== CLIENTE_RAPIDO_TPV) {
+          const alta = await pedirAltaClub()
+          if (alta) {
+            altaClub = true
+            consentimientoEmail = alta.consentimientoEmail
+            consentimientoWhatsApp = alta.consentimientoWhatsApp
+            emailAlta = alta.email
+            telefonoAlta = alta.telefono
+            fechaNacimientoAlta = alta.fechaNacimiento
+            tpv.cliente.telefono = alta.telefono
+            if (alta.email) tpv.cliente.email = alta.email
+          }
+        }
         if (club.promoIncompatible) {
           const usarPromo = window.confirm(
             `Hay promoción activa del ${club.promoIncompatible.pjeDescuento} % ` +
@@ -1366,6 +1436,12 @@ async function onCobroConfirmado(datos: {
         clubSaldoCanjeEuros,
         clubValeId,
         aplicarClubPromo,
+        altaClub,
+        consentimientoEmail,
+        consentimientoWhatsApp,
+        email: emailAlta,
+        telefono: telefonoAlta,
+        fechaNacimiento: fechaNacimientoAlta,
       }
       devolucionAlbaranOrigen.value = Number(tpv.venta.albaranOrigenAbono ?? 0)
       cobroAbierto.value = false
@@ -1384,6 +1460,12 @@ async function onCobroConfirmado(datos: {
     clubSaldoCanjeEuros,
     clubValeId,
     aplicarClubPromo,
+    altaClub,
+    consentimientoEmail,
+    consentimientoWhatsApp,
+    email: emailAlta,
+    telefono: telefonoAlta,
+    fechaNacimiento: fechaNacimientoAlta,
   })
 }
 
@@ -2213,6 +2295,15 @@ onMounted(() => {
       @seleccionar="onClienteSeleccionado"
       @quitar="onClienteQuitado"
       @cancelar="onClienteCancelado"
+    />
+
+    <TpvAltaClubModal
+      :open="altaClubAbierto"
+      :nombre="tpv.cliente?.razonSocial || 'Cliente'"
+      :telefono="tpv.cliente?.telefono || ''"
+      :email="tpv.cliente?.email || ''"
+      @confirmar="cerrarAltaClub"
+      @omitir="cerrarAltaClub(null)"
     />
 
     <TpvDevolucionDatafonoModal

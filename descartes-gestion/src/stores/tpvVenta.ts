@@ -823,6 +823,12 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
       clubSaldoCanjeEuros?: number
       clubValeId?: number
       aplicarClubPromo?: boolean
+      altaClub?: boolean
+      consentimientoEmail?: boolean
+      consentimientoWhatsApp?: boolean
+      email?: string
+      telefono?: string
+      fechaNacimiento?: string
       valeCodigo?: number
       fpago2?: string
     } = {}
