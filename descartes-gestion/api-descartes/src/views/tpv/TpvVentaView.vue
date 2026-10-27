@@ -748,22 +748,6 @@ async function onTicketConvertido(payload: {
   const negativo = payload.ticketNegativo?.factura
   cobrado.value =
     `Ticket compensado con el negativo T-${negativo ?? '?'}. Factura ${payload.factura.factura ?? ''}.`
-  if (payload.ticketNegativo) {
-    try {
-      const res = await prepararOImprimirVenta(payload.ticketNegativo, {
-        puestoCodigo: puestoStore.puestoCodigo ?? '',
-        formato: 'ticket',
-      })
-      if (res.kind !== 'ticket') {
-        errorImpresion.value = 'El ticket negativo no salió por la impresora de tickets'
-      }
-    } catch (e: unknown) {
-      errorImpresion.value = extractApiError(
-        e,
-        'La factura está creada, pero no se pudo imprimir el ticket negativo'
-      )
-    }
-  }
   ultimoTicket.value = payload.factura
   ultimoTipoDocumento.value = 'F'
   await prepararDocumentoA4(payload.factura)

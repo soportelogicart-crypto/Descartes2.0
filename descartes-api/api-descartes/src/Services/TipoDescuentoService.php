@@ -224,6 +224,121 @@ final class TipoDescuentoService
   }
 
   /**
+   * Crea, actualiza o borra las filas M/F/S/A de un mismo tipo de descuento y fecha de inicio.
+   *
+   * @param array<string, mixed> $body
+   * @return array<string, mixed>
+   */
+  public function guardarNodos(array $body, bool $nuevo): array
+  {
+    $nodos = $this->normalizarNodos($body['nodos'] ?? null);
+    $muestra = $body;
+    $muestra['tipo'] = $nodos[0]['tipo'];
+    $muestra['codigo'] = $nodos[0]['codigo'];
+    $comun = $this->fila($muestra);
+
+    $existentes = $this->filasArbol($comun['tipoDescuento'], substr($comun['fechaInicio'], 0, 10));
+    if (!$nuevo) {
+      $original = $body['claveOriginal'] ?? null;
+      if (!is_array($original)) {
+        throw new \InvalidArgumentException('Falta la clave original');
+      }
+      $tipoOriginal = trim((string) ($original['tipoDescuento'] ?? ''));
+      $fechaOriginal = $this->fechaHora($original['fechaInicio'] ?? null, 'La fecha de inicio', true);
+      if ($tipoOriginal === '' || $fechaOriginal === null) {
+        throw new \InvalidArgumentException('Falta la clave original');
+      }
+      if ($tipoOriginal !== $comun['tipoDescuento'] || substr($fechaOriginal, 0, 10) !== substr($comun['fechaInicio'], 0, 10)) {
+        foreach ($this->filasArbol($tipoOriginal, substr($fechaOriginal, 0, 10)) as $fila) {
+          $existentes[] = $fila;
+        }
+      }
+    }
+
+    $deseadas = [];
+    foreach ($nodos as $nodo) {
+      $deseadas[$nodo['tipo'] . '|' . strtoupper($nodo['codigo'])] = $nodo;
+    }
+
+    $datos = [
+      'tipoDescuento' => $comun['tipoDescuento'],
+      'fechaInicio' => $comun['fechaInicio'],
+      'fechaFin' => $comun['fechaFin'],
+      'descuento' => $comun['descuento'],
+      'articuloRegalo' => $comun['articuloRegalo'],
+      'cantidadRegalo' => $comun['cantidadRegalo'],
+      'importeMinimo' => $comun['importeMinimo'],
+      'importeMaximo' => $comun['importeMaximo'],
+      'controlStock' => $comun['controlStock'],
+      'bloquearTiendas' => $comun['bloquearTiendas'],
+    ];
+
+    $this->pdo->beginTransaction();
+    try {
+      $conservadas = [];
+      foreach ($existentes as $fila) {
+        $claveNodo = $fila['tipo'] . '|' . strtoupper((string) $fila['codigo']);
+        if (!isset($deseadas[$claveNodo])) {
+          $this->delete($fila);
+          continue;
+        }
+        $conservadas[$claveNodo] = true;
+        $this->update($datos + [
+          'tipo' => $fila['tipo'],
+          'codigo' => $fila['codigo'],
+          'claveOriginal' => [
+            'tipoDescuento' => $fila['tipoDescuento'],
+            'tipo' => $fila['tipo'],
+            'codigo' => $fila['codigo'],
+            'fechaInicio' => $fila['fechaInicio'],
+          ],
+        ]);
+      }
+      foreach ($deseadas as $claveNodo => $nodo) {
+        if (isset($conservadas[$claveNodo])) {
+          continue;
+        }
+        $clave = [
+          'tipoDescuento' => $comun['tipoDescuento'],
+          'tipo' => $nodo['tipo'],
+          'codigo' => $nodo['codigo'],
+          'fechaInicio' => $comun['fechaInicio'],
+        ];
+        if ($this->get($clave) !== null) {
+          $this->update($datos + [
+            'tipo' => $nodo['tipo'],
+            'codigo' => $nodo['codigo'],
+            'claveOriginal' => $clave,
+          ]);
+          continue;
+        }
+        $this->create($datos + [
+          'tipo' => $nodo['tipo'],
+          'codigo' => $nodo['codigo'],
+        ]);
+      }
+      $this->pdo->commit();
+    } catch (\Throwable $e) {
+      if ($this->pdo->inTransaction()) {
+        $this->pdo->rollBack();
+      }
+      throw $e;
+    }
+
+    $guardada = $this->get([
+      'tipoDescuento' => $comun['tipoDescuento'],
+      'tipo' => $nodos[0]['tipo'],
+      'codigo' => $nodos[0]['codigo'],
+      'fechaInicio' => $comun['fechaInicio'],
+    ]);
+    if ($guardada === null) {
+      throw new \RuntimeException('No se pudo leer el tipo de descuento guardado');
+    }
+
+    return $guardada;
+  }
+
+  /**
    * Resumen de las ofertas de un código de tipo de descuento (el que guarda el cliente).
    *
    * @return array{codigo: string, descripcion: string}|null
@@ -520,6 +635,70 @@ final class TipoDescuentoService
       'controlStock' => (bool) $row['ControlStock'],
       'bloquearTiendas' => $tiendas,
     ];
+  }
+
+  /**
+   * @param mixed $nodos
+   * @return list<array{tipo: string, codigo: string}>
+   */
+  private function normalizarNodos(mixed $nodos): array
+  {
+    if (!is_array($nodos) || $nodos === []) {
+      throw new \InvalidArgumentException('Marque al menos una macrofamilia, familia, subfamilia o artículo');
+    }
+
+    $salida = [];
+    $vistos = [];
+    foreach ($nodos as $nodo) {
+      if (!is_array($nodo)) {
+        throw new \InvalidArgumentException('El árbol de artículos no es válido');
+      }
+      $tipo = strtoupper(trim((string) ($nodo['tipo'] ?? '')));
+      $codigo = trim((string) ($nodo['codigo'] ?? ''));
+      if (!in_array($tipo, ['M', 'F', 'S', 'A'], true)) {
+        throw new \InvalidArgumentException('El nivel del árbol no es válido');
+      }
+      if ($codigo === '' || $codigo === '.') {
+        throw new \InvalidArgumentException('No se puede asignar un nodo sin código. Marque la familia o el artículo.');
+      }
+      if (strlen($codigo) > 18) {
+        throw new \InvalidArgumentException('El código admite 18 caracteres');
+      }
+      $clave = $tipo . '|' . strtoupper($codigo);
+      if (isset($vistos[$clave])) {
+        continue;
+      }
+      $vistos[$clave] = true;
+      $salida[] = ['tipo' => $tipo, 'codigo' => $codigo];
+    }
+    if ($salida === []) {
+      throw new \InvalidArgumentException('Marque al menos una macrofamilia, familia, subfamilia o artículo');
+    }
+
+    return $salida;
+  }
+
+  /**
+   * @return list<array<string, mixed>>
+   */
+  private function filasArbol(string $tipoDescuento, string $fechaDia): array
+  {
+    $stmt = $this->pdo->prepare(
+      $this->selectUno() . "
+      WHERE RTRIM([TipoDescuento]) = :tipoDescuento
+        AND RTRIM([Tipo]) IN ('M', 'F', 'S', 'A')
+        AND CONVERT(varchar(10), [FechaInicio], 120) = :fechaDia"
+    );
+    $stmt->bindValue(':tipoDescuento', $tipoDescuento);
+    $stmt->bindValue(':fechaDia', $fechaDia);
+    $stmt->execute();
+
+    $filas = [];
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+      $filas[] = $this->map($row);
+    }
+
+    return $filas;
   }
 
   /**

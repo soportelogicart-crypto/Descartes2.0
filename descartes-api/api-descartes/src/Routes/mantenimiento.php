@@ -238,6 +238,12 @@ return function (App $app): void {
       ->add($setPermisoModulo('tipos-descuento', 'crear'));
     $group->put('/tipos-descuento', [TipoDescuentoController::class, 'update'])
       ->add($setPermisoModulo('tipos-descuento', 'editar'));
+    $group->get('/tipos-descuento/arbol', [TipoDescuentoController::class, 'arbol'])
+      ->add($setPermisoModulo('tipos-descuento', 'ver'));
+    $group->post('/tipos-descuento/arbol', [TipoDescuentoController::class, 'guardarArbol'])
+      ->add($setPermisoModulo('tipos-descuento', 'crear'));
+    $group->put('/tipos-descuento/arbol', [TipoDescuentoController::class, 'guardarArbol'])
+      ->add($setPermisoModulo('tipos-descuento', 'editar'));
     $group->delete('/tipos-descuento', [TipoDescuentoController::class, 'delete'])
       ->add($setPermisoModulo('tipos-descuento', 'eliminar'));
 

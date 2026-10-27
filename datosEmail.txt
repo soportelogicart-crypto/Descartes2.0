@@ -1,0 +1,8 @@
+Mail_SMTPUser = mfosch@logicart.es 
+Mail_SMTPPort = 587
+Mail_SMTPUser = mfosch@logicart.es 
+Mail_SMTPPassword = "CatalanRep"
+
+
+Mail_SMTPSSL = "N"
+Mail_SMTPStartTls="N"

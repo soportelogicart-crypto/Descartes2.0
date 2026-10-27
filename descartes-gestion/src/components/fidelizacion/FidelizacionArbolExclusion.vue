@@ -7,7 +7,23 @@ import {
 } from '@/api/ventas'
 import { extractApiError } from '@/composables/extractApiError'
 
-const props = withDefaults(defineProps<{ readonly?: boolean }>(), { readonly: false })
+const props = withDefaults(
+  defineProps<{
+    readonly?: boolean
+    tituloResumen?: string
+    textoVacio?: string
+    tituloQuitar?: string
+    modo?: 'exclusion' | 'asignacion'
+    cargar?: (nivel: string, codigo: string) => Promise<FidelizacionNodoArbol[]>
+  }>(),
+  {
+    readonly: false,
+    tituloResumen: 'Excluidos',
+    textoVacio: 'Ninguno: todos los artículos suman puntos.',
+    tituloQuitar: 'Quitar exclusión',
+    modo: 'exclusion',
+  }
+)
 const model = defineModel<FidelizacionExclusion[]>({ required: true })
 
 const MAX_ARTICULOS_NODO = 500
@@ -55,7 +71,8 @@ async function cargar(clave: string, nivel: string, codigo: string) {
   cargando.value.add(clave)
   error.value = ''
   try {
-    hijos.value.set(clave, await arbolExclusionFidelizacion(nivel, codigo))
+    const pedir = props.cargar ?? arbolExclusionFidelizacion
+    hijos.value.set(clave, await pedir(nivel, codigo))
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudo cargar el árbol de artículos')
   } finally {
@@ -120,7 +137,11 @@ function etiqueta(n: { codigo: string; descripcion: string }): string {
         v-for="fila in filas"
         :key="fila.clave"
         class="fila"
-        :class="{ heredado: fila.heredado, excluido: excluidos.has(fila.clave) }"
+        :class="{
+          heredado: fila.heredado,
+          excluido: modo === 'exclusion' && excluidos.has(fila.clave),
+          aplicado: modo === 'asignacion' && (fila.heredado || excluidos.has(fila.clave)),
+        }"
         :style="{ paddingLeft: `${0.2 + fila.nivel * 1.1}rem` }"
         role="treeitem"
         :aria-expanded="fila.nodo.hijos ? abiertos.has(fila.clave) : undefined"
@@ -162,13 +183,13 @@ function etiqueta(n: { codigo: string; descripcion: string }): string {
     <p v-if="error" class="error">{{ error }}</p>
 
     <div class="resumen">
-      <span class="titulo">Excluidos ({{ model.length }})</span>
-      <p v-if="model.length === 0" class="nota">Ninguno: todos los artículos suman puntos.</p>
+      <span class="titulo">{{ tituloResumen }} ({{ model.length }})</span>
+      <p v-if="model.length === 0" class="nota">{{ textoVacio }}</p>
       <ul v-else>
         <li v-for="e in model" :key="`${e.tipo}:${e.codigo}`">
           <span class="nivel">{{ NIVELES[e.tipo] }}</span>
           <span class="texto">{{ etiqueta(e) }}</span>
-          <button v-if="!readonly" type="button" class="quitar" title="Quitar exclusión" @click="quitar(e)">
+          <button v-if="!readonly" type="button" class="quitar" :title="tituloQuitar" @click="quitar(e)">
             ✕
           </button>
         </li>
@@ -208,6 +229,11 @@ function etiqueta(n: { codigo: string; descripcion: string }): string {
 .fila.excluido .texto {
   color: #b91c1c;
   text-decoration: line-through;
+}
+
+.fila.aplicado .texto {
+  color: #1d4ed8;
+  font-weight: 600;
 }
 
 .fila.heredado .texto,

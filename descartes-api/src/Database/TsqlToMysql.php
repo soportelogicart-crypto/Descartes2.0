@@ -255,7 +255,12 @@ final class TsqlToMysql
         return "DATE_FORMAT(" . $expr . ", '%Y-%m-%d')";
       }
       if ($style === 120 || $style === 121 || $style === 20) {
-        return "DATE_FORMAT(" . $expr . ", '%Y-%m-%d %H:%i:%s')";
+        $formatted = "DATE_FORMAT(" . $expr . ", '%Y-%m-%d %H:%i:%s')";
+        // SQL Server recorta CONVERT(varchar(n), fecha, 120). varchar(10) queda en yyyy-mm-dd.
+        if (preg_match('/^n?varchar\((\d+)\)$/', $type, $m) === 1 && (int) $m[1] < 19) {
+          return 'LEFT(' . $formatted . ', ' . (int) $m[1] . ')';
+        }
+        return $formatted;
       }
       return 'CAST(' . $expr . ' AS CHAR)';
     }

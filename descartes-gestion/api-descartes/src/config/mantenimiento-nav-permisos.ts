@@ -62,7 +62,6 @@ export function moduloDeEntradaMenu(slug: string): string {
 
 /** Misma estructura visual que el sidebar de Mantenimiento. */
 export const mantenimientoNavPermisos: NavPermisoNodo[] = [
-  { tipo: 'item', id: 'empresas', titulo: 'Empresa', modulo: 'empresas' },
   { tipo: 'item', id: 'tiendas', titulo: 'Tiendas', modulo: 'tiendas' },
   { tipo: 'item', id: 'almacenes', titulo: 'Almacenes', modulo: 'almacenes' },
   { tipo: 'item', id: 'trabajadores', titulo: 'Trabajadores', modulo: 'trabajadores' },

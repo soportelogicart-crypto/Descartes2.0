@@ -155,7 +155,8 @@ const menuMantenimiento = computed(() =>
         slug !== 'articulos' &&
         slug !== 'puestos-trabajo' &&
         slug !== 'clientes' &&
-        slug !== 'proveedores'
+        slug !== 'proveedores' &&
+        slug !== 'empresas'
     )
     .map(([slug, cfg]) => ({
       slug,

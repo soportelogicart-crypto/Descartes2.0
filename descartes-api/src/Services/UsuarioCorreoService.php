@@ -83,32 +83,38 @@ final class UsuarioCorreoService
       'copia' => mb_substr($copia, 0, 200),
     ];
 
+    $this->asegurarTabla();
     $existe = $this->fila($usuario) !== null;
+    $ahora = $this->ahoraSql();
     if ($existe) {
-      $sql = 'UPDATE UsuarioCorreo SET
-          Activo = :activo, Servidor = :servidor, Puerto = :puerto, Ssl = :ssl, StartTls = :startTls,
-          UsuarioSmtp = :usuarioSmtp, NombreRemitente = :nombre, EmailRemitente = :email,
-          Copia = :copia, Actualizado = GETDATE()
-        WHERE Usuario = :usuario';
+      $sql = "UPDATE {$this->t()} SET
+          {$this->c('Activo')} = :activo, {$this->c('Servidor')} = :servidor, {$this->c('Puerto')} = :puerto,
+          {$this->c('Ssl')} = :ssl, {$this->c('StartTls')} = :startTls,
+          {$this->c('UsuarioSmtp')} = :usuarioSmtp, {$this->c('NombreRemitente')} = :nombre,
+          {$this->c('EmailRemitente')} = :email, {$this->c('Copia')} = :copia, {$this->c('Actualizado')} = {$ahora}
+        WHERE {$this->c('Usuario')} = :usuario";
       if ($claveNueva !== '') {
-        $sql = 'UPDATE UsuarioCorreo SET
-            Activo = :activo, Servidor = :servidor, Puerto = :puerto, Ssl = :ssl, StartTls = :startTls,
-            UsuarioSmtp = :usuarioSmtp, Clave = :clave, NombreRemitente = :nombre, EmailRemitente = :email,
-            Copia = :copia, Actualizado = GETDATE()
-          WHERE Usuario = :usuario';
+        $sql = "UPDATE {$this->t()} SET
+            {$this->c('Activo')} = :activo, {$this->c('Servidor')} = :servidor, {$this->c('Puerto')} = :puerto,
+            {$this->c('Ssl')} = :ssl, {$this->c('StartTls')} = :startTls,
+            {$this->c('UsuarioSmtp')} = :usuarioSmtp, {$this->c('Clave')} = :clave,
+            {$this->c('NombreRemitente')} = :nombre, {$this->c('EmailRemitente')} = :email,
+            {$this->c('Copia')} = :copia, {$this->c('Actualizado')} = {$ahora}
+          WHERE {$this->c('Usuario')} = :usuario";
         $params['clave'] = mb_substr($claveNueva, 0, 200);
       }
       $st = $this->pdo->prepare($sql);
       $st->execute($params);
     } else {
       $st = $this->pdo->prepare(
-        'INSERT INTO UsuarioCorreo (
-           Usuario, Activo, Servidor, Puerto, Ssl, StartTls, UsuarioSmtp, Clave,
-           NombreRemitente, EmailRemitente, Copia, Actualizado
+        "INSERT INTO {$this->t()} (
+           {$this->c('Usuario')}, {$this->c('Activo')}, {$this->c('Servidor')}, {$this->c('Puerto')},
+           {$this->c('Ssl')}, {$this->c('StartTls')}, {$this->c('UsuarioSmtp')}, {$this->c('Clave')},
+           {$this->c('NombreRemitente')}, {$this->c('EmailRemitente')}, {$this->c('Copia')}, {$this->c('Actualizado')}
          ) VALUES (
            :usuario, :activo, :servidor, :puerto, :ssl, :startTls, :usuarioSmtp, :clave,
-           :nombre, :email, :copia, GETDATE()
-         )'
+           :nombre, :email, :copia, {$ahora}
+         )"
       );
       $params['clave'] = mb_substr($claveNueva, 0, 200);
       $st->execute($params);
@@ -175,11 +181,27 @@ final class UsuarioCorreoService
   /** @param array<string, mixed> $cfg */
   private function mailer(array $cfg): PHPMailer
   {
+    $host = (string) $cfg['host'];
+    $port = (int) $cfg['port'];
+    if ((!empty($cfg['ssl']) || !empty($cfg['startTls'])) && !extension_loaded('openssl')) {
+      throw new \RuntimeException(
+        'El PHP de este servidor no tiene OpenSSL. Sin esa extensión no se puede conectar por SSL ni STARTTLS.'
+      );
+    }
+    $ipv4 = $this->ipv4De($host);
+    $this->exigirPuertoSmtp($host, $ipv4 !== '' ? $ipv4 : $host, $port);
+
     $mail = new PHPMailer(true);
     $mail->CharSet = PHPMailer::CHARSET_UTF8;
     $mail->isSMTP();
-    $mail->Host = $cfg['host'];
-    $mail->Port = $cfg['port'];
+    $mail->Host = $ipv4 !== '' ? $ipv4 : $host;
+    $mail->Port = $port;
+    $mail->Timeout = 20;
+    $mail->SMTPOptions = [
+      'ssl' => [
+        'peer_name' => $host,
+      ],
+    ];
     $mail->SMTPAuth = $cfg['usuario'] !== '';
     if ($mail->SMTPAuth) {
       $mail->Username = $cfg['usuario'];
@@ -194,6 +216,44 @@ final class UsuarioCorreoService
     }
     $mail->setFrom($cfg['fromEmail'], $cfg['fromName'] !== '' ? $cfg['fromName'] : $cfg['fromEmail']);
     return $mail;
+  }
+
+  private function ipv4De(string $host): string
+  {
+    if (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+      return $host;
+    }
+    $ip = gethostbyname($host);
+    if ($ip !== $host && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+      return $ip;
+    }
+    return '';
+  }
+
+  private function exigirPuertoSmtp(string $host, string $destino, int $port): void
+  {
+    $errno = 0;
+    $errstr = '';
+    $fp = @stream_socket_client(
+      'tcp://' . $destino . ':' . $port,
+      $errno,
+      $errstr,
+      12,
+      STREAM_CLIENT_CONNECT
+    );
+    if (is_resource($fp)) {
+      fclose($fp);
+      return;
+    }
+    $motivo = trim($errstr);
+    if ($motivo === '') {
+      $motivo = 'el puerto no responde';
+    }
+    $codigo = $errno !== 0 ? ', código ' . $errno : '';
+    throw new \RuntimeException(
+      "El servidor donde está Descartes no llega a {$host}:{$port} ({$motivo}{$codigo}). "
+      . 'Hay que permitir la salida a ese puerto SMTP en el firewall del hosting.'
+    );
   }
 
   /**
@@ -342,10 +402,14 @@ final class UsuarioCorreoService
       return null;
     }
     try {
+      $this->asegurarTabla();
+      $limite = $this->esMysql() ? '' : 'TOP 1 ';
+      $fin = $this->esMysql() ? ' LIMIT 1' : '';
       $st = $this->pdo->prepare(
-        'SELECT TOP 1 Activo, Servidor, Puerto, Ssl, StartTls, UsuarioSmtp, Clave,
-                NombreRemitente, EmailRemitente, Copia
-         FROM UsuarioCorreo WHERE Usuario = :usuario'
+        "SELECT {$limite}{$this->c('Activo')}, {$this->c('Servidor')}, {$this->c('Puerto')}, {$this->c('Ssl')},
+                {$this->c('StartTls')}, {$this->c('UsuarioSmtp')}, {$this->c('Clave')},
+                {$this->c('NombreRemitente')}, {$this->c('EmailRemitente')}, {$this->c('Copia')}
+         FROM {$this->t()} WHERE {$this->c('Usuario')} = :usuario{$fin}"
       );
       $st->execute(['usuario' => $usuario]);
       $row = $st->fetch(PDO::FETCH_ASSOC);
@@ -353,6 +417,50 @@ final class UsuarioCorreoService
     } catch (\Throwable $e) {
       return null;
     }
+  }
+
+  private function esMysql(): bool
+  {
+    return $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
+  }
+
+  private function c(string $columna): string
+  {
+    return $this->esMysql() ? '`' . $columna . '`' : '[' . $columna . ']';
+  }
+
+  private function t(): string
+  {
+    return $this->c('UsuarioCorreo');
+  }
+
+  private function ahoraSql(): string
+  {
+    return $this->esMysql() ? 'NOW()' : 'GETDATE()';
+  }
+
+  private function asegurarTabla(): void
+  {
+    if (!$this->esMysql()) {
+      return;
+    }
+    $this->pdo->exec(
+      'CREATE TABLE IF NOT EXISTS `UsuarioCorreo` (
+         `Usuario` varchar(20) NOT NULL,
+         `Activo` tinyint(1) NOT NULL DEFAULT 0,
+         `Servidor` varchar(200) NOT NULL DEFAULT \'\',
+         `Puerto` int NOT NULL DEFAULT 25,
+         `Ssl` tinyint(1) NOT NULL DEFAULT 0,
+         `StartTls` tinyint(1) NOT NULL DEFAULT 0,
+         `UsuarioSmtp` varchar(200) NOT NULL DEFAULT \'\',
+         `Clave` varchar(200) NOT NULL DEFAULT \'\',
+         `NombreRemitente` varchar(200) NOT NULL DEFAULT \'\',
+         `EmailRemitente` varchar(200) NOT NULL DEFAULT \'\',
+         `Copia` varchar(200) NOT NULL DEFAULT \'\',
+         `Actualizado` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+         PRIMARY KEY (`Usuario`)
+       )'
+    );
   }
 
   private function tieneClave(string $usuario): bool

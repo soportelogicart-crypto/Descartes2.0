@@ -41,9 +41,9 @@ const valeAviso = ref('')
 const valeBuscando = ref(false)
 const valeInputRef = ref<HTMLInputElement | null>(null)
 
+/** Contado TPV: ticket o factura; el albarán es venta a crédito (Gestión). */
 const tiposDocumento = [
   { codigo: 'T', etiqueta: 'TICKET' },
-  { codigo: 'A', etiqueta: 'ALBARAN' },
   { codigo: 'P', etiqueta: 'PRESUPUESTO' },
   { codigo: 'F', etiqueta: 'FACTURA' },
 ]
@@ -377,9 +377,7 @@ async function buscarVale() {
             Esperando respuesta del datáfono…
           </p>
         </template>
-        <p v-else class="nota-documento">
-          {{ tipoDocumento === 'A' ? 'El albaran queda pendiente de facturar.' : 'El presupuesto no genera cobro.' }}
-        </p>
+        <p v-else class="nota-documento">El presupuesto no genera cobro.</p>
       </div>
 
       <footer class="pie">

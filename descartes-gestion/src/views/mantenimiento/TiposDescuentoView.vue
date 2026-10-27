@@ -16,7 +16,13 @@ import {
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import DecimalInput from '@/components/common/DecimalInput.vue'
 import EntidadLookupField from '@/components/common/EntidadLookupField.vue'
+import FidelizacionArbolExclusion from '@/components/fidelizacion/FidelizacionArbolExclusion.vue'
 import EntidadGrid from '@/components/mantenimiento/EntidadGrid.vue'
+import {
+  type FidelizacionExclusion,
+  type FidelizacionNivelExclusion,
+  type FidelizacionNodoArbol,
+} from '@/api/ventas'
 
 const MODULO = 'tipos-descuento'
 const columns = getGridColumns('tipos-descuento')
@@ -31,16 +37,28 @@ type TipoMeta = {
   entidad: EntidadLookupId | null
 }
 
+const TIPOS_ARBOL = ['M', 'F', 'S', 'A'] as const
+
+const ETIQUETAS: Record<string, string> = {
+  '.': 'General',
+  AR: 'Artículos',
+  F: 'Familia',
+  A: 'Articulo',
+  S: 'Subfamilia',
+  T: 'Seccion',
+  C: 'Cliente',
+  P: 'Proveedor',
+  I: 'Subseccion',
+  M: 'Macrofamilia',
+}
+
 const TIPOS: TipoMeta[] = [
   { value: '.', label: 'General', entidad: null },
-  { value: 'F', label: 'Familia', entidad: 'familias' },
-  { value: 'A', label: 'Articulo', entidad: 'articulos' },
-  { value: 'S', label: 'Subfamilia', entidad: 'subfamilias' },
+  { value: 'AR', label: 'Artículos', entidad: null },
   { value: 'T', label: 'Seccion', entidad: 'secciones' },
   { value: 'C', label: 'Cliente', entidad: 'clientes' },
   { value: 'P', label: 'Proveedor', entidad: 'proveedores' },
   { value: 'I', label: 'Subseccion', entidad: 'subsecciones' },
-  { value: 'M', label: 'Macrofamilia', entidad: 'macrofamilias' },
 ]
 
 type Clave = {
@@ -101,6 +119,7 @@ const esNuevo = ref(false)
 const modoEdicion = ref(false)
 const claveOriginal = ref<Clave | null>(null)
 const form = reactive<Formulario>(formularioVacio())
+const nodosArbol = ref<FidelizacionExclusion[]>([])
 
 const confirmOpen = ref(false)
 const confirmMessage = ref('')
@@ -168,8 +187,35 @@ function fechaGrid(value: string | null | undefined): string {
 }
 
 function etiquetaTipo(tipo: string): string {
-  const meta = TIPOS.find((t) => t.value === tipo)
-  return meta ? `${tipo} ${meta.label}` : tipo
+  const label = ETIQUETAS[tipo]
+  return label ? `${tipo} ${label}` : tipo
+}
+
+function esTipoArbol(tipo: string): tipo is FidelizacionNivelExclusion {
+  return (TIPOS_ARBOL as readonly string[]).includes(tipo)
+}
+
+function nodosDelGrupo(tipoDescuento: string, fechaInicio: string): FidelizacionExclusion[] {
+  const dia = fechaGrid(fechaInicio)
+  return itemsTodos.value
+    .filter(
+      (item) =>
+        item.tipoDescuento === tipoDescuento &&
+        esTipoArbol(item.tipo) &&
+        fechaGrid(item.fechaInicio) === dia
+    )
+    .map((item) => ({
+      tipo: item.tipo as FidelizacionNivelExclusion,
+      codigo: item.codigo,
+      descripcion: '',
+    }))
+}
+
+async function cargarArbolDescuento(nivel: string, codigo: string): Promise<FidelizacionNodoArbol[]> {
+  const { data } = await api.get<FidelizacionNodoArbol[]>('/api/mantenimiento/tipos-descuento/arbol', {
+    params: { nivel, codigo },
+  })
+  return data
 }
 
 function aFilaGrid(item: TipoDescuentoItem, indice: number): GridFila {
@@ -195,10 +241,11 @@ function itemDeFila(fila: GridFila | null | undefined): TipoDescuentoItem | null
 }
 
 function aplicarForm(item: TipoDescuentoItem) {
+  const arbol = esTipoArbol(item.tipo)
   Object.assign(form, formularioVacio(), {
     tipoDescuento: item.tipoDescuento,
-    tipo: item.tipo,
-    codigo: item.tipo === '.' ? '' : item.codigo,
+    tipo: arbol ? 'AR' : item.tipo,
+    codigo: arbol || item.tipo === '.' ? '' : item.codigo,
     fechaInicio: fechaGrid(item.fechaInicio),
     fechaFin: fechaGrid(item.fechaFin),
     descuento: item.descuento,
@@ -209,6 +256,7 @@ function aplicarForm(item: TipoDescuentoItem) {
     controlStock: item.controlStock,
     tiendas: [...item.bloquearTiendas],
   })
+  nodosArbol.value = arbol ? nodosDelGrupo(item.tipoDescuento, item.fechaInicio) : []
   claveOriginal.value = {
     tipoDescuento: item.tipoDescuento,
     tipo: item.tipo,
@@ -284,6 +332,7 @@ function abrirFichaPorClave(clave: Clave) {
 function onNuevo() {
   if (!puedeCrear.value) return
   Object.assign(form, formularioVacio())
+  nodosArbol.value = []
   claveOriginal.value = null
   esNuevo.value = true
   modoEdicion.value = true
@@ -312,6 +361,7 @@ function volverAlGrid() {
 
 function onTipoChange() {
   form.codigo = ''
+  if (form.tipo !== 'AR') nodosArbol.value = []
 }
 
 function anadirTienda() {
@@ -364,7 +414,16 @@ function codigoForm(): string {
 function validar(): string | null {
   if (!form.tipoDescuento.trim()) return 'El tipo de descuento es obligatorio'
   if (!form.fechaInicio) return 'La fecha de inicio es obligatoria'
-  if (form.tipo !== '.' && !codigoForm()) return `Indique ${metaTipo.value?.label.toLowerCase() ?? 'el codigo'}`
+  if (form.tipo === 'AR') {
+    if (nodosArbol.value.length === 0) {
+      return 'Marque al menos una macrofamilia, familia, subfamilia o artículo'
+    }
+    if (nodosArbol.value.some((nodo) => !nodo.codigo.trim())) {
+      return 'No se puede asignar un nodo sin código. Marque la familia o el artículo.'
+    }
+  } else if (form.tipo !== '.' && !codigoForm()) {
+    return `Indique ${metaTipo.value?.label.toLowerCase() ?? 'el codigo'}`
+  }
   if (form.fechaFin && form.fechaFin < form.fechaInicio) return 'La fecha final no puede ser anterior al inicio'
   return null
 }
@@ -378,10 +437,8 @@ async function onGuardar() {
   saving.value = true
   mensaje.value = null
   try {
-    const payload = {
+    const comun = {
       tipoDescuento: form.tipoDescuento.trim(),
-      tipo: form.tipo,
-      codigo: form.tipo === '.' ? '.' : codigoForm(),
       fechaInicio: form.fechaInicio,
       fechaFin: form.fechaFin || null,
       descuento: form.descuento ?? 0,
@@ -391,11 +448,31 @@ async function onGuardar() {
       importeMaximo: form.importeMaximo ?? 0,
       controlStock: form.controlStock,
       bloquearTiendas: form.tiendas.map((c) => String(c ?? '').trim()).filter((c) => c !== ''),
-      claveOriginal: esNuevo.value ? undefined : claveOriginal.value,
     }
-    const { data } = esNuevo.value
-      ? await api.post('/api/mantenimiento/tipos-descuento', payload)
-      : await api.put('/api/mantenimiento/tipos-descuento', payload)
+    const { data } =
+      form.tipo === 'AR'
+        ? await (esNuevo.value
+            ? api.post('/api/mantenimiento/tipos-descuento/arbol', {
+                ...comun,
+                nodos: nodosArbol.value,
+              })
+            : api.put('/api/mantenimiento/tipos-descuento/arbol', {
+                ...comun,
+                nodos: nodosArbol.value,
+                claveOriginal: claveOriginal.value,
+              }))
+        : await (esNuevo.value
+            ? api.post('/api/mantenimiento/tipos-descuento', {
+                ...comun,
+                tipo: form.tipo,
+                codigo: form.tipo === '.' ? '.' : codigoForm(),
+              })
+            : api.put('/api/mantenimiento/tipos-descuento', {
+                ...comun,
+                tipo: form.tipo,
+                codigo: form.tipo === '.' ? '.' : codigoForm(),
+                claveOriginal: claveOriginal.value,
+              }))
     mensaje.value = esNuevo.value ? 'Tipo de descuento creado' : 'Tipo de descuento actualizado'
     await cargar()
     abrirFichaPorClave(data as Clave)
@@ -532,6 +609,18 @@ async function onGuardar() {
                 />
               </label>
             </div>
+
+            <FidelizacionArbolExclusion
+              v-if="form.tipo === 'AR'"
+              v-model="nodosArbol"
+              class="arbol-descuento"
+              modo="asignacion"
+              titulo-resumen="Aplicados"
+              texto-vacio="Ninguno: este descuento no afecta a ningún artículo del árbol."
+              titulo-quitar="Quitar"
+              :readonly="soloLectura"
+              :cargar="cargarArbolDescuento"
+            />
 
             <div class="bloques">
               <div class="col-izquierda">
@@ -768,7 +857,11 @@ async function onGuardar() {
 }
 
 .input-tipo {
-  width: 10rem;
+  width: 11.5rem;
+}
+
+.arbol-descuento {
+  margin-bottom: 0.65rem;
 }
 
 .bloques {
