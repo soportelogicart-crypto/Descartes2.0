@@ -99,9 +99,10 @@ final class VentaEscrituraService
       throw new \InvalidArgumentException('Empresa (tienda) obligatoria');
     }
 
-    $albaran = isset($body['albaran']) && (int) $body['albaran'] > 0
-      ? (int) $body['albaran']
-      : $this->nextAlbaran($empresa, $tipo);
+    $pedido = isset($body['albaran']) ? (int) $body['albaran'] : 0;
+    // 900000000 + n es el borrador del TPV sin conexión. No puede grabarse como albarán.
+    $esBorradorLocal = $pedido >= 900000000;
+    $albaran = $pedido > 0 && !$esBorradorLocal ? $pedido : $this->nextAlbaran($empresa, $tipo);
 
     $lineas = $body['lineas'] ?? [];
     if (!is_array($lineas)) {

@@ -75,6 +75,9 @@ export function eanCheckDigit(body: string): number {
  * Acepta 7/8 → EAN-8; 12/13 → EAN-13 (recalcula check si hace falta).
  */
 export function normalizeEan(value: string): { digits: string; kind: 'ean8' | 'ean13' } | null {
+  // Un código con letras (OFF-07-000008) es Code 39. Si se queda en los dígitos,
+  // 07000008 parece un EAN-8 y el control lo reescribe (07000003).
+  if (/[A-Za-z]/.test(String(value ?? ''))) return null
   let d = onlyDigits(value)
   if (!d) return null
 

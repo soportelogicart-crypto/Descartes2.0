@@ -8,6 +8,10 @@ import {
 import TpvTecladoNumerico from '@/components/tpv/TpvTecladoNumerico.vue'
 import { extractApiError } from '@/composables/extractApiError'
 import type { VentaDetalle, VentaLinea, VentaResumen } from '@/types/ventas'
+import {
+  coincideCodigoBarrasDocumento,
+  normalizarLecturaDocumento,
+} from '@/utils/lecturaDocumento'
 
 const props = defineProps<{
   open: boolean
@@ -90,10 +94,18 @@ function etiqueta(v: VentaResumen | VentaDetalle): string {
   return `Albarán ${v.albaran}`
 }
 
+watch(numero, (valor) => {
+  const n = normalizarLecturaDocumento(valor)
+  if (n !== valor) numero.value = n
+}, { flush: 'sync' })
+
 async function buscar() {
-  const documento = Number(numero.value.trim())
-  if (!Number.isInteger(documento) || documento <= 0) {
-    error.value = 'Introduzca un número de ticket, factura o albarán válido'
+  const texto = normalizarLecturaDocumento(numero.value).trim()
+  if (texto !== numero.value) numero.value = texto
+  const provisional = /^OFF-/i.test(texto)
+  const documento = Number(texto)
+  if (!provisional && (!Number.isInteger(documento) || documento <= 0)) {
+    error.value = 'Introduzca un número de ticket, factura, albarán o el ticket sin conexión (OFF-…)'
     return
   }
   loading.value = true
@@ -103,15 +115,20 @@ async function buscar() {
   try {
     const data = await listarVentas({
       empresa: props.empresa,
-      documento,
+      documento: provisional ? texto.toUpperCase() : documento,
       page: 1,
       pageSize: 50,
     })
     // Red de seguridad: si la API no filtra por documento devolvería el listado
     // completo, y en caja eso es peor que no encontrar nada.
+    // El ticket OFF- no coincide con albarán ni factura: la API ya filtró por Referencia1.
     const exactos = data.items.filter(
       (v) =>
-        !esAbono(v) && (Number(v.albaran) === documento || Number(v.factura) === documento)
+        !esAbono(v) &&
+        (provisional ||
+          Number(v.albaran) === documento ||
+          Number(v.factura) === documento ||
+          coincideCodigoBarrasDocumento(texto, String(v.empresa ?? ''), v.albaran, v.factura))
     )
     // El número impreso en el ticket es el de factura; solo si ninguno coincide
     // se interpreta como número interno de albarán. Así no salen dos documentos.
@@ -120,7 +137,7 @@ async function buscar() {
 
     resultados.value = encontrados
     if (!encontrados.length) {
-      error.value = `No se ha encontrado ninguna venta con el número ${documento}`
+      error.value = `No se ha encontrado ninguna venta con el número ${texto}`
     } else if (encontrados.length === 1) {
       await seleccionarOrigen(encontrados[0])
     }
@@ -197,7 +214,7 @@ async function crearAbono() {
 
         <div class="cuerpo">
           <form class="busqueda" @submit.prevent="buscar">
-            <label for="tpv-abono-numero">Nº ticket, factura o albarán</label>
+            <label for="tpv-abono-numero">Nº ticket, factura, albarán o sin conexión</label>
             <input
               id="tpv-abono-numero"
               ref="inputNumero"

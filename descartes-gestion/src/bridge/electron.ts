@@ -218,6 +218,70 @@ export type DescartesBridge = {
   ) => Promise<PaymentTerminalResult>
   /** Solo en instaladores recientes. */
   reenfocar?: () => void
+  /** Modo sin conexión del TPV (instaladores con base local). */
+  offline?: DescartesOfflineBridge
+}
+
+export type OfflineEstado = {
+  disponible: boolean
+  estado: 'online' | 'inestable' | 'offline' | 'sincronizando'
+  pendientes: number
+  errores: number
+  requiereLogin?: boolean
+  ultimaFoto?: string | null
+  fotoEmpresa?: string | null
+  fotoPuesto?: string | null
+  ticketBai?: boolean
+  puedeVender?: boolean
+  desfaseRelojMs?: number
+  datosCifrados?: boolean
+  uiLocal?: string | null
+  error?: string | null
+}
+
+export type OfflineEvento =
+  | { tipo: 'perdido' }
+  | { tipo: 'recuperado'; pendientes: number }
+  | { tipo: 'sincronizado'; enviadas: number; tickets: number[]; incidencias: string[]; errores: number }
+
+export type OfflinePeticion = {
+  method: string
+  url: string
+  params?: Record<string, unknown>
+  data?: unknown
+}
+
+export type OfflineVentaPendiente = {
+  uuid: string
+  tipo: 'venta' | 'anular'
+  numeroOffline: string | null
+  creado: string
+  estado: 'pendiente' | 'enviada' | 'error'
+  intentos: number
+  error: string | null
+  enviado: string | null
+  resultado: { ticket?: number; albaran?: number; incidencias?: string[] } | null
+  importe: number
+}
+
+export type DescartesOfflineBridge = {
+  estado: () => Promise<OfflineEstado>
+  peticion: (req: OfflinePeticion) => Promise<{ status: number; data: unknown }>
+  guardarCache: (req: OfflinePeticion) => Promise<boolean>
+  falloRed: () => Promise<OfflineEstado>
+  recordarUsuario: (payload: {
+    codigo: string
+    password: string
+    usuario: unknown
+    permisos: unknown
+  }) => Promise<{ recordado: boolean }>
+  pendientes: () => Promise<OfflineVentaPendiente[]>
+  reintentar: (uuid?: string | null) => Promise<boolean>
+  refrescar: () => Promise<{ ok: boolean; motivo?: string }>
+  comprobar: () => Promise<OfflineEstado>
+  exportar: () => Promise<{ exportado: boolean; ruta?: string }>
+  onEstado: (cb: (estado: OfflineEstado) => void) => () => void
+  onEvento: (cb: (evento: OfflineEvento) => void) => () => void
 }
 
 declare global {

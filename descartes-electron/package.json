@@ -12,6 +12,7 @@
     "dev:tools": "electron . --dev --devtools",
     "icon": "node scripts/generate-icon.js",
     "qa:listados-pdf": "electron scripts/generar-listados-pdf-qa.cjs",
+    "test:offline": "node --test \"test/offline/*.test.js\"",
     "dist": "npm run icon && electron-builder --win nsis",
     "dist:dir": "npm run icon && electron-builder --win dir"
   },
@@ -67,5 +68,8 @@
     "asarUnpack": [
       "electron/redsys/**"
     ]
+  },
+  "dependencies": {
+    "sql.js": "^1.15.2"
   }
 }

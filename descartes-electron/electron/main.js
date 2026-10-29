@@ -8,11 +8,19 @@ const peripherals = require('./peripherals')
 const dispositivoAgente = require('./dispositivo-agente')
 const { bindWindowMenu, clearMenu } = require('./app-menu')
 const { startViteDevServer, stopViteDevServer, waitForUrl } = require('./dev-server')
+const uiLocal = require('./offline/ui-local')
+const offline = require('./offline')
 
 // Solo --dev arranca Vite. Sin ese flag se usa config.json (hosting / producción),
 // también al ejecutar `electron .` sin empaquetar.
 const isDev = process.argv.includes('--dev')
 const openDevTools = process.argv.includes('--devtools')
+const DEV_URL = 'http://127.0.0.1:5173'
+// El renderer usa el proxy de Vite, pero el monitor no debe hacerlo: al parar
+// Apache Vite escribe un error ruidoso en CMD por cada ping.
+const DEV_API_BASE = 'http://127.0.0.1/descartes-api-dev/public'
+
+uiLocal.registrarEsquema()
 
 function appIconPath() {
   const candidates = [
@@ -56,24 +64,47 @@ function loadShellConfig() {
   }
 }
 
+/** Base real a la que van las llamadas /api del proceso principal. */
+function apiBaseDe(cfg) {
+  if (isDev) return DEV_API_BASE
+  try {
+    return new URL(cfg.appUrl || DEV_URL).origin
+  } catch {
+    return DEV_URL
+  }
+}
+
 async function resolveAppUrl(cfg) {
   if (isDev) {
-    const devUrl = 'http://127.0.0.1:5173'
     try {
-      await waitForUrl(devUrl, { timeoutMs: 1500 })
+      await waitForUrl(DEV_URL, { timeoutMs: 1500 })
       console.log('[descartes-electron] UI ya estaba en marcha')
     } catch {
       await startViteDevServer()
     }
-    return devUrl
+    return { url: DEV_URL, local: false }
   }
-  return cfg.appUrl || 'http://127.0.0.1:5173'
+  const appUrl = cfg.appUrl || DEV_URL
+  if (cfg.uiLocal === false) {
+    return { url: appUrl, local: false }
+  }
+  const res = await uiLocal.actualizar(appUrl)
+  if (res.actualizado) {
+    console.log(`[descartes-electron] UI local actualizada a ${res.version}`)
+  } else if (res.motivo) {
+    console.log(`[descartes-electron] UI local sin actualizar: ${res.motivo}`)
+  }
+  if (uiLocal.disponible()) {
+    return { url: uiLocal.URL_LOCAL, local: true }
+  }
+  // Sin copia local todavía (hosting sin ui-manifest.json): como antes.
+  return { url: appUrl, local: false }
 }
 
 async function createWindow() {
   const cfg = loadShellConfig()
   const winCfg = cfg.window || {}
-  const url = await resolveAppUrl(cfg)
+  const { url, local } = await resolveAppUrl(cfg)
   const fullscreen = !!winCfg.fullscreen
   // Por defecto ventana maximizada (completa). Solo se desactiva si maximized: false.
   const maximized = winCfg.maximized !== false && !fullscreen
@@ -126,7 +157,9 @@ async function createWindow() {
   console.log(`[descartes-electron] Cargando UI en la ventana Electron: ${url}`)
   console.log(`[descartes-electron] Config equipo: ${localConfig.equipoPath()}`)
 
-  if (!isDev) {
+  offline.adjuntarVentana(win)
+
+  if (!isDev && !local) {
     // Sin esto Chromium reutiliza un index.html viejo y no ve el JS nuevo del hosting.
     try {
       await win.webContents.session.clearCache()
@@ -204,6 +237,13 @@ app.whenReady().then(async () => {
   registerIpc()
   dispositivoAgente.start()
   peripherals.precalentarImpresionTicket()
+  const shellCfg = loadShellConfig()
+  uiLocal.registrarManejador(apiBaseDe(shellCfg))
+  try {
+    await offline.iniciar({ apiBase: apiBaseDe(shellCfg) })
+  } catch (err) {
+    console.error('[descartes-electron] Modo local no disponible:', err)
+  }
   try {
     await createWindow()
   } catch (err) {
@@ -220,6 +260,7 @@ app.whenReady().then(async () => {
 })
 
 app.on('before-quit', () => {
+  offline.detener()
   peripherals.cerrarImpresionTicket()
   dispositivoAgente.stop()
   stopViteDevServer()

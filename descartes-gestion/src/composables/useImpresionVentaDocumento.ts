@@ -58,6 +58,21 @@ async function nombreTrabajador(codigo: string): Promise<string> {
   }
 }
 
+/**
+ * Pide con conexión lo que necesita la impresión del ticket para que quede en
+ * la base local y se pueda imprimir sin conexión.
+ */
+export async function precalentarImpresion(puestoCodigo: string, empresa: string, vendedor: string) {
+  const p = puestoCodigo.trim()
+  const e = empresa.trim()
+  await Promise.allSettled([
+    p ? cargarPuesto(p) : Promise.resolve(null),
+    e ? cargarTienda(e) : Promise.resolve(null),
+    e ? cargarPlantillasEmpresa(e) : Promise.resolve(null),
+    nombreTrabajador(vendedor),
+  ])
+}
+
 /** A4 al forzar folio: un ticket recuperado se imprime como albarán. */
 function metaA4Forzado(venta: VentaDetalle) {
   const meta = tipoPlantillaDesdeVenta(venta)

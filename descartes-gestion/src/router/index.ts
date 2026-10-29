@@ -74,6 +74,7 @@ const FidelizacionConfigView = vista(() => import('@/views/configuracion/Fideliz
 const CorreoConfigView = vista(() => import('@/views/configuracion/CorreoConfigView.vue'))
 const DocumentosPlantillasView = vista(() => import('@/views/configuracion/DocumentosPlantillasView.vue'))
 const TpvVentaView = vista(() => import('@/views/tpv/TpvVentaView.vue'))
+const ConsultaSinConexionView = vista(() => import('@/views/tpv/ConsultaSinConexionView.vue'))
 const ListadosHubView = vista(() => import('@/views/listados/ListadosHubView.vue'))
 const StockListadoShell = vista(() => import('@/views/listados/StockListadoShell.vue'))
 const StockMinimosListadoView = vista(() => import('@/views/listados/StockMinimosListadoView.vue'))
@@ -209,6 +210,12 @@ const router = createRouter({
           name: 'tpv',
           component: TpvVentaView,
           meta: { titulo: 'TPV', modulo: 'tpv', accion: 'ver', contentFlush: true },
+        },
+        {
+          path: 'tpv/consulta',
+          name: 'tpv-consulta',
+          component: ConsultaSinConexionView,
+          meta: { titulo: 'Consulta de clientes y artículos', modulo: 'tpv', accion: 'ver' },
         },
         {
           path: 'compras',

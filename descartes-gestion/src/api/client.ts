@@ -1,12 +1,14 @@
 import axios from 'axios'
 import { reportClientError } from './clientLogger'
 import { vinculoEnMemoria } from './vinculoInstalacion'
+import { crearAdaptadorOffline } from '@/offline/adaptadorAxios'
 
 const baseURL = import.meta.env.VITE_API_BASE_URL || ''
 
 export const api = axios.create({
   baseURL,
   withCredentials: true,
+  adapter: crearAdaptadorOffline(),
   headers: {
     'Content-Type': 'application/json',
   },

@@ -50,12 +50,14 @@ import { abrirCajonPuesto } from '@/composables/abrirCajonPuesto'
 import { createBarcodeScanWatcher } from '@/composables/useBarcodeScanWatcher'
 import { imprimirValesDeCierre } from '@/composables/comprobanteVale'
 import { extractApiError } from '@/composables/extractApiError'
+import { useEstadoConexion } from '@/offline/estadoConexion'
 import {
   imprimirA4Preparado,
   imprimirCopiaEstablecimientoDatafono,
   pdfBase64DesdeHtmlPlantilla,
   pdfBase64TicketVenta,
   prepararOImprimirVenta,
+  precalentarImpresion,
   type PrepImpresionA4,
 } from '@/composables/useImpresionVentaDocumento'
 import { useVentanaPreviewDocumento } from '@/composables/previewDocumentoVentana'
@@ -81,6 +83,7 @@ const router = useRouter()
 const { puede } = usePermisos()
 const puestoStore = usePuestoContextoStore()
 const tpv = useTpvVentaStore()
+const { estado: estadoConexion, modoLocal: enModoLocal } = useEstadoConexion()
 const ventasBusqueda = useVentasBusquedaStore()
 /** Ventana aparte con la previsualización A4 (sustituye al modal). */
 const preview = useVentanaPreviewDocumento({ imprimir: () => imprimirDocumentoA4() })
@@ -332,6 +335,9 @@ function etiquetaDocumentoConsulta(venta: VentaDetalle): string {
 const etiquetaTicket = computed(() => {
   if (tpv.enConsulta && tpv.venta) return etiquetaDocumentoConsulta(tpv.venta)
   if (tpv.numeroTicket === null) return 'Sin ticket'
+  if (tpv.venta?.numeroOffline) return `Ticket ${tpv.venta.numeroOffline}`
+  // Borrador de la base local: el número definitivo se asigna al cobrar.
+  if (tpv.venta?.tipo === 'L' || tpv.numeroTicket >= 900000000) return 'Ticket sin conexión'
   return tpv.ventaGrabada ? `Ticket ${tpv.numeroTicket}` : `Ticket ${tpv.numeroTicket} (propuesto)`
 })
 
@@ -654,6 +660,13 @@ async function abrirCaja() {
     }
     await tpv.abrirCaja(puestoStore.empresaCodigo, puestoStore.puestoCodigo)
     await volverAlInicio()
+    if (!enModoLocal.value) {
+      void precalentarImpresion(
+        puestoStore.puestoCodigo,
+        puestoStore.empresaCodigo,
+        String(tpv.contexto?.vendedor ?? '')
+      )
+    }
   } catch (e: unknown) {
     initError.value = extractApiError(e, 'No se pudo iniciar el TPV')
   }
@@ -1060,12 +1073,43 @@ function onPrecioCancelado() {
 
 const puedeCobrar = computed(() => tpv.lineas.length > 0 && tpv.ventaGrabada && !tpv.guardando)
 const permiteFactura = computed(() => {
+  if (enModoLocal.value) return false
   const c = tpv.cliente
   return Boolean(c?.codigo && c.razonSocial.trim() && c.nif.trim().length >= 7)
 })
 
+/** Crédito = cliente real cuya forma de pago no está entre las de caja (CobroDeArqueo). */
+const permiteAlbaran = computed(() => {
+  if (!enModoLocal.value) return false
+  const codigo = String(tpv.cliente?.codigo ?? '').trim().toUpperCase()
+  if (!codigo || codigo === 'ZZZZZZZZZ') return false
+  const forma = String(tpv.cliente?.formaPago ?? '').trim().toUpperCase()
+  const deCaja = (tpv.contexto?.formasPago ?? []).some(
+    (f) => String(f.codigo).trim().toUpperCase() === forma && forma !== '',
+  )
+  return !deCaja
+})
+
+/** Sin conexión: efectivo y datáfono externo. El integrado y los vales no. */
+const formasPagoCobro = computed(() => {
+  const formas = tpv.contexto?.formasPago ?? []
+  return enModoLocal.value
+    ? formas.filter((f) => !f.vales && !(f.datafono && f.chipAcumuladoMenu))
+    : formas
+})
+
 function abrirCobro() {
   if (!puedeCobrar.value) return
+  if (enModoLocal.value && !estadoConexion.puedeVender) {
+    tpv.error = estadoConexion.ticketBai
+      ? 'Esta tienda usa TicketBAI: no se puede cobrar sin conexión.'
+      : 'Este puesto no tiene datos locales: no se puede cobrar sin conexión.'
+    return
+  }
+  if (enModoLocal.value && formasPagoCobro.value.length === 0 && !permiteAlbaran.value) {
+    tpv.error = 'No hay ninguna forma de pago disponible para cobrar sin conexión.'
+    return
+  }
   cobrado.value = null
   formaPagoSugeridaCobro.value = ''
   cobroAbierto.value = true
@@ -1175,8 +1219,9 @@ async function finalizarVentaTrasCobro(
     F: 'Factura',
   }
   const etiqueta = etiquetas[datos.tipoDocumento] ?? 'Documento'
-  const numero =
-    datos.tipoDocumento === 'T' || datos.tipoDocumento === 'F'
+  const numero = cerrada.numeroOffline
+    ? cerrada.numeroOffline
+    : datos.tipoDocumento === 'T' || datos.tipoDocumento === 'F'
       ? cerrada.factura ?? tpv.numeroTicket
       : cerrada.albaran
   cobroAbierto.value = false
@@ -1314,7 +1359,12 @@ async function onCobroConfirmado(datos: {
   let descuentoValePrevisto = 0
   let descuentoPuntosPrevisto = 0
   let descuentoClubPrevisto = 0
-  if (requierePago && totalCobro > 0.005 && contexto && tpv.cliente?.codigo) {
+  if (requierePago && enModoLocal.value && forma?.datafono && forma.chipAcumuladoMenu) {
+    tpv.error = 'Sin conexión no se puede cobrar con el datáfono integrado.'
+    return
+  }
+  // Sin conexión no hay fidelización ni club: el ticket se cobra sin descuentos de socio.
+  if (requierePago && totalCobro > 0.005 && contexto && tpv.cliente?.codigo && !enModoLocal.value) {
     try {
       const disponible = await valeFidelizacionDisponible(contexto.empresa, tpv.cliente.codigo)
       if (disponible.saldo > 0) {
@@ -1662,7 +1712,7 @@ const otrasFunciones = computed<TpvFuncionExtra[]>(() => [
   {
     id: 'consulta',
     etiqueta: 'CONSULTA TICKETS',
-    ayuda: 'Buscar un ticket, albarán, factura o presupuesto y verlo',
+    ayuda: 'Buscar un ticket, albarán, factura, presupuesto o el número sin conexión (OFF-) y verlo',
     deshabilitada: tpv.guardando,
   },
   {
@@ -1779,6 +1829,8 @@ async function verConsulta(venta: VentaResumen) {
       return
     }
     ultimoTicket.value = detalle
+    const ft = String(detalle.facturaTipo ?? '').trim().toUpperCase()
+    ultimoTipoDocumento.value = ft === 'T' ? 'T' : ft === 'F' || ft === 'A' ? 'F' : 'A'
     ultimoReceiptDatafono.value = null
     consultaVentasAbierta.value = false
     seleccion.value = Math.max(0, tpv.lineas.length - 1)
@@ -2319,10 +2371,11 @@ onMounted(() => {
     <TpvCobroModal
       :open="cobroAbierto"
       :total="tpv.total"
-      :formas-pago="tpv.contexto?.formasPago ?? []"
+      :formas-pago="formasPagoCobro"
       :forma-pago-inicial="formaPagoSugeridaCobro"
       :empresa="tpv.contexto?.empresa"
       :permite-factura="permiteFactura"
+      :permite-albaran="permiteAlbaran"
       :guardando="tpv.guardando || cobrandoDatafono"
       :cobrando-datafono="cobrandoDatafono"
       @confirmar="onCobroConfirmado"

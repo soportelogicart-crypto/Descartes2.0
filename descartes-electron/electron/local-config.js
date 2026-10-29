@@ -105,6 +105,7 @@ function readEquipoInterno() {
       datafono: normalizeDatafono(data.datafono),
       configurado: !!(empresaCodigo && puestoCodigo),
       actualizado: data.actualizado || null,
+      contadorOffline: Math.max(0, Number(data.contadorOffline) || 0),
     }
   } catch {
     return equipoVacio()
@@ -130,6 +131,7 @@ function writeEquipo({ empresaCodigo, puestoCodigo, equipoId, datafono }) {
       current.datafono
     ),
     actualizado: new Date().toISOString(),
+    contadorOffline: current.contadorOffline || 0,
   }
   if (!payload.empresaCodigo || !payload.puestoCodigo) {
     throw new Error('empresaCodigo y puestoCodigo son obligatorios')
@@ -151,6 +153,19 @@ function writeDatafono(datafono) {
 
 function readDatafonoInterno() {
   return readEquipoInterno().datafono
+}
+
+/** Último número de la serie de tickets sin conexión del puesto (nunca se reutiliza). */
+function readContadorOffline() {
+  return readEquipoInterno().contadorOffline || 0
+}
+
+function writeContadorOffline(n) {
+  const file = equipoPath()
+  if (!fs.existsSync(file)) return
+  const data = JSON.parse(fs.readFileSync(file, 'utf8'))
+  data.contadorOffline = Math.max(Number(data.contadorOffline) || 0, Number(n) || 0)
+  fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8')
 }
 
 function readVinculo() {
@@ -210,6 +225,8 @@ module.exports = {
   writeEquipo,
   writeDatafono,
   readDatafonoInterno,
+  readContadorOffline,
+  writeContadorOffline,
   clearEquipo,
   equipoPath,
   readVinculo,

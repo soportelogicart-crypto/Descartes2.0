@@ -859,12 +859,14 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
         payload.fpago1 = fpago
         payload.impFpago1 = total.value
       }
-      venta.value = await actualizarVenta(v.empresa, v.tipo, v.albaran, payload)
+      const actualizada = await actualizarVenta(v.empresa, v.tipo, v.albaran, payload)
+      venta.value = actualizada
 
+      // Sin conexión, el ticket adoptado cambia de clave (tipo L): se cierra el devuelto.
       const cerrada = await finalizarVenta(
-        v.empresa,
-        v.tipo,
-        v.albaran,
+        actualizada.empresa,
+        actualizada.tipo,
+        actualizada.albaran,
         tipo,
         requierePago ? fpago : undefined,
         opciones

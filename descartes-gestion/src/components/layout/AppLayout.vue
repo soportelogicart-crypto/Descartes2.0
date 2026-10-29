@@ -589,6 +589,15 @@ async function logout() {
             Venta táctil
           </RouterLink>
           <span v-else class="nav-link nav-child disabled" title="Sin permiso">Venta táctil</span>
+          <RouterLink
+            v-if="seccion.habilitado"
+            to="/tpv/consulta"
+            class="nav-link nav-child"
+            :class="{ active: route.path === '/tpv/consulta' }"
+            @click="cerrarMenu"
+          >
+            Consulta de clientes y artículos
+          </RouterLink>
         </nav>
 
         <!-- Inventario: listados de stock (legacy) -->
@@ -703,7 +712,7 @@ async function logout() {
   display: grid;
   /* En rem para que acompañe a la escala de interfaz (`--escala-ui`). */
   grid-template-columns: 15rem 1fr;
-  height: 100vh;
+  height: calc(100vh - var(--alto-banda, 0px));
   overflow: hidden;
   align-items: stretch;
   position: relative;
@@ -715,7 +724,7 @@ async function logout() {
 }
 
 .sidebar {
-  height: 100vh;
+  height: calc(100vh - var(--alto-banda, 0px));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -961,7 +970,7 @@ async function logout() {
   grid-template-rows: auto auto 1fr;
   min-width: 0;
   min-height: 0;
-  height: 100vh;
+  height: calc(100vh - var(--alto-banda, 0px));
   overflow: hidden;
 }
 

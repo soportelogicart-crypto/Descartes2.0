@@ -38,6 +38,7 @@ final class MigrationService
     '023-articulos-registro-sanitario.sql',
     '024-asientos-lin-centro-coste.sql',
     '025-club-fidelizacion-saldo.sql',
+    '026-ventas-offline.sql',
   ];
 
   /**

@@ -14,6 +14,8 @@ const props = defineProps<{
   /** Tras un abono en TPV: preseleccionar la forma del ticket origen (p. ej. tarjeta). */
   formaPagoInicial?: string
   empresa?: string
+  /** Sin conexión y cliente que no cobra en caja: se puede cerrar como albarán. */
+  permiteAlbaran?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -41,12 +43,16 @@ const valeAviso = ref('')
 const valeBuscando = ref(false)
 const valeInputRef = ref<HTMLInputElement | null>(null)
 
-/** Contado TPV: ticket o factura; el albarán es venta a crédito (Gestión). */
-const tiposDocumento = [
-  { codigo: 'T', etiqueta: 'TICKET' },
-  { codigo: 'P', etiqueta: 'PRESUPUESTO' },
-  { codigo: 'F', etiqueta: 'FACTURA' },
-]
+/** Contado TPV: ticket o factura. El albarán solo se ofrece a un cliente de crédito sin conexión. */
+const tiposDocumento = computed(() => {
+  const tipos = [
+    { codigo: 'T', etiqueta: 'TICKET' },
+    { codigo: 'P', etiqueta: 'PRESUPUESTO' },
+  ]
+  if (props.permiteAlbaran) tipos.push({ codigo: 'A', etiqueta: 'ALBARÁN' })
+  tipos.push({ codigo: 'F', etiqueta: 'FACTURA' })
+  return tipos
+})
 
 /** Igual que Gestión: Ticket y Factura requieren forma de pago de contado. */
 const requierePago = computed(
@@ -261,6 +267,9 @@ async function buscarVale() {
         </div>
         <p v-if="!permiteFactura" class="nota">
           Factura requiere cliente real con NIF y razon social.
+        </p>
+        <p v-if="tipoDocumento === 'A'" class="nota">
+          Venta a crédito: no se cobra en caja. El número que se imprime es provisional.
         </p>
 
         <p v-if="esDevolucion && requierePago" class="nota devolucion">

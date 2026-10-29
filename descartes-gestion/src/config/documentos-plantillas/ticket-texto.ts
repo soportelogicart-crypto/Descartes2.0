@@ -110,10 +110,17 @@ export function lineasCabeceraEmpresa(d: DocumentoPreviewDatos): string[] {
     .map((l) => centrarTicket(l))
 }
 
-/** En ticket térmico el documento es siempre Factura Simplificada. */
+/**
+ * Ticket cobrado con conexión: Factura Simplificada.
+ * Ticket sin conexión (número OFF-): no es la factura; se titula provisional.
+ */
 export function lineasTituloTicket(d: DocumentoPreviewDatos, label?: string): string[] {
+  const numero = str(d, 'documento.numero')
+  if (/^OFF-/i.test(numero)) {
+    return [`TICKET PROVISIONAL ${numero}`.trim()]
+  }
   const etiqueta = !label || /^ticket$/i.test(label.trim()) ? 'FACTURA SIMPLIFICADA' : label
-  return [`${etiqueta} ${str(d, 'documento.numero')}`.trim()]
+  return [`${etiqueta} ${numero}`.trim()]
 }
 
 /** ALBARAN n FECHA dd/mm/aaaa hh:mm en una sola línea, luego cajero y cliente. */

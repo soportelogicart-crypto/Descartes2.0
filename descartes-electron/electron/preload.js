@@ -39,6 +39,30 @@ contextBridge.exposeInMainWorld('descartes', {
     ipcRenderer.invoke('peripheral:paymentTerminalCharge', payload || {}),
   paymentTerminalCancel: (payload) =>
     ipcRenderer.invoke('peripheral:paymentTerminalCancel', payload || {}),
+
+  /** Modo sin conexión del TPV (base local, cola de ventas). */
+  offline: {
+    estado: () => ipcRenderer.invoke('offline:estado'),
+    peticion: (req) => ipcRenderer.invoke('offline:peticion', req),
+    guardarCache: (req) => ipcRenderer.invoke('offline:guardarCache', req),
+    falloRed: () => ipcRenderer.invoke('offline:falloRed'),
+    recordarUsuario: (payload) => ipcRenderer.invoke('offline:recordarUsuario', payload),
+    pendientes: () => ipcRenderer.invoke('offline:pendientes'),
+    reintentar: (uuid) => ipcRenderer.invoke('offline:reintentar', uuid || null),
+    refrescar: () => ipcRenderer.invoke('offline:refrescar'),
+    comprobar: () => ipcRenderer.invoke('offline:comprobar'),
+    exportar: () => ipcRenderer.invoke('offline:exportar'),
+    onEstado: (cb) => {
+      const h = (_e, datos) => cb(datos)
+      ipcRenderer.on('offline:estado', h)
+      return () => ipcRenderer.removeListener('offline:estado', h)
+    },
+    onEvento: (cb) => {
+      const h = (_e, datos) => cb(datos)
+      ipcRenderer.on('offline:evento', h)
+      return () => ipcRenderer.removeListener('offline:evento', h)
+    },
+  },
 })
 
 ipcRenderer.on('app:navigate', (_event, path) => {

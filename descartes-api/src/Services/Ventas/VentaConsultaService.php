@@ -58,13 +58,26 @@ final class VentaConsultaService
       $params['empresa'] = $empresa;
     }
     if (isset($query['documento']) && trim((string) $query['documento']) !== '') {
-      $documento = (int) $query['documento'];
-      if ($documento > 0) {
-        // El cajero puede conocer el número interno de albarán o el visible
-        // de ticket/factura; se admiten ambos para localizar el origen.
-        $where[] = '(c.Albaran = :documentoAlbaran OR c.Factura = :documentoFactura)';
-        $params['documentoAlbaran'] = $documento;
-        $params['documentoFactura'] = $documento;
+      // El lector con teclado español entrega el guion del código como apóstrofo.
+      $texto = str_replace(["'", '´', '`', '’', '‘'], '-', trim((string) $query['documento']));
+      if (preg_match('/^OFF-/i', $texto)) {
+        // Ticket impreso sin conexión: el número OFF- queda en Referencia1 del documento oficial.
+        $where[] = 'UPPER(RTRIM(c.Referencia1)) = :referenciaOffline';
+        $params['referenciaOffline'] = strtoupper($texto);
+      } else {
+        $documento = (int) $texto;
+        $barras = preg_replace('/\D/', '', $texto) ?? '';
+        if ($documento > 0) {
+          // El cajero puede teclear el albarán o el ticket/factura. El código de
+          // barras impreso antepone la empresa (1 + 22600803 = 122600803).
+          $where[] = '(c.Albaran = :documentoAlbaran OR c.Factura = :documentoFactura
+            OR CONCAT(RTRIM(c.Empresa), CAST(c.Albaran AS varchar(20))) = :documentoBarras
+            OR (c.Factura > 0 AND CONCAT(RTRIM(c.Empresa), CAST(c.Factura AS varchar(20))) = :documentoBarrasFactura))';
+          $params['documentoAlbaran'] = $documento;
+          $params['documentoFactura'] = $documento;
+          $params['documentoBarras'] = $barras;
+          $params['documentoBarrasFactura'] = $barras;
+        }
       }
     }
     // Los filtros de columna del grid son parciales: "152" debe encontrar 1523.
@@ -89,7 +102,7 @@ final class VentaConsultaService
 
     $innerSql = "SELECT c.Empresa, c.Tipo, c.Albaran, c.Fecha, c.Cliente, c.RazonSocial, c.Puesto,
                    c.Vendedor, c.Estado, c.Importe, c.Factura, c.FacturaTipo, c.Sesion,
-                   c.AlbaranOrigenAbono
+                   c.AlbaranOrigenAbono, c.Referencia1
             FROM AlbaranesVentasCab c
             WHERE {$sqlWhere}";
     $sql = SqlPagination::wrap($innerSql, 'Albaran DESC, Fecha DESC, Empresa ASC', $offset, $pageSize);
@@ -722,6 +735,7 @@ final class VentaConsultaService
       'albaranOrigenAbono' => isset($row['AlbaranOrigenAbono']) && (int) $row['AlbaranOrigenAbono'] > 0
         ? (int) $row['AlbaranOrigenAbono']
         : null,
+      'referencia1' => isset($row['Referencia1']) ? trim((string) $row['Referencia1']) : null,
     ];
   }
 

@@ -22,6 +22,8 @@ export type VentaResumen = {
   impreso?: boolean
   /** Si > 0, este albarán es abono del albarán indicado. */
   albaranOrigenAbono?: number | null
+  /** Ticket provisional sin conexión (OFF-07-000001) guardado al sincronizar. */
+  referencia1?: string | null
   /** Estado en tabla Facturas (F=contado, G=crédito/diferida). */
   facturaEstado?: string | null
   facturaContadoDiferida?: boolean
@@ -72,6 +74,10 @@ export type VentaLinea = {
 }
 
 export type VentaDetalle = VentaResumen & {
+  /** Ticket emitido sin conexión (base local), pendiente de enviar al servidor. */
+  offline?: boolean
+  /** Número provisional de la serie del puesto (OFF-P01-000123). */
+  numeroOffline?: string | null
   razonSocial2?: string | null
   nif?: string | null
   representante?: string | null

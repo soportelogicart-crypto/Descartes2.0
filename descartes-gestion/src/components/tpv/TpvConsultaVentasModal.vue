@@ -8,6 +8,7 @@ import EntidadBuscarModal, {
 } from '@/components/common/EntidadBuscarModal.vue'
 import { extractApiError } from '@/composables/extractApiError'
 import type { VentaResumen } from '@/types/ventas'
+import { normalizarLecturaDocumento } from '@/utils/lecturaDocumento'
 
 const props = defineProps<{
   open: boolean
@@ -53,6 +54,7 @@ const buscarInicial = ref('')
 function filtrosVacios() {
   return {
     empresa: props.empresa.trim(),
+    documento: '',
     fechaDesde: '',
     fechaHasta: '',
     puesto: '',
@@ -96,12 +98,24 @@ async function cargarTiendas() {
   }
 }
 
+watch(
+  () => filtros.value.documento,
+  (valor) => {
+    const n = normalizarLecturaDocumento(valor)
+    if (n !== valor) filtros.value.documento = n
+  },
+  { flush: 'sync' }
+)
+
 async function buscar() {
   loading.value = true
   error.value = null
   try {
+    const documento = normalizarLecturaDocumento(filtros.value.documento).trim()
+    if (documento !== filtros.value.documento) filtros.value.documento = documento
     const data = await listarVentasTpv({
       empresa: filtros.value.empresa ? normalizarEmpresa(filtros.value.empresa) : undefined,
+      documento: documento || undefined,
       fechaDesde: filtros.value.fechaDesde || undefined,
       fechaHasta: filtros.value.fechaHasta || undefined,
       puesto: filtros.value.puesto || undefined,
@@ -154,6 +168,11 @@ function fmtFecha(iso: string | null | undefined) {
   return iso ? iso.slice(0, 10) : ''
 }
 
+function referenciaOffline(v: VentaResumen): string {
+  const ref = String(v.referencia1 ?? '').trim()
+  return /^OFF-/i.test(ref) ? ref.toUpperCase() : ''
+}
+
 function fmtFactura(v: VentaResumen) {
   const n = Number(v.factura ?? 0)
   if (Number.isFinite(n) && n > 0) {
@@ -185,6 +204,15 @@ function estadoTexto(v: VentaResumen) {
         <header class="barra">CONSULTA TICKETS</header>
         <div class="cuerpo">
           <form class="filtros" @submit.prevent="buscar">
+            <label>
+              Nº ticket, factura, albarán o sin conexión
+              <input
+                v-model="filtros.documento"
+                type="text"
+                placeholder="22600169 o OFF-07-000001"
+                @keydown.enter.prevent="buscar"
+              />
+            </label>
             <label>
               Tienda
               <select v-model="filtros.empresa">
@@ -260,6 +288,7 @@ function estadoTexto(v: VentaResumen) {
                     <th>Estado</th>
                     <th class="num">Importe</th>
                     <th>Factura</th>
+                    <th>Sin conexión</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -274,12 +303,13 @@ function estadoTexto(v: VentaResumen) {
                     <td>{{ estadoTexto(v) }}</td>
                     <td class="num">{{ Number(v.importe ?? 0).toFixed(2) }}</td>
                     <td>{{ fmtFactura(v) }}</td>
+                    <td>{{ referenciaOffline(v) || '—' }}</td>
                     <td>
                       <button type="button" class="ver" @click="emit('ver', v)">VER</button>
                     </td>
                   </tr>
                   <tr v-if="!loading && items.length === 0">
-                    <td colspan="7">Sin resultados. Pulse Buscar.</td>
+                    <td colspan="8">Sin resultados. Pulse Buscar.</td>
                   </tr>
                 </tbody>
               </table>

@@ -114,10 +114,15 @@ export function ventaAPreviewDatos(
   }))
   const base = ivas.reduce((s, i) => s + i.base, 0) || redondear2(Number(venta.bruto) || 0)
 
-  const numDoc =
-    Number(venta.factura) > 0
+  const numeroOffline = String(venta.numeroOffline ?? '').trim()
+  const numDoc = numeroOffline
+    ? numeroOffline
+    : Number(venta.factura) > 0
       ? String(venta.factura)
       : String(venta.albaran || '')
+  const observaciones = [numeroOffline ? 'EMITIDO SIN CONEXIÓN' : '', String(venta.observaciones ?? '').trim()]
+    .filter(Boolean)
+    .join('\n')
 
   const nLit = Math.max(0, Math.min(9, Number(extras.literalTicket ?? 3) || 0))
   const banco = datosBancariosCliente({
@@ -225,22 +230,22 @@ export function ventaAPreviewDatos(
     },
     documento: {
       numero: numDoc,
-      serie: String(venta.tipo ?? ''),
+      serie: numeroOffline ? '' : String(venta.tipo ?? ''),
       fecha: fmtFecha(venta.fecha),
       hora: fmtHora(venta.fecha),
       suPedido: String(venta.pedido ?? ''),
-      albaran: String(venta.albaran ?? ''),
+      albaran: numeroOffline ? '' : String(venta.albaran ?? ''),
       terminalSesion: [venta.puesto, venta.sesion].filter((x) => x != null && String(x).trim()).join('-'),
       atendidoPor: extras.vendedorNombre?.trim() || String(venta.vendedor ?? ''),
       fechaEntrega: fmtFecha(venta.fechaEntrega),
       transportista: String(venta.transporte ?? ''),
       portes: String(venta.portes ?? ''),
-      observaciones: String(venta.observaciones ?? '').trim(),
+      observaciones,
       formaPago: String(venta.formaPagoDescripcion ?? venta.formasPago?.[0]?.codigo ?? ''),
       pagos: (venta.formasPago ?? [])
         .filter((f) => String(f.codigo ?? '').trim() && Math.abs(Number(f.importe) || 0) > 0.004)
         .map((f) => ({ codigo: String(f.codigo).trim(), importe: Number(f.importe) || 0 })),
-      codigoBarras: `*${venta.empresa || ''}${venta.albaran || ''}*`,
+      codigoBarras: numeroOffline ? `*${numeroOffline}*` : `*${venta.empresa || ''}${venta.albaran || ''}*`,
       pagina: '1/1',
       anotacionPasaporteFitosanitario,
     },
@@ -307,8 +312,20 @@ export function tipoPlantillaDesdeVenta(venta: VentaDetalle): {
   const ft = String(venta.facturaTipo ?? '').trim().toUpperCase()
   const fe = String(venta.facturaEstado ?? '').trim().toUpperCase()
   const factura = Number(venta.factura) || 0
-
-  if (ft === 'T' && factura > 0) {
+  const numeroOffline = Boolean(String(venta.numeroOffline ?? '').trim())
+  // Albarán de crédito cobrado sin conexión: aún no tiene número oficial.
+  if (numeroOffline && ft !== 'T') {
+    return {
+      esTicket: false,
+      plantillaTipo: 'albaran',
+      formatoKey: 'formatoAlbaranes',
+      nombreKey: 'impAlbaranes',
+      indiceKey: 'impresoraAlbaranes',
+      label: 'Albarán provisional',
+    }
+  }
+  // Ticket sin conexión: el número OFF- se imprime en la térmica.
+  if (numeroOffline || (ft === 'T' && factura > 0)) {
     return {
       esTicket: true,
       plantillaTipo: 'ticket',

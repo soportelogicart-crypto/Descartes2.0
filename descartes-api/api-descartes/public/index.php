@@ -31,6 +31,7 @@ $containerBuilder->addDefinitions([
   \Descartes\Api\Controllers\VentasController::class => DI\autowire(),
   \Descartes\Api\Controllers\ComprasController::class => DI\autowire(),
   \Descartes\Api\Controllers\TpvController::class => DI\autowire(),
+  \Descartes\Api\Controllers\OfflineController::class => DI\autowire(),
   \Descartes\Api\Controllers\EtiquetasController::class => DI\autowire(),
   \Descartes\Api\Controllers\FacturacionController::class => DI\autowire(),
   \Descartes\Api\Controllers\ListadosController::class => DI\autowire(),
@@ -58,6 +59,7 @@ $app->setBasePath($basePath);
 (require __DIR__ . '/../src/Routes/ventas.php')($app);
 (require __DIR__ . '/../src/Routes/compras.php')($app);
 (require __DIR__ . '/../src/Routes/tpv.php')($app);
+(require __DIR__ . '/../src/Routes/offline.php')($app);
 (require __DIR__ . '/../src/Routes/etiquetas.php')($app);
 (require __DIR__ . '/../src/Routes/facturacion.php')($app);
 (require __DIR__ . '/../src/Routes/listados.php')($app);
