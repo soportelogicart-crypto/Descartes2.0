@@ -70,6 +70,22 @@ function disponible() {
   return leerActual() !== null
 }
 
+function rutaSegura(nombre) {
+  const limpio = path.normalize(String(nombre)).replace(/^([.][.][\\/])+/, '')
+  if (!limpio || limpio.startsWith('..') || path.isAbsolute(limpio)) return null
+  return limpio
+}
+
+function copiaCompleta(dir, archivos) {
+  for (const nombre of archivos) {
+    const limpio = rutaSegura(nombre)
+    if (!limpio) continue
+    const archivo = path.join(dir, limpio)
+    if (!fs.existsSync(archivo) || !fs.statSync(archivo).isFile() || fs.statSync(archivo).size === 0) return false
+  }
+  return true
+}
+
 function urlArchivo(appUrl, nombre) {
   const base = appUrl.endsWith('/') ? appUrl : `${appUrl}/`
   return new URL(nombre.split('/').map(encodeURIComponent).join('/'), base).toString()
@@ -78,9 +94,11 @@ function urlArchivo(appUrl, nombre) {
 /**
  * Descarga la versión publicada si cambió. No lanza: sin conexión o sin
  * manifiesto se sigue con la copia que haya.
+ * `onProgreso({ hecho, total, nombre })` solo se llama cuando hay archivos
+ * que bajar, no si la copia local ya está completa.
  * @returns {Promise<{ actualizado: boolean, version: string|null, motivo?: string }>}
  */
-async function actualizar(appUrl, { timeoutMs = 8000 } = {}) {
+async function actualizar(appUrl, { timeoutMs = 8000, onProgreso } = {}) {
   const actual = leerActual()
   let manifiesto
   try {
@@ -100,24 +118,49 @@ async function actualizar(appUrl, { timeoutMs = 8000 } = {}) {
   if (!version || !archivos.includes('index.html')) {
     return { actualizado: false, version: actual?.version ?? null, motivo: 'manifiesto no válido' }
   }
-  if (actual && actual.version === version) {
+  const destino = path.join(dirUi(), version)
+  if (actual && actual.version === version && copiaCompleta(actual.dir, archivos)) {
     return { actualizado: false, version }
   }
 
-  const destino = path.join(dirUi(), version)
-  const temporal = `${destino}.descarga`
-  fs.rmSync(temporal, { recursive: true, force: true })
+  fs.mkdirSync(dirUi(), { recursive: true })
+  for (const entrada of fs.readdirSync(dirUi(), { withFileTypes: true })) {
+    if (entrada.isDirectory() && /\.descarga-\d+$/.test(entrada.name)) {
+      fs.rmSync(path.join(dirUi(), entrada.name), { recursive: true, force: true })
+    }
+  }
+  const temporal = `${destino}.descarga-${process.pid}`
+  const lista = []
+  for (const nombre of archivos) {
+    const limpio = rutaSegura(nombre)
+    if (limpio) lista.push({ nombre, limpio })
+  }
+  const avisar = (hecho, nombre) => {
+    if (typeof onProgreso !== 'function') return
+    try {
+      onProgreso({ hecho, total: lista.length, nombre: nombre ? path.basename(nombre) : '' })
+    } catch {
+      // La ventana de progreso puede haberse cerrado.
+    }
+  }
   try {
-    for (const nombre of archivos) {
-      const limpio = path.normalize(String(nombre)).replace(/^([.][.][\\/])+/, '')
-      if (limpio.startsWith('..') || path.isAbsolute(limpio)) continue
+    for (let i = 0; i < lista.length; i++) {
+      const { nombre, limpio } = lista[i]
+      avisar(i, limpio)
       const res = await peticion({ url: urlArchivo(appUrl, nombre), timeoutMs: 60000 })
       if (res.status !== 200) {
         throw new Error(`${nombre}: HTTP ${res.status}`)
       }
+      if (/\.(js|mjs|css)$/i.test(limpio) && res.body.slice(0, 80).toString('utf8').includes('<html')) {
+        throw new Error(`${nombre}: el servidor devolvió HTML`)
+      }
       const archivo = path.join(temporal, limpio)
       fs.mkdirSync(path.dirname(archivo), { recursive: true })
       fs.writeFileSync(archivo, res.body)
+    }
+    avisar(lista.length, '')
+    if (!copiaCompleta(temporal, archivos)) {
+      throw new Error('La copia local se quedó a medias')
     }
     fs.rmSync(destino, { recursive: true, force: true })
     fs.renameSync(temporal, destino)
@@ -162,7 +205,9 @@ async function reenviarApi(request, url) {
       body,
       timeoutMs: 120000,
     })
-    return new Response(res.body, { status: res.status, headers: res.headers })
+    // 204, 205 y 304 no admiten cuerpo. Un buffer vacío también hace fallar el constructor.
+    const sinCuerpo = res.status === 204 || res.status === 205 || res.status === 304
+    return new Response(sinCuerpo ? null : res.body, { status: res.status, headers: res.headers })
   } catch (e) {
     // 502 = no se llegó al servidor; el renderer lo trata como corte de red.
     return new Response(
@@ -187,7 +232,10 @@ function servirArchivo(url) {
     return new Response('Ruta no válida', { status: 403 })
   }
   if (!fs.existsSync(archivo) || fs.statSync(archivo).isDirectory()) {
-    // Rutas del router de Vue (history): siempre index.html.
+    const ext = path.extname(ruta).toLowerCase()
+    if (ext && ext !== '.html') {
+      return new Response('No está en la copia local', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } })
+    }
     archivo = path.join(actual.dir, 'index.html')
   }
   const tipo = MIME[path.extname(archivo).toLowerCase()] || 'application/octet-stream'

@@ -4,7 +4,9 @@
  * respuesta se pierde, el reintento con el mismo UUID devuelve el mismo ticket.
  */
 const { EventEmitter } = require('events')
+const crypto = require('crypto')
 const db = require('./db')
+const { hmac } = require('./cifrado')
 const { peticionJson, esFalloDeRed } = require('./http')
 
 const ESPERAS_MS = [5000, 15000, 60000, 300000]
@@ -19,11 +21,14 @@ class Cola extends EventEmitter {
     this.requiereLogin = false
     this.timer = null
     this.lote = { enviadas: 0, tickets: [], incidencias: [] }
+    this.refrescarClave = null
+    this.firmasRenovadas = new Set()
   }
 
-  configurar({ apiBase, vinculo }) {
+  configurar({ apiBase, vinculo, refrescarClave }) {
     this.apiBase = apiBase
     this.vinculo = vinculo
+    this.refrescarClave = refrescarClave || null
   }
 
   resumen() {
@@ -203,6 +208,9 @@ class Cola extends EventEmitter {
       this.reprogramar(item, res.datos?.error || `Error del servidor (HTTP ${res.status})`)
       return 'reintento'
     }
+    if (this.esFirmaRechazada(res) && (await this.refirmar(item))) {
+      return this.enviar(item)
+    }
     // Error de negocio (artículo inexistente, firma...): lo revisa un responsable.
     db.ejecutar(
       "UPDATE ventas_pendientes SET estado = 'error', intentos = intentos + 1, error = ? WHERE uuid = ?",
@@ -210,6 +218,48 @@ class Cola extends EventEmitter {
     )
     db.guardar({ inmediato: true })
     return 'error'
+  }
+
+  esFirmaRechazada(res) {
+    return res.status === 422 && String(res.datos?.error || '').includes('firma de la venta')
+  }
+
+  /**
+   * La venta se firmó con la clave que había entonces. Si el servidor ha
+   * creado otra (otro despliegue), se descarga la actual y se firma el mismo
+   * ticket otra vez. Si la clave no ha cambiado, no se toca.
+   * @returns {Promise<boolean>}
+   */
+  async refirmar(item) {
+    if (this.firmasRenovadas.has(item.uuid)) return false
+    this.firmasRenovadas.add(item.uuid)
+    let venta = {}
+    try {
+      venta = JSON.parse(item.payload)
+    } catch {
+      venta = {}
+    }
+    const claveAntes = db.meta('claveOffline') || ''
+    const coincideAntes = !!claveAntes && hmac(claveAntes, item.payload) === item.hmac
+    let refresco = null
+    if (typeof this.refrescarClave === 'function') {
+      try {
+        refresco = await this.refrescarClave()
+      } catch (e) {
+        refresco = { ok: false, motivo: e.message }
+      }
+    }
+    const claveAhora = db.meta('claveOffline') || ''
+    const hmacAhora = claveAhora ? hmac(claveAhora, item.payload) : ''
+    const huella = (texto) => crypto.createHash('sha256').update(String(texto)).digest('hex').slice(0, 12)
+    // #region agent log
+    fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',location:'cola.js:refirmar',message:'firma rechazada',data:{empresa:venta.empresa??null,puesto:venta.puesto??null,fotoEmpresa:db.meta('fotoEmpresa'),fotoPuesto:db.meta('fotoPuesto'),payloadLen:String(item.payload||'').length,coincideConClaveAnterior:coincideAntes,claveCambio:claveAntes!==claveAhora,huellaAntes:huella(claveAntes),huellaAhora:huella(claveAhora),refrescoOk:!!refresco?.ok,refrescoMotivo:refresco?.motivo||null},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
+    if (!hmacAhora || hmacAhora === item.hmac) return false
+    db.ejecutar('UPDATE ventas_pendientes SET hmac = ? WHERE uuid = ?', [hmacAhora, item.uuid])
+    db.guardar({ inmediato: true })
+    item.hmac = hmacAhora
+    return true
   }
 
   reprogramar(item, mensaje, contar = true) {

@@ -37,6 +37,16 @@ export function reportClientError(
     })
 }
 
+// #region agent log
+function logDebug(hypothesisId: string, location: string, message: string, data: Record<string, unknown>): void {
+  fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '0d3608' },
+    body: JSON.stringify({ sessionId: '0d3608', location, message, data, timestamp: Date.now(), hypothesisId }),
+  }).catch(() => {})
+}
+// #endregion
+
 export function installGlobalErrorReporting(): void {
   window.addEventListener('error', (event) => {
     const msg = event.message || String(event.error ?? 'Error JS')
@@ -48,6 +58,14 @@ export function installGlobalErrorReporting(): void {
         colno: event.colno,
       },
     })
+    // #region agent log
+    logDebug('F', 'clientLogger.ts:onerror', 'error js global', {
+      msg: String(msg).slice(0, 300),
+      filename: event.filename,
+      lineno: event.lineno,
+      url: window.location.href,
+    })
+    // #endregion
   })
 
   window.addEventListener('unhandledrejection', (event) => {
@@ -64,5 +82,12 @@ export function installGlobalErrorReporting(): void {
         stack: reason instanceof Error ? reason.stack?.slice(0, 1500) : undefined,
       },
     })
+    // #region agent log
+    logDebug('F', 'clientLogger.ts:unhandledrejection', 'promesa sin capturar', {
+      msg: String(msg).slice(0, 300),
+      stack: reason instanceof Error ? String(reason.stack ?? '').slice(0, 500) : undefined,
+      url: window.location.href,
+    })
+    // #endregion
   })
 }

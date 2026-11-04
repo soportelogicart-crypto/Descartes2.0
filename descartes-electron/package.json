@@ -1,6 +1,6 @@
 {
   "name": "descartes-electron",
-  "version": "0.1.10",
+  "version": "0.1.15",
   "private": true,
   "description": "Shell Electron fino para Descartes 2.0 (UI en servidor + perifericos locales)",
   "author": "Descartes",
@@ -58,6 +58,8 @@
     "nsis": {
       "oneClick": false,
       "perMachine": false,
+      "language": "3082",
+      "installerLanguages": ["es_ES"],
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,

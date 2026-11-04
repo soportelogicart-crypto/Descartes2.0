@@ -445,11 +445,16 @@ final class AlbaranesPeriodicosService
     $linSt->execute(['e' => $empresaPlantilla, 't' => $tipoPlantilla, 'a' => $albaranPlantilla]);
     $lineas = $linSt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
+    // En MySQL NroLin no es identity: si se omite, todas las líneas quedan en 0.
+    $esMysql = $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'mysql';
+    $nroLin = 0;
+
     // Línea texto "Periodo dd/mm/yy al dd/mm/yy"
     $this->insertarLineaTexto(
       $empresaDestino,
       $nuevoNum,
-      'Periodo ' . $fechaVen->format('d/m/y') . ' al ' . $fechaFinPeriodo->format('d/m/y')
+      'Periodo ' . $fechaVen->format('d/m/y') . ' al ' . $fechaFinPeriodo->format('d/m/y'),
+      $esMysql ? ++$nroLin : null
     );
 
     foreach ($lineas as $lin) {
@@ -464,6 +469,9 @@ final class AlbaranesPeriodicosService
       $nuevaLin['Empresa'] = $empresaDestino;
       $nuevaLin['Tipo'] = 'A';
       $nuevaLin['Albaran'] = $nuevoNum;
+      if ($esMysql) {
+        $nuevaLin['NroLin'] = ++$nroLin;
+      }
 
       $colsL = array_keys($nuevaLin);
       $phL = array_map(static fn ($c) => ':' . preg_replace('/[^a-zA-Z0-9_]/', '_', $c), $colsL);
@@ -487,19 +495,25 @@ final class AlbaranesPeriodicosService
     ];
   }
 
-  private function insertarLineaTexto(string $empresa, int $albaran, string $descripcion): void
+  private function insertarLineaTexto(string $empresa, int $albaran, string $descripcion, ?int $nroLin = null): void
   {
-    $this->pdo->prepare(
-      "INSERT INTO AlbaranesVentasLin (
-         Empresa, Tipo, Albaran, Articulo, Descripcion, Cantidad, Precio, Importe, PjeDto
-       ) VALUES (
-         :e, 'A', :a, 'NO', :d, 0, 0, 0, 0
-       )"
-    )->execute([
+    $colNro = $nroLin === null ? '' : 'NroLin, ';
+    $valNro = $nroLin === null ? '' : ':nroLin, ';
+    $params = [
       'e' => $empresa,
       'a' => $albaran,
       'd' => substr($descripcion, 0, 50),
-    ]);
+    ];
+    if ($nroLin !== null) {
+      $params['nroLin'] = $nroLin;
+    }
+    $this->pdo->prepare(
+      "INSERT INTO AlbaranesVentasLin (
+         Empresa, Tipo, Albaran, {$colNro}Articulo, Descripcion, Cantidad, Precio, Importe, PjeDto
+       ) VALUES (
+         :e, 'A', :a, {$valNro}'NO', :d, 0, 0, 0, 0
+       )"
+    )->execute($params);
   }
 
   private function nextUltAlbaranVen(string $empresa): int

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Descartes 2.0</title>
+  <style>
+    html, body { margin: 0; height: 100%; }
+    body {
+      font-family: "Segoe UI", sans-serif;
+      background: #f7f5f2;
+      color: #1c1917;
+    }
+    main { padding: 22px 24px 18px; }
+    h1 { font-size: 15px; font-weight: 600; margin: 0 0 6px; }
+    p { margin: 0 0 16px; font-size: 12.5px; line-height: 1.45; color: #57534e; }
+    .pista { height: 8px; background: #e7e5e4; border-radius: 99px; overflow: hidden; }
+    .barra {
+      height: 100%;
+      width: 0%;
+      background: #14509b;
+      border-radius: 99px;
+    }
+    .meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 8px;
+      font-size: 12px;
+      color: #78716c;
+    }
+    .nombre {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-align: right;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Preparando Descartes</h1>
+    <p>Se está guardando la aplicación en este equipo para poder abrirla sin internet. No cierres esta ventana.</p>
+    <div class="pista" aria-hidden="true"><div class="barra" id="barra"></div></div>
+    <div class="meta">
+      <span id="cuenta">Iniciando…</span>
+      <span class="nombre" id="nombre"></span>
+    </div>
+  </main>
+  <script>
+    window.ponerProgreso = (hecho, total, nombre) => {
+      const n = Math.max(0, Number(total) || 0)
+      const h = Math.min(n, Math.max(0, Number(hecho) || 0))
+      const pct = n ? Math.round((h / n) * 100) : 0
+      document.getElementById('barra').style.width = pct + '%'
+      document.getElementById('cuenta').textContent = n && h >= n ? 'Abriendo…' : (n ? h + ' de ' + n : 'Iniciando…')
+      document.getElementById('nombre').textContent = n && h >= n ? '' : (nombre || '')
+    }
+  </script>
+</body>
+</html>

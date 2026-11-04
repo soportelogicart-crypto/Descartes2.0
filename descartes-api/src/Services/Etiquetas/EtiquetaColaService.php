@@ -7,6 +7,7 @@ namespace Descartes\Api\Services\Etiquetas;
 use Descartes\Api\Database\InsertedId;
 use Descartes\Api\Database\SqlPagination;
 use Descartes\Api\Services\Compras\AlbaranCompraConsultaService;
+use Descartes\Api\Services\Instalacion\EtiquetasArticuloSchema;
 use PDO;
 
 /**
@@ -22,6 +23,7 @@ final class EtiquetaColaService
   {
     $this->pdo = $pdo;
     $this->albaranesCompra = $albaranesCompra;
+    EtiquetasArticuloSchema::asegurar($pdo);
   }
 
   /**

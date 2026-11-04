@@ -374,6 +374,7 @@ const formaPagoCliente = ref('')
 const formasPagoContado = ref<{ codigo: string; descripcion: string; vales: boolean }[]>([])
 const fpagoFinal = ref('')
 const fpago2Final = ref('')
+const importeParteFinal = ref('')
 const valeNumeroFinal = ref('')
 const valeCodigoFinal = ref(0)
 const valeSaldoFinal = ref(0)
@@ -460,6 +461,28 @@ const formasDiferenciaFinal = computed(() => formasPagoContado.value.filter((f) 
 const faltaFormaDiferencia = computed(
   () => diferenciaValeFinal.value > 0.005 && !fpago2Final.value
 )
+
+const importeDocumentoFinal = computed(() =>
+  Math.max(0, Number(totales.value.importe ?? ficha.value?.importe ?? 0))
+)
+
+const importeParteNumero = computed(() => {
+  const n = Number(String(importeParteFinal.value).replace(',', '.'))
+  return Number.isFinite(n) ? n : 0
+})
+
+const restoPagoFinal = computed(() => {
+  if (pedirNumeroValeFinal.value) return 0
+  const total = importeDocumentoFinal.value
+  if (importeParteNumero.value <= 0.005 || importeParteNumero.value >= total - 0.005) return 0
+  return Math.round((total - importeParteNumero.value) * 100) / 100
+})
+
+const formasSegundaFinal = computed(() =>
+  formasPagoContado.value.filter((f) => f.codigo !== fpagoFinal.value && !f.vales)
+)
+
+const faltaSegundaForma = computed(() => restoPagoFinal.value > 0.005 && !fpago2Final.value)
 
 watch(fpagoFinal, async () => {
   fpago2Final.value = ''
@@ -2307,6 +2330,7 @@ async function onFinalizar() {
   valeSaldoFinal.value = 0
   valeAvisoFinal.value = ''
   fpago2Final.value = ''
+  importeParteFinal.value = ''
   puntosCanjeFinal.value = null
   const clienteFinal = String(ficha.value.cliente ?? '').trim()
   const importeFinal = Number(totales.value.importe ?? ficha.value.importe ?? 0)
@@ -2586,6 +2610,10 @@ async function confirmarFinalizar() {
     error.value = 'Seleccione la forma de pago de la diferencia'
     return
   }
+  if (faltaSegundaForma.value) {
+    error.value = 'Seleccione la segunda forma de pago'
+    return
+  }
   if (esTicketCerrado.value && !datosFacturaFinalOk.value) {
     return
   }
@@ -2649,7 +2677,11 @@ async function confirmarFinalizar() {
       {
         aplicarPuntosFidelizacion: aplicarPuntosFinal.value,
         ...(valeCodigoFinal.value > 0 ? { valeCodigo: valeCodigoFinal.value } : {}),
-        ...(fpago2Final.value ? { fpago2: fpago2Final.value } : {}),
+        ...(restoPagoFinal.value > 0.005
+          ? { fpago2: fpago2Final.value, impFpago1: importeParteNumero.value }
+          : fpago2Final.value
+            ? { fpago2: fpago2Final.value }
+            : {}),
       }
     )
     aplicarDetalle(done)
@@ -3424,6 +3456,41 @@ onActivated(() => {
                 </label>
               </div>
             </div>
+
+            <div v-else-if="fpagoFinal && importeDocumentoFinal > 0.005" class="vale-bloque">
+              <label>
+                Cuánto con esta forma
+                <span class="vale-dif-detalle">
+                  Total {{ importeDocumentoFinal.toFixed(2).replace('.', ',') }} €
+                </span>
+                <input
+                  v-model="importeParteFinal"
+                  inputmode="decimal"
+                  placeholder="Vacío = todo el total"
+                />
+              </label>
+              <div v-if="restoPagoFinal > 0.005" class="vale-diferencia">
+                <div class="vale-diferencia-cab">
+                  <span class="vale-dif-titulo">Resto</span>
+                  <strong class="vale-dif-importe">
+                    {{ restoPagoFinal.toFixed(2).replace('.', ',') }} €
+                  </strong>
+                </div>
+                <label>
+                  Segunda forma de pago
+                  <select v-model="fpago2Final" class="select-diferencia">
+                    <option disabled value="">Seleccione…</option>
+                    <option
+                      v-for="f in formasSegundaFinal"
+                      :key="'seg-' + f.codigo"
+                      :value="f.codigo"
+                    >
+                      {{ f.codigo }} — {{ f.descripcion }}
+                    </option>
+                  </select>
+                </label>
+              </div>
+            </div>
           </div>
           <p v-if="tipoFinal === 'F' && !esTicketCerrado" class="warn">Factura: el documento quedara bloqueado.</p>
           <div v-if="puntosCanjeFinal && tipoFinal !== 'P' && !esTicketCerrado" class="vale-puntos">
@@ -3449,7 +3516,7 @@ onActivated(() => {
             <button
               type="button"
               class="primary"
-              :disabled="(mostrarSelectorFpago && !fpagoFinal) || (pedirNumeroValeFinal && !valeCodigoFinal) || faltaFormaDiferencia || (esTicketCerrado && !datosFacturaFinalOk)"
+              :disabled="(mostrarSelectorFpago && !fpagoFinal) || (pedirNumeroValeFinal && !valeCodigoFinal) || faltaFormaDiferencia || faltaSegundaForma || (esTicketCerrado && !datosFacturaFinalOk)"
               @click="confirmarFinalizar"
             >
               Aceptar

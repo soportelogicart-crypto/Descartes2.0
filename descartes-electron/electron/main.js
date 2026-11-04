@@ -68,13 +68,73 @@ function loadShellConfig() {
 function apiBaseDe(cfg) {
   if (isDev) return DEV_API_BASE
   try {
-    return new URL(cfg.appUrl || DEV_URL).origin
+    // La UI vive en /descartes/ y el proxy de /api cuelga de esa carpeta.
+    // El origen solo (sin la ruta) apunta a la raíz, que no es la API.
+    const u = new URL(cfg.appUrl || DEV_URL)
+    return u.origin + u.pathname.replace(/\/+$/, '')
   } catch {
     return DEV_URL
   }
 }
 
-async function resolveAppUrl(cfg) {
+function crearProgreso() {
+  let win = null
+  let listo = false
+  let ultimo = null
+
+  const pintar = () => {
+    if (!listo || !ultimo || !win || win.isDestroyed()) return
+    const hecho = Number(ultimo.hecho) || 0
+    const total = Number(ultimo.total) || 0
+    const nombre = JSON.stringify(String(ultimo.nombre || ''))
+    win.webContents.executeJavaScript(`window.ponerProgreso(${hecho}, ${total}, ${nombre})`).catch(() => {})
+  }
+
+  return {
+    actualizar(info) {
+      ultimo = info
+      if (!win) {
+        const icon = appIconPath()
+        win = new BrowserWindow({
+          width: 460,
+          height: 196,
+          resizable: false,
+          minimizable: false,
+          maximizable: false,
+          fullscreenable: false,
+          autoHideMenuBar: true,
+          center: true,
+          show: false,
+          alwaysOnTop: true,
+          title: 'Descartes 2.0',
+          backgroundColor: '#f7f5f2',
+          ...(icon ? { icon } : {}),
+          webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: true,
+          },
+        })
+        win.once('ready-to-show', () => {
+          if (win && !win.isDestroyed()) win.show()
+        })
+        win.webContents.once('did-finish-load', () => {
+          listo = true
+          pintar()
+        })
+        win.loadFile(path.join(__dirname, 'progreso-ui.html'))
+      }
+      pintar()
+    },
+    cerrar() {
+      if (win && !win.isDestroyed()) win.destroy()
+      win = null
+      listo = false
+    },
+  }
+}
+
+async function resolveAppUrl(cfg, onProgreso) {
   if (isDev) {
     try {
       await waitForUrl(DEV_URL, { timeoutMs: 1500 })
@@ -88,7 +148,7 @@ async function resolveAppUrl(cfg) {
   if (cfg.uiLocal === false) {
     return { url: appUrl, local: false }
   }
-  const res = await uiLocal.actualizar(appUrl)
+  const res = await uiLocal.actualizar(appUrl, { onProgreso })
   if (res.actualizado) {
     console.log(`[descartes-electron] UI local actualizada a ${res.version}`)
   } else if (res.motivo) {
@@ -104,7 +164,15 @@ async function resolveAppUrl(cfg) {
 async function createWindow() {
   const cfg = loadShellConfig()
   const winCfg = cfg.window || {}
-  const { url, local } = await resolveAppUrl(cfg)
+  const progreso = crearProgreso()
+  let url
+  let local
+  try {
+    ;({ url, local } = await resolveAppUrl(cfg, (info) => progreso.actualizar(info)))
+  } catch (err) {
+    progreso.cerrar()
+    throw err
+  }
   const fullscreen = !!winCfg.fullscreen
   // Por defecto ventana maximizada (completa). Solo se desactiva si maximized: false.
   const maximized = winCfg.maximized !== false && !fullscreen
@@ -128,6 +196,10 @@ async function createWindow() {
   win.once('ready-to-show', () => {
     if (maximized) win.maximize()
     win.show()
+    progreso.cerrar()
+  })
+  win.webContents.on('did-fail-load', (_e, _code, _desc, _validatedURL, isMainFrame) => {
+    if (isMainFrame !== false) progreso.cerrar()
   })
   bindWindowMenu(win)
 
@@ -155,22 +227,39 @@ async function createWindow() {
   })
 
   console.log(`[descartes-electron] Cargando UI en la ventana Electron: ${url}`)
+  // #region agent log
+  fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',location:'main.js:createWindow',message:'url de arranque',data:{url,local,apiBase:apiBaseDe(cfg)},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
+  const anotarNavegacion = (navUrl) => {
+    const u = String(navUrl || '')
+    if (!/mantenimiento|login|instalacion/.test(u)) return
+    fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',location:'main.js:navegacion',message:'cambio de pantalla',data:{url:u.slice(0,220)},timestamp:Date.now(),hypothesisId:'D'})}).catch(()=>{});
+  }
+  win.webContents.on('did-navigate-in-page', (_e, navUrl) => anotarNavegacion(navUrl))
+  win.webContents.on('did-fail-load', (_e, code, desc, validatedURL) => {
+    fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',location:'main.js:did-fail-load',message:'fallo de carga',data:{code,desc:String(desc||'').slice(0,160),url:String(validatedURL||'').slice(0,220)},timestamp:Date.now(),hypothesisId:'H'})}).catch(()=>{});
+  })
+  // #endregion
   console.log(`[descartes-electron] Config equipo: ${localConfig.equipoPath()}`)
 
   offline.adjuntarVentana(win)
 
-  if (!isDev && !local) {
-    // Sin esto Chromium reutiliza un index.html viejo y no ve el JS nuevo del hosting.
-    try {
-      await win.webContents.session.clearCache()
-    } catch {
-      // ignore
+  try {
+    if (!isDev && !local) {
+      // Sin esto Chromium reutiliza un index.html viejo y no ve el JS nuevo del hosting.
+      try {
+        await win.webContents.session.clearCache()
+      } catch {
+        // ignore
+      }
+      await win.loadURL(url, {
+        extraHeaders: 'Cache-Control: no-cache\nPragma: no-cache\n',
+      })
+    } else {
+      await win.loadURL(url)
     }
-    await win.loadURL(url, {
-      extraHeaders: 'Cache-Control: no-cache\nPragma: no-cache\n',
-    })
-  } else {
-    await win.loadURL(url)
+  } catch (err) {
+    progreso.cerrar()
+    throw err
   }
 
   if (openDevTools) {

@@ -35,7 +35,18 @@ function recordarUsuario({ codigo, password, usuario, permisos }) {
 }
 
 /** Permisos sin conexión: TPV y consulta de los catálogos que sí están copiados. */
-const CONSULTA_LOCAL = ['articulos', 'clientes', 'familias', 'macrofamilias', 'subfamilias']
+const CONSULTA_LOCAL = [
+  'articulos',
+  'clientes',
+  'familias',
+  'macrofamilias',
+  'subfamilias',
+  'agrupaciones',
+  'secciones',
+  'subsecciones',
+  'impuestos',
+  'proveedores',
+]
 
 function permisosOffline(permisos) {
   const tpv = (permisos && permisos.tpv) || {}

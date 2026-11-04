@@ -64,6 +64,7 @@ final class MigrationService
       if ($pendientes === []) {
         try {
           ActividadesCentroCosteSchema::asegurar($pdo);
+          EtiquetasArticuloSchema::asegurar($pdo);
           AsientosLinCentroCosteSchema::asegurar($pdo);
           ClubFidelizacionSchema::asegurar($pdo);
         } catch (\Throwable $e) {
@@ -269,6 +270,7 @@ final class MigrationService
     try {
       (new MysqlSchemaService())->asegurar($pdo);
       ActividadesCentroCosteSchema::asegurar($pdo);
+      EtiquetasArticuloSchema::asegurar($pdo);
       AsientosLinCentroCosteSchema::asegurar($pdo);
       ClubFidelizacionSchema::asegurar($pdo);
       $this->ensureMigrationTableMysql($pdo);

@@ -1,0 +1,10 @@
+{
+  "appUrl": "https://gestion.topay-comunicacion.es/",
+  "apiHint": "npm start = lo mismo que el otro PC (hosting). npm run dev = tu trabajo local (Vite).",
+  "window": {
+    "width": 1280,
+    "height": 800,
+    "maximized": true,
+    "fullscreen": false
+  }
+}

@@ -174,7 +174,11 @@ return function (App $app): void {
     $c->get(PDO::class),
     $c->get(\Descartes\Api\Services\Compras\AlbaranCompraConsultaService::class)
   ));
-  $container->set(\Descartes\Api\Services\Ventas\ArqueoService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\ArqueoService($c->get(PDO::class)));
+  $container->set(\Descartes\Api\Services\Ventas\ArqueoService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\ArqueoService(
+    $c->get(PDO::class),
+    null,
+    $c->get(\Descartes\Api\Services\Facturacion\TraspasoContableService::class)
+  ));
   $container->set(\Descartes\Api\Services\Ventas\SituacionVentasService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\SituacionVentasService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Ventas\DesgloseArqueoVentasService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\DesgloseArqueoVentasService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Ventas\DispositivoPuestoService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\DispositivoPuestoService($c->get(PDO::class)));

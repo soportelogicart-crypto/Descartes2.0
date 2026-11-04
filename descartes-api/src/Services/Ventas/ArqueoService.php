@@ -4,17 +4,25 @@ declare(strict_types=1);
 
 namespace Descartes\Api\Services\Ventas;
 
+use Descartes\Api\Services\Facturacion\ConexionContableService;
+use Descartes\Api\Services\Facturacion\TraspasoContableService;
 use PDO;
 
 final class ArqueoService
 {
   private PDO $pdo;
   private ValeService $vales;
+  private TraspasoContableService $contabilidad;
 
-  public function __construct(PDO $pdo, ?ValeService $vales = null)
-  {
+  public function __construct(
+    PDO $pdo,
+    ?ValeService $vales = null,
+    ?TraspasoContableService $contabilidad = null
+  ) {
     $this->pdo = $pdo;
     $this->vales = $vales ?? new ValeService($pdo);
+    $this->contabilidad = $contabilidad
+      ?? new TraspasoContableService($pdo, new ConexionContableService($pdo));
   }
 
   /**
@@ -288,7 +296,7 @@ final class ArqueoService
    * Si hay salida a siguiente sesion, genera entrada de caja en la nueva.
    *
    * @param array{salidaBanco?: float|int, salidaSiguienteSesion?: float|int, aplicarDescuadre?: bool, forzar?: bool, formaPagoEfectivo?: string} $body
-   * @return array{sesionCerrada: array<string, mixed>, sesionNueva: array<string, mixed>, descuadreEfectivo: float}
+   * @return array{sesionCerrada: array<string, mixed>, sesionNueva: array<string, mixed>, descuadreEfectivo: float, traspaso: array<string, mixed>}
    */
   public function cerrarSesion(
     string $empresa,
@@ -423,6 +431,8 @@ final class ArqueoService
         ]);
       }
 
+      $traspaso = $this->contabilidad->traspasarTicketsSesion($empresa, $puesto, $sesion);
+
       $this->pdo->commit();
     } catch (\Throwable $e) {
       $this->pdo->rollBack();
@@ -433,6 +443,7 @@ final class ArqueoService
       'sesionCerrada' => $this->obtener($empresa, $puesto, $sesion),
       'sesionNueva' => $this->obtener($empresa, $puesto, $nuevaSesion),
       'descuadreEfectivo' => round($diferencia, 2),
+      'traspaso' => $traspaso,
     ];
   }
 

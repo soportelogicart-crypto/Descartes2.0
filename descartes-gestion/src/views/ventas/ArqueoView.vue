@@ -400,7 +400,14 @@ async function confirmarCerrar() {
     const p = puestosAll.value.find((x) => x.value === pue)
     if (p) p.ultSesion = res.sesionNueva.sesion
     const fp = cierreForm.value.formaPagoEfectivo.trim()
-    mensaje.value = `Sesion ${ses} cerrada. Nueva sesion ${res.sesionNueva.sesion} abierta. Descuadre: ${res.descuadreEfectivo.toFixed(2)}${fp ? ` · Efectivo: ${fp}` : ''}`
+    const asiento =
+      res.traspaso?.serie && res.traspaso.numero
+        ? ` Asiento ${res.traspaso.serie}-${res.traspaso.numero}`
+          + (res.traspaso.numeroCobro
+            ? `. Cobro ${res.traspaso.serie}-${res.traspaso.numeroCobro}.`
+            : '.')
+        : ''
+    mensaje.value = `Sesion ${ses} cerrada. Nueva sesion ${res.sesionNueva.sesion} abierta. Descuadre: ${res.descuadreEfectivo.toFixed(2)}${fp ? ` · Efectivo: ${fp}` : ''}.${asiento}`
     if (salidaFisica && abreCajonCierre) {
       try {
         await abrirCajonPuesto(pue)

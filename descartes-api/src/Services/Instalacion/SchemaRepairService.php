@@ -32,6 +32,7 @@ final class SchemaRepairService
     $faltantesAntes = $this->extensionesFaltantes($pdo);
     try {
       ActividadesCentroCosteSchema::asegurar($pdo);
+      EtiquetasArticuloSchema::asegurar($pdo);
     } catch (\Throwable $e) {
       return [
         'ok' => false,

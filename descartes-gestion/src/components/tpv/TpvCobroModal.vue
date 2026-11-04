@@ -27,6 +27,7 @@ const emit = defineEmits<{
       valeCodigo?: number
       valeImporte?: number
       formaPago2?: string
+      importePrimera?: number
     },
   ]
   cancelar: []
@@ -88,6 +89,34 @@ const pedirDiferencia = computed(() => diferencia.value > 0.005)
 
 const formasDiferencia = computed(() => props.formasPago.filter((f) => !f.vales))
 
+const formasSegunda = computed(() =>
+  props.formasPago.filter((f) => f.codigo !== formaPago.value && !f.vales)
+)
+
+const totalCobro = computed(() => Math.max(0, props.total))
+
+/** Importe escrito menor que el total: esa cantidad va a la forma elegida. */
+const parte = computed(() => {
+  if (
+    !requierePago.value ||
+    esDevolucion.value ||
+    pedirNumeroVale.value ||
+    !formaPago.value ||
+    entregado.value <= 0.005 ||
+    entregado.value >= totalCobro.value - 0.005
+  ) {
+    return 0
+  }
+  return entregado.value
+})
+
+const resto = computed(() => {
+  if (parte.value <= 0.005) return 0
+  return Math.round((totalCobro.value - parte.value) * 100) / 100
+})
+
+const pagoPartido = computed(() => resto.value > 0.005)
+
 const formaDiferencia = computed(() =>
   formasDiferencia.value.find((f) => f.codigo === formaPago2.value)
 )
@@ -97,7 +126,7 @@ const datafonoDiferencia = computed(
 )
 
 const mostrarEntregado = computed(() => {
-  if (!requierePago.value) return false
+  if (!requierePago.value || pagoPartido.value) return false
   if (!pedirNumeroVale.value) return true
   return pedirDiferencia.value && Boolean(formaPago2.value) && !datafonoDiferencia.value
 })
@@ -110,12 +139,16 @@ const cambio = computed(() => {
   return Math.round((entregado.value - baseEntregado.value) * 100) / 100
 })
 
-const falta = computed(() => mostrarEntregado.value && entregado.value > 0 && cambio.value < 0)
+const falta = computed(
+  () => !pagoPartido.value && mostrarEntregado.value && entregado.value > 0 && cambio.value < 0
+)
+
 const valido = computed(
   () =>
     (!requierePago.value || Boolean(formaPago.value)) &&
     (!pedirNumeroVale.value || valeCodigo.value > 0) &&
     (!pedirDiferencia.value || Boolean(formaPago2.value)) &&
+    (!pagoPartido.value || Boolean(formaPago2.value)) &&
     !falta.value
 )
 
@@ -154,6 +187,10 @@ watch(
   { immediate: true }
 )
 
+watch(pagoPartido, (activo) => {
+  if (!activo && !pedirDiferencia.value) formaPago2.value = ''
+})
+
 watch([formaPago, tipoDocumento], async () => {
   formaPago2.value = ''
   entrada.value = ''
@@ -184,6 +221,7 @@ function borrarUno() {
 }
 
 function exacto() {
+  formaPago2.value = ''
   entrada.value = baseEntregado.value.toFixed(2).replace('.', ',')
 }
 
@@ -197,6 +235,9 @@ function confirmar() {
       ? { valeCodigo: valeCodigo.value, valeImporte: valeAplicadoPrevisto.value }
       : {}),
     ...(pedirDiferencia.value && formaPago2.value ? { formaPago2: formaPago2.value } : {}),
+    ...(pagoPartido.value && formaPago2.value
+      ? { formaPago2: formaPago2.value, importePrimera: parte.value }
+      : {}),
   })
 }
 
@@ -355,15 +396,46 @@ async function buscarVale() {
             </div>
           </template>
 
-          <template v-if="mostrarEntregado">
-          <p class="rotulo">ENTREGADO (opcional)</p>
-          <div class="visor">
+          <template v-if="pagoPartido">
+            <p class="rotulo">IMPORTE EN {{ textoForma(formaSeleccionada!) }}</p>
+            <div class="visor">
+              <span class="visor-lbl">€</span>
+              <span class="visor-val">{{ entrada || '0' }}</span>
+            </div>
+            <div class="bloque-diferencia">
+              <div class="dif-cab">
+                <span class="dif-titulo">RESTO</span>
+                <strong class="dif-importe">{{ euros(resto) }}</strong>
+              </div>
+              <p class="rotulo">SEGUNDA FORMA DE PAGO</p>
+              <div v-if="formasSegunda.length" class="formas">
+                <button
+                  v-for="f in formasSegunda"
+                  :key="'seg-' + f.codigo"
+                  type="button"
+                  class="btn-legacy forma"
+                  :class="{ activa: formaPago2 === f.codigo }"
+                  @click="formaPago2 = f.codigo"
+                >
+                  {{ textoForma(f) }}
+                </button>
+              </div>
+              <p v-else class="sin-formas">No hay otra forma de pago de contado.</p>
+            </div>
+          </template>
+
+          <template v-if="mostrarEntregado || pagoPartido">
+          <p v-if="mostrarEntregado" class="rotulo">ENTREGADO (opcional)</p>
+          <div v-if="mostrarEntregado" class="visor">
             <span class="visor-lbl">€</span>
             <span class="visor-val">{{ entrada || '0' }}</span>
           </div>
-          <p class="cambio" :class="{ falta }">
+          <p v-if="mostrarEntregado" class="cambio" :class="{ falta }">
             <template v-if="falta">Faltan {{ euros(-cambio) }}</template>
             <template v-else-if="entregado > 0">Cambio: <strong>{{ euros(cambio) }}</strong></template>
+            <template v-else-if="formaPago && !pedirNumeroVale && !esDevolucion">
+              Se cobra todo con esta forma. Si escribes menos, el resto va a otra forma.
+            </template>
             <template v-else>Sin importe entregado no se calcula cambio</template>
           </p>
 

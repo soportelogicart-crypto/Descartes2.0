@@ -665,6 +665,24 @@ final class VentaEscrituraService
           }
           $impFpago2 = $diferencia;
         }
+      } elseif (
+        !$esTicketAFactura
+        && $importe > 0.005
+        && in_array($opcion, ['T', 'F'], true)
+      ) {
+        $parte = round((float) ($body['impFpago1'] ?? 0), 2);
+        $segunda = substr(trim((string) ($body['fpago2'] ?? '')), 0, 2);
+        if ($segunda !== '' && $parte > 0.005 && $parte < $importe - 0.005) {
+          if ($segunda === $fpago1) {
+            throw new \InvalidArgumentException('Las dos formas de pago tienen que ser distintas');
+          }
+          if ($this->vales->formaEsVale($segunda)) {
+            throw new \InvalidArgumentException('El vale tiene que ser la primera forma de pago');
+          }
+          $impFpago1 = $parte;
+          $fpago2 = $segunda;
+          $impFpago2 = round($importe - $parte, 2);
+        }
       }
 
       if ($opcion === 'T') {

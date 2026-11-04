@@ -248,6 +248,7 @@ export async function finalizarVenta(
     fechaNacimiento?: string
     valeCodigo?: number
     fpago2?: string
+    impFpago1?: number
   } = {}
 ) {
   const { data } = await api.post<VentaDetalle>(
@@ -357,6 +358,14 @@ export type CerrarSesionResponse = {
   sesionCerrada: ArqueoResponse
   sesionNueva: ArqueoResponse
   descuadreEfectivo: number
+  traspaso?: {
+    serie: string | null
+    numero: number | null
+    numeroCobro?: number | null
+    tickets: number
+    importe: number
+    recuperado: boolean
+  }
 }
 
 export async function cerrarSesionArqueo(

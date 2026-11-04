@@ -86,7 +86,7 @@ final class EtiquetasController
 
     try {
       $this->cola->eliminar($articulo, $nroLin);
-      return $response->withStatus(204);
+      return $this->json($response, 200, ['eliminada' => true]);
     } catch (\InvalidArgumentException $e) {
       return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
     } catch (\RuntimeException $e) {

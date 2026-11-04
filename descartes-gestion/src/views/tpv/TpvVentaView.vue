@@ -1135,6 +1135,7 @@ async function finalizarVentaTrasCobro(
     valeCodigo?: number
     valeImporte?: number
     formaPago2?: string
+    importePrimera?: number
   },
   importeDatafono: number,
   fidelizacion: {
@@ -1153,9 +1154,16 @@ async function finalizarVentaTrasCobro(
   }
 ) {
   const contexto = tpv.contexto
-  const formaTarjeta = datos.formaPago2
+  const candidata1 = contexto?.formasPago.find((item) => item.codigo === datos.formaPago)
+  const candidata2 = datos.formaPago2
     ? contexto?.formasPago.find((item) => item.codigo === datos.formaPago2)
-    : contexto?.formasPago.find((item) => item.codigo === datos.formaPago)
+    : undefined
+  const formaTarjeta =
+    candidata1?.datafono && candidata1.chipAcumuladoMenu
+      ? candidata1
+      : candidata2?.datafono && candidata2.chipAcumuladoMenu
+        ? candidata2
+        : candidata2 ?? candidata1
   const cerrada = await tpv.cobrar(datos.tipoDocumento, datos.formaPago, {
     aplicarValeFidelizacion: fidelizacion.aplicarValeFidelizacion,
     aplicarPuntosFidelizacion: fidelizacion.aplicarPuntosFidelizacion,
@@ -1177,6 +1185,7 @@ async function finalizarVentaTrasCobro(
       : {}),
     ...(datos.valeCodigo ? { valeCodigo: datos.valeCodigo } : {}),
     ...(datos.formaPago2 ? { fpago2: datos.formaPago2 } : {}),
+    ...(datos.importePrimera != null ? { impFpago1: datos.importePrimera } : {}),
   })
   if (!cerrada) return
 
@@ -1199,7 +1208,7 @@ async function finalizarVentaTrasCobro(
         await registrarAutorizacionTarjetaAlbaran(cerrada.empresa, cerrada.albaran, {
           puesto: contexto.puesto,
           sesion: Number(cerrada.sesion ?? contexto.sesion ?? 0),
-          formaPago: datos.formaPago2 ? 2 : 1,
+          formaPago: formaTarjeta?.codigo === datos.formaPago2 ? 2 : 1,
           ...auth,
         })
       }
@@ -1337,11 +1346,18 @@ async function onCobroConfirmado(datos: {
   valeCodigo?: number
   valeImporte?: number
   formaPago2?: string
+  importePrimera?: number
 }) {
   const contexto = tpv.contexto
-  const forma = datos.formaPago2
+  const forma1 = contexto?.formasPago.find((item) => item.codigo === datos.formaPago)
+  const forma2 = datos.formaPago2
     ? contexto?.formasPago.find((item) => item.codigo === datos.formaPago2)
-    : contexto?.formasPago.find((item) => item.codigo === datos.formaPago)
+    : undefined
+  const forma = forma2?.datafono && forma2.chipAcumuladoMenu
+    ? forma2
+    : forma1?.datafono && forma1.chipAcumuladoMenu
+      ? forma1
+      : forma2 ?? forma1
   const requierePago = datos.tipoDocumento === 'T' || datos.tipoDocumento === 'F'
   const totalCobro = Number(tpv.venta?.importe ?? tpv.total)
   let aplicarValeFidelizacion = false
@@ -1453,7 +1469,16 @@ async function onCobroConfirmado(datos: {
   const descuentoValePapel = datos.valeCodigo
     ? Math.min(Number(datos.valeImporte ?? 0), Math.max(0, topeTrasFidelizacion))
     : 0
-  const importeDatafono = topeTrasFidelizacion - descuentoValePapel
+  const pendiente = topeTrasFidelizacion - descuentoValePapel
+  const parte1 = Number(datos.importePrimera ?? 0)
+  const pagoPartido = Boolean(datos.formaPago2) && parte1 > 0.005 && parte1 < pendiente - 0.005
+  const importeDatafono = !forma?.datafono
+    ? pendiente
+    : pagoPartido && forma.codigo === datos.formaPago2
+      ? Math.round((pendiente - parte1) * 100) / 100
+      : pagoPartido
+        ? parte1
+        : pendiente
   const datafonoIntegrado = Boolean(forma?.datafono && forma.chipAcumuladoMenu)
   if (requierePago && datafonoIntegrado && Math.abs(importeDatafono) > 0.005) {
     if (!contexto || !tpv.venta) {

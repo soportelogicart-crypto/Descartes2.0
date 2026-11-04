@@ -3,11 +3,11 @@ import { computed, defineAsyncComponent } from 'vue'
 import { useRoute } from 'vue-router'
 import { getEntidadConfig } from '@/config/entidades'
 import MantenimientoCrud from '@/components/mantenimiento/MantenimientoCrud.vue'
+import ArticulosView from '@/views/mantenimiento/ArticulosView.vue'
+import ClientesView from '@/views/mantenimiento/ClientesView.vue'
 
 const TiendasView = defineAsyncComponent(() => import('@/views/mantenimiento/TiendasView.vue'))
 const AlmacenesView = defineAsyncComponent(() => import('@/views/mantenimiento/AlmacenesView.vue'))
-const ArticulosView = defineAsyncComponent(() => import('@/views/mantenimiento/ArticulosView.vue'))
-const ClientesView = defineAsyncComponent(() => import('@/views/mantenimiento/ClientesView.vue'))
 const RolesView = defineAsyncComponent(() => import('@/views/mantenimiento/RolesView.vue'))
 const UsuariosView = defineAsyncComponent(() => import('@/views/mantenimiento/UsuariosView.vue'))
 const TrabajadoresView = defineAsyncComponent(() => import('@/views/mantenimiento/TrabajadoresView.vue'))

@@ -831,6 +831,7 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
       fechaNacimiento?: string
       valeCodigo?: number
       fpago2?: string
+      impFpago1?: number
     } = {}
   ): Promise<VentaDetalle | null> {
     if (rechazarConsulta()) return null
@@ -857,7 +858,17 @@ export const useTpvVentaStore = defineStore('tpvVenta', () => {
       const payload = payloadDesdeVenta()
       if (requierePago) {
         payload.fpago1 = fpago
-        payload.impFpago1 = total.value
+        const parcial = Number(opciones.impFpago1 ?? 0)
+        const segunda = String(opciones.fpago2 ?? '').trim()
+        if (segunda && parcial > 0.005 && parcial < total.value - 0.005) {
+          payload.impFpago1 = parcial
+          payload.fpago2 = segunda
+          payload.impFpago2 = Math.round((total.value - parcial) * 100) / 100
+        } else {
+          payload.impFpago1 = total.value
+          payload.fpago2 = ''
+          payload.impFpago2 = 0
+        }
       }
       const actualizada = await actualizarVenta(v.empresa, v.tipo, v.albaran, payload)
       venta.value = actualizada
