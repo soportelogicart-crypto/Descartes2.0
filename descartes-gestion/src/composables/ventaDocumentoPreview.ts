@@ -3,6 +3,7 @@ import type {
   DocumentoPreviewLinea,
 } from '@/config/documentos-plantillas/preview-datos'
 import type { VentaDetalle, VentaLinea } from '@/types/ventas'
+import { idiomaDocumento } from '@/utils/paisIdioma'
 
 function fmtFecha(iso: string | null | undefined): string {
   if (!iso) return ''
@@ -105,6 +106,8 @@ export function ventaAPreviewDatos(
     pasaporteFitosanitarioEmpresa?: string
     /** Asterisco en línea + pie fitosanitario (solo albarán A4). */
     plantillaTipo?: string
+    /** Imprime PrecioTarifa. No cambia los importes guardados. */
+    preciosVenta?: boolean
   } = {}
 ): DocumentoPreviewDatos {
   const ivas = (venta.importesIva ?? []).map((x) => ({
@@ -120,7 +123,17 @@ export function ventaAPreviewDatos(
     : Number(venta.factura) > 0
       ? String(venta.factura)
       : String(venta.albaran || '')
-  const observaciones = [numeroOffline ? 'EMITIDO SIN CONEXIÓN' : '', String(venta.observaciones ?? '').trim()]
+  const refs = [venta.referencia1, venta.referencia2, venta.suPedido]
+    .map((x) => String(x ?? '').trim())
+    .filter(Boolean)
+  const pagoACuenta = Number(venta.pagoACuenta) || 0
+  const observaciones = [
+    numeroOffline ? 'EMITIDO SIN CONEXIÓN' : '',
+    String(venta.clienteFinal ?? '').trim() ? `Cliente final: ${String(venta.clienteFinal).trim()}` : '',
+    refs.length ? `Ref. cliente: ${refs.join(' · ')}` : '',
+    pagoACuenta > 0.004 ? `A cuenta: ${pagoACuenta.toFixed(2)}` : '',
+    String(venta.observaciones ?? '').trim(),
+  ]
     .filter(Boolean)
     .join('\n')
 
@@ -159,19 +172,26 @@ export function ventaAPreviewDatos(
     }
     const marcaFito = anotacionFitoAlbaran && lineaRequiereAsteriscoPasaporteFito(l)
     if (marcaFito) hayLineasFito = true
-    const precio = Number(l.precio) || 0
+    const precioTarifa = Number(l.precioTarifa) || 0
+    const usaTarifa = Boolean(extras.preciosVenta && precioTarifa > 0)
+    const precio = usaTarifa ? precioTarifa : Number(l.precio) || 0
+    const dto = Number(l.pjeDto) || 0
+    const unidades = Number(l.cantidad) || 0
+    const importe = usaTarifa
+      ? redondear2(unidades * precio * (1 - dto / 100))
+      : Number(l.importe) || 0
     const pje = Number(l.pjeIva) || 0
     const factor = 1 + pje / 100
     const conIva = extras.preciosIvaIncluido || pje <= 0
     lineas.push({
       articulo: art,
       descripcion: String(l.descripcion ?? ''),
-      unidades: Number(l.cantidad) || 0,
+      unidades,
       precio,
       precioSinIva: conIva ? redondear2(precio / factor) : precio,
-      dto: Number(l.pjeDto) || 0,
+      dto,
       pjeIva: pje,
-      importe: Number(l.importe) || 0,
+      importe,
       pvp: conIva ? precio : redondear2(precio * factor),
       marcaPasaporteFito: marcaFito || undefined,
     })
@@ -248,12 +268,15 @@ export function ventaAPreviewDatos(
       codigoBarras: numeroOffline ? `*${numeroOffline}*` : `*${venta.empresa || ''}${venta.albaran || ''}*`,
       pagina: '1/1',
       anotacionPasaporteFitosanitario,
+      idioma: idiomaDocumento(venta.idioma),
     },
     lineas,
     totales: {
       base: redondear2(base),
       ivas,
-      importe: redondear2(Number(venta.importeFactura ?? venta.importe) || 0),
+      importe: extras.preciosVenta
+        ? redondear2(lineas.reduce((s, l) => s + (Number(l.importe) || 0), 0))
+        : redondear2(Number(venta.importeFactura ?? venta.importe) || 0),
       descuentoFidelizacion: redondear2(Number(venta.descuentoFidelizacion) || 0),
       pjeRetIrpf: Number(venta.pjeRetIrpf) || 0,
       basRetIrpf: redondear2(Number(venta.basRetIrpf) || 0),

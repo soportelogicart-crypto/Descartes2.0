@@ -19,6 +19,7 @@ use Descartes\Api\Services\Ventas\FidelizacionClubSaldoService;
 use Descartes\Api\Services\Ventas\FidelizacionService;
 use Descartes\Api\Services\Ventas\FidelizacionValesSemestreService;
 use Descartes\Api\Services\TipoDescuentoService;
+use Descartes\Api\Services\Ventas\PagoACuentaAlbaranService;
 use Descartes\Api\Services\Ventas\PedidoClienteService;
 use Descartes\Api\Services\Ventas\SituacionVentasService;
 use Descartes\Api\Services\Ventas\ValeService;
@@ -52,6 +53,7 @@ final class VentasController
   private PermissionService $permissions;
   private TipoDescuentoService $tiposDescuento;
   private SituacionVentasService $situacionVentas;
+  private PagoACuentaAlbaranService $pagosACuenta;
   private LoggerInterface $logger;
 
   public function __construct(
@@ -75,6 +77,7 @@ final class VentasController
     PermissionService $permissions,
     TipoDescuentoService $tiposDescuento,
     SituacionVentasService $situacionVentas,
+    PagoACuentaAlbaranService $pagosACuenta,
     LoggerInterface $logger
   ) {
     $this->ventas = $ventas;
@@ -97,6 +100,7 @@ final class VentasController
     $this->permissions = $permissions;
     $this->tiposDescuento = $tiposDescuento;
     $this->situacionVentas = $situacionVentas;
+    $this->pagosACuenta = $pagosACuenta;
     $this->logger = $logger;
   }
 
@@ -149,6 +153,91 @@ final class VentasController
       return ErrorResponse::json($response, 404, 'Venta no encontrada', 'NO_ENCONTRADO');
     }
     return $this->json($response, 200, $item);
+  }
+
+  public function listPagosACuenta(Request $request, Response $response, array $args): Response
+  {
+    try {
+      return $this->json($response, 200, $this->pagosACuenta->listar(
+        (string) ($args['empresa'] ?? ''),
+        (string) ($args['tipo'] ?? ''),
+        (int) ($args['albaran'] ?? 0)
+      ));
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function createPagoACuenta(Request $request, Response $response, array $args): Response
+  {
+    $body = (array) json_decode((string) $request->getBody(), true);
+    try {
+      $item = $this->pagosACuenta->crear(
+        (string) ($args['empresa'] ?? ''),
+        (string) ($args['tipo'] ?? ''),
+        (int) ($args['albaran'] ?? 0),
+        $body
+      );
+      $this->audit('ventas.pago_a_cuenta', 'Pago a cuenta anotado', [
+        'empresa' => $args['empresa'] ?? null,
+        'tipo' => $args['tipo'] ?? null,
+        'albaran' => $args['albaran'] ?? null,
+        'importe' => $body['importe'] ?? null,
+      ]);
+      return $this->json($response, 201, $item);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function updatePagoACuenta(Request $request, Response $response, array $args): Response
+  {
+    $body = (array) json_decode((string) $request->getBody(), true);
+    try {
+      $item = $this->pagosACuenta->actualizar(
+        (string) ($args['empresa'] ?? ''),
+        (string) ($args['tipo'] ?? ''),
+        (int) ($args['albaran'] ?? 0),
+        (int) ($args['nro'] ?? 0),
+        $body
+      );
+      return $this->json($response, 200, $item);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function deletePagoACuenta(Request $request, Response $response, array $args): Response
+  {
+    $body = (array) json_decode((string) $request->getBody(), true);
+    try {
+      $item = $this->pagosACuenta->eliminar(
+        (string) ($args['empresa'] ?? ''),
+        (string) ($args['tipo'] ?? ''),
+        (int) ($args['albaran'] ?? 0),
+        (int) ($args['nro'] ?? 0),
+        $body
+      );
+      return $this->json($response, 200, $item);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
   }
 
   public function emailVenta(Request $request, Response $response, array $args): Response
@@ -1130,6 +1219,15 @@ final class VentasController
   public function listPedidos(Request $request, Response $response): Response
   {
     return $this->json($response, 200, $this->pedidos->listar($request->getQueryParams()));
+  }
+
+  public function liquidarComisiones(Request $request, Response $response): Response
+  {
+    try {
+      return $this->json($response, 200, $this->pedidos->liquidarComisiones($request->getQueryParams()));
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
   }
 
   public function getPedido(Request $request, Response $response, array $args): Response

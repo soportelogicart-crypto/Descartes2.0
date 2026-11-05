@@ -126,6 +126,8 @@ function lineaVacia(): PedidoLinea {
     importe: 0,
     zona: null,
     loteVenta: null,
+    anotacion: '',
+    transportista: '',
   }
 }
 
@@ -835,7 +837,11 @@ async function ejecutarConvertir(servirPendiente: boolean) {
     busqueda.upsertResumen(res.pedido)
     cargarEnForm(res.pedido)
     const v = res.venta
-    msg.value = `Albarán ${v.tipo}-${v.albaran} generado`
+    const todos = res.ventas?.length ? res.ventas : [v]
+    msg.value =
+      todos.length > 1
+        ? `Albaranes generados, uno por transportista: ${todos.map((x) => `${x.tipo}-${x.albaran}`).join(', ')}`
+        : `Albarán ${v.tipo}-${v.albaran} generado`
     ventaCreadaRef.value = {
       empresa: String(v.empresa).trim(),
       tipo: String(v.tipo).trim(),
@@ -862,6 +868,40 @@ function cerrarVentaCreada() {
   ventaCreadaOpen.value = false
 }
 
+function descargarExcel() {
+  const filas = [
+    ['Artículo', 'Descripción', 'Anotación', 'Transportista', 'Pedida', 'Entregada', 'Pendiente', 'Precio', 'Dto', 'Importe'],
+    ...editForm.value.lineas
+      .filter((l) => String(l.articulo ?? '').trim())
+      .map((l) => [
+        String(l.articulo ?? ''),
+        String(l.descripcion ?? ''),
+        String(l.anotacion ?? ''),
+        String(l.transportista ?? ''),
+        Number(l.cantidadPedida || 0).toFixed(2),
+        Number(l.cantidadServida || 0).toFixed(2),
+        pendienteDe(l).toFixed(2),
+        Number(l.precio || 0).toFixed(4),
+        Number(l.pjeDto || 0).toFixed(2),
+        (
+          (Number(l.cantidadPedida) || 0) *
+          (Number(l.precio) || 0) *
+          (1 - (Number(l.pjeDto) || 0) / 100)
+        ).toFixed(2),
+      ]),
+  ]
+  const texto = filas
+    .map((fila) => fila.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(';'))
+    .join('\r\n')
+  const blob = new Blob(['\uFEFF' + texto], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `pedido-${pedidoNum.value || 'nuevo'}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 function payloadLineas() {
   return editForm.value.lineas
     .filter((l) => String(l.articulo ?? '').trim())
@@ -875,6 +915,8 @@ function payloadLineas() {
       pjeDto: Number(l.pjeDto) || 0,
       zona: l.zona || undefined,
       loteVenta: l.loteVenta || undefined,
+      anotacion: l.anotacion || undefined,
+      transportista: l.transportista || undefined,
     }))
 }
 
@@ -1347,6 +1389,10 @@ onActivated(() => {
       <div v-if="editando" class="lin-toolbar">
         <button type="button" @click="servirTodoPendiente">Rellenar a servir (pendiente)</button>
         <button type="button" @click="addLinea">+ Línea</button>
+        <button type="button" @click="descargarExcel">Excel</button>
+      </div>
+      <div v-else class="lin-toolbar">
+        <button type="button" @click="descargarExcel">Excel</button>
       </div>
       <p v-if="editando" class="hint-lin">
         En código: <strong>Intro</strong> carga el artículo o abre búsqueda;
@@ -1359,6 +1405,8 @@ onActivated(() => {
             <tr>
               <th>Artículo</th>
               <th>Descripción</th>
+              <th>Anotación</th>
+              <th>Transportista</th>
               <th>Zona</th>
               <th>Lote venta</th>
               <th class="num" title="Cantidad pedida">Pedida</th>
@@ -1398,6 +1446,14 @@ onActivated(() => {
               <td>
                 <input v-if="editando" v-model="l.descripcion" />
                 <span v-else>{{ l.descripcion }}</span>
+              </td>
+              <td>
+                <input v-if="editando" v-model="l.anotacion" maxlength="80" />
+                <span v-else>{{ l.anotacion || '' }}</span>
+              </td>
+              <td>
+                <input v-if="editando" v-model="l.transportista" maxlength="25" />
+                <span v-else>{{ l.transportista || '' }}</span>
               </td>
               <td>
                 <input v-if="editando" v-model="l.zona" />

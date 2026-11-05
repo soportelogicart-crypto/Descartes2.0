@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Descartes\Api\Services\Facturacion;
 
 use Descartes\Api\Services\UsuarioCorreoService;
+use Descartes\Api\Support\DestinatariosCorreo;
 use PDO;
 use PHPMailer\PHPMailer\PHPMailer;
 
@@ -80,7 +81,7 @@ final class FacturaEmailService
       }
 
       $destinatario = $datosCliente['email'];
-      if (!filter_var($destinatario, FILTER_VALIDATE_EMAIL)) {
+      if (DestinatariosCorreo::lista($destinatario) === []) {
         $resultado['errores']++;
         $resultado['detalles'][] = $base + [
           'estado' => 'error',
@@ -148,7 +149,7 @@ final class FacturaEmailService
   public function enviarSolicitadas(array $facturas, ?string $emailForzado = null, array $pdfs = []): array
   {
     $forzado = trim((string) $emailForzado);
-    if ($forzado !== '' && !filter_var($forzado, FILTER_VALIDATE_EMAIL)) {
+    if ($forzado !== '' && DestinatariosCorreo::lista($forzado) === []) {
       throw new \InvalidArgumentException('Indique una dirección de email válida');
     }
 
@@ -184,7 +185,7 @@ final class FacturaEmailService
       $datosCliente = $this->datosCliente($cliente);
       $destinatario = $forzado !== '' ? $forzado : (string) ($datosCliente['email'] ?? '');
       $razon = (string) ($datosCliente['razonSocial'] ?? '');
-      if (!filter_var($destinatario, FILTER_VALIDATE_EMAIL)) {
+      if (DestinatariosCorreo::lista($destinatario) === []) {
         $resultado['omitidas']++;
         $resultado['detalles'][] = $base + [
           'estado' => 'omitida',
@@ -279,7 +280,8 @@ final class FacturaEmailService
     ?string $pdfPlantilla = null
   ): void {
     $etiqueta = $tipo === 'A' ? 'Factura rectificativa' : 'Factura';
-    $referencia = "{$etiqueta} {$numero}";
+    $fecha = $this->fechaFactura($empresa, $tipo, $numero);
+    $referencia = $fecha !== '' ? "{$etiqueta} {$numero} del {$fecha}" : "{$etiqueta} {$numero}";
     $pdf = $pdfPlantilla ?? $this->impresion->informePdf([
       'facturas' => [[
         'empresa' => $empresa,
@@ -290,7 +292,7 @@ final class FacturaEmailService
     ]);
 
     $mail = $this->correo->crearMailer();
-    $mail->addAddress($destinatario, $razonSocial);
+    $destinatario = DestinatariosCorreo::anadir($mail, $destinatario, $razonSocial);
     $this->correo->anadirCopia($mail, $destinatario);
     $mail->Subject = $referencia;
     $mail->isHTML(true);
@@ -313,6 +315,26 @@ final class FacturaEmailService
       $this->marcarEnviada($empresa, $tipo, $numero);
     } catch (\Throwable $e) {
       // Marcado auxiliar: el envío confirmado prevalece.
+    }
+  }
+
+  private function fechaFactura(string $empresa, string $tipo, int $numero): string
+  {
+    try {
+      $stmt = $this->pdo->prepare(
+        'SELECT TOP 1 Fecha FROM Facturas
+         WHERE Empresa = :e AND FacturaTipo = :t AND Factura = :n'
+      );
+      $stmt->execute(['e' => $empresa, 't' => $tipo, 'n' => $numero]);
+      $fecha = $stmt->fetchColumn();
+      if ($fecha === false || $fecha === null || $fecha === '') {
+        return '';
+      }
+      $ts = strtotime((string) $fecha);
+
+      return $ts ? date('d/m/Y', $ts) : '';
+    } catch (\Throwable $e) {
+      return '';
     }
   }
 

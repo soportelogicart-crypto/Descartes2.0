@@ -45,10 +45,10 @@ import { useClienteFichaStore } from '@/stores/clienteFicha'
 import { onEnterSiguienteCampo } from '@/composables/useEnterFieldNav'
 
 const MODULO = 'clientes'
-const FILTER_KEYS = ['codigo', 'tiendaCodigo', 'nombre', 'nif', 'telefono1']
+const FILTER_KEYS = ['codigo', 'tiendaCodigo', 'nombre', 'nif', 'telefono1', 'codigoPostal']
 const columns = getGridColumns('clientes')
 /** Texto enviado a GET …/clientes?q= : busca en toda la tabla, no solo en los 200 cargados. */
-const FILTRO_SERVIDOR_KEYS = ['codigo', 'nombre', 'nif', 'telefono1'] as const
+const FILTRO_SERVIDOR_KEYS = ['codigo', 'nombre', 'nif', 'telefono1', 'codigoPostal'] as const
 const FILTRO_SERVIDOR_MS = 350
 let filtroServidorTimer: ReturnType<typeof setTimeout> | null = null
 

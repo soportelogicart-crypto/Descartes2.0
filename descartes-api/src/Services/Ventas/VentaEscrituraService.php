@@ -7,6 +7,8 @@ namespace Descartes\Api\Services\Ventas;
 use Descartes\Api\Config\Database;
 use Descartes\Api\Services\Facturacion\FacturacionRetencionIrpfService;
 use Descartes\Api\Services\Facturacion\RecibosFacturaService;
+use Descartes\Api\Services\Instalacion\MejorasGestionSchema;
+use Descartes\Api\Support\PaisIdioma;
 use PDO;
 
 /**
@@ -46,6 +48,11 @@ final class VentaEscrituraService
     $this->clubSaldo = $clubSaldo ?? new FidelizacionClubSaldoService($pdo, $this->fidelizacion);
     $this->recibos = $recibos ?? new RecibosFacturaService($pdo);
     $this->retencionIrpf = $retencionIrpf ?? new FacturacionRetencionIrpfService($pdo);
+    try {
+      MejorasGestionSchema::asegurar($pdo);
+    } catch (\Throwable $e) {
+      // La venta no depende de que el esquema nuevo se pueda alterar.
+    }
   }
 
   private function motorDbEsMysql(): bool
@@ -255,6 +262,7 @@ final class VentaEscrituraService
           'a' => $albaran,
         ]);
       }
+      $this->aplicarDatosGestion($empresa, $tipo, $albaran, $body);
       $this->pdo->commit();
     } catch (\Throwable $e) {
       $this->pdo->rollBack();
@@ -370,6 +378,7 @@ final class VentaEscrituraService
       ]);
 
       $this->reemplazarLineas($empresa, $tipo, $albaran, $lineas);
+      $this->aplicarDatosGestion($empresa, $tipo, $albaran, $body);
       $this->pdo->commit();
     } catch (\Throwable $e) {
       $this->pdo->rollBack();
@@ -3291,6 +3300,71 @@ final class VentaEscrituraService
       ]);
     } catch (\Throwable $e) {
       // No bloquear cierre de venta si falla el maestro.
+    }
+  }
+
+  /**
+   * País, idioma y comisión del jardinero.
+   * El pago a cuenta se anota aparte y no se reescribe desde la ficha.
+   *
+   * @param array<string, mixed> $body
+   */
+  private function aplicarDatosGestion(
+    string $empresa,
+    string $tipo,
+    int $albaran,
+    array $body
+  ): void {
+    $pais = trim((string) ($body['paisEnvio'] ?? ''));
+    if ($pais === '') {
+      $propuesto = PaisIdioma::desdeCodigoPostal((string) ($body['codigoPostalEnvio'] ?? ''));
+      if ($propuesto !== null) {
+        $pais = $propuesto['pais'];
+        try {
+          $this->pdo->prepare(
+            'UPDATE AlbaranesVentasCab SET PaisEnvio = :pais
+             WHERE Empresa = :e AND Tipo = :t AND Albaran = :a AND ISNULL(PaisEnvio, \'\') = \'\''
+          )->execute(['pais' => $pais, 'e' => $empresa, 't' => $tipo, 'a' => $albaran]);
+        } catch (\Throwable $e) {
+          $pais = '';
+        }
+      }
+    }
+    $idioma = array_key_exists('idioma', $body)
+      ? (int) $body['idioma']
+      : ($pais !== '' ? PaisIdioma::idiomaDePais($pais) : 0);
+    try {
+      $this->pdo->prepare(
+        'UPDATE AlbaranesVentasCab SET Idioma = :idioma
+         WHERE Empresa = :e AND Tipo = :t AND Albaran = :a'
+      )->execute(['idioma' => $idioma, 'e' => $empresa, 't' => $tipo, 'a' => $albaran]);
+    } catch (\Throwable $e) {
+      // Columna ausente en un esquema antiguo.
+    }
+
+    if (
+      array_key_exists('clienteFinal', $body)
+      || array_key_exists('comisionista', $body)
+      || array_key_exists('pjeComision', $body)
+    ) {
+      try {
+        $this->pdo->prepare(
+          'UPDATE AlbaranesVentasCab SET
+             ClienteFinal = :clienteFinal,
+             Comisionista = :comisionista,
+             PjeComision = :pje
+           WHERE Empresa = :e AND Tipo = :t AND Albaran = :a'
+        )->execute([
+          'clienteFinal' => mb_substr(trim((string) ($body['clienteFinal'] ?? '')), 0, 80),
+          'comisionista' => mb_substr(trim((string) ($body['comisionista'] ?? '')), 0, 40),
+          'pje' => round((float) ($body['pjeComision'] ?? 0), 2),
+          'e' => $empresa,
+          't' => $tipo,
+          'a' => $albaran,
+        ]);
+      } catch (\Throwable $e) {
+        // La comisión es opcional si la columna todavía no existe.
+      }
     }
   }
 }

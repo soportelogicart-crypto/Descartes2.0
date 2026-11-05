@@ -48,7 +48,13 @@ type ContextoEmpresa = {
  */
 export async function prepararImpresionFacturas(
   facturas: FacturaClave[],
-  opciones: { puestoCodigo: string; origenDocumento?: 'impresion' | 'manual' | 'generacion' }
+  opciones: {
+    puestoCodigo: string
+    origenDocumento?: 'impresion' | 'manual' | 'generacion'
+    texto?: string
+    nombreComercial?: string
+    idioma?: '' | 'es' | 'fr' | 'en'
+  }
 ): Promise<PrepImpresionFacturas> {
   const puestoCodigo = opciones.puestoCodigo.trim()
   if (facturas.length === 0) {
@@ -92,7 +98,12 @@ export async function prepararImpresionFacturas(
       clave,
       titulo: `${meta.label} ${doc.facturaTipo}-${doc.factura}`,
       plantilla: resolverPlantilla(contexto.plantillas, formatoNombre, meta.plantillaTipo),
-      datos: facturaAPreviewDatos(doc, contexto.extras),
+      datos: facturaAPreviewDatos(doc, {
+        ...contexto.extras,
+        texto: opciones.texto,
+        nombreComercial: opciones.nombreComercial,
+        idioma: opciones.idioma,
+      }),
     })
 
     // La impresora es la del primer documento: el lote va a una sola bandeja.

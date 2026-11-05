@@ -1,0 +1,98 @@
+import type { IdiomaDocumento } from '@/utils/paisIdioma'
+
+const FR: Record<string, string> = {
+  factura: 'Facture',
+  'factura rectificativa': "Facture d'avoir",
+  albaran: 'Bon de livraison',
+  'albarán': 'Bon de livraison',
+  presupuesto: 'Devis',
+  ticket: 'Ticket',
+  documento: 'Document',
+  fecha: 'Date',
+  cliente: 'Client',
+  importe: 'Montant',
+  'importe eu': 'Montant EUR',
+  base: 'Base',
+  iva: 'TVA',
+  cantidad: 'Quantité',
+  precio: 'Prix',
+  descuento: 'Remise',
+  descripcion: 'Description',
+  'descripción': 'Description',
+  articulo: 'Article',
+  'artículo': 'Article',
+  total: 'Total',
+  pagina: 'Page',
+  'página': 'Page',
+  'forma de pago': 'Mode de paiement',
+  observaciones: 'Observations',
+  vencimiento: 'Échéance',
+  unidades: 'Unités',
+  dto: 'Rem.',
+  'dto %': 'Rem. %',
+  pvp: 'PVP',
+  'tel.': 'Tél.',
+  tel: 'Tél.',
+  cif: 'N° TVA',
+  nif: 'N° TVA',
+  referencia: 'Référence',
+  'ref. cliente': 'Réf. client',
+  transportista: 'Transporteur',
+  'a cuenta': 'Acompte',
+  'su pedido': 'Votre commande',
+  'cliente final': 'Client final',
+}
+
+const EN: Record<string, string> = {
+  factura: 'Invoice',
+  'factura rectificativa': 'Credit note',
+  albaran: 'Delivery note',
+  'albarán': 'Delivery note',
+  presupuesto: 'Quote',
+  ticket: 'Receipt',
+  documento: 'Document',
+  fecha: 'Date',
+  cliente: 'Customer',
+  importe: 'Amount',
+  'importe eu': 'Amount EUR',
+  base: 'Base',
+  iva: 'VAT',
+  cantidad: 'Quantity',
+  precio: 'Price',
+  descuento: 'Discount',
+  descripcion: 'Description',
+  'descripción': 'Description',
+  articulo: 'Item',
+  'artículo': 'Item',
+  total: 'Total',
+  pagina: 'Page',
+  'página': 'Page',
+  'forma de pago': 'Payment method',
+  observaciones: 'Notes',
+  vencimiento: 'Due date',
+  unidades: 'Units',
+  dto: 'Disc.',
+  'dto %': 'Disc. %',
+  pvp: 'RRP',
+  'tel.': 'Tel.',
+  tel: 'Tel.',
+  cif: 'VAT no.',
+  nif: 'VAT no.',
+  referencia: 'Reference',
+  'ref. cliente': 'Customer ref.',
+  transportista: 'Carrier',
+  'a cuenta': 'On account',
+  'su pedido': 'Your order',
+  'cliente final': 'End customer',
+}
+
+/** Traduce un rótulo entero. Importes, referencias y números se dejan como están. */
+export function traducirRotulo(texto: string, idioma: IdiomaDocumento | string | null | undefined): string {
+  const original = String(texto ?? '')
+  const idiomaNorm = String(idioma ?? 'es').toLowerCase()
+  if (idiomaNorm !== 'fr' && idiomaNorm !== 'en') return original
+  const clave = original.trim().toLowerCase()
+  if (!clave) return original
+  const tabla = idiomaNorm === 'fr' ? FR : EN
+  return tabla[clave] ?? original
+}

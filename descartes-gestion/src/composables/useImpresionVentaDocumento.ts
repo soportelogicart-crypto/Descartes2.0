@@ -90,6 +90,8 @@ export async function prepararOImprimirVenta(
     receiptDatafono?: string | null
     /** La forma de pago del cobro tiene marcado abrir cajón. */
     abrirCajon?: boolean
+    /** Albarán del jardinero: muestra PrecioTarifa sin cambiar lo guardado. */
+    preciosVenta?: boolean
   }
 ): Promise<PrepImpresionResult> {
   const formato = opciones.formato ?? 'auto'
@@ -119,6 +121,7 @@ export async function prepararOImprimirVenta(
     literalesPuesto: literalesDesdePuesto(puesto),
     vendedorNombre,
     plantillaTipo: meta.plantillaTipo,
+    preciosVenta: opciones.preciosVenta,
   })
   const receipt = String(opciones.receiptDatafono ?? '').trim()
   let comprobanteTarjeta: ComprobanteTarjetaDatos | null = null

@@ -200,7 +200,7 @@ return [
     'primaryKey' => 'Codigo',
     'modulo' => 'clientes',
     'softDelete' => ['column' => 'Baja', 'inactiveValue' => 1, 'activeValue' => 0],
-    'searchColumns' => ['Codigo', 'RazonSocial', 'NIF', 'Telefono1'],
+    'searchColumns' => ['Codigo', 'RazonSocial', 'NIF', 'Telefono1', 'CodigoPostal', 'CodigoPostalEnvio'],
   ], $clientesConfig),
   'proveedores' => array_merge([
     'table' => 'Proveedores',

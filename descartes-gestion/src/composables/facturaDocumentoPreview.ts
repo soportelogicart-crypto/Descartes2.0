@@ -2,8 +2,29 @@ import type {
   DocumentoPreviewDatos,
   DocumentoPreviewLinea,
 } from '@/config/documentos-plantillas/preview-datos'
-import { datosBancariosCliente } from '@/composables/ventaDocumentoPreview'
+import {
+  anotacionPiePasaporteFitosanitario,
+  datosBancariosCliente,
+} from '@/composables/ventaDocumentoPreview'
+import { traducirRotulo } from '@/utils/documentoIdioma'
+import { idiomaDePais, idiomaDocumento, type IdiomaDocumento } from '@/utils/paisIdioma'
 import type { FacturaDocumento } from '@/types/facturacion'
+
+function piePasaporte(idioma: IdiomaDocumento, numero: string, hay: boolean): string {
+  if (!hay) return ''
+  const num = String(numero ?? '').trim()
+  if (idioma === 'fr') {
+    return num
+      ? `Les articles avec astérisque sont couverts par le passeport phytosanitaire ${num}`
+      : 'Les articles avec astérisque sont couverts par le passeport phytosanitaire.'
+  }
+  if (idioma === 'en') {
+    return num
+      ? `Items marked with an asterisk are covered by plant passport ${num}`
+      : 'Items marked with an asterisk are covered by plant passport.'
+  }
+  return anotacionPiePasaporteFitosanitario(num, true)
+}
 
 function redondear2(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100
@@ -71,13 +92,19 @@ export function facturaAPreviewDatos(
     preciosIvaIncluido?: boolean
     /** Data URL del logo de la carpeta `logos`. Vacío = no se imprime. */
     emblemaUrl?: string
+    texto?: string
+    nombreComercial?: string
+    idioma?: IdiomaDocumento
   } = {}
 ): DocumentoPreviewDatos {
+  const idioma: IdiomaDocumento =
+    extras.idioma || idiomaDocumento(idiomaDePais(doc.cliente.pais || ''))
   const nLit = Math.max(0, Math.min(9, Number(extras.literalTicket ?? 3) || 0))
   const banco = datosBancariosFactura(doc)
 
   const lineas: DocumentoPreviewLinea[] = []
   let albaranActual: number | null = null
+  let hayFito = false
   for (const l of doc.lineas) {
     if (l.albaran > 0 && l.albaran !== albaranActual) {
       albaranActual = l.albaran
@@ -91,7 +118,12 @@ export function facturaAPreviewDatos(
         pjeIva: 0,
         importe: 0,
         pvp: 0,
-        albaranCabecera: `Albarán ${doc.empresa}-${l.albaran} de Fecha ${l.albaranFecha}`,
+        albaranCabecera:
+          idioma === 'fr'
+            ? `Bon de livraison ${doc.empresa}-${l.albaran} du ${l.albaranFecha}`
+            : idioma === 'en'
+              ? `Delivery note ${doc.empresa}-${l.albaran} dated ${l.albaranFecha}`
+              : `Albarán ${doc.empresa}-${l.albaran} de Fecha ${l.albaranFecha}`,
       })
     }
     const art = String(l.articulo ?? '').trim()
@@ -113,12 +145,13 @@ export function facturaAPreviewDatos(
       }
       continue
     }
+    if (l.pasaporteFitosanitario) hayFito = true
     const pje = Number(l.pjeIva) || 0
     const factor = 1 + pje / 100
     const conIva = extras.preciosIvaIncluido || pje <= 0
     lineas.push({
       articulo: art,
-      descripcion: l.descripcion,
+      descripcion: l.pasaporteFitosanitario ? `* ${l.descripcion}` : l.descripcion,
       unidades: Number(l.unidades) || 0,
       precio: Number(l.precio) || 0,
       precioSinIva: conIva ? redondear2(l.precio / factor) : l.precio,
@@ -131,8 +164,8 @@ export function facturaAPreviewDatos(
 
   return {
     empresa: {
-      nombre: extras.empresaNombre || '',
-      razonSocial: extras.empresaNombre || '',
+      nombre: extras.nombreComercial || extras.empresaNombre || '',
+      razonSocial: extras.nombreComercial || extras.empresaNombre || '',
       nif: extras.empresaNif || '',
       direccion: extras.empresaDireccion || '',
       cp: extras.empresaCp || '',
@@ -165,14 +198,24 @@ export function facturaAPreviewDatos(
       numero: String(doc.factura),
       serie: doc.facturaTipo,
       fecha: doc.fecha,
-      suPedido: '',
+      suPedido: doc.referenciasCliente || '',
       albaran: '',
       terminalSesion: '',
       atendidoPor: '',
       fechaEntrega: '',
       transportista: '',
       portes: '',
-      observaciones: '',
+      observaciones: [
+        doc.referenciasCliente ? `${traducirRotulo('Ref. cliente', idioma)}: ${doc.referenciasCliente}` : '',
+        Number(doc.pagoACuenta) > 0.004
+          ? `${traducirRotulo('A cuenta', idioma)}: ${Number(doc.pagoACuenta).toFixed(2)}`
+          : '',
+        String(extras.texto ?? '').trim(),
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      idioma,
+      anotacionPasaporteFitosanitario: piePasaporte(idioma, doc.pasaporteFitosanitarioEmpresa || '', hayFito),
       formaPago: doc.formaPago.descripcion || doc.formaPago.codigo,
       facturaOrigen: doc.facturaOrigen || '',
       codigoBarras: `*${doc.empresa}${doc.factura}*`,

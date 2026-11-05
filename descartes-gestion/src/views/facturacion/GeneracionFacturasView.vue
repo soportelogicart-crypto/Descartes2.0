@@ -45,6 +45,9 @@ const loading = ref(false)
 const loadingOpts = ref(false)
 const generating = ref(false)
 const error = ref<string | null>(null)
+const textoFactura = ref('')
+const nombreComercial = ref('')
+const idiomaFactura = ref<'' | 'es' | 'fr' | 'en'>('')
 const mensaje = ref<string | null>(null)
 const preview = ref<FacturasGeneracionPreviewResponse | null>(null)
 const generadas = ref<FacturaManualGenerada[]>([])
@@ -427,6 +430,9 @@ async function enviarGeneradasConPlantilla(facturas: FacturaManualGenerada[]) {
       {
         puestoCodigo: String(puestoContexto.puestoCodigo ?? ''),
         origenDocumento: 'generacion',
+        texto: textoFactura.value,
+        nombreComercial: nombreComercial.value,
+        idioma: idiomaFactura.value,
       }
     )
     try {
@@ -487,6 +493,27 @@ onMounted(async () => {
         <form class="panel" @submit.prevent="consultar">
           <fieldset class="opciones">
             <legend>Facturación</legend>
+            <label>
+              <span>Texto en la factura</span>
+              <input v-model="textoFactura" type="text" maxlength="200" placeholder="Opcional" />
+            </label>
+            <label>
+              <span>Nombre en el papel</span>
+              <select v-model="nombreComercial">
+                <option value="">La de la tienda</option>
+                <option value="Cultius">Cultius</option>
+                <option value="Planterium">Planterium</option>
+              </select>
+            </label>
+            <label>
+              <span>Idioma de los rótulos</span>
+              <select v-model="idiomaFactura">
+                <option value="">Según el país</option>
+                <option value="es">Español</option>
+                <option value="fr">Francés</option>
+                <option value="en">Inglés</option>
+              </select>
+            </label>
             <label>
               <span>Empresa</span>
               <select v-model="form.empresa" :disabled="loadingOpts" required>

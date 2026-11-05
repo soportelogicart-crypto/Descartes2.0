@@ -262,8 +262,10 @@ final class ImpresionFacturasService
         'dto' => (float) ($l['PjeDto'] ?? 0),
         'pjeIva' => (float) ($l['PjeIva'] ?? 0),
         'importe' => (float) ($l['Importe'] ?? 0),
+        'pasaporteFitosanitario' => !empty($l['Pasaporte']),
       ];
     }
+    $this->marcarPasaporteLineas($lineas);
 
     $vencimientos = [];
     foreach ($doc['recibos'] as $r) {
@@ -323,7 +325,91 @@ final class ImpresionFacturasService
         ),
       ],
       'facturaOrigen' => $this->facturaOrigenLegible($c),
+      'pagoACuenta' => round((float) ($c['PagoACuenta'] ?? 0), 2),
+      'referenciasCliente' => $this->referenciasCliente($empresa, $facturaTipo, $factura),
+      'pasaporteFitosanitarioEmpresa' => $this->pasaporteEmpresa($empresa),
     ];
+  }
+
+  /** @param list<array<string, mixed>> $lineas */
+  private function marcarPasaporteLineas(array &$lineas): void
+  {
+    $codigos = [];
+    foreach ($lineas as $lin) {
+      $art = trim((string) ($lin['articulo'] ?? ''));
+      if ($art !== '' && strtoupper($art) !== 'NO') {
+        $codigos[$art] = $art;
+      }
+    }
+    if ($codigos === []) {
+      return;
+    }
+    try {
+      $marcas = [];
+      $lista = array_values($codigos);
+      foreach (array_chunk($lista, 80) as $trozo) {
+        $ph = implode(',', array_fill(0, count($trozo), '?'));
+        $stmt = $this->pdo->prepare(
+          "SELECT RTRIM(Codigo) AS Codigo FROM Articulos
+           WHERE ISNULL(PasaporteFitosanitario, 0) <> 0 AND RTRIM(Codigo) IN ($ph)"
+        );
+        $stmt->execute($trozo);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+          $marcas[trim((string) $row['Codigo'])] = true;
+        }
+      }
+      foreach ($lineas as &$lin) {
+        $art = trim((string) ($lin['articulo'] ?? ''));
+        if (isset($marcas[$art])) {
+          $lin['pasaporteFitosanitario'] = true;
+        }
+      }
+      unset($lin);
+    } catch (\Throwable $e) {
+      // Sin la columna del artículo, la factura se imprime igual.
+    }
+  }
+
+  private function referenciasCliente(string $empresa, string $facturaTipo, int $factura): string
+  {
+    try {
+      $stmt = $this->pdo->prepare(
+        "SELECT TOP 40 RTRIM(ISNULL(Referencia1, '')) AS R1,
+                RTRIM(ISNULL(Referencia2, '')) AS R2,
+                RTRIM(ISNULL(SuPedido, '')) AS Su
+         FROM AlbaranesVentasCab
+         WHERE FacturaTipo = :ft AND Factura = :f
+           AND (EmpresaFacturacion = :e OR Empresa = :e2)"
+      );
+      $stmt->execute(['ft' => $facturaTipo, 'f' => $factura, 'e' => $empresa, 'e2' => $empresa]);
+      $refs = [];
+      foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        foreach (['R1', 'R2', 'Su'] as $k) {
+          $v = trim((string) ($row[$k] ?? ''));
+          if ($v !== '' && !in_array($v, $refs, true)) {
+            $refs[] = $v;
+          }
+        }
+      }
+
+      return implode(' · ', $refs);
+    } catch (\Throwable $e) {
+      return '';
+    }
+  }
+
+  private function pasaporteEmpresa(string $empresa): string
+  {
+    try {
+      $stmt = $this->pdo->prepare(
+        'SELECT TOP 1 RTRIM(ISNULL(PasaporteFitosanitario, \'\')) FROM Empresas_Ges WHERE Codigo = :e'
+      );
+      $stmt->execute(['e' => $empresa]);
+
+      return trim((string) ($stmt->fetchColumn() ?: ''));
+    } catch (\Throwable $e) {
+      return '';
+    }
   }
 
   /** RECT:F/123 → F/123. Vacío si la factura no rectifica a otra. */

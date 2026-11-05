@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Descartes\Api\Services\Ventas;
 
 use Descartes\Api\Services\UsuarioCorreoService;
+use Descartes\Api\Support\DestinatariosCorreo;
 use Descartes\Api\Support\SimplePdf;
 use PDO;
 use PHPMailer\PHPMailer\PHPMailer;
@@ -32,7 +33,7 @@ final class VentaEmailService
     ?string $pdfBase64 = null
   ): array {
     $destinatario = trim($destinatario);
-    if (!filter_var($destinatario, FILTER_VALIDATE_EMAIL)) {
+    if (DestinatariosCorreo::lista($destinatario) === []) {
       throw new \InvalidArgumentException('Indique una dirección de email válida');
     }
 
@@ -48,8 +49,12 @@ final class VentaEmailService
     }
 
     $documento = $this->etiquetaDocumento($venta);
+    $fecha = $this->fechaLegible($venta['fecha'] ?? null);
+    if ($fecha !== '') {
+      $documento .= ' del ' . $fecha;
+    }
     $mail = $this->correo->crearMailer();
-    $mail->addAddress($destinatario);
+    $destinatario = DestinatariosCorreo::anadir($mail, $destinatario);
     $this->correo->anadirCopia($mail, $destinatario);
     $mail->Subject = $documento;
     $mail->isHTML(true);
@@ -161,6 +166,17 @@ final class VentaEmailService
   private function euros(float $valor): string
   {
     return $this->numero($valor) . ' €';
+  }
+
+  private function fechaLegible($fecha): string
+  {
+    $texto = trim((string) $fecha);
+    if ($texto === '') {
+      return '';
+    }
+    $ts = strtotime($texto);
+
+    return $ts ? date('d/m/Y', $ts) : '';
   }
 
   private function nombreArchivo(string $documento): string

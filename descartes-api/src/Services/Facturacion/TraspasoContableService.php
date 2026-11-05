@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Descartes\Api\Services\Facturacion;
 
+use Descartes\Api\Services\Instalacion\MejorasGestionSchema;
 use PDO;
 
 /**
@@ -177,6 +178,14 @@ final class TraspasoContableService
    * @return array{serie: ?string, numero: ?int, tickets: int, importe: float, recuperado: bool}
    */
   public function traspasarTicketsSesion(string $empresa, string $puesto, int $sesion): array
+  {
+    $respuesta = $this->contabilizarTicketsSesion($empresa, $puesto, $sesion);
+    $this->traspasarPagosACuentaSesion($empresa, $puesto, $sesion);
+    return $respuesta;
+  }
+
+  /** @return array{serie: ?string, numero: ?int, numeroCobro: ?int, tickets: int, importe: float, recuperado: bool} */
+  private function contabilizarTicketsSesion(string $empresa, string $puesto, int $sesion): array
   {
     $empresa = trim($empresa);
     $puesto = trim($puesto);
@@ -1047,6 +1056,208 @@ final class TraspasoContableService
     $forma = $stmt->fetchColumn();
     $stmt->closeCursor();
     return $forma === false ? '' : trim((string) $forma);
+  }
+
+  /**
+   * Cobro de los pagos a cuenta anotados en esta caja: debe la cuenta de la forma
+   * de pago y haber la cuenta del cliente. Va aparte del cobro de los tickets.
+   */
+  private function traspasarPagosACuentaSesion(string $empresa, string $puesto, int $sesion): void
+  {
+    $empresa = trim($empresa);
+    $puesto = trim($puesto);
+    $movs = $this->leerPagosACuentaSesion($empresa, $puesto, $sesion);
+    if ($movs === []) {
+      return;
+    }
+
+    /** @var array<string, float> $debes */
+    $debes = [];
+    /** @var array<string, float> $haberes */
+    $haberes = [];
+    /** @var array<string, array<string, mixed>> $fichas */
+    $fichas = [];
+    /** @var array<string, string> $clientesAlbaran */
+    $clientesAlbaran = [];
+    /** @var array<string, array<string, mixed>> $fichasCliente */
+    $fichasCliente = [];
+
+    foreach ($movs as $mov) {
+      $importe = round((float) ($mov['Importe'] ?? 0), 2);
+      if (abs($importe) < 0.005) {
+        continue;
+      }
+      $forma = trim((string) ($mov['FormaPago'] ?? ''));
+      $cuentaForma = $this->cuentaFormaPago($forma);
+      $claveAlb = trim((string) $mov['Empresa']) . '|' . trim((string) $mov['Tipo']) . '|' . (int) $mov['Albaran'];
+      if (!isset($clientesAlbaran[$claveAlb])) {
+        $clientesAlbaran[$claveAlb] = $this->clienteDeAlbaran(
+          (string) $mov['Empresa'],
+          (string) $mov['Tipo'],
+          (int) $mov['Albaran']
+        );
+      }
+      $codigoCliente = $clientesAlbaran[$claveAlb];
+      if (!isset($fichasCliente[$codigoCliente])) {
+        $fichasCliente[$codigoCliente] = $this->fichaClienteContable($codigoCliente);
+      }
+      $ficha = $fichasCliente[$codigoCliente];
+      $cuentaCliente = $this->cuentaCliente($ficha);
+      $fichas[$cuentaCliente] = $ficha;
+      if ($importe > 0) {
+        $debes[$cuentaForma] = round(($debes[$cuentaForma] ?? 0) + $importe, 2);
+        $haberes[$cuentaCliente] = round(($haberes[$cuentaCliente] ?? 0) + $importe, 2);
+      } else {
+        $absoluto = round(abs($importe), 2);
+        $haberes[$cuentaForma] = round(($haberes[$cuentaForma] ?? 0) + $absoluto, 2);
+        $debes[$cuentaCliente] = round(($debes[$cuentaCliente] ?? 0) + $absoluto, 2);
+      }
+    }
+
+    [$debes, $haberes] = $this->netearCuentas($debes, $haberes);
+    $texto = mb_substr('Cobro a cuenta sesion ' . $puesto . '/' . $sesion, 0, 200);
+    $config = $this->conexion->paraEmpresa($empresa);
+    /** @var PDO $ctb */
+    $ctb = $config['pdo'];
+    $serie = (string) $config['serie'];
+    if ($debes === [] || $this->asientoPorDescripcion($ctb, $texto)) {
+      $this->marcarPagosACuenta($empresa, $puesto, $sesion);
+      return;
+    }
+
+    foreach ($fichas as $cuenta => $ficha) {
+      if (isset($debes[$cuenta]) || isset($haberes[$cuenta])) {
+        $this->sincronizarCliente($ctb, (string) $cuenta, $ficha);
+      }
+    }
+    $numero = $this->siguienteNumero($ctb, $serie);
+    $this->insertarAsientoCobro($ctb, $serie, $numero, date('Y-m-d H:i:s'), $texto, $debes, $haberes);
+    $this->marcarPagosACuenta($empresa, $puesto, $sesion);
+    $this->tocarComunicacion($empresa);
+  }
+
+  /** @return list<array<string, mixed>> */
+  private function leerPagosACuentaSesion(string $empresa, string $puesto, int $sesion): array
+  {
+    try {
+      return $this->consultarPagosACuentaSesion($empresa, $puesto, $sesion);
+    } catch (\Throwable $e) {
+      if (!$this->esTablaPagosAusente($e)) {
+        throw $e;
+      }
+    }
+    try {
+      MejorasGestionSchema::asegurar($this->gestion);
+      return $this->consultarPagosACuentaSesion($empresa, $puesto, $sesion);
+    } catch (\Throwable $e) {
+      if ($this->esTablaPagosAusente($e)) {
+        return [];
+      }
+      throw $e;
+    }
+  }
+
+  /** @return list<array<string, mixed>> */
+  private function consultarPagosACuentaSesion(string $empresa, string $puesto, int $sesion): array
+  {
+    $stmt = $this->gestion->prepare(
+      'SELECT Empresa, Tipo, Albaran, Importe, FormaPago
+       FROM PagosACuentaAlbaran
+       WHERE RTRIM(EmpresaArqueo) = :e AND RTRIM(Puesto) = :p AND Sesion = :s
+         AND ISNULL(Contabilizado, 0) = 0'
+    );
+    $stmt->execute(['e' => $empresa, 'p' => $puesto, 's' => $sesion]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $stmt->closeCursor();
+    return $rows;
+  }
+
+  private function esTablaPagosAusente(\Throwable $e): bool
+  {
+    return str_contains(strtolower($e->getMessage()), 'pagosacuentaalbaran');
+  }
+
+  private function clienteDeAlbaran(string $empresa, string $tipo, int $albaran): string
+  {
+    $stmt = $this->gestion->prepare(
+      'SELECT Cliente FROM AlbaranesVentasCab WHERE Empresa = :e AND Tipo = :t AND Albaran = :a'
+    );
+    $stmt->execute(['e' => trim($empresa), 't' => trim($tipo), 'a' => $albaran]);
+    $cliente = trim((string) ($stmt->fetchColumn() ?: ''));
+    $stmt->closeCursor();
+    if ($cliente === '') {
+      throw new \RuntimeException("El albarán {$albaran} no tiene cliente para el pago a cuenta", 409);
+    }
+    return $cliente;
+  }
+
+  /** @return array<string, mixed> */
+  private function fichaClienteContable(string $codigo): array
+  {
+    try {
+      $stmt = $this->gestion->prepare(
+        'SELECT Codigo AS Cliente, RazonSocial, NIF, Direccion, Poblacion, CodigoPostal,
+                Provincia, Pais, Telefono1, Fax, FormaPago AS FormaPagoCliente,
+                CuentaCtb, CuentaCtb2
+         FROM Clientes WHERE Codigo = :c'
+      );
+      $stmt->execute(['c' => $codigo]);
+      $row = $stmt->fetch(PDO::FETCH_ASSOC);
+      $stmt->closeCursor();
+    } catch (\Throwable $e) {
+      $row = false;
+    }
+    if ($row === false) {
+      $stmt = $this->gestion->prepare(
+        'SELECT Codigo AS Cliente, RazonSocial, CuentaCtb, CuentaCtb2 FROM Clientes WHERE Codigo = :c'
+      );
+      $stmt->execute(['c' => $codigo]);
+      $row = $stmt->fetch(PDO::FETCH_ASSOC);
+      $stmt->closeCursor();
+    }
+    if ($row === false) {
+      throw new \RuntimeException("El cliente {$codigo} no existe para el pago a cuenta", 409);
+    }
+    return $row;
+  }
+
+  /**
+   * @param array<string, float> $debes
+   * @param array<string, float> $haberes
+   * @return array{0: array<string, float>, 1: array<string, float>}
+   */
+  private function netearCuentas(array $debes, array $haberes): array
+  {
+    $cuentas = array_unique(array_merge(array_keys($debes), array_keys($haberes)));
+    $debeNeto = [];
+    $haberNeto = [];
+    foreach ($cuentas as $cuenta) {
+      $neto = round(($debes[$cuenta] ?? 0) - ($haberes[$cuenta] ?? 0), 2);
+      if ($neto > 0.004) {
+        $debeNeto[$cuenta] = $neto;
+      } elseif ($neto < -0.004) {
+        $haberNeto[$cuenta] = round(-$neto, 2);
+      }
+    }
+    return [$debeNeto, $haberNeto];
+  }
+
+  private function asientoPorDescripcion(PDO $ctb, string $texto): bool
+  {
+    $stmt = $ctb->prepare('SELECT TOP 1 1 FROM AsientosLin WHERE DescripcionAsiento = :d');
+    $stmt->execute(['d' => $texto]);
+    $existe = $stmt->fetchColumn() !== false;
+    $stmt->closeCursor();
+    return $existe;
+  }
+
+  private function marcarPagosACuenta(string $empresa, string $puesto, int $sesion): void
+  {
+    $this->gestion->prepare(
+      'UPDATE PagosACuentaAlbaran SET Contabilizado = 1
+       WHERE RTRIM(EmpresaArqueo) = :e AND RTRIM(Puesto) = :p AND Sesion = :s
+         AND ISNULL(Contabilizado, 0) = 0'
+    )->execute(['e' => $empresa, 'p' => $puesto, 's' => $sesion]);
   }
 
   /**

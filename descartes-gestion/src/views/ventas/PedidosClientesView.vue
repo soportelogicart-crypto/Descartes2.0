@@ -52,6 +52,9 @@ const filtros = ref({
   vendedor: busqueda.filtros?.vendedor || '',
   cliente: busqueda.filtros?.cliente || '',
   situacion: busqueda.filtros?.situacion || '',
+  texto: busqueda.filtros?.texto || '',
+  codigoPostal: busqueda.filtros?.codigoPostal || '',
+  pendientes: Boolean(busqueda.filtros?.pendientes),
 })
 
 const tiendaLabel = computed(() => {
@@ -104,6 +107,9 @@ async function cargar() {
       vendedor: filtros.value.vendedor || undefined,
       cliente: filtros.value.cliente || undefined,
       situacion: filtros.value.situacion || undefined,
+      texto: filtros.value.texto || undefined,
+      codigoPostal: filtros.value.codigoPostal || undefined,
+      pendientes: filtros.value.pendientes ? 1 : undefined,
       page: page.value,
       pageSize: pageSize.value,
     })
@@ -198,6 +204,70 @@ watch(
   { deep: true }
 )
 
+function descargarCsv(nombre: string, filas: string[][]) {
+  const texto = filas
+    .map((fila) => fila.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(';'))
+    .join('\r\n')
+  const blob = new Blob(['\uFEFF' + texto], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = nombre
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function descargarListado() {
+  descargarCsv(
+    'pedidos.csv',
+    [
+      ['Tienda', 'Fecha', 'Pedido', 'Cliente', 'Nombre', 'C.P.', 'Situación', 'Importe'],
+      ...items.value.map((p) => [
+        p.empresa,
+        String(p.fecha ?? ''),
+        String(p.pedido),
+        String(p.cliente ?? ''),
+        String(p.razonSocial ?? ''),
+        String(p.codigoPostalEnvio ?? ''),
+        p.situacionLabel || (p.actualizado ? 'CERRADO' : 'ABIERTO'),
+        Number(p.importe || 0).toFixed(2),
+      ]),
+    ]
+  )
+}
+
+async function descargarComisiones() {
+  error.value = null
+  try {
+    const { data } = await api.get<{
+      items: Array<Record<string, string | number>>
+      totalComision: number
+    }>('/api/ventas/comisiones-jardinero', {
+      params: {
+        empresa: filtros.value.empresa || undefined,
+        fechaDesde: filtros.value.fechaDesde || undefined,
+        fechaHasta: filtros.value.fechaHasta || undefined,
+      },
+    })
+    descargarCsv('comisiones-jardinero.csv', [
+      ['Comisionista', 'Fecha', 'Albarán', 'Jardinero', 'Cliente final', 'Base', '%', 'Comisión'],
+      ...data.items.map((r) => [
+        String(r.comisionista ?? ''),
+        String(r.fecha ?? ''),
+        `${r.tipo}-${r.albaran}`,
+        String(r.razonSocial ?? ''),
+        String(r.clienteFinal ?? ''),
+        Number(r.importe || 0).toFixed(2),
+        Number(r.pjeComision || 0).toFixed(2),
+        Number(r.comision || 0).toFixed(2),
+      ]),
+      ['', '', '', '', 'Total', '', '', Number(data.totalComision || 0).toFixed(2)],
+    ])
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo sacar la liquidación de comisiones')
+  }
+}
+
 onMounted(async () => {
   await cargarTiendas()
   await cargar()
@@ -275,6 +345,22 @@ onActivated(() => {
           @buscar="abrirBuscar('cliente')"
         />
         <label>
+          Referencia
+          <input
+            v-model="filtros.texto"
+            type="search"
+            placeholder="Referencia, observaciones o la del cliente"
+          />
+        </label>
+        <label>
+          Código postal
+          <input v-model="filtros.codigoPostal" type="search" maxlength="12" placeholder="C.P." />
+        </label>
+        <label class="check-pendientes">
+          <input v-model="filtros.pendientes" type="checkbox" />
+          Pendientes de servir
+        </label>
+        <label>
           Situación
           <select v-model="filtros.situacion" title="Situación del pedido">
             <option v-for="s in SITUACIONES" :key="s.value || 'todas'" :value="s.value">
@@ -284,6 +370,12 @@ onActivated(() => {
         </label>
 
         <button type="submit" class="btn-buscar" :disabled="loading">Buscar</button>
+        <button type="button" class="btn-buscar" :disabled="loading || !items.length" @click="descargarListado">
+          Listado
+        </button>
+        <button type="button" class="btn-buscar" :disabled="loading" @click="descargarComisiones">
+          Comisiones
+        </button>
       </form>
 
       <div class="panel-listado">

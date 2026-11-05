@@ -100,11 +100,11 @@ function enviarEmail() {
             <input
               ref="inputEmail"
               v-model="email"
-              type="email"
+              type="text"
               inputmode="email"
               autocomplete="email"
               required
-              placeholder="cliente@ejemplo.com"
+              placeholder="varios, separados por coma"
             />
           </label>
           <div class="acciones">
