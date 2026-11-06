@@ -2552,6 +2552,17 @@ function onImprimir() {
   formatoImpresionOpen.value = true
 }
 
+/**
+ * Albarán de crédito y factura de contado: pregunta la copia solo con PVP.
+ * Lo guardado no cambia.
+ */
+function preguntarCopiaPvpSiAplica(formato?: 'ticket' | 'a4' | 'albaran' | 'auto'): boolean {
+  if (formato === 'ticket') return false
+  const aplica = docKind.value === 'albaran' || formato === 'albaran' || esFacturaContado.value
+  if (!aplica) return false
+  return window.confirm('¿Quiere una copia solo con los PVP? Los importes guardados no cambian.')
+}
+
 async function onElegirFormatoImpresion(formato: 'ticket' | 'a4' | 'albaran') {
   formatoImpresionOpen.value = false
   if (!puedeImprimir.value || !ficha.value) return
@@ -2569,15 +2580,7 @@ async function onElegirFormatoImpresion(formato: 'ticket' | 'a4' | 'albaran') {
   }
   loading.value = true
   try {
-    let preciosVenta = false
-    if (
-      formato === 'albaran' &&
-      (String(ficha.value.comisionista ?? '').trim() || String(ficha.value.clienteFinal ?? '').trim())
-    ) {
-      preciosVenta = window.confirm(
-        '¿Imprimir este albarán con los precios de venta, para enseñárselo al cliente del jardinero? Los importes guardados no cambian.'
-      )
-    }
+    const preciosVenta = preguntarCopiaPvpSiAplica(formato)
     const res = await prepararOImprimirVenta(ficha.value, {
       puestoCodigo: String(puesto.puestoCodigo || ficha.value.puesto || ''),
       formato,
@@ -2685,7 +2688,8 @@ async function imprimirTrasFinalizar() {
   postVentaOpen.value = false
   const pue = String(puesto.puestoCodigo || venta.puesto || '').trim()
   try {
-    const res = await prepararOImprimirVenta(venta, { puestoCodigo: pue })
+    const preciosVenta = preguntarCopiaPvpSiAplica()
+    const res = await prepararOImprimirVenta(venta, { puestoCodigo: pue, preciosVenta })
     if (res.kind === 'ticket') {
       mensaje.value = `${mensaje.value ? mensaje.value + ' · ' : ''}${res.message}`
     } else {

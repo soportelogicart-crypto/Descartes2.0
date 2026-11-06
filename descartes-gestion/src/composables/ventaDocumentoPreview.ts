@@ -173,12 +173,14 @@ export function ventaAPreviewDatos(
     const marcaFito = anotacionFitoAlbaran && lineaRequiereAsteriscoPasaporteFito(l)
     if (marcaFito) hayLineasFito = true
     const precioTarifa = Number(l.precioTarifa) || 0
-    const usaTarifa = Boolean(extras.preciosVenta && precioTarifa > 0)
-    const precio = usaTarifa ? precioTarifa : Number(l.precio) || 0
-    const dto = Number(l.pjeDto) || 0
+    const precioLinea = Number(l.precio) || 0
+    // Copia PVP: precio de tarifa y sin el descuento de la línea. Lo guardado no cambia.
+    const copiaPvp = Boolean(extras.preciosVenta)
+    const precio = copiaPvp ? (precioTarifa > 0 ? precioTarifa : precioLinea) : precioLinea
+    const dto = copiaPvp ? 0 : Number(l.pjeDto) || 0
     const unidades = Number(l.cantidad) || 0
-    const importe = usaTarifa
-      ? redondear2(unidades * precio * (1 - dto / 100))
+    const importe = copiaPvp
+      ? redondear2(unidades * precio)
       : Number(l.importe) || 0
     const pje = Number(l.pjeIva) || 0
     const factor = 1 + pje / 100
@@ -210,6 +212,27 @@ export function ventaAPreviewDatos(
       pvp: 0,
       albaranCabecera: `Albarán ${venta.empresa}-${venta.albaran} de Fecha ${fmtFecha(venta.fecha)}`,
     })
+  }
+
+  // Copia con PVP: base, IVA e importe salen de las mismas líneas que se imprimen.
+  const importePvp = redondear2(lineas.reduce((s, l) => s + (Number(l.importe) || 0), 0))
+  let baseDoc = base
+  let ivasDoc = ivas
+  if (extras.preciosVenta) {
+    const porPje = new Map<number, number>()
+    for (const l of lineas) {
+      if (!l.articulo) continue
+      const pje = Number(l.pjeIva) || 0
+      const importeLinea = Number(l.importe) || 0
+      const b = extras.preciosIvaIncluido || pje <= 0 ? importeLinea / (1 + pje / 100) : importeLinea
+      porPje.set(pje, (porPje.get(pje) ?? 0) + b)
+    }
+    ivasDoc = [...porPje.entries()].map(([pje, b]) => ({
+      pje,
+      base: redondear2(b),
+      cuota: redondear2((b * pje) / 100),
+    }))
+    baseDoc = ivasDoc.reduce((s, i) => s + i.base, 0)
   }
 
   const anotacionPasaporteFitosanitario = anotacionFitoAlbaran
@@ -272,22 +295,26 @@ export function ventaAPreviewDatos(
     },
     lineas,
     totales: {
-      base: redondear2(base),
-      ivas,
+      base: redondear2(baseDoc),
+      ivas: ivasDoc,
       importe: extras.preciosVenta
-        ? redondear2(lineas.reduce((s, l) => s + (Number(l.importe) || 0), 0))
+        ? importePvp
         : redondear2(Number(venta.importeFactura ?? venta.importe) || 0),
-      descuentoFidelizacion: redondear2(Number(venta.descuentoFidelizacion) || 0),
+      descuentoFidelizacion: extras.preciosVenta
+        ? 0
+        : redondear2(Number(venta.descuentoFidelizacion) || 0),
       pjeRetIrpf: Number(venta.pjeRetIrpf) || 0,
       basRetIrpf: redondear2(Number(venta.basRetIrpf) || 0),
       impRetIrpf: redondear2(Number(venta.impRetIrpf) || 0),
-      liquido: redondear2(
-        Number(
-          venta.importeLiquido
-          ?? venta.importeFactura
-          ?? venta.importe
-        ) || 0
-      ),
+      liquido: extras.preciosVenta
+        ? importePvp
+        : redondear2(
+            Number(
+              venta.importeLiquido
+              ?? venta.importeFactura
+              ?? venta.importe
+            ) || 0
+          ),
     },
     fidelizacion: venta.fidelizacionPuntos
       ? {

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Descartes\Api\Services\Ventas;
 
 use Descartes\Api\Database\SqlPagination;
+use Descartes\Api\Config\Database;
 use Descartes\Api\Services\Instalacion\MejorasGestionSchema;
 use PDO;
 
@@ -801,12 +802,17 @@ final class PedidoClienteService
   {
     $importeTotal = 0.0;
     $n = 0;
+    // En MySQL NroLin no se genera solo: se numeran las líneas 1, 2, 3… del pedido.
+    $nroLinAuto = $this->motorDbEsMysql();
+    $colNro = $nroLinAuto ? 'NroLin, ' : '';
+    $valNro = $nroLinAuto ? ':nroLin, ' : '';
     foreach ($lineas as $lin) {
       $articulo = trim((string) ($lin['articulo'] ?? ''));
       if ($articulo === '') {
         throw new \InvalidArgumentException('Cada linea requiere articulo');
       }
       $n++;
+      $nroLinParam = $nroLinAuto ? ['nroLin' => $n] : [];
       $cant = (float) ($lin['cantidadPedida'] ?? 0);
       $servida = (float) ($lin['cantidadServida'] ?? 0);
       $aServir = (float) ($lin['cantidadAServir'] ?? 0);
@@ -822,12 +828,12 @@ final class PedidoClienteService
       try {
         $this->pdo->prepare(
           'INSERT INTO PedidosClientesLin
-            (Empresa, Pedido, Articulo, Descripcion, CantidadPedida, CantidadServida, CantidadaServir,
+            (' . $colNro . 'Empresa, Pedido, Articulo, Descripcion, CantidadPedida, CantidadServida, CantidadaServir,
              Precio, PjeDto, Importe, PjeIva, Zona, LoteVenta, Anotacion, Transportista)
            VALUES
-            (:empresa, :pedido, :articulo, :descripcion, :cant, :servida, :aservir,
+            (' . $valNro . ':empresa, :pedido, :articulo, :descripcion, :cant, :servida, :aservir,
              :precio, :pjeDto, :importe, :pjeIva, :zona, :lote, :anotacion, :transportista)'
-        )->execute([
+        )->execute($nroLinParam + [
           'empresa' => $empresa,
           'pedido' => $pedido,
           'articulo' => $articulo,
@@ -852,10 +858,10 @@ final class PedidoClienteService
         try {
           $this->pdo->prepare(
             'INSERT INTO PedidosClientesLin
-              (Empresa, Pedido, Articulo, Descripcion, CantidadPedida, CantidadServida, CantidadaServir, Precio, Importe)
+              (' . $colNro . 'Empresa, Pedido, Articulo, Descripcion, CantidadPedida, CantidadServida, CantidadaServir, Precio, Importe)
              VALUES
-              (:empresa, :pedido, :articulo, :descripcion, :cant, :servida, :aservir, :precio, :importe)'
-          )->execute([
+              (' . $valNro . ':empresa, :pedido, :articulo, :descripcion, :cant, :servida, :aservir, :precio, :importe)'
+          )->execute($nroLinParam + [
             'empresa' => $empresa,
             'pedido' => $pedido,
             'articulo' => $articulo,
@@ -869,10 +875,10 @@ final class PedidoClienteService
         } catch (\Throwable $e) {
           $this->pdo->prepare(
             'INSERT INTO PedidosClientesLin
-              (Empresa, Pedido, Articulo, CantidadPedida, CantidadServida, CantidadaServir, Precio, Importe)
+              (' . $colNro . 'Empresa, Pedido, Articulo, CantidadPedida, CantidadServida, CantidadaServir, Precio, Importe)
              VALUES
-              (:empresa, :pedido, :articulo, :cant, :servida, :aservir, :precio, :importe)'
-          )->execute([
+              (' . $valNro . ':empresa, :pedido, :articulo, :cant, :servida, :aservir, :precio, :importe)'
+          )->execute($nroLinParam + [
             'empresa' => $empresa,
             'pedido' => $pedido,
             'articulo' => $articulo,
@@ -889,6 +895,12 @@ final class PedidoClienteService
       throw new \InvalidArgumentException('El pedido debe tener al menos una linea');
     }
     return round($importeTotal, 2);
+  }
+
+  private function motorDbEsMysql(): bool
+  {
+    $cfg = Database::resolveConfig();
+    return strtolower((string) ($cfg['motor'] ?? 'sqlsrv')) === 'mysql';
   }
 
   private function recalcularImporte(string $empresa, int $pedido): float
