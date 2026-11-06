@@ -36,7 +36,6 @@ const loadingOpts = ref(false)
 const generating = ref(false)
 const error = ref<string | null>(null)
 const textoFactura = ref('')
-const nombreComercial = ref('')
 const idiomaFactura = ref<'' | 'es' | 'fr' | 'en'>('')
 const mensaje = ref<string | null>(null)
 const items = ref<FacturaManualPendiente[]>([])
@@ -418,7 +417,6 @@ async function prepararFacturasA4(lista: FacturaManualGenerada[]) {
     puestoCodigo: String(puestoContexto.puestoCodigo ?? ''),
     origenDocumento: 'manual',
     texto: textoFactura.value,
-    nombreComercial: nombreComercial.value,
     idioma: idiomaFactura.value,
   })
 }
@@ -596,14 +594,6 @@ onMounted(async () => {
             <label>
               <span>Texto en la factura</span>
               <input v-model="textoFactura" type="text" maxlength="200" placeholder="Opcional" />
-            </label>
-            <label>
-              <span>Nombre en el papel</span>
-              <select v-model="nombreComercial">
-                <option value="">La de la tienda</option>
-                <option value="Cultius">Cultius</option>
-                <option value="Planterium">Planterium</option>
-              </select>
             </label>
             <label>
               <span>Idioma de los rótulos</span>

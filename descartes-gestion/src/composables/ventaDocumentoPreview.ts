@@ -146,7 +146,8 @@ export function ventaAPreviewDatos(
     banco: venta.clienteBanco,
   })
   const lits = (extras.literalesPuesto ?? []).slice(0, nLit)
-  const anotacionFitoAlbaran = String(extras.plantillaTipo ?? '').trim() === 'albaran'
+  const tipoDoc = String(extras.plantillaTipo ?? '').trim()
+  const anotacionFitoAlbaran = tipoDoc === 'albaran' || tipoDoc.startsWith('factura')
   let hayLineasFito = false
   const lineas: DocumentoPreviewLinea[] = []
   for (const l of venta.lineas ?? []) {

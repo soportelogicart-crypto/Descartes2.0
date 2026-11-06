@@ -93,7 +93,6 @@ export function facturaAPreviewDatos(
     /** Data URL del logo de la carpeta `logos`. Vacío = no se imprime. */
     emblemaUrl?: string
     texto?: string
-    nombreComercial?: string
     idioma?: IdiomaDocumento
   } = {}
 ): DocumentoPreviewDatos {
@@ -145,13 +144,15 @@ export function facturaAPreviewDatos(
       }
       continue
     }
-    if (l.pasaporteFitosanitario) hayFito = true
+    const marcaFito = Boolean(l.pasaporteFitosanitario)
+    if (marcaFito) hayFito = true
     const pje = Number(l.pjeIva) || 0
     const factor = 1 + pje / 100
     const conIva = extras.preciosIvaIncluido || pje <= 0
     lineas.push({
       articulo: art,
-      descripcion: l.pasaporteFitosanitario ? `* ${l.descripcion}` : l.descripcion,
+      descripcion: l.descripcion,
+      marcaPasaporteFito: marcaFito || undefined,
       unidades: Number(l.unidades) || 0,
       precio: Number(l.precio) || 0,
       precioSinIva: conIva ? redondear2(l.precio / factor) : l.precio,
@@ -164,8 +165,8 @@ export function facturaAPreviewDatos(
 
   return {
     empresa: {
-      nombre: extras.nombreComercial || extras.empresaNombre || '',
-      razonSocial: extras.nombreComercial || extras.empresaNombre || '',
+      nombre: extras.empresaNombre || '',
+      razonSocial: extras.empresaNombre || '',
       nif: extras.empresaNif || '',
       direccion: extras.empresaDireccion || '',
       cp: extras.empresaCp || '',

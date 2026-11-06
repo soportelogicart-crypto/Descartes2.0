@@ -87,12 +87,11 @@ const plantillaTieneBloqueFito = computed(() =>
 )
 
 /** Respaldo si la plantilla guardada no incluye el bloque del pie fitosanitario. */
-const muestraPieFitoFlotante = computed(
-  () =>
-    props.plantilla.tipo === 'albaran' &&
-    anotacionFitoAlbaran.value !== '' &&
-    !plantillaTieneBloqueFito.value
-)
+const muestraPieFitoFlotante = computed(() => {
+  const tipo = props.plantilla.tipo
+  const llevaFito = tipo === 'albaran' || tipo.startsWith('factura')
+  return llevaFito && anotacionFitoAlbaran.value !== '' && !plantillaTieneBloqueFito.value
+})
 
 const fitoPieFlotanteStyle = computed(() => ({
   left: `${10 * pxPerMm.value}px`,

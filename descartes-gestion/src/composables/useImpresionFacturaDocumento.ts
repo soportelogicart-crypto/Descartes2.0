@@ -52,7 +52,6 @@ export async function prepararImpresionFacturas(
     puestoCodigo: string
     origenDocumento?: 'impresion' | 'manual' | 'generacion'
     texto?: string
-    nombreComercial?: string
     idioma?: '' | 'es' | 'fr' | 'en'
   }
 ): Promise<PrepImpresionFacturas> {
@@ -101,7 +100,6 @@ export async function prepararImpresionFacturas(
       datos: facturaAPreviewDatos(doc, {
         ...contexto.extras,
         texto: opciones.texto,
-        nombreComercial: opciones.nombreComercial,
         idioma: opciones.idioma,
       }),
     })

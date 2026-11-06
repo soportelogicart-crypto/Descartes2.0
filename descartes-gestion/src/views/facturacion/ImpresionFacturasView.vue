@@ -44,7 +44,6 @@ const preguntaEmailOpen = ref(false)
 const emailOpen = ref(false)
 const emailDestino = ref('')
 const textoFactura = ref('')
-const nombreComercial = ref('')
 const idiomaFactura = ref<'' | 'es' | 'fr' | 'en'>('')
 const a4ModalRef = ref<{ capturarHtmlFolio: () => Promise<string> } | null>(null)
 const buscarClienteOpen = ref(false)
@@ -348,7 +347,6 @@ async function pdfsPlantilla(
   const prep = await prepararImpresionFacturas(claves, {
     puestoCodigo: String(puestoContexto.puestoCodigo ?? ''),
     texto: textoFactura.value,
-    nombreComercial: nombreComercial.value,
     idioma: idiomaFactura.value,
   })
   try {
@@ -441,7 +439,6 @@ async function cargarPreview(ventanaYaAbierta: boolean) {
       {
         puestoCodigo: String(puestoContexto.puestoCodigo ?? ''),
         texto: textoFactura.value,
-        nombreComercial: nombreComercial.value,
         idioma: idiomaFactura.value,
       }
     )
@@ -596,14 +593,6 @@ onMounted(async () => {
             <label>
               <span>Texto en la factura</span>
               <input v-model="textoFactura" type="text" maxlength="200" placeholder="Opcional" />
-            </label>
-            <label>
-              <span>Empresa</span>
-              <select v-model="nombreComercial">
-                <option value="">La de la tienda</option>
-                <option value="Cultius">Cultius</option>
-                <option value="Planterium">Planterium</option>
-              </select>
             </label>
             <label>
               <span>Idioma de los rótulos</span>
