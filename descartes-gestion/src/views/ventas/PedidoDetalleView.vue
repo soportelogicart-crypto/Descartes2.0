@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onActivated, onMounted, ref } from 'vue'
+import { computed, nextTick, onActivated, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import {
@@ -61,6 +61,7 @@ const esNuevo = ref(false)
 /** Flujo legacy: tienda → reservar nº → buscar cliente → líneas */
 const pasoAlta = ref<'tienda' | 'cliente' | 'listo'>('listo')
 const buscarClienteOpen = ref(false)
+const clienteBusquedaInicial = ref('')
 const omitirProximaCarga = ref(false)
 const buscarArticuloOpen = ref(false)
 const buscarVendedorOpen = ref(false)
@@ -73,6 +74,9 @@ const articuloBusquedaInicial = ref('')
 const articuloInputRefs = ref<HTMLInputElement[]>([])
 const tiendas = ref<{ value: string; label: string }[]>([])
 const tiendaSelect = ref<HTMLSelectElement | null>(null)
+const clienteInput = ref<HTMLInputElement | null>(null)
+const lineasEl = ref<HTMLElement | null>(null)
+const cabeceraExpandida = ref(false)
 const pedidoNum = ref<number | null>(null)
 const nifVista = ref('')
 const razonVista = ref('')
@@ -357,6 +361,9 @@ async function onIntroCabecera() {
       void resolverNombreVendedor(editForm.value.vendedor)
       pasoAlta.value = 'cliente'
       msg.value = `Pedido ${reserva.pedido} reservado. Pulse Intro o Buscar para elegir cliente`
+      await nextTick()
+      clienteInput.value?.focus()
+      clienteInput.value?.select()
     } catch (e: unknown) {
       error.value = extractApiError(e, 'No se pudo reservar el número de pedido')
     } finally {
@@ -366,7 +373,65 @@ async function onIntroCabecera() {
   }
 
   if (pasoAlta.value === 'cliente') {
-    buscarClienteOpen.value = true
+    abrirBuscarCliente(editForm.value.cliente)
+  }
+}
+
+function abrirBuscarCliente(texto = '') {
+  clienteBusquedaInicial.value = texto.trim()
+  buscarClienteOpen.value = true
+}
+
+function onClienteKeydown(e: KeyboardEvent) {
+  if (!clienteEditable.value) return
+  if (e.key === 'F4') {
+    e.preventDefault()
+    e.stopPropagation()
+    abrirBuscarCliente(editForm.value.cliente)
+    return
+  }
+  if (e.key !== 'Enter' && e.key !== 'NumpadEnter') return
+  e.preventDefault()
+  e.stopPropagation()
+  void resolverClienteEscrito()
+}
+
+async function resolverClienteEscrito() {
+  const texto = editForm.value.cliente.trim()
+  if (!texto) {
+    abrirBuscarCliente('')
+    return
+  }
+  try {
+    const { data: cli } = await api.get(
+      `/api/mantenimiento/clientes/${encodeURIComponent(texto)}`
+    )
+    await onClienteSeleccionado({
+      codigo: String(cli.codigo ?? texto).trim(),
+      etiqueta: String(cli.nombre ?? cli.razonSocial ?? '').trim(),
+    })
+    return
+  } catch {
+    /* el texto no es un código exacto: buscar por nombre o número */
+  }
+  try {
+    const { data } = await api.get('/api/mantenimiento/clientes', {
+      params: { q: texto, page: 1, pageSize: 20 },
+    })
+    const items = (data.items ?? []) as { codigo?: string; nombre?: string; razonSocial?: string }[]
+    if (items.length === 1) {
+      const codigo = String(items[0].codigo ?? '').trim()
+      if (codigo) {
+        await onClienteSeleccionado({
+          codigo,
+          etiqueta: String(items[0].nombre ?? items[0].razonSocial ?? '').trim(),
+        })
+        return
+      }
+    }
+    abrirBuscarCliente(texto)
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo buscar el cliente')
   }
 }
 
@@ -375,7 +440,7 @@ function onKeyEnter(e: KeyboardEvent) {
   if (buscarClienteOpen.value || buscarArticuloOpen.value || buscarVendedorOpen.value) return
   const t = e.target
   if (t instanceof HTMLTextAreaElement) return
-  if (t instanceof HTMLElement && t.closest('.lineas')) return
+  if (t instanceof HTMLElement && (t.closest('.lineas') || t.closest('.cliente-field'))) return
   e.preventDefault()
   void onIntroCabecera()
 }
@@ -393,6 +458,109 @@ async function focusArticuloLinea(index = 0) {
     el.focus()
     el.select()
   }
+}
+
+type PedidoLineaCampo =
+  | 'articulo'
+  | 'descripcion'
+  | 'anotacion'
+  | 'transportista'
+  | 'zona'
+  | 'lote'
+  | 'cantidadPedida'
+  | 'cantidadAServir'
+  | 'precio'
+  | 'pjeDto'
+const PEDIDO_INTRO_CAMPOS: PedidoLineaCampo[] = ['descripcion', 'cantidadPedida', 'precio', 'pjeDto']
+const PEDIDO_CAMPOS: PedidoLineaCampo[] = [
+  'articulo',
+  'descripcion',
+  'anotacion',
+  'transportista',
+  'zona',
+  'lote',
+  'cantidadPedida',
+  'cantidadAServir',
+  'precio',
+  'pjeDto',
+]
+
+function campoLineaDesdeTarget(target: HTMLElement): PedidoLineaCampo | null {
+  if (target.closest('.celda-articulo')) return 'articulo'
+  const field = target.closest('td[data-linea-field]')?.getAttribute('data-linea-field')
+  if (!field || !PEDIDO_CAMPOS.includes(field as PedidoLineaCampo)) return null
+  return field as PedidoLineaCampo
+}
+
+function focusLineaCampo(idx: number, field: PedidoLineaCampo) {
+  void nextTick(() => {
+    const row = (lineasEl.value ?? document).querySelector(`tr[data-linea-idx="${idx}"]`)
+    if (!row) return
+    if (field === 'articulo') {
+      const el = row.querySelector<HTMLInputElement>('.celda-articulo input')
+      if (el && !el.disabled) {
+        el.focus()
+        el.select()
+      }
+      return
+    }
+    const td = row.querySelector(`td[data-linea-field="${field}"]`)
+    const el = td?.querySelector('input')
+    if (el && !el.disabled && !el.readOnly) {
+      el.focus()
+      el.select()
+    }
+  })
+}
+
+function enfocarTrasArticulo(index: number) {
+  const linea = editForm.value.lineas[index]
+  if (!linea) return
+  if (!String(linea.descripcion ?? '').trim()) {
+    focusLineaCampo(index, 'descripcion')
+  } else {
+    focusLineaCampo(index, 'cantidadPedida')
+  }
+}
+
+async function avanzarSiguienteLinea(idx: number) {
+  if (idx >= editForm.value.lineas.length - 1) {
+    editForm.value.lineas.push(lineaVacia())
+  }
+  await nextTick()
+  focusLineaCampo(idx + 1, 'articulo')
+}
+
+function onLineasKeydown(e: KeyboardEvent) {
+  if (!editando.value) return
+  const target = e.target
+  if (!(target instanceof HTMLInputElement) || target.disabled || target.readOnly) return
+  const row = target.closest('tr[data-linea-idx]')
+  if (!row) return
+  const idx = Number(row.getAttribute('data-linea-idx'))
+  if (!Number.isFinite(idx)) return
+  const field = campoLineaDesdeTarget(target)
+  if (!field) return
+
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    const destino = e.key === 'ArrowUp' ? idx - 1 : idx + 1
+    if (destino < 0 || destino >= editForm.value.lineas.length) return
+    e.preventDefault()
+    e.stopPropagation()
+    focusLineaCampo(destino, field)
+    return
+  }
+
+  if (e.key !== 'Enter' && e.key !== 'NumpadEnter') return
+  if (field === 'articulo' || !PEDIDO_INTRO_CAMPOS.includes(field)) return
+  e.preventDefault()
+  e.stopPropagation()
+  const pos = PEDIDO_INTRO_CAMPOS.indexOf(field)
+  if (pos < PEDIDO_INTRO_CAMPOS.length - 1) {
+    focusLineaCampo(idx, PEDIDO_INTRO_CAMPOS[pos + 1])
+    return
+  }
+  void avanzarSiguienteLinea(idx)
 }
 
 function precioSegunTarifa(art: Record<string, unknown>): number {
@@ -439,7 +607,7 @@ async function aplicarArticuloEnLinea(
   if (index === editForm.value.lineas.length - 1) {
     editForm.value.lineas.push(lineaVacia())
   }
-  await focusArticuloLinea(index + 1)
+  enfocarTrasArticulo(index)
 }
 
 async function onArticuloSeleccionado(sel: { codigo: string; etiqueta: string }) {
@@ -458,7 +626,7 @@ async function onArticuloSeleccionado(sel: { codigo: string; etiqueta: string })
     if (idx === editForm.value.lineas.length - 1) {
       editForm.value.lineas.push(lineaVacia())
     }
-    await focusArticuloLinea(idx + 1)
+    enfocarTrasArticulo(idx)
   }
 }
 
@@ -475,11 +643,17 @@ async function onArticuloKeydown(e: KeyboardEvent, index: number) {
     abrirBuscarArticulo(index)
     return
   }
-  if (e.key !== 'Enter') return
+  if (e.key !== 'Enter' && e.key !== 'NumpadEnter') return
   e.preventDefault()
   e.stopPropagation()
   barcodeWatcher.cancel()
-  await resolverArticuloEnLinea(index, String(editForm.value.lineas[index]?.articulo ?? ''))
+  const linea = editForm.value.lineas[index]
+  const codigo = String(linea?.articulo ?? '').trim()
+  if (codigo && String(linea?.descripcion ?? '').trim()) {
+    focusLineaCampo(index, 'cantidadPedida')
+    return
+  }
+  await resolverArticuloEnLinea(index, codigo)
 }
 
 let barcodeLineaIdx = 0
@@ -543,9 +717,25 @@ async function onVendedorKeydown(e: KeyboardEvent) {
   }
 }
 
+function aplicarClienteEnForm(cli: Record<string, unknown>, sel: { codigo: string; etiqueta: string }) {
+  const codigo = String(cli.codigo ?? sel.codigo).trim()
+  const razon = String(cli.nombre ?? cli.razonSocial ?? sel.etiqueta ?? '').trim()
+  editForm.value.cliente = codigo
+  nifVista.value = cli.nif != null ? String(cli.nif) : ''
+  razonVista.value = razon
+  editForm.value.direccionEnvio = String(cli.direccionEnvio || cli.direccion || '')
+  editForm.value.poblacionEnvio = String(cli.poblacionEnvio || cli.poblacion || '')
+  editForm.value.codigoPostalEnvio = String(cli.codigoPostalEnvio || cli.codigoPostal || '')
+  editForm.value.provinciaEnvio = String(cli.provinciaEnvio || cli.provincia || '')
+  editForm.value.paisEnvio = String(cli.paisEnvio || cli.pais || 'España')
+  editForm.value.email = cli.email != null ? String(cli.email) : ''
+  editForm.value.transporte = String(cli.transportista ?? cli.transporte ?? '').trim()
+  return { codigo, razon }
+}
+
 async function onClienteSeleccionado(sel: { codigo: string; etiqueta: string }) {
   buscarClienteOpen.value = false
-  if (!puedeCrear.value) {
+  if (esNuevo.value && !puedeCrear.value) {
     error.value = 'No tiene permiso para crear pedidos'
     return
   }
@@ -561,32 +751,22 @@ async function onClienteSeleccionado(sel: { codigo: string; etiqueta: string }) 
     const { data: cli } = await api.get(
       `/api/mantenimiento/clientes/${encodeURIComponent(sel.codigo)}`
     )
-    const codigo = String(cli.codigo ?? sel.codigo).trim()
-    const razon = String(cli.nombre ?? cli.razonSocial ?? sel.etiqueta ?? '').trim()
-    const nif = cli.nif != null ? String(cli.nif) : ''
-    const transporte = String(cli.transportista ?? cli.transporte ?? '').trim()
-
-    editForm.value.cliente = codigo
-    nifVista.value = nif
-    razonVista.value = razon
-    editForm.value.direccionEnvio = String(cli.direccionEnvio || cli.direccion || '')
-    editForm.value.poblacionEnvio = String(cli.poblacionEnvio || cli.poblacion || '')
-    editForm.value.codigoPostalEnvio = String(cli.codigoPostalEnvio || cli.codigoPostal || '')
-    editForm.value.provinciaEnvio = String(cli.provinciaEnvio || cli.provincia || '')
-    editForm.value.paisEnvio = String(cli.paisEnvio || cli.pais || 'España')
-    editForm.value.email = cli.email != null ? String(cli.email) : ''
-    editForm.value.transporte = transporte
+    const { codigo, razon } = aplicarClienteEnForm(cli as Record<string, unknown>, sel)
+    if (!esNuevo.value) {
+      msg.value = `Cliente ${codigo} — ${razon}. Pulse Grabar para guardarlo.`
+      return
+    }
 
     const created = await crearPedido({
       empresa: editForm.value.empresa.trim(),
       pedido: pedidoNum.value,
       cliente: codigo,
       razonSocial: razon,
-      nif,
+      nif: nifVista.value,
       puesto: editForm.value.puesto || undefined,
       vendedor: editForm.value.vendedor || undefined,
       email: editForm.value.email || undefined,
-      transporte: transporte || undefined,
+      transporte: editForm.value.transporte || undefined,
       direccionEnvio: editForm.value.direccionEnvio || undefined,
       codigoPostalEnvio: editForm.value.codigoPostalEnvio || undefined,
       poblacionEnvio: editForm.value.poblacionEnvio || undefined,
@@ -1046,6 +1226,25 @@ const importe = computed(() =>
 )
 
 const tiendaEditable = computed(() => esNuevo.value && pasoAlta.value === 'tienda' && editando.value)
+const clienteEditable = computed(
+  () =>
+    (esNuevo.value && pasoAlta.value === 'cliente' && editando.value) ||
+    (editando.value && !esNuevo.value)
+)
+const cabeceraRecogida = computed(() => pasoAlta.value === 'listo')
+const textoResumenCabecera = computed(() => {
+  const num = pedidoNum.value ?? detalle.value?.pedido
+  const cli = editForm.value.cliente.trim() || '—'
+  const razon = (razonVista.value || detalle.value?.razonSocial || '').trim()
+  const parts: string[] = []
+  if (num) parts.push(`Pedido ${num}`)
+  parts.push(`Cliente ${cli}`)
+  if (razon) parts.push(razon)
+  return parts.join(' · ')
+})
+watch(pasoAlta, (paso) => {
+  if (paso === 'listo') cabeceraExpandida.value = false
+})
 const clienteBuscable = computed(
   () => (esNuevo.value && pasoAlta.value === 'cliente') || (editando.value && !!detalle.value?.editable)
 )
@@ -1222,7 +1421,7 @@ onActivated(() => {
             type="button"
             class="primary"
             :disabled="loading"
-            @click="buscarClienteOpen = true"
+            @click="abrirBuscarCliente(editForm.cliente)"
           >
             Buscar cliente
           </button>
@@ -1239,7 +1438,20 @@ onActivated(() => {
         </div>
       </aside>
 
-      <div class="cab">
+      <div class="principal">
+      <div class="cab" :class="{ 'cab-min': cabeceraRecogida && !cabeceraExpandida }">
+        <div v-if="cabeceraRecogida && !cabeceraExpandida" class="cabecera-resumen">
+          <span class="cabecera-resumen-text">{{ textoResumenCabecera }}</span>
+          <button type="button" class="btn-cabecera-toggle" @click="cabeceraExpandida = true">
+            Ver cabecera
+          </button>
+        </div>
+        <template v-else>
+        <div v-if="cabeceraRecogida" class="cabecera-plegar">
+          <button type="button" class="btn-cabecera-toggle" @click="cabeceraExpandida = false">
+            Ocultar cabecera
+          </button>
+        </div>
         <div class="grid-cab">
           <label class="field-tienda">
             Tienda
@@ -1264,13 +1476,19 @@ onActivated(() => {
           <label class="cliente-field">
             Cliente
             <div class="cliente-row">
-              <input v-model="editForm.cliente" :disabled="!editando || esNuevo" />
+              <input
+                ref="clienteInput"
+                v-model="editForm.cliente"
+                :disabled="!clienteEditable"
+                placeholder="Código"
+                @keydown="onClienteKeydown"
+              />
               <button
                 type="button"
                 class="btn-buscar"
                 :disabled="!clienteBuscable || loading"
                 title="Buscar cliente"
-                @click="buscarClienteOpen = true"
+                @click="abrirBuscarCliente(editForm.cliente)"
               >
                 ...
               </button>
@@ -1382,10 +1600,15 @@ onActivated(() => {
             rows="3"
           />
         </label>
+        </template>
       </div>
-    </div>
 
-    <div v-if="(detalle || esNuevo) && (!esNuevo || pasoAlta === 'listo')" class="lineas">
+    <div
+      v-if="(detalle || esNuevo) && (!esNuevo || pasoAlta === 'listo')"
+      ref="lineasEl"
+      class="lineas"
+      @keydown="onLineasKeydown"
+    >
       <div v-if="editando" class="lin-toolbar">
         <button type="button" @click="servirTodoPendiente">Rellenar a servir (pendiente)</button>
         <button type="button" @click="addLinea">+ Línea</button>
@@ -1395,33 +1618,34 @@ onActivated(() => {
         <button type="button" @click="descargarExcel">Excel</button>
       </div>
       <p v-if="editando" class="hint-lin">
-        En código: <strong>Intro</strong> carga el artículo o abre búsqueda;
-        <strong> F4</strong> / doble clic / <strong>...</strong> abre siempre la búsqueda.
+        En código: <strong>Intro</strong> carga el artículo y pasa a la cantidad; luego precio y dto %.
+        <strong>Flecha arriba / abajo</strong> cambia de fila en la misma columna.
+        <strong>F4</strong> / doble clic / <strong>...</strong> abre la búsqueda.
         Para pasar a venta, rellene <strong>A servir</strong> y use Generar albarán.
       </p>
       <div class="grid-wrap">
-        <table>
+        <table class="tabla-lineas">
           <thead>
             <tr>
-              <th>Artículo</th>
-              <th>Descripción</th>
+              <th class="col-art">Artículo</th>
+              <th class="col-desc">Descripción</th>
               <th>Anotación</th>
               <th>Transportista</th>
               <th>Zona</th>
               <th>Lote venta</th>
-              <th class="num" title="Cantidad pedida">Pedida</th>
-              <th class="num" title="Cantidad ya entregada">Entreg.</th>
-              <th class="num" title="Pendiente de servir">Pend.</th>
-              <th class="num" title="Cantidad a servir en el próximo albarán">A servir</th>
-              <th class="num">Precio</th>
-              <th class="num">Dto %</th>
+              <th class="num col-num" title="Cantidad pedida">Pedida</th>
+              <th class="num col-num" title="Cantidad ya entregada">Entreg.</th>
+              <th class="num col-num" title="Pendiente de servir">Pend.</th>
+              <th class="num col-num" title="Cantidad a servir en el próximo albarán">A servir</th>
+              <th class="num col-num">Precio</th>
+              <th class="num col-dto">Dto %</th>
               <th class="num">Importe</th>
               <th v-if="editando"></th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(l, i) in editForm.lineas" :key="i">
-              <td>
+            <tr v-for="(l, i) in editForm.lineas" :key="i" :data-linea-idx="i">
+              <td class="col-art" data-linea-field="articulo">
                 <div v-if="editando" class="celda-articulo">
                   <input
                     :ref="(el) => setArticuloInputRef(el, i)"
@@ -1443,27 +1667,27 @@ onActivated(() => {
                 </div>
                 <span v-else>{{ l.articulo }}</span>
               </td>
-              <td>
+              <td class="col-desc" data-linea-field="descripcion">
                 <input v-if="editando" v-model="l.descripcion" />
                 <span v-else>{{ l.descripcion }}</span>
               </td>
-              <td>
+              <td data-linea-field="anotacion">
                 <input v-if="editando" v-model="l.anotacion" maxlength="80" />
                 <span v-else>{{ l.anotacion || '' }}</span>
               </td>
-              <td>
+              <td data-linea-field="transportista">
                 <input v-if="editando" v-model="l.transportista" maxlength="25" />
                 <span v-else>{{ l.transportista || '' }}</span>
               </td>
-              <td>
+              <td data-linea-field="zona">
                 <input v-if="editando" v-model="l.zona" />
                 <span v-else>{{ l.zona || '' }}</span>
               </td>
-              <td>
+              <td data-linea-field="lote">
                 <input v-if="editando" v-model="l.loteVenta" />
                 <span v-else>{{ l.loteVenta || '' }}</span>
               </td>
-              <td class="num">
+              <td class="num col-num" data-linea-field="cantidadPedida">
                 <DecimalInput
                   v-if="editando"
                   v-model="l.cantidadPedida"
@@ -1473,7 +1697,7 @@ onActivated(() => {
               </td>
               <td class="num">{{ Number(l.cantidadServida || 0).toFixed(2) }}</td>
               <td class="num pend">{{ pendienteDe(l).toFixed(2) }}</td>
-              <td class="num">
+              <td class="num" data-linea-field="cantidadAServir">
                 <DecimalInput
                   v-if="editando"
                   v-model="l.cantidadAServir"
@@ -1482,7 +1706,7 @@ onActivated(() => {
                 />
                 <span v-else>{{ Number(l.cantidadAServir || 0).toFixed(2) }}</span>
               </td>
-              <td class="num">
+              <td class="num col-num" data-linea-field="precio">
                 <DecimalInput
                   v-if="editando"
                   v-model="l.precio"
@@ -1490,7 +1714,7 @@ onActivated(() => {
                 />
                 <span v-else>{{ Number(l.precio).toFixed(4) }}</span>
               </td>
-              <td class="num">
+              <td class="num col-dto" data-linea-field="pjeDto">
                 <DecimalInput
                   v-if="editando"
                   v-model="l.pjeDto"
@@ -1515,11 +1739,14 @@ onActivated(() => {
         </table>
       </div>
     </div>
+      </div>
+    </div>
 
     <EntidadBuscarModal
       :open="buscarClienteOpen"
       entidad="clientes"
       titulo="Buscar cliente"
+      :busqueda-inicial="clienteBusquedaInicial"
       @seleccionar="onClienteSeleccionado"
       @cerrar="buscarClienteOpen = false"
     />
@@ -1700,12 +1927,18 @@ onActivated(() => {
 }
 .layout {
   display: grid;
-  grid-template-columns: 11rem 1fr;
+  grid-template-columns: 11rem minmax(0, 1fr);
   gap: 1rem;
   margin-bottom: 1rem;
-  max-width: 960px;
   width: 100%;
+  align-items: start;
   box-sizing: border-box;
+}
+.principal {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 .totales {
   display: flex;
@@ -1744,6 +1977,11 @@ onActivated(() => {
   border-radius: 6px;
   padding: 0.75rem;
   background: #f8fafc;
+  max-width: 960px;
+}
+.cab-min {
+  padding: 0.35rem 0.65rem;
+  max-width: none;
 }
 .grid-cab {
   display: grid;
@@ -1778,10 +2016,30 @@ textarea:disabled {
   color: #334155;
 }
 .lineas {
-  margin-top: 0.5rem;
-  max-width: 960px;
   width: 100%;
   box-sizing: border-box;
+}
+.tabla-lineas {
+  width: 100%;
+  min-width: 72rem;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.tabla-lineas .col-art {
+  width: 11rem;
+  min-width: 11rem;
+}
+.tabla-lineas .col-desc {
+  width: 18rem;
+  min-width: 18rem;
+}
+.tabla-lineas .col-num {
+  width: 5.5rem;
+  min-width: 5.5rem;
+}
+.tabla-lineas .col-dto {
+  width: 4.2rem;
+  min-width: 4.2rem;
 }
 .lin-toolbar {
   display: flex;
@@ -1818,6 +2076,15 @@ td input {
   width: 100%;
   box-sizing: border-box;
   min-width: 3.5rem;
+}
+.tabla-lineas th,
+.tabla-lineas td {
+  padding: 0.08rem 0.25rem;
+}
+.tabla-lineas td input {
+  padding: 0.1rem 0.25rem;
+  min-height: 0;
+  line-height: 1.2;
 }
 .linkish {
   background: none;
@@ -1894,7 +2161,31 @@ td input {
 }
 .celda-articulo input {
   flex: 1;
-  min-width: 0;
+  min-width: 7rem;
+}
+.cabecera-resumen {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.cabecera-resumen-text {
+  font-weight: 600;
+  color: #0f172a;
+}
+.cabecera-plegar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.45rem;
+}
+.btn-cabecera-toggle {
+  border: 1px solid #64748b;
+  background: #fff;
+  border-radius: 4px;
+  padding: 0.25rem 0.55rem;
+  cursor: pointer;
+  font-size: 0.78rem;
+  flex-shrink: 0;
 }
 .btn-buscar-art {
   padding: 0.2rem 0.45rem;
