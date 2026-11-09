@@ -29,6 +29,7 @@ $containerBuilder->addDefinitions([
   \Descartes\Api\Controllers\ProveedorController::class => DI\autowire(),
   \Descartes\Api\Controllers\ArticuloController::class => DI\autowire(),
   \Descartes\Api\Controllers\VentasController::class => DI\autowire(),
+  \Descartes\Api\Controllers\EncargoController::class => DI\autowire(),
   \Descartes\Api\Controllers\ComprasController::class => DI\autowire(),
   \Descartes\Api\Controllers\TpvController::class => DI\autowire(),
   \Descartes\Api\Controllers\OfflineController::class => DI\autowire(),
@@ -57,6 +58,7 @@ $app->setBasePath($basePath);
 (require __DIR__ . '/../src/Routes/auth.php')($app);
 (require __DIR__ . '/../src/Routes/mantenimiento.php')($app);
 (require __DIR__ . '/../src/Routes/ventas.php')($app);
+(require __DIR__ . '/../src/Routes/encargos.php')($app);
 (require __DIR__ . '/../src/Routes/compras.php')($app);
 (require __DIR__ . '/../src/Routes/tpv.php')($app);
 (require __DIR__ . '/../src/Routes/offline.php')($app);

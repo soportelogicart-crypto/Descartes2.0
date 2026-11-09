@@ -883,6 +883,13 @@ final class GeneracionFacturasManualService
       }
     }
 
+    if (!$esPrefactura) {
+      $encargos = new \Descartes\Api\Services\Ventas\EncargoService($this->pdo);
+      foreach ($refs as $ref) {
+        $encargos->marcarFacturado((string) $ref['empresa'], (string) $ref['tipo'], (int) $ref['albaran']);
+      }
+    }
+
     return [
       'empresa' => $empresaFacturacion,
       'facturaTipo' => $facturaTipo,

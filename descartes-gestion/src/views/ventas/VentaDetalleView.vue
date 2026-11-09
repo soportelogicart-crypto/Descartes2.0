@@ -20,6 +20,7 @@ import { crearAlbaranPeriodico, eliminarAlbaranPeriodico } from '@/api/facturaci
 import { buscarArticulos, resolverArticulo } from '@/api/articulos'
 import { createBarcodeScanWatcher } from '@/composables/useBarcodeScanWatcher'
 import { api } from '@/api/client'
+import EncargoEnAlbaran from '@/components/ventas/EncargoEnAlbaran.vue'
 import type {
   VentaAlbaranFacturaResumen,
   VentaDetalle,
@@ -107,6 +108,14 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const mensaje = ref<string | null>(null)
 const modoEdicion = ref(false)
+/** Venta abierta desde encargos: Finalizar sigue disponible aunque se salga de edición. */
+const abiertoDesdeEncargo = ref(false)
+/** El albarán tiene un encargo (lo informa la API, no depende de cómo se abrió la pantalla). */
+const albaranEsEncargo = ref(false)
+const bannerEncargo = ref<{ recargar: () => Promise<void> } | null>(null)
+/** Albarán de encargo: Finalizar/cobrar disponible tras Guardar, igual que en la edición. */
+const docDeEncargo = computed(() => abiertoDesdeEncargo.value || albaranEsEncargo.value)
+let cargaSeq = 0
 const esNuevo = ref(false)
 const ficha = ref<VentaDetalle | null>(null)
 const lineas = ref<VentaLinea[]>([])
@@ -647,6 +656,9 @@ const docAviso = computed(() => {
       ? 'Solo consulta. Puede imprimir o generar un abono.'
       : 'Solo consulta. Puede imprimir el documento.'
   }
+  if (docDeEncargo.value && (kind === 'albaran' || kind === 'presupuesto') && !bloqueado.value) {
+    return 'Albarán de encargo pendiente de cobro. Pulse Finalizar para cobrarlo como ticket o factura.'
+  }
   if (kind === 'presupuesto') {
     return 'Presupuesto. Puede modificar las líneas. Imprimir permite pasarlo a ticket, albarán o factura.'
   }
@@ -666,6 +678,13 @@ const mostrarFinalizarToolbar = computed(() => {
   if (esPlantillaConsulta.value) return false
   if (modoEdicion.value && esTicketCerrado.value) return false
   if (!esConsultaRecuperada.value || modoEdicion.value) return true
+  if (
+    docDeEncargo.value &&
+    !bloqueado.value &&
+    (docKind.value === 'albaran' || docKind.value === 'presupuesto')
+  ) {
+    return true
+  }
   if (esTicketCerrado.value && (Number(ficha.value?.facturaConversion) || 0) > 0) return false
   // Albarán y presupuesto recuperados: el tipo se elige desde Imprimir.
   return docKind.value === 'ticket'
@@ -737,7 +756,7 @@ const puedeFinalizar = computed(
   () =>
     !esPlantillaConsulta.value &&
     (ventaNuevaLista.value ||
-      (tieneVendedor.value &&
+      ((tieneVendedor.value || modoEdicion.value || docDeEncargo.value) &&
         albaranCompleto.value &&
         !bloqueado.value &&
         !ticketNoEditable.value &&
@@ -1091,6 +1110,7 @@ async function cargar() {
     return
   }
 
+  const seq = ++cargaSeq
   loading.value = true
   error.value = null
   try {
@@ -1099,15 +1119,27 @@ async function cargar() {
       tipoRuta,
       albaranRuta
     )
-    if (!esEstaInstanciaActiva()) return
+    // onMounted y onActivated disparan cargar a la vez. La respuesta vieja no debe
+    // consumir «abrir en edición» ni apagar el modo edición de la respuesta nueva.
+    if (!esEstaInstanciaActiva() || seq !== cargaSeq) return
+    const prevEmpresa = String(ficha.value?.empresa ?? '').trim()
+    const prevTipo = String(ficha.value?.tipo ?? '').trim()
+    const prevAlbaran = Number(ficha.value?.albaran ?? 0)
+    const mismaAbierta =
+      abiertoDesdeEncargo.value &&
+      prevEmpresa === String(data.empresa ?? '').trim() &&
+      prevTipo === String(data.tipo ?? '').trim() &&
+      prevAlbaran === Number(data.albaran)
+    const bannerYaVisible = ficha.value != null && !esNuevo.value
     aplicarDetalle(data)
     esNuevo.value = false
     pasoAlta.value = 'listo'
     const forzarEdicion = busqueda.consumirAbrirEnEdicion({
-      empresa: data.empresa,
-      tipo: data.tipo,
-      albaran: data.albaran,
+      empresa: String(data.empresa ?? '').trim(),
+      tipo: String(data.tipo ?? '').trim(),
+      albaran: Number(data.albaran),
     })
+    abiertoDesdeEncargo.value = forzarEdicion || mismaAbierta
     const bloqueadoDoc = Boolean(data.bloqueado || data.facturada)
     const sinArticulos = !(data.lineas ?? []).some((l) => {
       const art = String(l.articulo ?? '').trim()
@@ -1117,26 +1149,40 @@ async function cargar() {
     // Tras alta de cabecera el layout remonta (:key=path). Tambien reabrir borradores sin lineas
     // o documentos sin cliente (estado inconsistente).
     modoEdicion.value = !bloqueadoDoc && (forzarEdicion || sinArticulos || sinCliente)
+    if (abiertoDesdeEncargo.value && ficha.value && !bloqueadoDoc) {
+      const puestoDoc = String(ficha.value.puesto ?? '').trim()
+      const puestoPc = String(puesto.puestoCodigo ?? '').trim()
+      if (puestoPc && (puestoDoc === '' || puestoDoc === '99')) {
+        ficha.value = { ...ficha.value, puesto: puestoPc }
+      }
+      if (!String(ficha.value.vendedor ?? '').trim()) {
+        await precargarVendedorDelPuesto()
+      }
+    }
     consumirPostVentaPendiente(data)
     if (modoEdicion.value) {
-      if (!lineas.value.length) lineas.value = [lineaVacia()]
+      const anadirLinea = forzarEdicion && !sinArticulos && !sinCliente
+      if (!lineas.value.length || anadirLinea) lineas.value = [...lineas.value, lineaVacia()]
       if (sinCliente) {
         mensaje.value =
           'Falta el cliente. Intro vacío en Código = venta rápida; F4 o … para buscar.'
       } else {
         mensaje.value = sinArticulos
-          ? 'Puede completar cabecera (p. ej. Referencia) e introducir articulos. Luego Guardar.'
-          : 'Introduzca articulos (Intro en codigo para buscar)'
-        // Con cliente listo → foco en 1ª línea de artículo (pistola sin clic).
-        await focusArticuloLinea(0)
+          ? 'Puede completar cabecera (p. ej. Referencia) e introducir articulos. Luego Guardar y finalizar.'
+          : 'Albarán abierto. Puede cambiar las líneas o añadir otra. Luego Guardar y finalizar.'
+        await focusArticuloLinea(anadirLinea ? lineas.value.length - 1 : 0)
       }
     }
+    if (bannerYaVisible) {
+      await nextTick()
+      await bannerEncargo.value?.recargar()
+    }
   } catch (e: unknown) {
-    if (!esEstaInstanciaActiva()) return
+    if (!esEstaInstanciaActiva() || seq !== cargaSeq) return
     error.value = extractApiError(e, 'No se pudo cargar la venta')
     ficha.value = null
   } finally {
-    if (esEstaInstanciaActiva()) {
+    if (esEstaInstanciaActiva() && seq === cargaSeq) {
       loading.value = false
     }
   }
@@ -2280,6 +2326,29 @@ async function confirmarBorrar() {
 async function onFinalizar() {
   if (!ficha.value || esPlantillaConsulta.value) return
   if (bloqueado.value && !esTicketCerrado.value) return
+  // Encargos antiguos quedaron en el puesto 99: el cobro debe entrar en la sesión de este puesto.
+  if (docDeEncargo.value && !esNuevo.value && !modoEdicion.value && !esTicketCerrado.value) {
+    const puestoDoc = String(ficha.value.puesto ?? '').trim()
+    const puestoPc = String(puesto.puestoCodigo ?? '').trim()
+    if (puestoPc && (puestoDoc === '' || puestoDoc === '99')) {
+      loading.value = true
+      try {
+        ficha.value = { ...ficha.value, puesto: puestoPc }
+        const saved = await actualizarVenta(
+          ficha.value.empresa,
+          ficha.value.tipo,
+          ficha.value.albaran,
+          payloadDesdeFicha()
+        )
+        aplicarDetalle(saved)
+      } catch (e: unknown) {
+        error.value = extractApiError(e, 'No se pudo asignar el puesto al albarán')
+        return
+      } finally {
+        loading.value = false
+      }
+    }
+  }
   if (!tieneVendedor.value) {
     await precargarVendedorDelPuesto()
   }
@@ -2686,6 +2755,8 @@ async function confirmarFinalizar() {
     )
     aplicarDetalle(done)
     modoEdicion.value = false
+    await nextTick()
+    await bannerEncargo.value?.recargar()
     if (done.ticketNegativo) {
       mensaje.value =
         `Ticket ${ticketOrigen} compensado con el ticket negativo ${done.ticketNegativo}. ` +
@@ -3048,6 +3119,14 @@ onActivated(() => {
     <p v-if="loading && !ficha">Cargando...</p>
 
     <template v-if="ficha">
+      <EncargoEnAlbaran
+        v-if="!esNuevo"
+        ref="bannerEncargo"
+        :empresa="String(ficha.empresa ?? '')"
+        :tipo="String(ficha.tipo ?? '')"
+        :albaran="Number(ficha.albaran ?? 0)"
+        @encargo="albaranEsEncargo = $event"
+      />
       <VentaCabeceraForm
         ref="cabeceraForm"
         v-model="ficha"

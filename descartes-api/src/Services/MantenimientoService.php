@@ -319,6 +319,7 @@ final class MantenimientoService
       $this->validarUsuario($data, true);
     }
     if ($entidad === 'tiendas') {
+      $this->rellenarObligatoriosAltaTienda($data);
       $this->validarTienda($data, null);
     }
     if ($entidad === 'articulos') {
@@ -420,6 +421,13 @@ final class MantenimientoService
         $this->pdo->rollBack();
       }
       throw $e;
+    }
+    if ($entidad === 'clientes') {
+      try {
+        (new \Descartes\Api\Services\Ventas\EncargoService($this->pdo))->enviarEmailAlta($codigo);
+      } catch (\Throwable $e) {
+        // El cliente ya está guardado. El resultado del correo queda en EncargoEmails.
+      }
     }
     if ($entidad === 'articulos') {
       $eanGenerado = trim((string) ($data['_eanGenerado'] ?? ''));
@@ -1515,10 +1523,18 @@ final class MantenimientoService
         throw new \InvalidArgumentException('El codigo de tienda admite como maximo 3 caracteres');
       }
       $stmt = $this->pdo->prepare(
-        'SELECT 1 FROM [Empresas_Ges] WHERE RTRIM(LTRIM([Codigo])) = :codigo'
+        'SELECT [Nombre], [Baja] FROM [Empresas_Ges] WHERE RTRIM(LTRIM([Codigo])) = :codigo'
       );
       $stmt->execute(['codigo' => $nuevoCodigo]);
-      if ($stmt->fetch()) {
+      $existente = $stmt->fetch();
+      if ($existente) {
+        $nombre = trim((string) ($existente['Nombre'] ?? ''));
+        $texto = $nombre !== '' ? $nuevoCodigo . ' (' . $nombre . ')' : $nuevoCodigo;
+        if ((int) ($existente['Baja'] ?? 0) === 1) {
+          throw new \InvalidArgumentException(
+            'La tienda ' . $texto . ' ya existe, pero esta de baja. Cambie el filtro de la rejilla a Todos o Inactivos.'
+          );
+        }
         throw new \InvalidArgumentException('Ya existe una tienda con ese codigo');
       }
 
@@ -1554,6 +1570,26 @@ final class MantenimientoService
           $check['dependencias']
         );
       }
+    }
+  }
+
+  /** @param array<string, mixed> $data */
+  private function rellenarObligatoriosAltaTienda(array &$data): void
+  {
+    if (!isset($data['almacenCodigo']) || $data['almacenCodigo'] === '' || (int) $data['almacenCodigo'] <= 0) {
+      $data['almacenCodigo'] = 1;
+    }
+    if (trim((string) ($data['divisa'] ?? '')) === '') {
+      $data['divisa'] = 'EU';
+    }
+    if (trim((string) ($data['divisaAlt'] ?? '')) === '') {
+      $data['divisaAlt'] = 'EU';
+    }
+    if (!isset($data['tarifa']) || $data['tarifa'] === '' || $data['tarifa'] === null) {
+      $data['tarifa'] = 1;
+    }
+    if (!array_key_exists('desglosarBasesTicketIvaInc', $data)) {
+      $data['desglosarBasesTicketIvaInc'] = true;
     }
   }
 
@@ -2578,6 +2614,9 @@ final class MantenimientoService
   private function asignarCodigoClienteSiCorresponde(array &$data, string $empresaCodigo): void
   {
     $empresa = $this->resolverEmpresaNumeracionCliente($empresaCodigo);
+    if ($empresa === null || !$empresa['genClientes']) {
+      $empresa = $this->resolverEmpresaNumeracionCliente('');
+    }
     if ($empresa === null || !$empresa['genClientes']) {
       return;
     }

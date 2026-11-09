@@ -8,6 +8,8 @@ use Descartes\Api\Config\EntityConfig;
 use Descartes\Api\Http\ErrorResponse;
 use Descartes\Api\Services\DependencyException;
 use Descartes\Api\Services\MantenimientoService;
+use Descartes\Api\Services\Ventas\TiendaArticuloEncargoService;
+use Descartes\Api\Services\Ventas\TiendaLogoEncargoService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Slim\Psr7\Response as SlimResponse;
@@ -114,6 +116,79 @@ final class MantenimientoController
       return ErrorResponse::json($response, 409, $mensaje, 'CONFLICTO');
     } catch (\RuntimeException $e) {
       return ErrorResponse::json($response, 409, $e->getMessage(), 'CONFLICTO');
+    }
+  }
+
+  public function logoEncargoInfo(Request $request, Response $response, array $args): Response
+  {
+    try {
+      return $this->json($response, 200, (new TiendaLogoEncargoService())->info((string) ($args['codigo'] ?? '')));
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    }
+  }
+
+  public function logoEncargoSubir(Request $request, Response $response, array $args): Response
+  {
+    $archivo = $request->getUploadedFiles()['archivo'] ?? null;
+    if ($archivo === null || $archivo->getError() !== UPLOAD_ERR_OK) {
+      return ErrorResponse::json($response, 400, 'Seleccione el archivo del logo', 'VALIDACION');
+    }
+    try {
+      $info = (new TiendaLogoEncargoService())->guardar(
+        (string) ($args['codigo'] ?? ''),
+        (string) $archivo->getStream(),
+        $archivo->getClientFilename() ?? 'logo.png'
+      );
+      return $this->json($response, 200, $info);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function articuloEncargoInfo(Request $request, Response $response, array $args): Response
+  {
+    try {
+      return $this->json($response, 200, (new TiendaArticuloEncargoService())->info((string) ($args['codigo'] ?? '')));
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    }
+  }
+
+  public function articuloEncargoGuardar(Request $request, Response $response, array $args): Response
+  {
+    $data = $this->requestData($request);
+    try {
+      return $this->json($response, 200, (new TiendaArticuloEncargoService())->guardar(
+        (string) ($args['codigo'] ?? ''),
+        (string) ($data['articulo'] ?? '')
+      ));
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function articuloEncargoBorrar(Request $request, Response $response, array $args): Response
+  {
+    try {
+      (new TiendaArticuloEncargoService())->borrar((string) ($args['codigo'] ?? ''));
+      return $this->json($response, 200, ['configurado' => false, 'articulo' => '']);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    }
+  }
+
+  public function logoEncargoBorrar(Request $request, Response $response, array $args): Response
+  {
+    try {
+      (new TiendaLogoEncargoService())->borrar((string) ($args['codigo'] ?? ''));
+      return $this->json($response, 200, ['configurado' => false, 'archivo' => '', 'actualizado' => '']);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
     }
   }
 

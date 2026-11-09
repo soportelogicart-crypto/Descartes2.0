@@ -57,6 +57,7 @@ const AnulacionesView = vista(() => import('@/views/ventas/AnulacionesView.vue')
 const CobrosPagosView = vista(() => import('@/views/ventas/CobrosPagosView.vue'))
 const ValesView = vista(() => import('@/views/ventas/ValesView.vue'))
 const PedidosClientesView = vista(() => import('@/views/ventas/PedidosClientesView.vue'))
+const EncargosView = vista(() => import('@/views/ventas/EncargosView.vue'))
 const PedidoDetalleView = vista(() => import('@/views/ventas/PedidoDetalleView.vue'))
 const AbcVentasListadoShell = vista(() => import('@/views/listados/AbcVentasListadoShell.vue'))
 const AbcComprasListadoShell = vista(() => import('@/views/listados/AbcComprasListadoShell.vue'))
@@ -354,6 +355,12 @@ const router = createRouter({
           name: 'ventas-pedidos-detalle',
           component: PedidoDetalleView,
           meta: { titulo: 'Pedido', modulo: 'ventas-pedidos', accion: 'ver' },
+        },
+        {
+          path: 'ventas/encargos',
+          name: 'ventas-encargos',
+          component: EncargosView,
+          meta: { titulo: 'Encargos', modulo: 'ventas', accion: 'ver' },
         },
         {
           path: 'ventas/abc/:dimension?',

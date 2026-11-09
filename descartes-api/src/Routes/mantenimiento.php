@@ -247,6 +247,20 @@ return function (App $app): void {
     $group->delete('/tipos-descuento', [TipoDescuentoController::class, 'delete'])
       ->add($setPermisoModulo('tipos-descuento', 'eliminar'));
 
+    $group->get('/tiendas/{codigo}/articulo-encargo', [MantenimientoController::class, 'articuloEncargoInfo'])
+      ->add($setPermisoModulo('tiendas', 'ver'));
+    $group->put('/tiendas/{codigo}/articulo-encargo', [MantenimientoController::class, 'articuloEncargoGuardar'])
+      ->add($setPermisoModulo('tiendas', 'editar'));
+    $group->delete('/tiendas/{codigo}/articulo-encargo', [MantenimientoController::class, 'articuloEncargoBorrar'])
+      ->add($setPermisoModulo('tiendas', 'editar'));
+
+    $group->get('/tiendas/{codigo}/logo-encargo', [MantenimientoController::class, 'logoEncargoInfo'])
+      ->add($setPermisoModulo('tiendas', 'ver'));
+    $group->post('/tiendas/{codigo}/logo-encargo', [MantenimientoController::class, 'logoEncargoSubir'])
+      ->add($setPermisoModulo('tiendas', 'editar'));
+    $group->delete('/tiendas/{codigo}/logo-encargo', [MantenimientoController::class, 'logoEncargoBorrar'])
+      ->add($setPermisoModulo('tiendas', 'editar'));
+
     $group->get('/{entidad}', [MantenimientoController::class, 'list'])->add($setPermiso('ver'));
     $group->get('/{entidad}/{codigo}', [MantenimientoController::class, 'get'])->add($setPermiso('ver'));
     $group->post('/{entidad}', [MantenimientoController::class, 'create'])->add($setPermiso('crear'));

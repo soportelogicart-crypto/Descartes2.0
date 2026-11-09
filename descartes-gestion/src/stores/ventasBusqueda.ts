@@ -102,9 +102,11 @@ export const useVentasBusquedaStore = defineStore('ventasBusqueda', () => {
   function consumirAbrirEnEdicion(v: Pick<VentaResumen, 'empresa' | 'tipo' | 'albaran'>): boolean {
     const p = abrirEnEdicion.value
     if (!p) return false
-    if (p.empresa !== v.empresa || p.tipo !== v.tipo || p.albaran !== v.albaran) {
-      return false
-    }
+    const misma =
+      p.empresa.trim() === String(v.empresa ?? '').trim() &&
+      p.tipo.trim() === String(v.tipo ?? '').trim() &&
+      Number(p.albaran) === Number(v.albaran)
+    if (!misma) return false
     abrirEnEdicion.value = null
     return true
   }

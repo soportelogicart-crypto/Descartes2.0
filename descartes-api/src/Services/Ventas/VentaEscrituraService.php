@@ -953,6 +953,10 @@ final class VentaEscrituraService
         }
       }
 
+      if (in_array($opcion, ['T', 'F'], true)) {
+        (new EncargoService($this->pdo))->marcarFacturado($empresa, $tipoActual, $albaran);
+      }
+
       $this->pdo->commit();
     } catch (\Throwable $e) {
       $this->pdo->rollBack();

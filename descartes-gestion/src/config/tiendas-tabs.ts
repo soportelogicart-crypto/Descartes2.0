@@ -464,7 +464,11 @@ export function tiendaVacia(): Record<string, unknown> {
     recargo: false,
     sumarDescuento: false,
     impTicketInc: false,
-    desglosarBasesTicketIvaInc: false,
+    almacenCodigo: 1,
+    divisa: 'EU',
+    divisaAlt: 'EU',
+    tarifa: 1,
+    desglosarBasesTicketIvaInc: true,
     impAlternativo: false,
     appWeb: false,
     // Defaults alineados con alta legacy (0 / '' / MA; evita NULL en BD)

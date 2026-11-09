@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import MantenimientoListadoButton from '@/components/mantenimiento/MantenimientoListadoButton.vue'
 import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { api } from '@/api/client'
 import {
@@ -52,7 +53,10 @@ const FILTRO_SERVIDOR_KEYS = ['codigo', 'nombre', 'nif', 'telefono1'] as const
 const FILTRO_SERVIDOR_MS = 350
 let filtroServidorTimer: ReturnType<typeof setTimeout> | null = null
 
+const route = useRoute()
+const router = useRouter()
 const { puede } = usePermisos()
+const desdeEncargo = computed(() => route.query.desde === 'encargos')
 const puestoContexto = usePuestoContextoStore()
 const fichaStore = useClienteFichaStore()
 const {
@@ -333,11 +337,22 @@ const {
 onMounted(async () => {
   if (!puedeVer.value) return
   await Promise.all([cargarTiendas(), cargarFormasPago()])
+  if (route.query.nuevo === '1' && route.query.desde === 'encargos') {
+    await prepararAltaDesdeEncargo()
+    return
+  }
   // No saturar la API con el listado si ya hay un alta/ficha abierta.
   if (vista.value === 'grid') {
     void cargar()
   }
 })
+
+watch(
+  () => [route.query.nuevo, route.query.desde],
+  () => {
+    void prepararAltaDesdeEncargo()
+  }
+)
 
 /** KeepAlive deja la vista viva al ir a Ventas; cancelar listados colgados al salir/entrar. */
 onDeactivated(() => {
@@ -543,6 +558,44 @@ async function onNuevo() {
   }
 }
 
+let preparandoAltaEncargo = false
+
+async function prepararAltaDesdeEncargo() {
+  if (preparandoAltaEncargo || route.query.nuevo !== '1' || route.query.desde !== 'encargos') return
+  preparandoAltaEncargo = true
+  try {
+    const nombre = String(route.query.nombre ?? '').trim()
+    const telefono = String(route.query.telefono ?? '').trim()
+    await onNuevo()
+    if (nombre || telefono) {
+      ficha.value = {
+        ...ficha.value,
+        ...(nombre ? { nombre } : {}),
+        ...(telefono ? { telefono1: telefono } : {}),
+      }
+    }
+    const query = { ...route.query }
+    delete query.nuevo
+    delete query.nombre
+    delete query.telefono
+    await router.replace({ query })
+  } finally {
+    preparandoAltaEncargo = false
+  }
+}
+
+async function volverAlEncargo() {
+  if (esNuevo.value || modoEdicion.value) await onGuardarFicha()
+  if (esNuevo.value || modoEdicion.value) return
+  const codigo = String(ficha.value.codigo ?? '').trim()
+  if (!codigo) {
+    mensaje.value = 'Guarde el cliente antes de volver al encargo'
+    return
+  }
+  sessionStorage.setItem('descartes.encargoCliente', codigo)
+  await router.push({ name: 'ventas-encargos' })
+}
+
 function onModificar() {
   if (!puedeEditar.value || !ficha.value.codigo) return
   modoEdicion.value = true
@@ -629,7 +682,9 @@ async function ejecutarGuardarFicha() {
     if (esNuevo.value) {
       const creado = await crear(payload)
       aplicarDatosCliente(creado && typeof creado === 'object' ? creado : payload)
-      mensaje.value = 'Cliente creado correctamente'
+      mensaje.value = desdeEncargo.value
+        ? 'Cliente creado. Ya puede volver al encargo.'
+        : 'Cliente creado correctamente'
     } else {
       const codigo = String(payload.codigo ?? '').trim()
       const actualizado = await actualizar(codigo, { ...payload, codigo })
@@ -861,6 +916,7 @@ async function onUltimo() {
       <template v-else>
         <div class="sticky-chrome">
           <button type="button" class="btn-volver" @click="volverAlGrid">← Volver a la rejilla</button>
+          <button v-if="desdeEncargo" type="button" class="btn-volver" @click="volverAlEncargo">Volver al encargo</button>
 
           <ClienteToolbar
             :puede-crear="puedeCrear"

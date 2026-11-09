@@ -50,6 +50,12 @@ export const ventasMenuItems: VentasMenuItem[] = [
     modulo: 'ventas-pedidos',
   },
   {
+    id: 'encargos',
+    titulo: 'Encargos',
+    ruta: '/ventas/encargos',
+    modulo: 'ventas',
+  },
+  {
     id: 'abc-ventas',
     titulo: 'Listado ABC Ventas',
     ruta: '/listados/abc-ventas',

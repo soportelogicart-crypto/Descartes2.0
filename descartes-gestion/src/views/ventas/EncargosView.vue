@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onActivated, onMounted, ref, watch } from 'vue'
+import { computed, onActivated, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import { getDescartesBridge, imprimirEtiquetaViaBridge } from '@/bridge/electron'
@@ -64,16 +64,11 @@ const circuito = ref<{ balmes: Tienda | null; torrent: Tienda | null; completas:
 const formasPago = ref<{ codigo: string; descripcion: string }[]>([])
 const clientes = ref<Cliente[]>([])
 const encargos = ref<Encargo[]>([])
-const busquedaCliente = ref('')
 const filtroEncargo = ref('')
 const buscandoCliente = ref(false)
-let busquedaTimer: ReturnType<typeof setTimeout> | undefined
 let filtroTimer: ReturnType<typeof setTimeout> | undefined
-const qr = ref('')
-const lecturaVuelta = ref('')
-const entradaVuelta = ref<HTMLInputElement | null>(null)
-type LecturaVuelta = { ok: boolean; mensaje: string; codigo: string; numero?: number; nombre?: string }
-const vueltas = ref<LecturaVuelta[]>([])
+let listaSeq = 0
+let clienteSeq = 0
 const trabajos = ref<Encargo[]>([])
 const error = ref<string | null>(null)
 const aviso = ref<string | null>(null)
@@ -136,8 +131,27 @@ const tiendasEntrega = computed(() =>
   [circuito.value.balmes, circuito.value.torrent].filter((t): t is Tienda => t !== null),
 )
 const laboratorio = computed(() => (form.value.tipo === 'revelado' ? circuito.value.torrent : circuito.value.balmes))
+
+function aplicarTiendaDelPuesto() {
+  const tiendas = tiendasEntrega.value
+  if (!tiendas.length) return
+  const actual = String(puesto.empresaCodigo ?? '').trim().toLowerCase()
+  const delPuesto = tiendas.find((t) => t.codigo.trim().toLowerCase() === actual)
+  if (delPuesto) {
+    form.value.tiendaEntrega = delPuesto.codigo
+    return
+  }
+  const sigueValida = tiendas.some((t) => t.codigo === form.value.tiendaEntrega)
+  if (!sigueValida) {
+    form.value.tiendaEntrega = tiendas[0]?.codigo ?? ''
+  }
+}
 const mismaTienda = computed(() => laboratorio.value !== null && form.value.tiendaEntrega === laboratorio.value.codigo)
 const pendientesCliente = computed(() => trabajos.value.filter((e) => e.estado !== 'entregado'))
+const consultaClienteActiva = computed(() => {
+  const texto = filtroEncargo.value.trim()
+  return texto.length >= 3 && !/^DCTB/i.test(texto)
+})
 const rutaTxt = computed(() => {
   if (!circuito.value.completas) return "Faltan las tiendas Balmes y Torrent de l'Olla. La comanda no continúa."
   if (mismaTienda.value) return 'Se realiza en la misma tienda. El material no sale de allí.'
@@ -161,12 +175,15 @@ async function cargarCircuito() {
     torrent: data.torrent ?? null,
     completas: Boolean(data.completas),
   }
-  const actual = String(puesto.empresaCodigo ?? '').trim()
-  const enCircuito = [circuito.value.balmes?.codigo, circuito.value.torrent?.codigo].includes(actual)
-  form.value.tiendaEntrega = enCircuito
-    ? actual
-    : circuito.value.balmes?.codigo ?? circuito.value.torrent?.codigo ?? ''
+  aplicarTiendaDelPuesto()
 }
+
+watch(
+  () => puesto.empresaCodigo,
+  () => {
+    aplicarTiendaDelPuesto()
+  }
+)
 
 async function cargarFormas() {
   const { data } = await api.get('/api/mantenimiento/formas-pago', { params: { pageSize: 100 } })
@@ -178,77 +195,148 @@ async function cargarFormas() {
 }
 
 async function cargar() {
+  const texto = filtroEncargo.value.trim()
+  if (/^DCTB/i.test(texto) && codigoBarrasCompleto(texto)) {
+    await buscarPorCodigo(texto)
+    return
+  }
+  const seq = ++listaSeq
   cargando.value = true
   error.value = null
   try {
     const { data } = await api.get('/api/encargos', {
-      params: filtroEncargo.value.trim() ? { q: filtroEncargo.value.trim() } : {},
+      params: texto ? { q: texto } : {},
     })
+    if (seq !== listaSeq) return
     encargos.value = data.items ?? []
   } catch (e: unknown) {
+    if (seq !== listaSeq) return
     error.value = extractApiError(e, 'No se pudieron cargar los encargos')
   } finally {
-    cargando.value = false
+    if (seq === listaSeq) cargando.value = false
   }
 }
 
-function codigoBarrasCompleto(texto: string): boolean {
+function lecturaNormalizada(texto: string): string {
   let normal = texto.trim().replace(/Ñ/gi, ':')
   if (/^DCTB/i.test(normal)) normal = normal.replace(/[-'´`’‘?]/g, ':')
+  return normal
+}
+
+function codigoBarrasCompleto(texto: string): boolean {
+  const normal = lecturaNormalizada(texto)
   return /^DCTB:E:.+:\d+$/i.test(normal) || /^DCTB:C:.+$/i.test(normal)
 }
 
-let autoQr: ReturnType<typeof setTimeout> | undefined
-let autoVuelta: ReturnType<typeof setTimeout> | undefined
-let leyendoQr = false
-let leyendoVuelta = false
+function esCodigoEncargo(texto: string): boolean {
+  return /^DCTB:E:.+:\d+$/i.test(lecturaNormalizada(texto))
+}
 
-function abrirLectura(texto: string) {
-  qr.value = texto.trim()
-  void leerQr()
+function esCodigoCliente(texto: string): boolean {
+  return /^DCTB:C:.+$/i.test(lecturaNormalizada(texto))
+}
+
+function descartarBusquedaCliente() {
+  clienteSeq += 1
+  clientes.value = []
+  buscandoCliente.value = false
+}
+
+function buscarAhora() {
+  if (filtroTimer) clearTimeout(filtroTimer)
+  void aplicarFiltro()
+}
+
+async function buscarPorCodigo(texto: string) {
+  const codigo = texto.trim()
+  const seq = ++listaSeq
+  cargando.value = true
+  error.value = null
+  aviso.value = null
+  try {
+    const { data } = await api.get('/api/encargos/qr', { params: { codigo } })
+    if (seq !== listaSeq) return
+    if (data?.tipo === 'encargo' && data.encargo) {
+      encargos.value = [data.encargo as Encargo]
+      return
+    }
+    encargos.value = []
+    error.value = 'Este QR no tiene encargo.'
+  } catch (e: unknown) {
+    if (seq !== listaSeq) return
+    encargos.value = []
+    error.value = extractApiError(e, 'No se pudo leer el QR')
+  } finally {
+    if (seq === listaSeq) cargando.value = false
+  }
+}
+
+async function leerQrCliente(codigo: string) {
+  error.value = null
+  aviso.value = null
+  try {
+    const { data } = await api.get('/api/encargos/qr', { params: { codigo } })
+    if (data?.tipo === 'cliente' && data.cliente) {
+      await cargarFicha(String(data.cliente.codigo))
+      aviso.value = `Cliente ${data.cliente.codigo} ${data.cliente.nombre}. Este QR no tiene encargo.`
+      return
+    }
+    if (data?.tipo === 'encargo' && data.encargo) {
+      if (filtroEncargo.value === codigo) void buscarPorCodigo(codigo)
+      else filtroEncargo.value = codigo
+      return
+    }
+    error.value = 'QR no reconocido'
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo leer el QR')
+  }
 }
 
 watch(filtroEncargo, (texto) => {
   if (filtroTimer) clearTimeout(filtroTimer)
-  if (/^DCTB/i.test(texto.trim())) {
-    if (!codigoBarrasCompleto(texto)) return
+  const trimmed = texto.trim()
+  if (/^DCTB/i.test(trimmed)) {
+    descartarBusquedaCliente()
+    if (!codigoBarrasCompleto(trimmed)) return
     filtroTimer = setTimeout(() => {
-      filtroEncargo.value = ''
-      abrirLectura(texto)
+      void aplicarFiltro()
     }, 120)
     return
   }
+  if (trimmed.length < 3) descartarBusquedaCliente()
   filtroTimer = setTimeout(() => {
-    void cargar()
+    void aplicarFiltro()
   }, 300)
 })
 
-watch(busquedaCliente, (texto) => {
-  if (busquedaTimer) clearTimeout(busquedaTimer)
-  if (/^DCTB/i.test(texto.trim())) {
-    if (!codigoBarrasCompleto(texto)) return
-    busquedaTimer = setTimeout(() => {
-      busquedaCliente.value = ''
-      abrirLectura(texto)
-    }, 120)
+async function aplicarFiltro() {
+  const texto = filtroEncargo.value.trim()
+  if (/^DCTB/i.test(texto) && !codigoBarrasCompleto(texto)) {
+    descartarBusquedaCliente()
+    encargos.value = []
+    error.value = 'QR no reconocido'
     return
   }
-  const consulta = texto.trim()
-  if (consulta.length < 3) {
-    clientes.value = []
-    buscandoCliente.value = false
+  if (esCodigoCliente(texto)) {
+    descartarBusquedaCliente()
+    await leerQrCliente(texto)
     return
   }
-  busquedaTimer = setTimeout(() => {
-    void buscarCliente(consulta)
-  }, 250)
-})
+  await cargar()
+  if (filtroEncargo.value.trim() !== texto) return
+  if (texto.length >= 3 && !esCodigoEncargo(texto)) {
+    await buscarCliente(texto)
+    return
+  }
+  descartarBusquedaCliente()
+}
 
 async function buscarCliente(consulta: string) {
-  error.value = null
+  const seq = ++clienteSeq
   buscandoCliente.value = true
   try {
     const { data } = await api.get('/api/encargos/clientes', { params: { q: consulta } })
+    if (seq !== clienteSeq) return
     clientes.value = (data.items ?? []).map((c: { codigo: string; nombre: string; telefono?: string; email?: string }) => ({
       codigo: c.codigo,
       nombre: c.nombre,
@@ -256,10 +344,11 @@ async function buscarCliente(consulta: string) {
       email: c.email,
     }))
   } catch (e: unknown) {
+    if (seq !== clienteSeq) return
     clientes.value = []
-    error.value = extractApiError(e, 'No se pudo buscar el cliente')
+    if (!error.value) error.value = extractApiError(e, 'No se pudo buscar el cliente')
   } finally {
-    buscandoCliente.value = false
+    if (seq === clienteSeq) buscandoCliente.value = false
   }
 }
 
@@ -269,13 +358,15 @@ function elegir(c: Cliente) {
 }
 
 function empezarAlta() {
-  const texto = busquedaCliente.value.trim()
+  const texto = filtroEncargo.value.trim()
   alta.value = fichaVacia()
   alta.value.formaPago = cliente.value?.formaPago || formasPago.value[0]?.codigo || ''
-  if (/^\+?[\d\s()-]{3,}$/.test(texto)) alta.value.telefono1 = texto.replace(/[^\d+]/g, '')
-  else if (texto.length >= 3) alta.value.nombre = texto
+  if (!/^DCTB/i.test(texto)) {
+    if (/^\+?[\d\s()-]{3,}$/.test(texto)) alta.value.telefono1 = texto.replace(/[^\d+]/g, '')
+    else if (texto.length >= 3) alta.value.nombre = texto
+  }
   modoAlta.value = true
-  clientes.value = []
+  descartarBusquedaCliente()
 }
 
 function tomarClienteDeMantenimiento() {
@@ -297,9 +388,9 @@ async function cargarFicha(codigo: string) {
     const { data } = await api.get(`/api/mantenimiento/clientes/${encodeURIComponent(codigo)}`)
     cliente.value = fichaDesdeApi(data as Record<string, unknown>, codigo)
     modoAlta.value = false
+    aplicarTiendaDelPuesto()
     if (!cliente.value.formaPago) cliente.value.formaPago = formasPago.value[0]?.codigo ?? ''
     clientes.value = []
-    busquedaCliente.value = ''
     await cargarTrabajos(cliente.value.codigo)
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudo cargar el cliente')
@@ -421,8 +512,13 @@ async function crearEncargo() {
   try {
     await api.put(`/api/mantenimiento/clientes/${encodeURIComponent(f.codigo)}`, datosCliente(f))
     const revelado = form.value.tipo === 'revelado'
+    if (!String(puesto.vendedorCodigo ?? '').trim()) {
+      await puesto.cargarVendedorPuesto()
+    }
     const { data } = await api.post('/api/encargos', {
       cliente: f.codigo,
+      puesto: String(puesto.puestoCodigo ?? '').trim(),
+      vendedor: String(puesto.vendedorCodigo ?? '').trim(),
       nombre: f.nombre,
       nif: f.nif,
       telefono: f.telefono1,
@@ -456,7 +552,6 @@ function limpiarCabecera() {
   modoAlta.value = false
   alta.value = fichaVacia()
   alta.value.formaPago = formasPago.value[0]?.codigo ?? ''
-  busquedaCliente.value = ''
   clientes.value = []
   form.value.rodillos = 1
   trabajos.value = []
@@ -466,86 +561,6 @@ async function cargarTrabajos(codigo: string) {
   const { data } = await api.get('/api/encargos', { params: { cliente: codigo } })
   trabajos.value = data.items ?? []
 }
-
-async function leerQr() {
-  if (autoQr) clearTimeout(autoQr)
-  if (leyendoQr) return
-  const codigo = qr.value.trim()
-  if (!codigo) return
-  leyendoQr = true
-  qr.value = ''
-  error.value = null
-  aviso.value = null
-  try {
-    const { data } = await api.get('/api/encargos/qr', { params: { codigo } })
-    if (data.tipo === 'cliente') {
-      await cargarFicha(String(data.cliente.codigo))
-      aviso.value = `Cliente ${data.cliente.codigo} ${data.cliente.nombre}. Este QR no tiene encargo.`
-      return
-    }
-    await cargarFicha(String(data.cliente.codigo))
-    aviso.value = `Encargo ${data.encargo.numero}. Abriendo el albarán.`
-    await router.push(`/ventas/${data.encargo.albaranEmpresa}/${data.encargo.albaranTipo}/${data.encargo.albaran}`)
-  } catch (e: unknown) {
-    error.value = extractApiError(e, 'No se pudo leer el QR')
-  } finally {
-    leyendoQr = false
-  }
-}
-
-watch(qr, (texto) => {
-  if (autoQr) clearTimeout(autoQr)
-  if (!codigoBarrasCompleto(texto)) return
-  autoQr = setTimeout(() => {
-    void leerQr()
-  }, 120)
-})
-
-async function leerVuelta() {
-  if (autoVuelta) clearTimeout(autoVuelta)
-  if (leyendoVuelta) return
-  const input = entradaVuelta.value
-  const codigo = (input?.value ?? lecturaVuelta.value).trim()
-  if (!codigo) {
-    input?.focus()
-    return
-  }
-  leyendoVuelta = true
-  if (input) input.value = ''
-  lecturaVuelta.value = ''
-  error.value = null
-  try {
-    const { data } = await api.post('/api/encargos/recibir', { codigos: [codigo] })
-    const item = (data.items ?? [])[0] as { ok?: boolean; mensaje?: string; numero?: number; nombre?: string } | undefined
-    vueltas.value.unshift({
-      ok: Boolean(item?.ok),
-      codigo,
-      numero: item?.numero,
-      nombre: item?.nombre ? String(item.nombre) : '',
-      mensaje: String(item?.mensaje ?? 'Lectura sin resultado'),
-    })
-    await cargar()
-    if (cliente.value) await cargarTrabajos(cliente.value.codigo)
-  } catch (e: unknown) {
-    vueltas.value.unshift({
-      ok: false,
-      codigo,
-      mensaje: extractApiError(e, 'No se pudo marcar la vuelta'),
-    })
-  } finally {
-    leyendoVuelta = false
-    await nextTick()
-    entradaVuelta.value?.focus()
-  }
-}
-
-watch(lecturaVuelta, (texto) => {
-  if (autoVuelta) clearTimeout(autoVuelta)
-  if (!codigoBarrasCompleto(texto)) return
-  autoVuelta = setTimeout(() => {
-    void leerVuelta()
-  }, 120)
-})
 
 function textoEtiqueta(valor: unknown): string {
   return String(valor ?? '')
@@ -709,7 +724,13 @@ async function imprimirTransporte(e: Encargo) {
 }
 
 function abrirAlbaran(e: Encargo) {
-  void router.push(`/ventas/${e.albaranEmpresa}/${e.albaranTipo}/${e.albaran}`)
+  const empresa = String(e.albaranEmpresa ?? '').trim()
+  const tipo = String(e.albaranTipo ?? '').trim()
+  const albaran = Number(e.albaran)
+  if (empresa && tipo && albaran > 0 && e.estado !== 'entregado') {
+    busquedaVentas.marcarAbrirEnEdicion({ empresa, tipo, albaran })
+  }
+  void router.push({ name: 'ventas-detalle', params: { empresa, tipo, albaran: String(albaran) } })
 }
 </script>
 
@@ -719,18 +740,19 @@ function abrirAlbaran(e: Encargo) {
     <p v-if="error" class="error">{{ error }}</p>
     <p v-if="aviso" class="aviso">{{ aviso }}</p>
 
+    <label class="filtro-lista">Buscar encargo por número, cliente o teléfono
+      <input v-model="filtroEncargo" placeholder="Número, nombre, teléfono o código DCTB" @keydown.enter.prevent="buscarAhora" />
+    </label>
+
     <div class="rejilla">
       <form class="panel" @submit.prevent="crearEncargo">
         <h2>Comanda</h2>
         <div class="buscar-fila">
-          <label class="crece">Buscar cliente por código, nombre o teléfono
-            <input v-model="busquedaCliente" placeholder="Mínimo 3 caracteres" @keydown.enter.prevent />
-          </label>
           <button type="button" @click="empezarAlta">Nuevo cliente</button>
         </div>
-        <p v-if="buscandoCliente" class="pista">Buscando…</p>
-        <p v-else-if="!modoAlta && busquedaCliente.trim().length >= 3 && !clientes.length" class="pista">
-          No hay clientes con ese dato.
+        <p v-if="buscandoCliente" class="pista">Buscando cliente…</p>
+        <p v-else-if="!modoAlta && consultaClienteActiva && !clientes.length && !encargos.length && !cargando" class="pista">
+          No hay encargos ni clientes con ese dato.
           <button type="button" @click="empezarAlta">Crear nuevo cliente</button>
         </p>
         <table v-if="clientes.length" class="grid-clientes">
@@ -771,6 +793,33 @@ function abrirAlbaran(e: Encargo) {
           </div>
         </fieldset>
 
+        <p v-if="cliente && !modoAlta && !circuito.completas" class="error">{{ rutaTxt }}</p>
+        <template v-else-if="cliente && !modoAlta">
+          <div class="modalidad">
+            <label class="radio"><input v-model="form.tipo" type="radio" value="revelado" /> Revelado</label>
+            <label class="radio"><input v-model="form.tipo" type="radio" value="impresion" /> Impresión</label>
+          </div>
+          <label>Tienda donde deja el material
+            <select v-model="form.tiendaEntrega">
+              <option v-for="t in tiendasEntrega" :key="t.codigo" :value="t.codigo">{{ t.nombre }}</option>
+            </select>
+          </label>
+          <div class="modalidad">
+            <label class="radio"><input v-model="form.modalidad" type="radio" value="recogida" /> Lo recogerá el cliente</label>
+            <label class="radio"><input v-model="form.modalidad" type="radio" value="envio" /> Envío por mensajero</label>
+          </div>
+          <label v-if="form.tipo === 'revelado'" class="etiquetas">Número de etiquetas
+            <input v-model.number="form.rodillos" type="number" min="1" />
+          </label>
+          <p v-if="form.tipo === 'revelado'" class="pista">
+            El número del encargo es el del albarán y se repite en todas las etiquetas. Indique cuántas se imprimen.
+            Si la tienda tiene un artículo por defecto y ese artículo existe, el albarán lleva una línea con esta cantidad. Si no, se abre vacío. Queda pendiente de cobro y el encargo, pendiente de revelar.
+          </p>
+          <p v-else class="pista">La impresión no lleva etiquetas. Al crearlo se abre el albarán para añadir los productos. Queda pendiente de cobro. El número del encargo es el del albarán.</p>
+          <p class="pista">{{ rutaTxt }}</p>
+          <button type="submit" :disabled="creando">{{ creando ? 'Creando…' : 'Crear encargo' }}</button>
+        </template>
+
         <div v-if="cliente && !modoAlta" class="trabajos">
           <h3>Albaranes pendientes de cobro</h3>
           <p v-if="!pendientesCliente.length" class="pista">Este cliente no tiene encargos pendientes.</p>
@@ -802,7 +851,7 @@ function abrirAlbaran(e: Encargo) {
           </table>
         </div>
 
-        <p v-if="!cliente && !modoAlta" class="pista">Busque un cliente o pulse Nuevo cliente para darlo de alta aquí.</p>
+        <p v-if="!cliente && !modoAlta" class="pista">Elija un cliente en los resultados de la búsqueda de encargos (nombre, código o teléfono), o pulse Nuevo cliente para darlo de alta.</p>
         <fieldset v-if="modoAlta" class="bloque-cliente">
           <legend>Nuevo cliente</legend>
           <label class="campo">Nombre <input v-model="alta.nombre" maxlength="50" /></label>
@@ -825,73 +874,8 @@ function abrirAlbaran(e: Encargo) {
             <button type="button" :disabled="guardandoCliente" @click="cancelarAlta">Cancelar</button>
           </div>
         </fieldset>
-
-        <p v-if="!circuito.completas" class="error">{{ rutaTxt }}</p>
-        <template v-else-if="cliente && !modoAlta">
-          <div class="modalidad">
-            <label class="radio"><input v-model="form.tipo" type="radio" value="revelado" /> Revelado</label>
-            <label class="radio"><input v-model="form.tipo" type="radio" value="impresion" /> Impresión</label>
-          </div>
-          <label>Tienda donde deja el material
-            <select v-model="form.tiendaEntrega">
-              <option v-for="t in tiendasEntrega" :key="t.codigo" :value="t.codigo">{{ t.nombre }}</option>
-            </select>
-          </label>
-          <div class="modalidad">
-            <label class="radio"><input v-model="form.modalidad" type="radio" value="recogida" /> Lo recogerá el cliente</label>
-            <label class="radio"><input v-model="form.modalidad" type="radio" value="envio" /> Envío por mensajero</label>
-          </div>
-          <label v-if="form.tipo === 'revelado'" class="etiquetas">Número de etiquetas
-            <input v-model.number="form.rodillos" type="number" min="1" />
-          </label>
-          <p v-if="form.tipo === 'revelado'" class="pista">
-            El número del encargo es el del albarán y se repite en todas las etiquetas. Indique cuántas se imprimen.
-            Si la tienda tiene un artículo por defecto y ese artículo existe, el albarán lleva una línea con esta cantidad. Si no, se abre vacío. Queda pendiente de cobro y el encargo, pendiente de revelar.
-          </p>
-          <p v-else class="pista">La impresión no lleva etiquetas. Al crearlo se abre el albarán para añadir los productos. Queda pendiente de cobro. El número del encargo es el del albarán.</p>
-          <p class="pista">{{ rutaTxt }}</p>
-          <button type="submit" :disabled="creando">{{ creando ? 'Creando…' : 'Crear encargo' }}</button>
-        </template>
       </form>
-
-      <div class="panel">
-        <form @submit.prevent="leerQr">
-          <h2>Leer etiqueta</h2>
-          <p>Abre el albarán y el encargo de esa etiqueta.</p>
-          <input v-model="qr" placeholder="Escanee o pegue el código" />
-          <button type="submit">Leer</button>
-        </form>
-        <form @submit.prevent="leerVuelta">
-          <h2>Vuelta del laboratorio</h2>
-          <p>Lea las etiquetas una detrás de otra. Cada lectura se añade a la rejilla y el cursor se queda aquí.</p>
-          <input ref="entradaVuelta" v-model="lecturaVuelta" placeholder="Etiqueta del sobre" autocomplete="off" />
-          <button type="submit">Recibido</button>
-        </form>
-      </div>
     </div>
-
-    <table v-if="vueltas.length" class="recepcion">
-      <thead>
-        <tr>
-          <th>Lectura</th>
-          <th>Encargo</th>
-          <th>Cliente</th>
-          <th>Resultado</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="(v, i) in vueltas" :key="i" :class="v.ok ? 'ok' : 'mal'">
-          <td>{{ v.codigo }}</td>
-          <td>{{ v.numero ?? '—' }}</td>
-          <td>{{ v.nombre || '—' }}</td>
-          <td>{{ v.mensaje }}</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <label class="filtro-lista">Buscar encargo por número, cliente o teléfono
-      <input v-model="filtroEncargo" placeholder="Número, nombre o teléfono" />
-    </label>
 
     <table v-if="!cargando">
       <thead>
@@ -975,7 +959,4 @@ button { cursor: pointer; }
 .grid-clientes tbody tr:hover { background: #eef4ea; }
 .trabajos { display: flex; flex-direction: column; gap: 0.25rem; }
 .trabajos h3 { margin: 0.4rem 0 0; font-size: 0.95rem; }
-.recepcion { margin-top: 0.8rem; }
-.recepcion tr.ok td { background: #eef6ee; }
-.recepcion tr.mal td { background: #fdecec; }
 </style>

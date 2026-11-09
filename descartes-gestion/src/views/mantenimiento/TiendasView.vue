@@ -33,6 +33,8 @@ import TiendaToolbar from '@/components/tiendas/TiendaToolbar.vue'
 import TiendaTabForm from '@/components/tiendas/TiendaTabForm.vue'
 import TiendaContadoresModal from '@/components/tiendas/TiendaContadoresModal.vue'
 import TiendaLogoLocalPanel from '@/components/tiendas/TiendaLogoLocalPanel.vue'
+import TiendaLogoEncargoPanel from '@/components/tiendas/TiendaLogoEncargoPanel.vue'
+import TiendaArticuloEncargoPanel from '@/components/tiendas/TiendaArticuloEncargoPanel.vue'
 
 const MODULO = 'tiendas'
 const FILTER_KEYS = ['codigo', 'nombre', 'nif', 'poblacion', 'telefono1']
@@ -85,18 +87,24 @@ function avisoDesdeTexto(msg: string | null) {
   mostrarAviso(msg, esError ? 'error' : 'ok')
 }
 
-async function codigoTiendaExiste(codigo: string): Promise<boolean> {
+async function tiendaExistente(codigo: string): Promise<{ nombre: string; activa: boolean } | null> {
   const c = codigo.trim().toLowerCase()
-  if (!c) return false
-  if (filasTodas.value.some((f) => String(f.codigo ?? '').trim().toLowerCase() === c)) {
-    return true
+  if (!c) return null
+  const enRejilla = filasTodas.value.find((f) => String(f.codigo ?? '').trim().toLowerCase() === c)
+  if (enRejilla) {
+    return {
+      nombre: String(enRejilla.nombre ?? '').trim(),
+      activa: enRejilla.activo !== false,
+    }
   }
   try {
-    await obtener(codigo.trim())
-    return true
+    const data = await obtener(codigo.trim())
+    return {
+      nombre: String(data.nombre ?? '').trim(),
+      activa: data.activo !== false,
+    }
   } catch {
-    // 404 u otro error: la API validara en el alta
-    return false
+    return null
   }
 }
 
@@ -359,8 +367,22 @@ function onModificar() {
 async function onGuardarFicha() {
   const codigo = String(ficha.value.codigo ?? '').trim()
   if (esNuevo.value && codigo) {
-    if (await codigoTiendaExiste(codigo)) {
+    const existente = await tiendaExistente(codigo)
+    if (existente) {
+      const nombre = existente.nombre ? ` «${existente.nombre}»` : ''
       tabActiva.value = 'generales'
+      if (!existente.activa) {
+        filtroActivo.value = 'todos'
+        page.value = 1
+        await cargar()
+        await abrirFichaPorCodigo(codigo)
+        mostrarAvisoModal(
+          'Tienda de baja',
+          `La tienda ${codigo}${nombre} ya existe, pero está de baja. El filtro Activos la oculta en la rejilla. La ficha queda abierta para reactivarla.`,
+          'codigo'
+        )
+        return
+      }
       mostrarAvisoModal(
         'Codigo duplicado',
         `Ya existe una tienda con el codigo "${codigo}".`,
@@ -683,11 +705,21 @@ function tabTieneErrores(tabId: string): boolean {
           </div>
         </div>
 
-        <TiendaLogoLocalPanel
-          :codigo-tienda="String(ficha.codigo ?? '')"
-          :deshabilitado="esNuevo"
-          @mensaje="(t, tipo) => mostrarAviso(t, tipo ?? 'ok')"
-        />
+        <template v-if="tabActiva === 'parametros'">
+          <TiendaLogoLocalPanel
+            :codigo-tienda="String(ficha.codigo ?? '')"
+            :deshabilitado="esNuevo"
+            @mensaje="(t, tipo) => mostrarAviso(t, tipo ?? 'ok')"
+          />
+          <TiendaLogoEncargoPanel
+            :codigo-tienda="String(ficha.codigo ?? '')"
+            :deshabilitado="esNuevo"
+          />
+          <TiendaArticuloEncargoPanel
+            :codigo-tienda="String(ficha.codigo ?? '')"
+            :deshabilitado="esNuevo"
+          />
+        </template>
 
         <TiendaTabForm
           :sections="tabSeleccionada.sections"
