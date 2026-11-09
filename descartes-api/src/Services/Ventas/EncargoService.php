@@ -344,31 +344,33 @@ final class EncargoService
   }
 
   /**
-   * @return array{balmes: ?array{codigo: string, nombre: string}, torrent: ?array{codigo: string, nombre: string}, completas: bool}
+   * Tienda del puesto, por código. No se busca por el nombre de la tienda.
+   *
+   * @return array{codigo: string, nombre: string}|null
    */
-  public function tiendasCircuito(): array
+  public function tiendaPorCodigo(string $codigo): ?array
   {
     $this->asegurar();
+    $pedido = trim($codigo);
+    if ($pedido === '') {
+      return null;
+    }
     $st = $this->pdo->query('SELECT Codigo, Nombre FROM Empresas_Ges');
-    $balmes = null;
-    $torrent = null;
+    $numerico = ctype_digit($pedido) ? (string) (int) $pedido : null;
     foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
       $item = [
         'codigo' => trim((string) $row['Codigo']),
         'nombre' => trim((string) $row['Nombre']),
       ];
-      if ($balmes === null && preg_match('/balmes/i', $item['nombre']) === 1) {
-        $balmes = $item;
+      if (strcasecmp($item['codigo'], $pedido) === 0) {
+        return $item;
       }
-      if ($torrent === null && preg_match('/torrent/i', $item['nombre']) === 1) {
-        $torrent = $item;
+      if ($numerico !== null && ctype_digit($item['codigo']) && (string) (int) $item['codigo'] === $numerico) {
+        return $item;
       }
     }
-    return [
-      'balmes' => $balmes,
-      'torrent' => $torrent,
-      'completas' => $balmes !== null && $torrent !== null,
-    ];
+
+    return null;
   }
 
   /** @return array{numero: int} */
@@ -399,22 +401,17 @@ final class EncargoService
     if (!in_array($tipoTrabajo, ['revelado', 'impresion'], true)) {
       throw new \InvalidArgumentException('Indique si el encargo es de revelado o de impresión');
     }
-    $circuito = $this->tiendasCircuito();
-    if (!$circuito['completas'] || $circuito['balmes'] === null || $circuito['torrent'] === null) {
-      throw new \InvalidArgumentException("Faltan las tiendas Balmes y Torrent de l'Olla");
+    $tienda = $this->tiendaPorCodigo((string) ($body['tiendaEntrega'] ?? ''));
+    if ($tienda === null) {
+      throw new \InvalidArgumentException('El puesto no tiene una tienda configurada');
     }
-    $entrega = trim((string) ($body['tiendaEntrega'] ?? ''));
-    $balmes = $circuito['balmes']['codigo'];
-    $torrent = $circuito['torrent']['codigo'];
-    if ($entrega !== $balmes && $entrega !== $torrent) {
-      throw new \InvalidArgumentException("El material solo se entrega en Balmes o en Torrent de l'Olla");
-    }
+    $entrega = $tienda['codigo'];
     $modalidad = strtolower(trim((string) ($body['modalidad'] ?? '')));
     if (!in_array($modalidad, ['recogida', 'envio'], true)) {
       throw new \InvalidArgumentException('Indique si el cliente lo recogerá o si se envía por mensajero');
     }
-    $laboratorio = $tipoTrabajo === 'revelado' ? $torrent : $balmes;
-    $misma = $entrega === $laboratorio;
+    $laboratorio = $entrega;
+    $misma = true;
     $estado = 'pendiente_revelar';
     $rodillos = $tipoTrabajo === 'revelado' ? max(1, (int) ($body['rodillos'] ?? 1)) : 0;
     $etiquetas = $rodillos;

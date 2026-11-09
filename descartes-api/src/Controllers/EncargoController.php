@@ -81,7 +81,13 @@ final class EncargoController
   public function tiendas(Request $request, Response $response): Response
   {
     try {
-      return $this->json($response, 200, $this->encargos->tiendasCircuito());
+      $empresa = trim((string) ($request->getQueryParams()['empresa'] ?? ''));
+      $tienda = $this->encargos->tiendaPorCodigo($empresa);
+
+      return $this->json($response, 200, [
+        'tienda' => $tienda,
+        'configurada' => $tienda !== null,
+      ]);
     } catch (\Throwable $e) {
       return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
     }

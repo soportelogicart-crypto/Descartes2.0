@@ -56,11 +56,7 @@ type Encargo = {
 const router = useRouter()
 const puesto = usePuestoContextoStore()
 const busquedaVentas = useVentasBusquedaStore()
-const circuito = ref<{ balmes: Tienda | null; torrent: Tienda | null; completas: boolean }>({
-  balmes: null,
-  torrent: null,
-  completas: false,
-})
+const tiendaPuesto = ref<Tienda | null>(null)
 const formasPago = ref<{ codigo: string; descripcion: string }[]>([])
 const clientes = ref<Cliente[]>([])
 const encargos = ref<Encargo[]>([])
@@ -127,40 +123,18 @@ function textoEstado(e: { estado: string; tipo?: string }): string {
   return estadoTxt[e.estado] || e.estado
 }
 
-const tiendasEntrega = computed(() =>
-  [circuito.value.balmes, circuito.value.torrent].filter((t): t is Tienda => t !== null),
-)
-const laboratorio = computed(() => (form.value.tipo === 'revelado' ? circuito.value.torrent : circuito.value.balmes))
-
-function aplicarTiendaDelPuesto() {
-  const tiendas = tiendasEntrega.value
-  if (!tiendas.length) return
-  const actual = String(puesto.empresaCodigo ?? '').trim().toLowerCase()
-  const delPuesto = tiendas.find((t) => t.codigo.trim().toLowerCase() === actual)
-  if (delPuesto) {
-    form.value.tiendaEntrega = delPuesto.codigo
-    return
-  }
-  const sigueValida = tiendas.some((t) => t.codigo === form.value.tiendaEntrega)
-  if (!sigueValida) {
-    form.value.tiendaEntrega = tiendas[0]?.codigo ?? ''
-  }
-}
-const mismaTienda = computed(() => laboratorio.value !== null && form.value.tiendaEntrega === laboratorio.value.codigo)
 const pendientesCliente = computed(() => trabajos.value.filter((e) => e.estado !== 'entregado'))
 const consultaClienteActiva = computed(() => {
   const texto = filtroEncargo.value.trim()
   return texto.length >= 3 && !/^DCTB/i.test(texto)
 })
 const rutaTxt = computed(() => {
-  if (!circuito.value.completas) return "Faltan las tiendas Balmes y Torrent de l'Olla. La comanda no continúa."
-  if (mismaTienda.value) return 'Se realiza en la misma tienda. El material no sale de allí.'
-  if (form.value.tipo === 'revelado') return "Se envía a Torrent de l'Olla y, al terminarlo, vuelve a Balmes."
-  return "Se envía a Balmes y, al terminarlo, vuelve a Torrent de l'Olla."
+  if (!tiendaPuesto.value) return 'El puesto no tiene tienda configurada. Indíquela en los parámetros del puesto.'
+  return `El encargo queda en ${tiendaPuesto.value.nombre}.`
 })
 
 onMounted(async () => {
-  await Promise.all([cargarCircuito(), cargarFormas(), cargar()])
+  await Promise.all([cargarTiendaPuesto(), cargarFormas(), cargar()])
   tomarClienteDeMantenimiento()
 })
 
@@ -168,20 +142,22 @@ onActivated(() => {
   tomarClienteDeMantenimiento()
 })
 
-async function cargarCircuito() {
-  const { data } = await api.get('/api/encargos/tiendas')
-  circuito.value = {
-    balmes: data.balmes ?? null,
-    torrent: data.torrent ?? null,
-    completas: Boolean(data.completas),
+async function cargarTiendaPuesto() {
+  const empresa = String(puesto.empresaCodigo ?? '').trim()
+  if (!empresa) {
+    tiendaPuesto.value = null
+    form.value.tiendaEntrega = ''
+    return
   }
-  aplicarTiendaDelPuesto()
+  const { data } = await api.get('/api/encargos/tiendas', { params: { empresa } })
+  tiendaPuesto.value = data.tienda ?? null
+  form.value.tiendaEntrega = tiendaPuesto.value?.codigo ?? ''
 }
 
 watch(
   () => puesto.empresaCodigo,
   () => {
-    aplicarTiendaDelPuesto()
+    void cargarTiendaPuesto()
   }
 )
 
@@ -388,7 +364,7 @@ async function cargarFicha(codigo: string) {
     const { data } = await api.get(`/api/mantenimiento/clientes/${encodeURIComponent(codigo)}`)
     cliente.value = fichaDesdeApi(data as Record<string, unknown>, codigo)
     modoAlta.value = false
-    aplicarTiendaDelPuesto()
+    void cargarTiendaPuesto()
     if (!cliente.value.formaPago) cliente.value.formaPago = formasPago.value[0]?.codigo ?? ''
     clientes.value = []
     await cargarTrabajos(cliente.value.codigo)
@@ -501,8 +477,8 @@ async function crearEncargo() {
     error.value = 'Seleccione o cree el cliente antes del encargo'
     return
   }
-  if (!circuito.value.completas) {
-    error.value = "Faltan las tiendas Balmes y Torrent de l'Olla. La comanda no continúa."
+  if (!form.value.tiendaEntrega) {
+    error.value = 'El puesto no tiene tienda configurada. Indíquela en los parámetros del puesto.'
     return
   }
   const f = cliente.value
@@ -793,17 +769,13 @@ function abrirAlbaran(e: Encargo) {
           </div>
         </fieldset>
 
-        <p v-if="cliente && !modoAlta && !circuito.completas" class="error">{{ rutaTxt }}</p>
+        <p v-if="cliente && !modoAlta && !tiendaPuesto" class="error">{{ rutaTxt }}</p>
         <template v-else-if="cliente && !modoAlta">
           <div class="modalidad">
             <label class="radio"><input v-model="form.tipo" type="radio" value="revelado" /> Revelado</label>
             <label class="radio"><input v-model="form.tipo" type="radio" value="impresion" /> Impresión</label>
           </div>
-          <label>Tienda donde deja el material
-            <select v-model="form.tiendaEntrega">
-              <option v-for="t in tiendasEntrega" :key="t.codigo" :value="t.codigo">{{ t.nombre }}</option>
-            </select>
-          </label>
+          <p class="pista">Tienda: {{ tiendaPuesto?.nombre }}</p>
           <div class="modalidad">
             <label class="radio"><input v-model="form.modalidad" type="radio" value="recogida" /> Lo recogerá el cliente</label>
             <label class="radio"><input v-model="form.modalidad" type="radio" value="envio" /> Envío por mensajero</label>
