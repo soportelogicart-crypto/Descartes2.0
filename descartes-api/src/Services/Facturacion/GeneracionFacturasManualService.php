@@ -883,16 +883,15 @@ final class GeneracionFacturasManualService
       }
     }
 
-<<<<<<< HEAD
     if (!$esPrefactura) {
       $encargos = new \Descartes\Api\Services\Ventas\EncargoService($this->pdo);
       foreach ($refs as $ref) {
         $encargos->marcarFacturado((string) $ref['empresa'], (string) $ref['tipo'], (int) $ref['albaran']);
       }
-=======
+    }
+
     if (!$esPrefactura && $pagoACuenta > 0.005) {
       $this->liquidarValesPagoACuenta($refs);
->>>>>>> jordi
     }
 
     return [
