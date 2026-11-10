@@ -3,6 +3,7 @@ import type {
   DocumentoPreviewLinea,
 } from '@/config/documentos-plantillas/preview-datos'
 import type { VentaDetalle, VentaLinea } from '@/types/ventas'
+import { idiomaDocumento } from '@/utils/paisIdioma'
 
 function fmtFecha(iso: string | null | undefined): string {
   if (!iso) return ''
@@ -105,6 +106,8 @@ export function ventaAPreviewDatos(
     pasaporteFitosanitarioEmpresa?: string
     /** Asterisco en línea + pie fitosanitario (solo albarán A4). */
     plantillaTipo?: string
+    /** Imprime PrecioTarifa. No cambia los importes guardados. */
+    preciosVenta?: boolean
   } = {}
 ): DocumentoPreviewDatos {
   const ivas = (venta.importesIva ?? []).map((x) => ({
@@ -120,7 +123,17 @@ export function ventaAPreviewDatos(
     : Number(venta.factura) > 0
       ? String(venta.factura)
       : String(venta.albaran || '')
-  const observaciones = [numeroOffline ? 'EMITIDO SIN CONEXIÓN' : '', String(venta.observaciones ?? '').trim()]
+  const refs = [venta.referencia1, venta.referencia2, venta.suPedido]
+    .map((x) => String(x ?? '').trim())
+    .filter(Boolean)
+  const pagoACuenta = Number(venta.pagoACuenta) || 0
+  const observaciones = [
+    numeroOffline ? 'EMITIDO SIN CONEXIÓN' : '',
+    String(venta.clienteFinal ?? '').trim() ? `Cliente final: ${String(venta.clienteFinal).trim()}` : '',
+    refs.length ? `Ref. cliente: ${refs.join(' · ')}` : '',
+    pagoACuenta > 0.004 ? `A cuenta: ${pagoACuenta.toFixed(2)}` : '',
+    String(venta.observaciones ?? '').trim(),
+  ]
     .filter(Boolean)
     .join('\n')
 
@@ -133,7 +146,8 @@ export function ventaAPreviewDatos(
     banco: venta.clienteBanco,
   })
   const lits = (extras.literalesPuesto ?? []).slice(0, nLit)
-  const anotacionFitoAlbaran = String(extras.plantillaTipo ?? '').trim() === 'albaran'
+  const tipoDoc = String(extras.plantillaTipo ?? '').trim()
+  const anotacionFitoAlbaran = tipoDoc === 'albaran' || tipoDoc.startsWith('factura')
   let hayLineasFito = false
   const lineas: DocumentoPreviewLinea[] = []
   for (const l of venta.lineas ?? []) {
@@ -159,19 +173,28 @@ export function ventaAPreviewDatos(
     }
     const marcaFito = anotacionFitoAlbaran && lineaRequiereAsteriscoPasaporteFito(l)
     if (marcaFito) hayLineasFito = true
-    const precio = Number(l.precio) || 0
+    const precioTarifa = Number(l.precioTarifa) || 0
+    const precioLinea = Number(l.precio) || 0
+    // Copia PVP: precio de tarifa y sin el descuento de la línea. Lo guardado no cambia.
+    const copiaPvp = Boolean(extras.preciosVenta)
+    const precio = copiaPvp ? (precioTarifa > 0 ? precioTarifa : precioLinea) : precioLinea
+    const dto = copiaPvp ? 0 : Number(l.pjeDto) || 0
+    const unidades = Number(l.cantidad) || 0
+    const importe = copiaPvp
+      ? redondear2(unidades * precio)
+      : Number(l.importe) || 0
     const pje = Number(l.pjeIva) || 0
     const factor = 1 + pje / 100
     const conIva = extras.preciosIvaIncluido || pje <= 0
     lineas.push({
       articulo: art,
       descripcion: String(l.descripcion ?? ''),
-      unidades: Number(l.cantidad) || 0,
+      unidades,
       precio,
       precioSinIva: conIva ? redondear2(precio / factor) : precio,
-      dto: Number(l.pjeDto) || 0,
+      dto,
       pjeIva: pje,
-      importe: Number(l.importe) || 0,
+      importe,
       pvp: conIva ? precio : redondear2(precio * factor),
       marcaPasaporteFito: marcaFito || undefined,
     })
@@ -190,6 +213,27 @@ export function ventaAPreviewDatos(
       pvp: 0,
       albaranCabecera: `Albarán ${venta.empresa}-${venta.albaran} de Fecha ${fmtFecha(venta.fecha)}`,
     })
+  }
+
+  // Copia con PVP: base, IVA e importe salen de las mismas líneas que se imprimen.
+  const importePvp = redondear2(lineas.reduce((s, l) => s + (Number(l.importe) || 0), 0))
+  let baseDoc = base
+  let ivasDoc = ivas
+  if (extras.preciosVenta) {
+    const porPje = new Map<number, number>()
+    for (const l of lineas) {
+      if (!l.articulo) continue
+      const pje = Number(l.pjeIva) || 0
+      const importeLinea = Number(l.importe) || 0
+      const b = extras.preciosIvaIncluido || pje <= 0 ? importeLinea / (1 + pje / 100) : importeLinea
+      porPje.set(pje, (porPje.get(pje) ?? 0) + b)
+    }
+    ivasDoc = [...porPje.entries()].map(([pje, b]) => ({
+      pje,
+      base: redondear2(b),
+      cuota: redondear2((b * pje) / 100),
+    }))
+    baseDoc = ivasDoc.reduce((s, i) => s + i.base, 0)
   }
 
   const anotacionPasaporteFitosanitario = anotacionFitoAlbaran
@@ -248,23 +292,30 @@ export function ventaAPreviewDatos(
       codigoBarras: numeroOffline ? `*${numeroOffline}*` : `*${venta.empresa || ''}${venta.albaran || ''}*`,
       pagina: '1/1',
       anotacionPasaporteFitosanitario,
+      idioma: idiomaDocumento(venta.idioma),
     },
     lineas,
     totales: {
-      base: redondear2(base),
-      ivas,
-      importe: redondear2(Number(venta.importeFactura ?? venta.importe) || 0),
-      descuentoFidelizacion: redondear2(Number(venta.descuentoFidelizacion) || 0),
+      base: redondear2(baseDoc),
+      ivas: ivasDoc,
+      importe: extras.preciosVenta
+        ? importePvp
+        : redondear2(Number(venta.importeFactura ?? venta.importe) || 0),
+      descuentoFidelizacion: extras.preciosVenta
+        ? 0
+        : redondear2(Number(venta.descuentoFidelizacion) || 0),
       pjeRetIrpf: Number(venta.pjeRetIrpf) || 0,
       basRetIrpf: redondear2(Number(venta.basRetIrpf) || 0),
       impRetIrpf: redondear2(Number(venta.impRetIrpf) || 0),
-      liquido: redondear2(
-        Number(
-          venta.importeLiquido
-          ?? venta.importeFactura
-          ?? venta.importe
-        ) || 0
-      ),
+      liquido: extras.preciosVenta
+        ? importePvp
+        : redondear2(
+            Number(
+              venta.importeLiquido
+              ?? venta.importeFactura
+              ?? venta.importe
+            ) || 0
+          ),
     },
     fidelizacion: venta.fidelizacionPuntos
       ? {

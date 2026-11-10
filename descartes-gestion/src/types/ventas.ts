@@ -66,6 +66,9 @@ export type VentaLinea = {
   registroSanitario?: string | null
   cantidad: number
   precio: number
+  /** Precio de tarifa de venta, para imprimir el albarán del jardinero sin guardar otro importe. */
+  precioTarifa?: number
+  anotacion?: string | null
   pjeDto: number
   importe: number
   pjeIva?: number
@@ -97,6 +100,12 @@ export type VentaDetalle = VentaResumen & {
   referencia2?: string | null
   numeroDeSerie?: string | null
   observaciones?: string | null
+  pagoACuenta?: number
+  idioma?: number
+  suPedido?: string | null
+  clienteFinal?: string | null
+  comisionista?: string | null
+  pjeComision?: number
   sujetoPasivo?: boolean
   portes?: string | null
   fechaEntrega?: string | null
@@ -205,6 +214,11 @@ export type VentaPayload = {
   referencia2?: string | null
   numeroDeSerie?: string | null
   observaciones?: string | null
+  pagoACuenta?: number
+  idioma?: number
+  clienteFinal?: string | null
+  comisionista?: string | null
+  pjeComision?: number
   sujetoPasivo?: boolean
   portes?: string | null
   fpago1?: string | null
@@ -468,6 +482,7 @@ export type PedidoResumen = {
   puesto?: string | null
   vendedor?: string | null
   suPedido?: string | null
+  codigoPostalEnvio?: string | null
 }
 
 export type PedidoLinea = {
@@ -485,6 +500,8 @@ export type PedidoLinea = {
   pjeRec?: number
   zona?: string | null
   loteVenta?: string | null
+  anotacion?: string | null
+  transportista?: string | null
 }
 
 export type PedidoDetalle = PedidoResumen & {

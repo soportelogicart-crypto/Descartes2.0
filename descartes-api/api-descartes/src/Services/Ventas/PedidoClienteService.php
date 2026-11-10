@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Descartes\Api\Services\Ventas;
 
 use Descartes\Api\Database\SqlPagination;
+use Descartes\Api\Config\Database;
+use Descartes\Api\Services\Instalacion\MejorasGestionSchema;
 use PDO;
 
 final class PedidoClienteService
@@ -16,6 +18,11 @@ final class PedidoClienteService
   {
     $this->pdo = $pdo;
     $this->ventas = $ventas;
+    try {
+      MejorasGestionSchema::asegurar($pdo);
+    } catch (\Throwable $e) {
+      // El listado sigue con el esquema que ya había.
+    }
   }
 
   /** @param array<string, mixed> $query */
@@ -64,6 +71,26 @@ final class PedidoClienteService
     } elseif ($situacion === 'cerrado' || $situacion === 'c') {
       $where[] = 'p.Actualizado <> 0';
     }
+    $texto = trim((string) ($query['texto'] ?? ''));
+    if ($texto !== '') {
+      $where[] = '(p.SuPedido LIKE :texto OR ISNULL(p.Observaciones, \'\') LIKE :textoObs OR ISNULL(p.Referencia1, \'\') LIKE :textoRef)';
+      $like = '%' . $texto . '%';
+      $params['texto'] = $like;
+      $params['textoObs'] = $like;
+      $params['textoRef'] = $like;
+    }
+    $cp = trim((string) ($query['codigoPostal'] ?? ''));
+    if ($cp !== '') {
+      $where[] = 'p.CodigoPostalEnvio LIKE :cp';
+      $params['cp'] = '%' . $cp . '%';
+    }
+    if (!empty($query['pendientes'])) {
+      $where[] = 'EXISTS (
+        SELECT 1 FROM PedidosClientesLin l
+        WHERE l.Empresa = p.Empresa AND l.Pedido = p.Pedido
+          AND ISNULL(l.CantidadPedida, 0) > ISNULL(l.CantidadServida, 0) + 0.0001
+      )';
+    }
 
     $sqlWhere = implode(' AND ', $where);
     $countStmt = $this->pdo->prepare("SELECT COUNT(*) FROM PedidosClientes p WHERE {$sqlWhere}");
@@ -71,8 +98,15 @@ final class PedidoClienteService
       $countStmt->execute($params);
     } catch (\Throwable $e) {
       // Fallback sin filtro Actualizado / NIF si el esquema no lo admite.
-      $where = array_values(array_filter($where, static fn ($w) => !str_contains($w, 'Actualizado') && !str_contains($w, 'NIF')));
-      unset($params['clienteNif']);
+      $where = array_values(array_filter(
+        $where,
+        static fn ($w) => !str_contains($w, 'Actualizado')
+          && !str_contains($w, 'NIF')
+          && !str_contains($w, 'Referencia1')
+          && !str_contains($w, 'Observaciones')
+          && !str_contains($w, 'CodigoPostalEnvio')
+      ));
+      unset($params['clienteNif'], $params['texto'], $params['textoObs'], $params['textoRef'], $params['cp']);
       $sqlWhere = implode(' AND ', $where);
       $countStmt = $this->pdo->prepare("SELECT COUNT(*) FROM PedidosClientes p WHERE {$sqlWhere}");
       $countStmt->execute($params);
@@ -80,7 +114,7 @@ final class PedidoClienteService
     $total = (int) $countStmt->fetchColumn();
 
     $innerSql = "SELECT p.Empresa, p.Pedido, p.Cliente, p.RazonSocial, p.NIF, p.Fecha, p.Estado, p.Situacion,
-                   p.Impreso, p.Importe, p.Actualizado, p.Puesto, p.Vendedor, p.SuPedido
+                   p.Impreso, p.Importe, p.Actualizado, p.Puesto, p.Vendedor, p.SuPedido, p.CodigoPostalEnvio
             FROM PedidosClientes p
             WHERE {$sqlWhere}";
     $orderBy = 'p.Fecha DESC, p.Pedido DESC';
@@ -130,7 +164,7 @@ final class PedidoClienteService
     try {
       $linStmt = $this->pdo->prepare(
         'SELECT NroLin, Articulo, Descripcion, CantidadPedida, CantidadServida, CantidadaServir,
-                Precio, PjeDto, Importe, PjeIva, PjeRec, Zona, LoteVenta
+                Precio, PjeDto, Importe, PjeIva, PjeRec, Zona, LoteVenta, Anotacion, Transportista
          FROM PedidosClientesLin
          WHERE Empresa = :empresa AND Pedido = :pedido
          ORDER BY NroLin'
@@ -578,6 +612,11 @@ final class PedidoClienteService
       }
       $precio = (float) ($lin['precio'] ?? 0);
       $pjeDto = (float) ($lin['pjeDto'] ?? 0);
+      $anotacion = trim((string) ($lin['anotacion'] ?? ''));
+      $transportista = trim((string) ($lin['transportista'] ?? ''));
+      if ($transportista === '') {
+        $transportista = trim((string) ($detalle['transporte'] ?? ''));
+      }
       $lineasVenta[] = [
         'articulo' => $articulo,
         'descripcion' => $lin['descripcion'] ?? null,
@@ -585,6 +624,9 @@ final class PedidoClienteService
         'precio' => $precio,
         'pjeDto' => $pjeDto,
         'importe' => round($aServir * $precio * (1 - $pjeDto / 100), 2),
+        'anotacion' => $anotacion,
+        'transportista' => $transportista,
+        'nroLin' => (int) ($lin['nroLin'] ?? 0),
       ];
       $servidas[] = [
         'nroLin' => (int) ($lin['nroLin'] ?? 0),
@@ -611,31 +653,61 @@ final class PedidoClienteService
     $clienteCod = trim((string) ($detalle['cliente'] ?? ''));
     $fiscal = $this->direccionFiscalCliente($clienteCod);
 
-    $venta = $this->ventas->crear([
-      'empresa' => $empresa,
-      'cliente' => $detalle['cliente'],
-      'razonSocial' => $detalle['razonSocial'] ?? $fiscal['razonSocial'],
-      'nif' => $detalle['nif'] ?? $fiscal['nif'],
-      'puesto' => $puesto,
-      'vendedor' => $vendedor,
-      // Legacy: VendedorApertura = codigo de vendedor (trabajador), nunca usuario de login.
-      'vendedorApertura' => $vendedor,
-      'pedido' => $pedido,
-      'facturaTipo' => 'R',
-      // Legacy: cabecera del albaran usa direccion FISCAL del cliente (no la de envio del pedido).
-      'direccionEnvio' => $fiscal['direccion'],
-      'poblacionEnvio' => $fiscal['poblacion'],
-      'codigoPostalEnvio' => $fiscal['codigoPostal'],
-      'provinciaEnvio' => $fiscal['provincia'],
-      'paisEnvio' => $fiscal['pais'],
-      'telefono' => $fiscal['telefono'],
-      'telefono2' => $fiscal['telefono2'],
-      'email' => $detalle['email'] ?? $fiscal['email'],
-      'transporte' => $detalle['transporte'] ?? null,
-      'lineas' => $lineasVenta,
-    ]);
-
-    $this->aplicarServido($empresa, $pedido, $servidas);
+    $grupos = [];
+    foreach ($lineasVenta as $lin) {
+      $clave = trim((string) ($lin['transportista'] ?? ''));
+      $grupos[$clave][] = $lin;
+    }
+    $ventas = [];
+    foreach ($grupos as $transportista => $grupo) {
+      $lineasGrupo = [];
+      $servidasGrupo = [];
+      foreach ($grupo as $lin) {
+        $nota = trim((string) ($lin['anotacion'] ?? ''));
+        unset($lin['anotacion'], $lin['transportista']);
+        $nro = (int) ($lin['nroLin'] ?? 0);
+        unset($lin['nroLin']);
+        $lineasGrupo[] = $lin;
+        if ($nota !== '') {
+          $lineasGrupo[] = [
+            'articulo' => 'NO',
+            'descripcion' => $nota,
+            'cantidad' => 0,
+            'precio' => 0,
+            'pjeDto' => 0,
+            'importe' => 0,
+          ];
+        }
+        if ($nro > 0) {
+          $servidasGrupo[] = ['nroLin' => $nro, 'cantidadAServir' => (float) $lin['cantidad']];
+        }
+      }
+      $ventas[] = $this->ventas->crear([
+        'empresa' => $empresa,
+        'cliente' => $detalle['cliente'],
+        'razonSocial' => $detalle['razonSocial'] ?? $fiscal['razonSocial'],
+        'nif' => $detalle['nif'] ?? $fiscal['nif'],
+        'puesto' => $puesto,
+        'vendedor' => $vendedor,
+        'vendedorApertura' => $vendedor,
+        'pedido' => $pedido,
+        'facturaTipo' => 'R',
+        'direccionEnvio' => $fiscal['direccion'],
+        'poblacionEnvio' => $fiscal['poblacion'],
+        'codigoPostalEnvio' => $fiscal['codigoPostal'],
+        'provinciaEnvio' => $fiscal['provincia'],
+        'paisEnvio' => $fiscal['pais'],
+        'telefono' => $fiscal['telefono'],
+        'telefono2' => $fiscal['telefono2'],
+        'email' => $detalle['email'] ?? $fiscal['email'],
+        'transporte' => $transportista !== '' ? $transportista : ($detalle['transporte'] ?? null),
+        'suPedido' => $detalle['suPedido'] ?? null,
+        'referencia1' => $detalle['suPedido'] ?? null,
+        'lineas' => $lineasGrupo,
+      ]);
+      $this->aplicarServido($empresa, $pedido, $servidasGrupo);
+    }
+    $venta = $ventas[0];
 
     $pedidoAct = $this->obtener($empresa, $pedido);
     if ($pedidoAct === null) {
@@ -645,6 +717,7 @@ final class PedidoClienteService
     return [
       'pedido' => $pedidoAct,
       'venta' => $venta,
+      'ventas' => $ventas,
     ];
   }
 
@@ -729,12 +802,17 @@ final class PedidoClienteService
   {
     $importeTotal = 0.0;
     $n = 0;
+    // En MySQL NroLin no se genera solo: se numeran las líneas 1, 2, 3… del pedido.
+    $nroLinAuto = $this->motorDbEsMysql();
+    $colNro = $nroLinAuto ? 'NroLin, ' : '';
+    $valNro = $nroLinAuto ? ':nroLin, ' : '';
     foreach ($lineas as $lin) {
       $articulo = trim((string) ($lin['articulo'] ?? ''));
       if ($articulo === '') {
         throw new \InvalidArgumentException('Cada linea requiere articulo');
       }
       $n++;
+      $nroLinParam = $nroLinAuto ? ['nroLin' => $n] : [];
       $cant = (float) ($lin['cantidadPedida'] ?? 0);
       $servida = (float) ($lin['cantidadServida'] ?? 0);
       $aServir = (float) ($lin['cantidadAServir'] ?? 0);
@@ -750,12 +828,12 @@ final class PedidoClienteService
       try {
         $this->pdo->prepare(
           'INSERT INTO PedidosClientesLin
-            (Empresa, Pedido, Articulo, Descripcion, CantidadPedida, CantidadServida, CantidadaServir,
-             Precio, PjeDto, Importe, PjeIva, Zona, LoteVenta)
+            (' . $colNro . 'Empresa, Pedido, Articulo, Descripcion, CantidadPedida, CantidadServida, CantidadaServir,
+             Precio, PjeDto, Importe, PjeIva, Zona, LoteVenta, Anotacion, Transportista)
            VALUES
-            (:empresa, :pedido, :articulo, :descripcion, :cant, :servida, :aservir,
-             :precio, :pjeDto, :importe, :pjeIva, :zona, :lote)'
-        )->execute([
+            (' . $valNro . ':empresa, :pedido, :articulo, :descripcion, :cant, :servida, :aservir,
+             :precio, :pjeDto, :importe, :pjeIva, :zona, :lote, :anotacion, :transportista)'
+        )->execute($nroLinParam + [
           'empresa' => $empresa,
           'pedido' => $pedido,
           'articulo' => $articulo,
@@ -769,6 +847,8 @@ final class PedidoClienteService
           'pjeIva' => $pjeIva,
           'zona' => $zona,
           'lote' => $lote,
+          'anotacion' => mb_substr(trim((string) ($lin['anotacion'] ?? '')), 0, 80),
+          'transportista' => mb_substr(trim((string) ($lin['transportista'] ?? '')), 0, 25),
         ]);
         $ok = true;
       } catch (\Throwable $e) {
@@ -778,10 +858,10 @@ final class PedidoClienteService
         try {
           $this->pdo->prepare(
             'INSERT INTO PedidosClientesLin
-              (Empresa, Pedido, Articulo, Descripcion, CantidadPedida, CantidadServida, CantidadaServir, Precio, Importe)
+              (' . $colNro . 'Empresa, Pedido, Articulo, Descripcion, CantidadPedida, CantidadServida, CantidadaServir, Precio, Importe)
              VALUES
-              (:empresa, :pedido, :articulo, :descripcion, :cant, :servida, :aservir, :precio, :importe)'
-          )->execute([
+              (' . $valNro . ':empresa, :pedido, :articulo, :descripcion, :cant, :servida, :aservir, :precio, :importe)'
+          )->execute($nroLinParam + [
             'empresa' => $empresa,
             'pedido' => $pedido,
             'articulo' => $articulo,
@@ -795,10 +875,10 @@ final class PedidoClienteService
         } catch (\Throwable $e) {
           $this->pdo->prepare(
             'INSERT INTO PedidosClientesLin
-              (Empresa, Pedido, Articulo, CantidadPedida, CantidadServida, CantidadaServir, Precio, Importe)
+              (' . $colNro . 'Empresa, Pedido, Articulo, CantidadPedida, CantidadServida, CantidadaServir, Precio, Importe)
              VALUES
-              (:empresa, :pedido, :articulo, :cant, :servida, :aservir, :precio, :importe)'
-          )->execute([
+              (' . $valNro . ':empresa, :pedido, :articulo, :cant, :servida, :aservir, :precio, :importe)'
+          )->execute($nroLinParam + [
             'empresa' => $empresa,
             'pedido' => $pedido,
             'articulo' => $articulo,
@@ -815,6 +895,12 @@ final class PedidoClienteService
       throw new \InvalidArgumentException('El pedido debe tener al menos una linea');
     }
     return round($importeTotal, 2);
+  }
+
+  private function motorDbEsMysql(): bool
+  {
+    $cfg = Database::resolveConfig();
+    return strtolower((string) ($cfg['motor'] ?? 'sqlsrv')) === 'mysql';
   }
 
   private function recalcularImporte(string $empresa, int $pedido): float
@@ -1029,7 +1115,68 @@ final class PedidoClienteService
       'puesto' => isset($row['Puesto']) ? trim((string) $row['Puesto']) : null,
       'vendedor' => isset($row['Vendedor']) ? trim((string) $row['Vendedor']) : null,
       'suPedido' => isset($row['SuPedido']) ? trim((string) $row['SuPedido']) : null,
+      'codigoPostalEnvio' => isset($row['CodigoPostalEnvio']) ? trim((string) $row['CodigoPostalEnvio']) : '',
     ];
+  }
+
+  /**
+   * Liquidación de comisiones del jardinero: porcentaje sobre el total del albarán.
+   *
+   * @param array<string, mixed> $query
+   * @return array{items: list<array<string, mixed>>, totalComision: float}
+   */
+  public function liquidarComisiones(array $query): array
+  {
+    $where = ["ISNULL(c.PjeComision, 0) <> 0", "ISNULL(c.Comisionista, '') <> ''"];
+    $params = [];
+    if ($this->fechaIsoValida($query['fechaDesde'] ?? null)) {
+      $where[] = 'c.Fecha >= CONVERT(datetime, :desde, 120)';
+      $params['desde'] = substr((string) $query['fechaDesde'], 0, 10) . ' 00:00:00';
+    }
+    if ($this->fechaIsoValida($query['fechaHasta'] ?? null)) {
+      $where[] = 'c.Fecha <= CONVERT(datetime, :hasta, 120)';
+      $params['hasta'] = substr((string) $query['fechaHasta'], 0, 10) . ' 23:59:59';
+    }
+    if (!empty($query['empresa'])) {
+      $where[] = 'c.Empresa = :empresa';
+      $params['empresa'] = $query['empresa'];
+    }
+    $comisionista = trim((string) ($query['comisionista'] ?? ''));
+    if ($comisionista !== '') {
+      $where[] = 'c.Comisionista LIKE :comisionista';
+      $params['comisionista'] = '%' . $comisionista . '%';
+    }
+    $sql = 'SELECT TOP 2000 c.Empresa, c.Tipo, c.Albaran, c.Fecha, c.Cliente, c.RazonSocial,
+              c.ClienteFinal, c.Comisionista, c.PjeComision, c.Importe
+            FROM AlbaranesVentasCab c
+            WHERE ' . implode(' AND ', $where) . '
+            ORDER BY c.Comisionista, c.Fecha, c.Albaran';
+    $stmt = $this->pdo->prepare($sql);
+    $stmt->execute($params);
+    $items = [];
+    $total = 0.0;
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+      $importe = (float) ($row['Importe'] ?? 0);
+      $pje = (float) ($row['PjeComision'] ?? 0);
+      $comision = round($importe * $pje / 100, 2);
+      $total += $comision;
+      $fecha = $row['Fecha'] ?? null;
+      $items[] = [
+        'empresa' => trim((string) $row['Empresa']),
+        'tipo' => trim((string) $row['Tipo']),
+        'albaran' => (int) $row['Albaran'],
+        'fecha' => $fecha ? date('Y-m-d', strtotime((string) $fecha)) : '',
+        'cliente' => trim((string) ($row['Cliente'] ?? '')),
+        'razonSocial' => trim((string) ($row['RazonSocial'] ?? '')),
+        'clienteFinal' => trim((string) ($row['ClienteFinal'] ?? '')),
+        'comisionista' => trim((string) ($row['Comisionista'] ?? '')),
+        'pjeComision' => $pje,
+        'importe' => round($importe, 2),
+        'comision' => $comision,
+      ];
+    }
+
+    return ['items' => $items, 'totalComision' => round($total, 2)];
   }
 
   /** @param array<string, mixed> $lin */
@@ -1053,6 +1200,8 @@ final class PedidoClienteService
       'pjeRec' => (float) ($lin['PjeRec'] ?? 0),
       'zona' => $lin['Zona'] ?? null,
       'loteVenta' => isset($lin['LoteVenta']) ? (string) $lin['LoteVenta'] : null,
+      'anotacion' => isset($lin['Anotacion']) ? trim((string) $lin['Anotacion']) : '',
+      'transportista' => isset($lin['Transportista']) ? trim((string) $lin['Transportista']) : '',
     ];
   }
 

@@ -883,11 +883,16 @@ final class GeneracionFacturasManualService
       }
     }
 
+<<<<<<< HEAD
     if (!$esPrefactura) {
       $encargos = new \Descartes\Api\Services\Ventas\EncargoService($this->pdo);
       foreach ($refs as $ref) {
         $encargos->marcarFacturado((string) $ref['empresa'], (string) $ref['tipo'], (int) $ref['albaran']);
       }
+=======
+    if (!$esPrefactura && $pagoACuenta > 0.005) {
+      $this->liquidarValesPagoACuenta($refs);
+>>>>>>> jordi
     }
 
     return [
@@ -904,6 +909,29 @@ final class GeneracionFacturasManualService
       'recibos' => $recibos,
       'albaranes' => $refs,
     ];
+  }
+
+  /**
+   * El pago a cuenta ya descuenta la factura. El vale de esa entrega se liquida
+   * para que no se vuelva a usar en caja.
+   *
+   * @param list<array<string, mixed>> $refs
+   */
+  private function liquidarValesPagoACuenta(array $refs): void
+  {
+    foreach ($refs as $ref) {
+      try {
+        $this->pdo->prepare(
+          'UPDATE Vales SET Liquidado = 1, SaldoPendiente = 0
+           WHERE Empresa = :e AND Albaran = :a AND ISNULL(Liquidado, 0) = 0'
+        )->execute([
+          'e' => $ref['empresa'],
+          'a' => $ref['albaran'],
+        ]);
+      } catch (\Throwable $e) {
+        // Sin columna Albaran el descuento sigue en PagoACuenta de la factura.
+      }
+    }
   }
 
   /** @return array{email: string, facturasEmail: bool} */

@@ -73,6 +73,8 @@ export type DocumentoPreviewDatos = {
     pagina: string
     /** Pie albarán: artículos con control fitosanitario (asterisco en línea). */
     anotacionPasaporteFitosanitario?: string
+    /** es, fr o en. Solo se traducen los rótulos. */
+    idioma?: string
   }
   lineas: DocumentoPreviewLinea[]
   totales: {

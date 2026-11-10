@@ -33,6 +33,7 @@ final class SchemaRepairService
     try {
       ActividadesCentroCosteSchema::asegurar($pdo);
       EtiquetasArticuloSchema::asegurar($pdo);
+      MejorasGestionSchema::asegurar($pdo);
     } catch (\Throwable $e) {
       return [
         'ok' => false,

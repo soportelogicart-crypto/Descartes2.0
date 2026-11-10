@@ -43,6 +43,8 @@ const a4Prep = ref<PrepImpresionFacturas | null>(null)
 const preguntaEmailOpen = ref(false)
 const emailOpen = ref(false)
 const emailDestino = ref('')
+const textoFactura = ref('')
+const idiomaFactura = ref<'' | 'es' | 'fr' | 'en'>('')
 const a4ModalRef = ref<{ capturarHtmlFolio: () => Promise<string> } | null>(null)
 const buscarClienteOpen = ref(false)
 const buscarClienteCampo = ref<CampoCliente>('desde')
@@ -344,6 +346,8 @@ async function pdfsPlantilla(
 ): Promise<Record<string, string>> {
   const prep = await prepararImpresionFacturas(claves, {
     puestoCodigo: String(puestoContexto.puestoCodigo ?? ''),
+    texto: textoFactura.value,
+    idioma: idiomaFactura.value,
   })
   try {
     return await pdfsFacturasDesdePlantilla(prep, async (doc: FacturaImpresionPreparada) => {
@@ -432,7 +436,11 @@ async function cargarPreview(ventanaYaAbierta: boolean) {
         facturaTipo: r.facturaTipo,
         factura: r.factura,
       })),
-      { puestoCodigo: String(puestoContexto.puestoCodigo ?? '') }
+      {
+        puestoCodigo: String(puestoContexto.puestoCodigo ?? ''),
+        texto: textoFactura.value,
+        idioma: idiomaFactura.value,
+      }
     )
     a4Open.value = true
     await nextTick()
@@ -580,6 +588,19 @@ onMounted(async () => {
               <select v-model="form.facturacion">
                 <option value="normal">Normal</option>
                 <option value="sujeto_pasivo">Sujeto pasivo</option>
+              </select>
+            </label>
+            <label>
+              <span>Texto en la factura</span>
+              <input v-model="textoFactura" type="text" maxlength="200" placeholder="Opcional" />
+            </label>
+            <label>
+              <span>Idioma de los rótulos</span>
+              <select v-model="idiomaFactura">
+                <option value="">Según el país</option>
+                <option value="es">Español</option>
+                <option value="fr">Francés</option>
+                <option value="en">Inglés</option>
               </select>
             </label>
             <label>
@@ -827,7 +848,7 @@ onMounted(async () => {
                 ? 'Dirección de email (vacío = la del cliente)'
                 : 'Email (opcional, el mismo para todas)'
             }}</span>
-            <input v-model="emailDestino" type="email" placeholder="cliente@ejemplo.com" />
+            <input v-model="emailDestino" type="text" placeholder="varios, separados por coma" />
           </label>
           <p v-if="error" class="error">{{ error }}</p>
           <div class="modal-actions">

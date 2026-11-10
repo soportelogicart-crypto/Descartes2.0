@@ -7,14 +7,19 @@ import {
   crearVenta,
   eliminarVenta,
   enviarVentaPorEmail,
+  actualizarPagoACuenta,
   consultarValeCobro,
+  crearPagoACuenta,
+  eliminarPagoACuenta,
   finalizarVenta,
+  listarPagosACuenta,
   obtenerVenta,
   obtenerVendedorPuesto,
   ofertasLinea,
   porcentajesOfertaLinea,
   puntosCanjeDisponible,
   type OfertaLinea,
+  type PagosACuentaRespuesta,
 } from '@/api/ventas'
 import { crearAlbaranPeriodico, eliminarAlbaranPeriodico } from '@/api/facturacion'
 import { buscarArticulos, resolverArticulo } from '@/api/articulos'
@@ -29,6 +34,7 @@ import type {
   VentaResumen,
 } from '@/types/ventas'
 import { imprimirValesDeCierre } from '@/composables/comprobanteVale'
+import { idiomaDePais, paisDesdeCodigoPostal } from '@/utils/paisIdioma'
 import { extractApiError } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
@@ -183,6 +189,8 @@ const omitirProximaCarga = ref(false)
 const cabeceraForm = ref<{
   focusTienda: () => Promise<void>
   focusCliente: () => Promise<void>
+  adelantoPendiente: () => { nro: number | null; importe: number; formaPago: string } | null
+  limpiarAdelanto: () => void
 } | null>(null)
 const articuloInputRefs = ref<HTMLInputElement[]>([])
 const descripcionInputRefs = ref<HTMLInputElement[]>([])
@@ -549,6 +557,11 @@ function vacia(): VentaDetalle {
     referencia2: '',
     numeroDeSerie: '',
     observaciones: '',
+    pagoACuenta: 0,
+    idioma: 0,
+    clienteFinal: '',
+    comisionista: '',
+    pjeComision: 0,
     sujetoPasivo: false,
     portes: '',
     fechaEntrega: null,
@@ -1039,6 +1052,10 @@ function payloadDesdeFicha(): VentaPayload {
     referencia2: f.referencia2,
     numeroDeSerie: f.numeroDeSerie,
     observaciones: f.observaciones,
+    idioma: Number(f.idioma) || 0,
+    clienteFinal: f.clienteFinal,
+    comisionista: f.comisionista,
+    pjeComision: Number(f.pjeComision) || 0,
     sujetoPasivo: !!f.sujetoPasivo,
     portes: f.portes,
     pjeIva1: Number(f.pjeIva1) > 0 ? Number(f.pjeIva1) : 21,
@@ -1188,11 +1205,143 @@ async function cargar() {
   }
 }
 
+const pagosACuenta = ref<PagosACuentaRespuesta | null>(null)
+const pagosError = ref<string | null>(null)
+const pagosOcupado = ref(false)
+/** Una carga antigua no debe tapar el pago que acaba de grabarse. */
+let pagosCargaSeq = 0
+
+async function cargarPagosACuenta(data: VentaDetalle) {
+  if (!data.albaran || data.albaran <= 0) {
+    pagosACuenta.value = null
+    return
+  }
+  const seq = ++pagosCargaSeq
+  try {
+    const lista = await listarPagosACuenta(data.empresa, data.tipo, data.albaran)
+    if (seq !== pagosCargaSeq) return
+    if (
+      !ficha.value ||
+      ficha.value.albaran !== data.albaran ||
+      ficha.value.empresa !== data.empresa ||
+      ficha.value.tipo !== data.tipo
+    ) {
+      return
+    }
+    pagosACuenta.value = lista
+    pagosError.value = null
+    ficha.value = { ...ficha.value, pagoACuenta: lista.total }
+  } catch (e: unknown) {
+    if (seq !== pagosCargaSeq) return
+    pagosError.value = extractApiError(e, 'No se pudieron cargar los pagos a cuenta')
+  }
+}
+
+async function guardarPagoACuenta(payload: { nro: number | null; importe: number; formaPago: string }): Promise<boolean> {
+  const venta = ficha.value
+  if (!venta || pagosOcupado.value) return false
+  pagosOcupado.value = true
+  pagosError.value = null
+  try {
+    if (!String(venta.cliente ?? '').trim()) {
+      pagosError.value = 'Indique el cliente antes del adelanto'
+      return false
+    }
+    let empresa = venta.empresa
+    let tipo = venta.tipo || 'A'
+    let albaran = Number(venta.albaran)
+    let altaDesdeAdelanto = false
+    if (!(albaran > 0)) {
+      if (!String(empresa).trim()) {
+        pagosError.value = 'Seleccione la tienda'
+        return false
+      }
+      // Sin artículos el albarán nacería con importe 0: primero las líneas.
+      if (!tieneLineas.value) {
+        pagosError.value = 'Introduzca al menos un artículo antes de anotar el adelanto'
+        return false
+      }
+      const creada = await crearVenta(payloadAltaCompleto())
+      aplicarDetalle(creada)
+      busqueda.upsertResumen(resumenDesdeDetalle(creada))
+      empresa = creada.empresa
+      tipo = creada.tipo || 'A'
+      albaran = creada.albaran
+      altaDesdeAdelanto = true
+    }
+    pagosCargaSeq++
+    const cuerpo = {
+      importe: payload.importe,
+      formaPago: payload.formaPago,
+      puesto: String(ficha.value?.puesto || venta.puesto || ''),
+    }
+    const lista = payload.nro
+      ? await actualizarPagoACuenta(empresa, tipo, albaran, payload.nro, cuerpo)
+      : await crearPagoACuenta(empresa, tipo, albaran, cuerpo)
+    pagosACuenta.value = lista
+    if (
+      ficha.value &&
+      ficha.value.empresa === empresa &&
+      ficha.value.tipo === tipo &&
+      ficha.value.albaran === albaran
+    ) {
+      ficha.value = { ...ficha.value, pagoACuenta: lista.total }
+    }
+    if (altaDesdeAdelanto) {
+      // Igual que Guardar en alta: el albarán ya existe; se abre por su ruta con datos de servidor.
+      esNuevo.value = false
+      modoEdicion.value = false
+      pasoAlta.value = 'listo'
+      mensaje.value = `Albarán ${albaran} grabado con el adelanto.`
+      if (
+        route.params.empresa !== empresa ||
+        route.params.tipo !== tipo ||
+        Number(route.params.albaran) !== albaran
+      ) {
+        void router.replace(destinoVenta(empresa, tipo, albaran))
+      }
+    }
+    return true
+  } catch (e: unknown) {
+    pagosError.value = extractApiError(e, 'No se pudo guardar el pago a cuenta')
+    return false
+  } finally {
+    pagosOcupado.value = false
+  }
+}
+
+/** Importe y forma escritos y aún no anotados. Se graban al guardar o al imprimir. */
+async function anotarAdelantoPendiente(): Promise<boolean> {
+  const pendiente = cabeceraForm.value?.adelantoPendiente?.() ?? null
+  if (!pendiente) return true
+  const ok = await guardarPagoACuenta(pendiente)
+  if (!ok) return false
+  cabeceraForm.value?.limpiarAdelanto()
+  return true
+}
+
+async function borrarPagoACuenta(nro: number) {
+  const venta = ficha.value
+  if (!venta || pagosOcupado.value) return
+  pagosOcupado.value = true
+  pagosError.value = null
+  try {
+    const lista = await eliminarPagoACuenta(venta.empresa, venta.tipo, venta.albaran, nro, venta.puesto)
+    pagosACuenta.value = lista
+    if (ficha.value) ficha.value = { ...ficha.value, pagoACuenta: lista.total }
+  } catch (e: unknown) {
+    pagosError.value = extractApiError(e, 'No se pudo borrar el pago a cuenta')
+  } finally {
+    pagosOcupado.value = false
+  }
+}
+
 function aplicarDetalle(data: VentaDetalle) {
   ficha.value = data
   lineas.value = data.lineas?.length ? data.lineas.map((l) => ({ ...l })) : [lineaVacia()]
   void cargarPreciosIvaIncluido(data.empresa)
   void resolverNombreVendedor(String(data.vendedor ?? ''))
+  void cargarPagosACuenta(data)
 }
 
 function irA(v: VentaResumen) {
@@ -1276,6 +1425,11 @@ function clonarDetalleParaOtraVenta(
     referencia2: orig.referencia2,
     numeroDeSerie: orig.numeroDeSerie,
     observaciones: orig.observaciones,
+    pagoACuenta: 0,
+    idioma: orig.idioma,
+    clienteFinal: orig.clienteFinal,
+    comisionista: orig.comisionista,
+    pjeComision: orig.pjeComision,
     sujetoPasivo: orig.sujetoPasivo,
     portes: orig.portes,
     fechaEntrega: orig.fechaEntrega,
@@ -1370,6 +1524,8 @@ function iniciarNuevaVenta() {
   clienteContado.value = false
   formaPagoCliente.value = ''
   agenteCliente.value = ''
+  pagosACuenta.value = null
+  pagosError.value = null
   ficha.value = vacia()
   lineas.value = [lineaVacia()]
   vendedorNombre.value = puesto.vendedorNombre || ''
@@ -2074,6 +2230,29 @@ async function confirmarCliente(
   await onClienteSeleccionado({ codigo, etiqueta: '' }, opts)
 }
 
+function correoDelCliente(cli: Record<string, unknown>, facturaTipo: string): string {
+  const general = String(cli.email ?? '').trim()
+  const facturas = String(cli.emailFacturacion ?? '').trim()
+  const albaranes = String(cli.emailAlbaranes ?? '').trim()
+  const esFactura = ['F', 'A'].includes(facturaTipo.trim().toUpperCase())
+  if (esFactura) return facturas || general
+  return albaranes || general
+}
+
+function paisPropuesto(cli: Record<string, unknown>, actual: string): string {
+  const pais = String(cli.paisEnvio ?? cli.pais ?? actual ?? '').trim()
+  if (pais) return pais
+  const cp = String(cli.codigoPostalEnvio ?? cli.codigoPostal ?? '').trim()
+  return paisDesdeCodigoPostal(cp)?.pais || actual
+}
+
+function idiomaPropuesto(cli: Record<string, unknown>, actual: string): number {
+  const pais = paisPropuesto(cli, actual)
+  const porCp = paisDesdeCodigoPostal(String(cli.codigoPostalEnvio ?? cli.codigoPostal ?? ''))
+  if (porCp && !String(cli.pais ?? '').trim() && !String(cli.paisEnvio ?? '').trim()) return porCp.idioma
+  return idiomaDePais(pais)
+}
+
 async function aplicarClienteEnFicha(
   sel: { codigo: string; etiqueta: string },
   cli: Record<string, unknown>
@@ -2098,7 +2277,7 @@ async function aplicarClienteEnFicha(
     telefono: cli.telefono1 != null ? String(cli.telefono1) : '',
     telefono2: cli.telefono2 != null ? String(cli.telefono2) : '',
     fax: cli.fax != null ? String(cli.fax) : '',
-    email: cli.email != null ? String(cli.email) : '',
+    email: correoDelCliente(cli, String(ficha.value.facturaTipo ?? '')),
     representante: representanteCli,
     transporte: transporteCli,
     portes: '',
@@ -2108,6 +2287,8 @@ async function aplicarClienteEnFicha(
     // no tiene ninguna, no conservar la del cliente anterior.
     formasPago: [{ codigo: fpagoCli, importe: 0 }, { codigo: '', importe: 0 }],
     tarifa: cli.tarifa != null && cli.tarifa !== '' ? Number(cli.tarifa) : null,
+    paisEnvio: paisPropuesto(cli, String(ficha.value.paisEnvio ?? '')),
+    idioma: idiomaPropuesto(cli, String(ficha.value.paisEnvio ?? '')),
   }
   await resolverFormaPagoContado(fpagoCli)
   await aplicarOfertasEnLineasVenta()
@@ -2231,6 +2412,10 @@ function confirmarCancelarVentaNueva() {
 
 async function onGuardar() {
   if (!ficha.value || !puedeGuardar.value) return
+  if (pagosOcupado.value) {
+    error.value = 'Espere a que se anote el adelanto'
+    return
+  }
   if (!ficha.value.empresa.trim()) {
     error.value = 'Seleccione la tienda'
     return
@@ -2248,14 +2433,16 @@ async function onGuardar() {
   error.value = null
   mensaje.value = null
   try {
-    const saved = esNuevo.value
-      ? await crearVenta(payloadAltaCompleto())
-      : await actualizarVenta(
-          ficha.value.empresa,
-          ficha.value.tipo,
-          ficha.value.albaran,
-          payloadDesdeFicha()
-        )
+    const yaGrabado = Number(ficha.value.albaran) > 0
+    const saved =
+      esNuevo.value && !yaGrabado
+        ? await crearVenta(payloadAltaCompleto())
+        : await actualizarVenta(
+            ficha.value.empresa,
+            ficha.value.tipo,
+            ficha.value.albaran,
+            payloadDesdeFicha()
+          )
     aplicarDetalle(saved)
     esNuevo.value = false
     modoEdicion.value = false
@@ -2271,6 +2458,10 @@ async function onGuardar() {
             ? 'Albarán guardado. Ya puede finalizarlo.'
             : 'Venta guardada'
     busqueda.upsertResumen(resumenDesdeDetalle(saved))
+    if (!(await anotarAdelantoPendiente())) {
+      error.value = pagosError.value
+      return
+    }
     if (
       route.params.empresa !== saved.empresa ||
       route.params.tipo !== saved.tipo ||
@@ -2430,6 +2621,17 @@ function onImprimir() {
   formatoImpresionOpen.value = true
 }
 
+/**
+ * Albarán de crédito y factura de contado: pregunta la copia solo con PVP.
+ * Lo guardado no cambia.
+ */
+function preguntarCopiaPvpSiAplica(formato?: 'ticket' | 'a4' | 'albaran' | 'auto'): boolean {
+  if (formato === 'ticket') return false
+  const aplica = docKind.value === 'albaran' || formato === 'albaran' || esFacturaContado.value
+  if (!aplica) return false
+  return window.confirm('¿Quiere una copia solo con los PVP? Los importes guardados no cambian.')
+}
+
 async function onElegirFormatoImpresion(formato: 'ticket' | 'a4' | 'albaran') {
   formatoImpresionOpen.value = false
   if (!puedeImprimir.value || !ficha.value) return
@@ -2447,9 +2649,11 @@ async function onElegirFormatoImpresion(formato: 'ticket' | 'a4' | 'albaran') {
   }
   loading.value = true
   try {
+    const preciosVenta = preguntarCopiaPvpSiAplica(formato)
     const res = await prepararOImprimirVenta(ficha.value, {
       puestoCodigo: String(puesto.puestoCodigo || ficha.value.puesto || ''),
       formato,
+      preciosVenta,
     })
     if (res.kind === 'ticket') {
       const updated = await obtenerVenta(ficha.value.empresa, ficha.value.tipo, ficha.value.albaran)
@@ -2553,7 +2757,8 @@ async function imprimirTrasFinalizar() {
   postVentaOpen.value = false
   const pue = String(puesto.puestoCodigo || venta.puesto || '').trim()
   try {
-    const res = await prepararOImprimirVenta(venta, { puestoCodigo: pue })
+    const preciosVenta = preguntarCopiaPvpSiAplica()
+    const res = await prepararOImprimirVenta(venta, { puestoCodigo: pue, preciosVenta })
     if (res.kind === 'ticket') {
       mensaje.value = `${mensaje.value ? mensaje.value + ' · ' : ''}${res.message}`
     } else {
@@ -2686,6 +2891,10 @@ async function confirmarFinalizar() {
   if (esTicketCerrado.value && !datosFacturaFinalOk.value) {
     return
   }
+  if (pagosOcupado.value) {
+    error.value = 'Espere a que se anote el adelanto'
+    return
+  }
   const opcion = tipoFinal.value
   finalizarOpen.value = false
   loading.value = true
@@ -2698,7 +2907,7 @@ async function confirmarFinalizar() {
   const eraNueva = esNuevo.value
   const ticketOrigen = Number(ficha.value.factura) || 0
   try {
-    if (eraNueva) {
+    if (eraNueva && !(Number(ficha.value.albaran) > 0)) {
       // Aqui se graba por primera vez: la API asigna el numero de albaran.
       const payload = payloadAltaCompleto()
       if (mostrarSelectorFpago.value && fpagoFinal.value) {
@@ -2710,7 +2919,7 @@ async function confirmarFinalizar() {
       esNuevo.value = false
       pasoAlta.value = 'listo'
       busqueda.upsertResumen(resumenDesdeDetalle(creada))
-    } else if (modoEdicion.value) {
+    } else if (modoEdicion.value || eraNueva) {
       const payload = payloadDesdeFicha()
       if (mostrarSelectorFpago.value && fpagoFinal.value) {
         payload.fpago1 = fpagoFinal.value
@@ -2723,6 +2932,10 @@ async function confirmarFinalizar() {
         payload
       )
       aplicarDetalle(saved)
+      if (eraNueva) {
+        esNuevo.value = false
+        pasoAlta.value = 'listo'
+      }
     } else if (esTicketCerrado.value) {
       const d = datosFacturaFinal.value
       const saved = await actualizarVenta(ficha.value.empresa, ficha.value.tipo, ficha.value.albaran, {
@@ -2736,6 +2949,10 @@ async function confirmarFinalizar() {
         provinciaEnvio: d.provincia.trim(),
       })
       aplicarDetalle(saved)
+    }
+    if (!(await anotarAdelantoPendiente())) {
+      error.value = pagosError.value || 'No se pudo guardar el pago a cuenta'
+      return
     }
     const done = await finalizarVenta(
       ficha.value.empresa,
@@ -3138,7 +3355,12 @@ onActivated(() => {
         :modo-lineas="cabeceraRecogida"
         :puede-editar-fecha="puedeEditarFechaCabecera"
         :vendedor-nombre="vendedorNombre"
+        :pagos-a-cuenta="pagosACuenta"
+        :pagos-error="pagosError"
+        :pagos-ocupado="pagosOcupado"
         :totales="totales"
+        @guardar-pago="guardarPagoACuenta"
+        @borrar-pago="borrarPagoACuenta"
         @buscar-vendedor="abrirBuscarVendedor"
         @vendedor-keydown="onVendedorKeydown"
         @vendedor-blur="resolverNombreVendedor(ficha?.vendedor || '')"
@@ -3571,6 +3793,9 @@ onActivated(() => {
               </div>
             </div>
           </div>
+          <p v-if="tipoFinal === 'A' && !esTicketCerrado" class="ok">
+            En la caja entra el pago a cuenta anotado en el albarán.
+          </p>
           <p v-if="tipoFinal === 'F' && !esTicketCerrado" class="warn">Factura: el documento quedara bloqueado.</p>
           <div v-if="puntosCanjeFinal && tipoFinal !== 'P' && !esTicketCerrado" class="vale-puntos">
             <strong>Vale descuento por puntos</strong>

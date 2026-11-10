@@ -8,8 +8,10 @@ use Descartes\Api\Config\EntityConfig;
 use Descartes\Api\Database\SqlPagination;
 use Descartes\Api\Repositories\ArtBarrasRepository;
 use Descartes\Api\Repositories\ClientesRiesgoRepository;
+use Descartes\Api\Services\Instalacion\MejorasGestionSchema;
 use Descartes\Api\Services\Ventas\FidelizacionValesSemestreService;
 use Descartes\Api\Services\Ventas\ValeService;
+use Descartes\Api\Support\PaisIdioma;
 use PDO;
 use PDOException;
 
@@ -35,6 +37,11 @@ final class MantenimientoService
     $this->tiendaAlmacenService = $tiendaAlmacenService;
     $this->articuloService = $articuloService;
     $this->clientesRiesgoRepository = $clientesRiesgoRepository ?? new ClientesRiesgoRepository($pdo);
+    try {
+      MejorasGestionSchema::asegurar($pdo);
+    } catch (\Throwable $e) {
+      // La ficha sigue usable si la base no permite alterar el esquema.
+    }
   }
 
   /** @var array<string, bool> */
@@ -897,6 +904,7 @@ final class MantenimientoService
           'Email',
           'EmailComercial',
           'EmailFacturacion',
+          'EmailAlbaranes',
           'Vendedor',
           'AgenteOrigen',
           'Agencia',
@@ -944,6 +952,13 @@ final class MantenimientoService
       ) {
         if (array_key_exists($col, $mapped) && $mapped[$col] === null) {
           $mapped[$col] = '';
+        }
+      }
+      $paisActual = trim((string) ($mapped['Pais'] ?? ''));
+      if ($paisActual === '') {
+        $propuesto = PaisIdioma::desdeCodigoPostal((string) ($mapped['CodigoPostal'] ?? ''));
+        if ($propuesto !== null) {
+          $mapped['Pais'] = $propuesto['pais'];
         }
       }
       foreach (

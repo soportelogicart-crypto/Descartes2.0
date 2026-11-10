@@ -110,9 +110,10 @@ export const clienteTabs: ClienteTab[] = [
           inline('telefono1', 'Telefono', { maxLength: 15 }),
           inline('telefono2', 'Movil', { maxLength: 15 }),
           inline('fax', 'Fax', { maxLength: 15 }),
-          inline('email', 'E-Mail', { type: 'email', span: 2, maxLength: 200 }),
-          inline('emailComercial', 'E-mail. Com.', { type: 'email', span: 2, maxLength: 200 }),
-          inline('emailFacturacion', 'E-mail. Fac.', { type: 'email', span: 2, maxLength: 200 }),
+          inline('email', 'E-Mail', { span: 2, maxLength: 200 }),
+          inline('emailComercial', 'E-mail. Com.', { span: 2, maxLength: 200 }),
+          inline('emailFacturacion', 'E-mail. Fac.', { span: 2, maxLength: 200 }),
+          inline('emailAlbaranes', 'E-mail. Alb.', { span: 2, maxLength: 200 }),
         ],
       },
       {
@@ -370,6 +371,7 @@ export function clienteVacio(): Record<string, unknown> {
     telefono2: '',
     fax: '',
     email: '',
+    emailAlbaranes: '',
     dto1: 0,
     dto2: 0,
     diaPago1: 0,
@@ -477,7 +479,9 @@ export function validarUsoCliente(ficha: Record<string, unknown>): ClienteValida
       }
     }
     const destinatario = emailFacturacion || email
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(destinatario)) {
+    const correos = destinatario.split(/[;,]+/).map((c) => c.trim()).filter(Boolean)
+    const correoValido = (c: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c)
+    if (correos.length === 0 || correos.some((c) => !correoValido(c))) {
       return {
         campo: emailFacturacion ? 'emailFacturacion' : 'email',
         titulo: 'Correo de facturación incorrecto',

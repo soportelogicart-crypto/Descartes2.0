@@ -330,6 +330,9 @@ final class ArqueoService
       && (float) ($cont['importeEntradaEfectivo'] ?? 0) == 0.0
       && (float) ($cont['importeTickets'] ?? 0) == 0.0
       && (float) ($cont['importeFacturas'] ?? 0) == 0.0;
+    if ($vacia && $this->hayPagosACuenta($empresa, $puesto, $sesion)) {
+      $vacia = false;
+    }
     if ($vacia && empty($body['forzar'])) {
       throw new \RuntimeException(
         'Sesion sin movimientos. Confirme el cierre con forzar=true si desea continuar.',
@@ -794,6 +797,23 @@ th{background:#f1f5f9}
     );
 
     return $pdf->build();
+  }
+
+  private function hayPagosACuenta(string $empresa, string $puesto, int $sesion): bool
+  {
+    try {
+      $stmt = $this->pdo->prepare(
+        'SELECT TOP 1 1 FROM PagosACuentaAlbaran
+         WHERE RTRIM(EmpresaArqueo) = :e AND RTRIM(Puesto) = :p AND Sesion = :s
+           AND ABS(Importe) > 0.004'
+      );
+      $stmt->execute(['e' => trim($empresa), 'p' => trim($puesto), 's' => $sesion]);
+      $hay = $stmt->fetchColumn() !== false;
+      $stmt->closeCursor();
+      return $hay;
+    } catch (\Throwable $e) {
+      return false;
+    }
   }
 
   private function descuadreEfectivo(string $empresa, string $puesto, int $sesion): float

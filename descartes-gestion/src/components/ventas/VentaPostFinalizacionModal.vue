@@ -71,11 +71,10 @@ function enviar() {
               <input
                 ref="inputEmail"
                 v-model="email"
-                type="email"
-                inputmode="email"
+                type="text"
                 autocomplete="email"
                 required
-                placeholder="cliente@ejemplo.com"
+                placeholder="varios, separados por coma"
               />
             </label>
             <div class="acciones-email">

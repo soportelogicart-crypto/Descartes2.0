@@ -10,6 +10,9 @@ export type PedidosFiltrosBusqueda = {
   vendedor: string
   cliente: string
   situacion: string
+  texto?: string
+  codigoPostal?: string
+  pendientes?: boolean
 }
 
 /** Resultado de la ultima busqueda del listado de pedidos (para nav. en ficha). */

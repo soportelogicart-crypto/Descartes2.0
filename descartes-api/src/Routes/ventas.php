@@ -67,6 +67,14 @@ return function (App $app): void {
       ->add($setPermiso('ventas', 'ver'));
     $group->post('/albaranes/{empresa}/{tipo}/{albaran}/autorizacion-tarjeta', [VentasController::class, 'registrarAutorizacionTarjeta'])
       ->add($setPermiso('ventas', 'editar'));
+    $group->get('/albaranes/{empresa}/{tipo}/{albaran}/pagos-a-cuenta', [VentasController::class, 'listPagosACuenta'])
+      ->add($setPermiso('ventas', 'ver'));
+    $group->post('/albaranes/{empresa}/{tipo}/{albaran}/pagos-a-cuenta', [VentasController::class, 'createPagoACuenta'])
+      ->add($setPermiso('ventas', 'editar'));
+    $group->put('/albaranes/{empresa}/{tipo}/{albaran}/pagos-a-cuenta/{nro}', [VentasController::class, 'updatePagoACuenta'])
+      ->add($setPermiso('ventas', 'editar'));
+    $group->delete('/albaranes/{empresa}/{tipo}/{albaran}/pagos-a-cuenta/{nro}', [VentasController::class, 'deletePagoACuenta'])
+      ->add($setPermiso('ventas', 'editar'));
     $group->get('/albaranes/{empresa}/{tipo}/{albaran}', [VentasController::class, 'getVenta'])
       ->add($setPermiso('ventas', 'ver'));
     $group->post('/albaranes/{empresa}/{tipo}/{albaran}/email', [VentasController::class, 'emailVenta'])
@@ -170,6 +178,8 @@ return function (App $app): void {
       ->add($setPermiso('ventas-vales', 'crear'));
 
     $group->get('/pedidos-clientes', [VentasController::class, 'listPedidos'])
+      ->add($setPermiso('ventas-pedidos', 'ver'));
+    $group->get('/comisiones-jardinero', [VentasController::class, 'liquidarComisiones'])
       ->add($setPermiso('ventas-pedidos', 'ver'));
     $group->post('/pedidos-clientes/reservar', [VentasController::class, 'reservarPedido'])
       ->add($setPermiso('ventas-pedidos', 'crear'));

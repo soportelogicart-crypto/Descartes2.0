@@ -39,6 +39,8 @@ const props = defineProps<{
   busquedaInicial?: string
   /** Deja la fila de este codigo señalada, sin filtrar el listado. */
   codigoActual?: string
+  /** Solo formas de pago con cobro de arqueo. */
+  soloCobroDeArqueo?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -172,7 +174,11 @@ async function buscar() {
       indice.value = Math.min(indice.value, Math.max(0, items.value.length - 1))
       return
     }
-    items.value = (data.items ?? []).map((item: Record<string, unknown>) => {
+    const crudos = (data.items ?? []) as Record<string, unknown>[]
+    const filas = props.soloCobroDeArqueo
+      ? crudos.filter((item) => Boolean(item.cobroDeArqueo))
+      : crudos
+    items.value = filas.map((item: Record<string, unknown>) => {
       const codigo = String(item.codigo ?? item.puesto ?? '').trim()
       let etiqueta = ''
       if (props.entidad === 'articulos') {

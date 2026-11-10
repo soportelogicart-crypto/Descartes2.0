@@ -79,6 +79,7 @@ export const entidadGridColumns: Record<string, GridColumn[]> = {
     { key: 'nombre', label: 'Razon social', type: 'text', width: '12rem', maxLength: 80, required: true },
     { key: 'nif', label: 'NIF', type: 'text', width: '6rem', maxLength: 20 },
     { key: 'telefono1', label: 'Telefono', type: 'text', width: '6rem', maxLength: 20 },
+    { key: 'codigoPostal', label: 'C.P.', type: 'text', width: '5rem', maxLength: 8 },
     { key: 'activo', label: 'Activo', type: 'checkbox', width: '4rem' },
   ],
   proveedores: [

@@ -140,6 +140,7 @@ final class VentaConsultaService
               ProvinciaEnvio, PaisEnvio, Telefono, Telefono2, Fax, Email, Almacen, Pedido,
               Referencia1, Referencia2, NumeroDeSerie, Observaciones, SujetoPasivo, Portes, Estado, Impreso,
               Importe, Factura, FacturaTipo, Sesion, Mesa, Tarifa, FechaEntrega,
+              PagoaCuenta, Idioma, SuPedido,
               ImporteDtos, ImporteDtoFidelizacion, PjeDto,
               PuntosFidelizacionCompra, PuntosFidelizacionAcumulados,
               Fpago1, Fpago2, Fpago3, ImpFpago1, ImpFpago2,
@@ -156,13 +157,24 @@ final class VentaConsultaService
       return null;
     }
 
-    $linStmt = $this->pdo->prepare(
-      'SELECT NroLin, Articulo, Descripcion, LoteVenta, LoteFito, Cantidad, Precio, PjeDto, Importe, PjeIva
-       FROM AlbaranesVentasLin
-       WHERE Empresa = :empresa AND Tipo = :tipo AND Albaran = :albaran
-       ORDER BY NroLin'
-    );
-    $linStmt->execute(['empresa' => $empresa, 'tipo' => $tipo, 'albaran' => $albaran]);
+    try {
+      $linStmt = $this->pdo->prepare(
+        'SELECT NroLin, Articulo, Descripcion, LoteVenta, LoteFito, Cantidad, Precio, PrecioTarifa,
+                PjeDto, Importe, PjeIva, Anotacion
+         FROM AlbaranesVentasLin
+         WHERE Empresa = :empresa AND Tipo = :tipo AND Albaran = :albaran
+         ORDER BY NroLin'
+      );
+      $linStmt->execute(['empresa' => $empresa, 'tipo' => $tipo, 'albaran' => $albaran]);
+    } catch (\Throwable $e) {
+      $linStmt = $this->pdo->prepare(
+        'SELECT NroLin, Articulo, Descripcion, LoteVenta, LoteFito, Cantidad, Precio, PjeDto, Importe, PjeIva
+         FROM AlbaranesVentasLin
+         WHERE Empresa = :empresa AND Tipo = :tipo AND Albaran = :albaran
+         ORDER BY NroLin'
+      );
+      $linStmt->execute(['empresa' => $empresa, 'tipo' => $tipo, 'albaran' => $albaran]);
+    }
 
     $lineas = [];
     while ($lin = $linStmt->fetch(PDO::FETCH_ASSOC)) {
@@ -174,6 +186,8 @@ final class VentaConsultaService
         'loteFito' => $lin['LoteFito'] ?? null,
         'cantidad' => (float) ($lin['Cantidad'] ?? 0),
         'precio' => (float) ($lin['Precio'] ?? 0),
+        'precioTarifa' => (float) ($lin['PrecioTarifa'] ?? 0),
+        'anotacion' => isset($lin['Anotacion']) ? trim((string) $lin['Anotacion']) : '',
         'pjeDto' => (float) ($lin['PjeDto'] ?? 0),
         'importe' => (float) ($lin['Importe'] ?? 0),
         'pjeIva' => (float) ($lin['PjeIva'] ?? 0),
@@ -202,6 +216,28 @@ final class VentaConsultaService
     $detalle['referencia2'] = $cab['Referencia2'] ?? null;
     $detalle['numeroDeSerie'] = $cab['NumeroDeSerie'] !== null ? trim((string) $cab['NumeroDeSerie']) : null;
     $detalle['observaciones'] = isset($cab['Observaciones']) ? trim((string) $cab['Observaciones']) : null;
+    $detalle['pagoACuenta'] = (float) ($cab['PagoaCuenta'] ?? 0);
+    $detalle['idioma'] = (int) ($cab['Idioma'] ?? 0);
+    $detalle['suPedido'] = isset($cab['SuPedido']) ? trim((string) $cab['SuPedido']) : '';
+    $detalle['clienteFinal'] = '';
+    $detalle['comisionista'] = '';
+    $detalle['pjeComision'] = 0;
+    try {
+      $extra = $this->pdo->prepare(
+        'SELECT ClienteFinal, Comisionista, PjeComision
+         FROM AlbaranesVentasCab
+         WHERE Empresa = :empresa AND Tipo = :tipo AND Albaran = :albaran'
+      );
+      $extra->execute(['empresa' => $empresa, 'tipo' => $tipo, 'albaran' => $albaran]);
+      $rowExtra = $extra->fetch(PDO::FETCH_ASSOC);
+      if ($rowExtra) {
+        $detalle['clienteFinal'] = trim((string) ($rowExtra['ClienteFinal'] ?? ''));
+        $detalle['comisionista'] = trim((string) ($rowExtra['Comisionista'] ?? ''));
+        $detalle['pjeComision'] = (float) ($rowExtra['PjeComision'] ?? 0);
+      }
+    } catch (\Throwable $e) {
+      // Columnas de comisión todavía no creadas.
+    }
     $detalle['sujetoPasivo'] = !empty($cab['SujetoPasivo']);
     $detalle['portes'] = $cab['Portes'] ?? null;
     $detalle['mesa'] = isset($cab['Mesa']) && $cab['Mesa'] !== null ? (int) $cab['Mesa'] : null;

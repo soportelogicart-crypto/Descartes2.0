@@ -231,6 +231,7 @@ export type FacturaDocumento = {
     dto: number
     pjeIva: number
     importe: number
+    pasaporteFitosanitario?: boolean
   }>
   vencimientos: Array<{ recibo: number; fecha: string; importe: number }>
   totales: {
@@ -246,6 +247,9 @@ export type FacturaDocumento = {
   }
   /** Factura rectificada, legible (p. ej. F/26000436). Vacío si no aplica. */
   facturaOrigen?: string
+  pagoACuenta?: number
+  referenciasCliente?: string
+  pasaporteFitosanitarioEmpresa?: string
 }
 
 export type FacturasImpresionListResponse = {

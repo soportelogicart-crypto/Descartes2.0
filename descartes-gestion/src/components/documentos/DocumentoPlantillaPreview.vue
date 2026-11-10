@@ -12,6 +12,7 @@ import {
 import { svgCodigoBarrasBloque } from '@/config/documentos-plantillas/etiqueta-html'
 import { cargarEmblemaEmpresa } from '@/composables/cargarEmblemaEmpresa'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
+import { traducirRotulo } from '@/utils/documentoIdioma'
 
 const props = defineProps<{
   plantilla: DocumentoPlantilla
@@ -86,12 +87,11 @@ const plantillaTieneBloqueFito = computed(() =>
 )
 
 /** Respaldo si la plantilla guardada no incluye el bloque del pie fitosanitario. */
-const muestraPieFitoFlotante = computed(
-  () =>
-    props.plantilla.tipo === 'albaran' &&
-    anotacionFitoAlbaran.value !== '' &&
-    !plantillaTieneBloqueFito.value
-)
+const muestraPieFitoFlotante = computed(() => {
+  const tipo = props.plantilla.tipo
+  const llevaFito = tipo === 'albaran' || tipo.startsWith('factura')
+  return llevaFito && anotacionFitoAlbaran.value !== '' && !plantillaTieneBloqueFito.value
+})
 
 const fitoPieFlotanteStyle = computed(() => ({
   left: `${10 * pxPerMm.value}px`,
@@ -261,8 +261,12 @@ function textoPie(b: PlantillaBloque): string {
   return plantillaTexto(tpl)
 }
 
+function rotulo(texto: string | null | undefined): string {
+  return traducirRotulo(String(texto ?? ''), props.datos?.documento.idioma)
+}
+
 function etiquetaTotal(b: PlantillaBloque): string {
-  return String(b.props?.etiquetaTotal ?? 'IMPORTE EU')
+  return rotulo(String(b.props?.etiquetaTotal ?? 'IMPORTE EU'))
 }
 
 function etiquetaModo(b: PlantillaBloque): string {
@@ -418,7 +422,7 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
                 <span>{{ str('empresa.direccion') }}</span>
                 <span>{{ str('empresa.cp') }} {{ str('empresa.poblacion') }}</span>
                 <span>{{ str('empresa.provincia') }}</span>
-                <span>Tel. {{ str('empresa.telefono') }}</span>
+                <span>{{ rotulo('Tel.') }} {{ str('empresa.telefono') }}</span>
                 <span v-if="tieneBind(b, 'empresa.fax')">Fax {{ str('empresa.fax') }}</span>
                 <span v-if="str('empresa.email')">{{ str('empresa.email') }}</span>
               </div>
@@ -439,7 +443,7 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
               :class="{ 'fs-mm': !!textStyle(b).fontSize, 'titulo-izq': b.props?.align === 'left' }"
               :style="textStyle(b)"
             >
-              <strong>{{ b.label || 'DOCUMENTO' }}</strong>
+              <strong>{{ rotulo(b.label || 'DOCUMENTO') }}</strong>
               <span v-if="tieneBind(b, 'documento.numero')">{{ str('documento.numero') }}</span>
               <em v-if="etiquetaModo(b)">{{ etiquetaModo(b) }}</em>
             </div>
@@ -489,10 +493,10 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
                 >{{ str('cliente.pais') }}</span
               >
               <span v-if="muestraDatoCliente(b, 'cliente.telefono')"
-                >Tel. {{ str('cliente.telefono') }}</span
+                >{{ rotulo('Tel.') }} {{ str('cliente.telefono') }}</span
               >
               <span v-if="muestraDatoCliente(b, 'cliente.cif')"
-                >CIF {{ str('cliente.cif') }}</span
+                >{{ rotulo('CIF') }} {{ str('cliente.cif') }}</span
               >
             </div>
           </template>
@@ -505,7 +509,7 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
           <!-- Texto fijo -->
           <template v-else-if="b.type === 'texto'">
             <div class="campo" :class="{ 'fs-mm': !!textStyle(b).fontSize }" :style="textStyle(b)">
-              {{ b.label || 'Texto' }}
+              {{ rotulo(b.label || 'Texto') }}
             </div>
           </template>
 
@@ -525,7 +529,7 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
                 v-if="b.label"
                 class="campo-label"
                 :class="{ 'campo-label-plana': b.props?.etiquetaPlana === true }"
-                >{{ b.label }}</span
+                >{{ rotulo(b.label) }}</span
               >
               <span v-for="path in b.bind ?? []" :key="path">{{
                 b.props?.format === 'importe' ? formatImporte(Number(str(path) || 0)) : str(path)
@@ -548,7 +552,7 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
               <thead>
                 <tr>
                   <th v-for="c in columnasLineas" :key="c.key" :style="colStyle(c)">
-                    {{ c.label }}
+                    {{ rotulo(c.label) }}
                   </th>
                 </tr>
               </thead>
@@ -676,7 +680,7 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
           </template>
 
           <template v-else>
-            <span class="fallback">{{ b.label || b.type }}</span>
+            <span class="fallback">{{ rotulo(b.label || b.type) }}</span>
           </template>
         </div>
         <div

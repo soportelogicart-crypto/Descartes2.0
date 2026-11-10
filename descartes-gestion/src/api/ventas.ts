@@ -208,6 +208,72 @@ export async function reservarAlbaran(payload: { empresa: string; puesto?: strin
   return data
 }
 
+export type PagoACuentaItem = {
+  nro: number
+  fecha: string
+  importe: number
+  formaPago: string
+  formaPagoNombre: string
+  puesto: string
+  sesion: number
+  enCajaHoy: boolean
+}
+
+export type PagosACuentaRespuesta = {
+  total: number
+  editable: boolean
+  motivo: string
+  formasEfectivo: { codigo: string; descripcion: string }[]
+  items: PagoACuentaItem[]
+}
+
+function rutaPagosACuenta(empresa: string, tipo: string, albaran: number) {
+  return `/api/ventas/albaranes/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}/pagos-a-cuenta`
+}
+
+export async function listarPagosACuenta(empresa: string, tipo: string, albaran: number) {
+  const { data } = await api.get<PagosACuentaRespuesta>(rutaPagosACuenta(empresa, tipo, albaran))
+  return data
+}
+
+export async function crearPagoACuenta(
+  empresa: string,
+  tipo: string,
+  albaran: number,
+  payload: { importe: number; formaPago: string; puesto?: string | null }
+) {
+  const { data } = await api.post<PagosACuentaRespuesta>(rutaPagosACuenta(empresa, tipo, albaran), payload)
+  return data
+}
+
+export async function actualizarPagoACuenta(
+  empresa: string,
+  tipo: string,
+  albaran: number,
+  nro: number,
+  payload: { importe: number; formaPago: string; puesto?: string | null }
+) {
+  const { data } = await api.put<PagosACuentaRespuesta>(
+    `${rutaPagosACuenta(empresa, tipo, albaran)}/${nro}`,
+    payload
+  )
+  return data
+}
+
+export async function eliminarPagoACuenta(
+  empresa: string,
+  tipo: string,
+  albaran: number,
+  nro: number,
+  puesto?: string | null
+) {
+  const { data } = await api.delete<PagosACuentaRespuesta>(
+    `${rutaPagosACuenta(empresa, tipo, albaran)}/${nro}`,
+    { data: { puesto } }
+  )
+  return data
+}
+
 export async function actualizarVenta(
   empresa: string,
   tipo: string,
@@ -984,6 +1050,7 @@ export async function convertirPedidoAVenta(
   const { data } = await api.post<{
     pedido: PedidoDetalle
     venta: VentaDetalle
+    ventas?: VentaDetalle[]
   }>(
     `/api/ventas/pedidos-clientes/${encodeURIComponent(empresa)}/${pedido}/convertir-venta`,
     payload
