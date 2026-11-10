@@ -67,6 +67,7 @@ final class RolService
     'listados-stock',
     'listados-stock-minimos',
     'listados-informe-iva',
+    'listados-detalle-ventas',
     'tpv',
   ];
 
@@ -112,6 +113,7 @@ final class RolService
     'listados-stock' => 'listados',
     'listados-stock-minimos' => 'listados',
     'listados-informe-iva' => 'listados',
+    'listados-detalle-ventas' => 'listados',
   ];
 
   /** @return list<string> */

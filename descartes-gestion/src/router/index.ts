@@ -82,6 +82,7 @@ const StockMinimosListadoView = vista(() => import('@/views/listados/StockMinimo
 const InformeIvaListadoView = vista(() => import('@/views/listados/InformeIvaListadoView.vue'))
 const InformeTicketsListadoView = vista(() => import('@/views/listados/InformeTicketsListadoView.vue'))
 const ExtractoClientesListadoView = vista(() => import('@/views/listados/ExtractoClientesListadoView.vue'))
+const DetalleVentasListadoView = vista(() => import('@/views/listados/DetalleVentasListadoView.vue'))
 
 const articulosSeccionesPendientes = [
   { path: 'mantenimiento/secciones', name: 'secciones', titulo: 'Secciones' },
@@ -193,6 +194,12 @@ const router = createRouter({
           name: 'listados-extracto-clientes',
           component: ExtractoClientesListadoView,
           meta: { titulo: 'Extracto de clientes', modulo: 'listados-extracto-clientes', accion: 'ver' },
+        },
+        {
+          path: 'listados/detalle-ventas',
+          name: 'listados-detalle-ventas',
+          component: DetalleVentasListadoView,
+          meta: { titulo: 'Detalle de ventas', modulo: 'listados-detalle-ventas', accion: 'ver' },
         },
         {
           path: 'listados/abc-ventas/:dimension?',

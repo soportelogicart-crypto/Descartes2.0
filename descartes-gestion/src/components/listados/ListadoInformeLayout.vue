@@ -41,7 +41,7 @@ const emit = defineEmits<{
       <slot name="filtros" />
     </div>
 
-    <details v-if="$slots.masFiltros" class="mas-filtros">
+    <details v-if="$slots['mas-filtros']" class="mas-filtros">
       <summary>Más filtros</summary>
       <div class="mas-filtros-body">
         <slot name="mas-filtros" />

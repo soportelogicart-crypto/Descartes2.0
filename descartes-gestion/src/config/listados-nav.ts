@@ -61,6 +61,17 @@ export const LISTADOS_CATALOGO: ListadoCatalogoItem[] = [
     disponible: true,
   },
   {
+    id: 'detalle-ventas',
+    titulo: 'Detalle de ventas',
+    descripcion: 'Ventas de los artículos elegidos, por cliente: albaranes y tickets con precio, unidades e importe.',
+    categoria: 'ventas',
+    palabrasClave: ['detalle', 'ventas', 'articulo', 'cliente', 'albaran', 'ticket', 'quien compro'],
+    kind: 'informe',
+    ruta: '/listados/detalle-ventas',
+    modulo: 'listados-detalle-ventas',
+    disponible: true,
+  },
+  {
     id: 'extracto-clientes',
     titulo: 'Extracto de clientes',
     descripcion: 'Movimientos y saldo de clientes en un periodo.',

@@ -386,3 +386,44 @@ export async function generarExtractoClientes(params: {
   const { data } = await api.get<ExtractoClientesResult>('/api/listados/extracto-clientes', { params })
   return data
 }
+
+export type DetalleVentasLinea = {
+  empresa: string
+  clienteCodigo: string
+  fecha: string
+  albaran: number
+  tipo: string
+  esTicket: boolean
+  factura: number | null
+  articulo: string
+  descripcion: string
+  precio: number
+  unidades: number
+  pjeDto: number
+  importe: number
+}
+
+export type DetalleVentasGrupo = {
+  clienteCodigo: string
+  clienteNombre: string
+  lineas: DetalleVentasLinea[]
+  totales: { lineas: number; unidades: number; importe: number }
+}
+
+export type DetalleVentasResult = {
+  fechaDesde: string | null
+  fechaHasta: string | null
+  tipoVenta: 'todos' | 'albaranes' | 'tickets'
+  grupos: DetalleVentasGrupo[]
+  totales: { lineas: number; clientes: number; unidades: number; importe: number }
+  truncado: boolean
+  limite: number
+}
+
+/** Filtros con rango: `desde` / `hasta` (vacío = sin límite). */
+export type DetalleVentasParams = Record<string, string | undefined>
+
+export async function generarDetalleVentas(params: DetalleVentasParams): Promise<DetalleVentasResult> {
+  const { data } = await api.get<DetalleVentasResult>('/api/listados/detalle-ventas', { params })
+  return data
+}
