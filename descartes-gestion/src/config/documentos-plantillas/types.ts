@@ -11,6 +11,8 @@ export type DocumentoTipo =
   | 'ticket'
   /** Etiqueta de artículo (005): tamaño mm configurable. */
   | 'etiqueta'
+  /** Etiqueta del sobre de un encargo (una por sobre). Impresora propia del puesto. */
+  | 'etiqueta-encargo'
 
 export type PlantillaBloqueTipo =
   | 'texto'
@@ -157,8 +159,15 @@ export function esPlantillaTicket(p: Pick<DocumentoPlantilla, 'tipo' | 'page'>):
   return p.tipo === 'ticket' || p.page.format === 'ticket-80'
 }
 
+/** Tipos que se diseñan y se imprimen como etiqueta (tamaño en mm). */
+export const TIPOS_ETIQUETA: readonly DocumentoTipo[] = ['etiqueta', 'etiqueta-encargo']
+
+export function esTipoEtiqueta(tipo: string): boolean {
+  return (TIPOS_ETIQUETA as readonly string[]).includes(tipo)
+}
+
 export function esPlantillaEtiqueta(p: Pick<DocumentoPlantilla, 'tipo' | 'page'>): boolean {
-  return p.tipo === 'etiqueta' || p.page.format === 'label'
+  return esTipoEtiqueta(p.tipo) || p.page.format === 'label'
 }
 
 /** Dimensiones efectivas de la página en mm (fallback A4 / ticket / etiqueta). */

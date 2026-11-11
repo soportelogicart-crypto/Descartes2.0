@@ -117,6 +117,7 @@ final class VentaConsultaService
     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
       $items[] = $this->mapResumen($row);
     }
+    $this->anexarEstadoEncargo($items);
 
     return [
       'items' => $items,
@@ -124,6 +125,55 @@ final class VentaConsultaService
       'page' => $page,
       'pageSize' => $pageSize,
     ];
+  }
+
+  private static bool $sinTablaEncargos = false;
+
+  /**
+   * Marca los albaranes que son un encargo con su estado (pendiente_revelar / pendiente_entrega /
+   * entregado). Consulta aparte y tolerante: si la tabla Encargos aún no existe, no pasa nada.
+   *
+   * @param list<array<string, mixed>> $items
+   */
+  private function anexarEstadoEncargo(array &$items): void
+  {
+    if ($items === [] || self::$sinTablaEncargos) {
+      return;
+    }
+    $numeros = [];
+    foreach ($items as $it) {
+      $numeros[(int) ($it['albaran'] ?? 0)] = true;
+    }
+    unset($numeros[0]);
+    if ($numeros === []) {
+      return;
+    }
+    $mapa = [];
+    try {
+      foreach (array_chunk(array_keys($numeros), 1000) as $trozo) {
+        $lista = implode(',', array_map('intval', $trozo));
+        $st = $this->pdo->query(
+          "SELECT RTRIM(AlbaranEmpresa) AS Emp, RTRIM(AlbaranTipo) AS Tip, Albaran, Estado
+           FROM Encargos WHERE Albaran IN ({$lista})"
+        );
+        if ($st === false) {
+          return;
+        }
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+          $mapa[$r['Emp'] . '|' . $r['Tip'] . '|' . (int) $r['Albaran']] = (string) $r['Estado'];
+        }
+      }
+    } catch (\Throwable) {
+      self::$sinTablaEncargos = true;
+      return;
+    }
+    foreach ($items as &$it) {
+      $clave = trim((string) ($it['empresa'] ?? '')) . '|' . trim((string) ($it['tipo'] ?? '')) . '|' . (int) ($it['albaran'] ?? 0);
+      if (isset($mapa[$clave])) {
+        $it['encargoEstado'] = $mapa[$clave];
+      }
+    }
+    unset($it);
   }
 
   public function obtener(string $empresa, string $tipo, int $albaran): ?array

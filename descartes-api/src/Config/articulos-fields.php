@@ -70,6 +70,8 @@ return [
     'lotePasaporte' => 'LotePasaporte',
     'fitoProfesional' => 'FitoProfesional',
     'registroSanitario' => 'RegistroSanitario',
+    'llevaSobre' => 'LlevaSobre',
+    'sobresPorUnidad' => 'SobresPorUnidad',
     'codigoIntrastat' => 'CodigoIntrastat',
     'estado' => 'Estado',
     'inventario' => 'Inventario',
@@ -114,7 +116,7 @@ return [
     'transporteEspecial', 'envioWeb', 'bloqueoCompra', 'bloqueoVenta', 'bloqueoFidelizacion',
     'servicio', 'ventaPorPeso', 'pasaporteFitosanitario', 'lotePasaporte', 'fitoProfesional',
     'ventaSoloReserva', 'etiquetaPrecio', 'retIrpf', 'impresionFichaBotanica',
-    'etiquetaElectronica', 'solicitarLote', 'stockBandejas', 'activo',
+    'etiquetaElectronica', 'solicitarLote', 'stockBandejas', 'activo', 'llevaSobre',
   ],
   // IDENTITY en SQL Server: se lee, no se escribe en INSERT/UPDATE.
   'hidden' => ['numEtiElectronica'],

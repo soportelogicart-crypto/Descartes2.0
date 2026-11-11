@@ -1,4 +1,5 @@
 import { api } from '@/api/client'
+import { useEncargoVentaStore } from '@/stores/encargoVenta'
 import type {
   AbcVentasFiltros,
   AbcVentasResponse,
@@ -180,8 +181,20 @@ export async function registrarAutorizacionTarjetaAlbaran(
   )
 }
 
+/** Si la venta ha creado/actualizado un encargo (líneas con sobre), avisa al banner del albarán. */
+function avisarEncargo(d: VentaDetalle) {
+  if (!d || (d.encargo === undefined && !d.encargoAviso)) return
+  useEncargoVentaStore().registrar({
+    empresa: d.empresa,
+    tipo: d.tipo,
+    albaran: d.albaran,
+    aviso: d.encargoAviso ?? null,
+  })
+}
+
 export async function crearVenta(payload: VentaPayload) {
   const { data } = await api.post<VentaDetalle>('/api/ventas/albaranes', payload)
+  avisarEncargo(data)
   return data
 }
 
@@ -284,6 +297,7 @@ export async function actualizarVenta(
     `/api/ventas/albaranes/${encodeURIComponent(empresa)}/${encodeURIComponent(tipo)}/${albaran}`,
     payload
   )
+  avisarEncargo(data)
   return data
 }
 

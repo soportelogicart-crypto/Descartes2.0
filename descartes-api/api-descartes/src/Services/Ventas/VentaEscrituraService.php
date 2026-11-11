@@ -136,6 +136,8 @@ final class VentaEscrituraService
     $agente = $this->spaceIfEmpty($body['agente'] ?? null);
     $genAlbaranCompras = !empty($body['genAlbaranCompras']) ? 1 : 0;
 
+    $sobres = $this->validarSobresDeLineas($lineas, (string) ($body['cliente'] ?? ''));
+
     $this->pdo->beginTransaction();
     try {
       $sql = 'INSERT INTO AlbaranesVentasCab (
@@ -273,7 +275,45 @@ final class VentaEscrituraService
     if ($detalle === null) {
       throw new \RuntimeException('Venta creada pero no se pudo releer');
     }
+    $this->sincronizarEncargo($empresa, $tipo, $albaran, $sobres, $detalle, $body);
     return $detalle;
+  }
+
+  /**
+   * Líneas con artículo "lleva sobre": exigen cliente con ficha antes de guardar nada.
+   *
+   * @param array<int, mixed> $lineas
+   * @return int sobres previstos
+   */
+  private function validarSobresDeLineas(array $lineas, string $cliente): int
+  {
+    $encargos = new EncargoService($this->pdo);
+    $sobres = $encargos->sobresEnLineas($lineas);
+    if ($sobres > 0) {
+      $encargos->exigirClienteEncargo($cliente);
+    }
+    return $sobres;
+  }
+
+  /**
+   * El encargo sigue a las líneas con sobre. Va después de guardar: la venta ya está
+   * grabada y un fallo aquí no la deshace, se avisa en la respuesta.
+   *
+   * @param array<string, mixed> $detalle
+   */
+  private function sincronizarEncargo(string $empresa, string $tipo, int $albaran, int $sobres, array &$detalle, array $body): void
+  {
+    try {
+      $encargos = new EncargoService($this->pdo);
+      if ($sobres < 1 && !$encargos->tieneEncargo($empresa, $tipo, $albaran)) {
+        return;
+      }
+      $modalidad = strtolower(trim((string) ($body['modalidadEncargo'] ?? '')));
+      $detalle['encargo'] = $encargos->sincronizarDesdeVenta($empresa, $tipo, $albaran, $modalidad);
+    } catch (\Throwable $e) {
+      $detalle['encargo'] = null;
+      $detalle['encargoAviso'] = $e->getMessage();
+    }
   }
 
   /** @param array<string, mixed> $body */
@@ -302,6 +342,11 @@ final class VentaEscrituraService
       $body['importeDtoFidelizacion'] = (float) ($actual['descuentoFidelizacion'] ?? 0);
     }
     $totales = $this->calcularTotales($lineas, $body);
+
+    $sobres = $this->validarSobresDeLineas(
+      $lineas,
+      (string) ($body['cliente'] ?? $actual['cliente'] ?? '')
+    );
 
     $this->pdo->beginTransaction();
     try {
@@ -389,6 +434,7 @@ final class VentaEscrituraService
     if ($detalle === null) {
       throw new \RuntimeException('No se pudo releer la venta');
     }
+    $this->sincronizarEncargo($empresa, $tipo, $albaran, $sobres, $detalle, $body);
     return $detalle;
   }
 

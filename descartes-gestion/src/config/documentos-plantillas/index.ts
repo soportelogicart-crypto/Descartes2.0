@@ -8,6 +8,7 @@ import {
 } from './factura-credito-std'
 import { plantillaTicket } from './ticket-std'
 import { plantillaEtiqueta } from './etiqueta-std'
+import { plantillaEtiquetaEncargo } from './etiqueta-encargo-std'
 import {
   plantillaAlbaranCompra,
   plantillaPedidoCliente,
@@ -28,12 +29,15 @@ export {
   claveTamanoEtiqueta,
   conTamanoEtiqueta,
   esPlantillaEtiqueta,
+  esTipoEtiqueta,
+  TIPOS_ETIQUETA,
   esPlantillaTicket,
   pageSizeMm,
   parseClaveTamanoEtiqueta,
 } from './types'
 export { datosPreviewPorTipo, EMBLEMA_PLACEHOLDER } from './preview-datos'
 export { plantillaEtiqueta } from './etiqueta-std'
+export { plantillaEtiquetaEncargo } from './etiqueta-encargo-std'
 export {
   DOCUMENTOS_PLANTILLAS_SCOPES,
   perteneceAlScope,
@@ -44,11 +48,12 @@ export type { DocumentosPlantillasScope, DocumentosPlantillasScopeMeta } from '.
 export {
   datosEtiquetaDesdeArticulo,
   datosEtiquetaDesdeCola,
+  datosEtiquetaEncargo,
   htmlEtiquetaDesdePlantilla,
   prepararRenderEtiqueta,
   svgCodigoBarrasBloque,
 } from './etiqueta-html'
-export type { DatosArticuloEtiqueta, PrepRenderEtiqueta } from './etiqueta-html'
+export type { DatosArticuloEtiqueta, DatosEtiquetaEncargo, PrepRenderEtiqueta } from './etiqueta-html'
 
 export const documentosPlantillas: DocumentoPlantilla[] = [
   plantillaAlbaran,
@@ -63,6 +68,7 @@ export const documentosPlantillas: DocumentoPlantilla[] = [
   plantillaRecibo,
   plantillaTicket,
   plantillaEtiqueta,
+  plantillaEtiquetaEncargo,
 ]
 
 export function plantillasPorTipo(tipo: DocumentoTipo): DocumentoPlantilla[] {

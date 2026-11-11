@@ -12,6 +12,7 @@ import {
 } from '@/config/documentos-plantillas/preview-datos'
 import { code39Svg } from '@/config/documentos-plantillas/barcode-code39'
 import { eanSvg } from '@/config/documentos-plantillas/barcode-ean'
+import { code128Svg } from '@/utils/code128'
 import type { EtiquetaColaLinea } from '@/types/etiquetas'
 
 export type DatosArticuloEtiqueta = {
@@ -118,10 +119,50 @@ function optsBarras(b: PlantillaBloque): { height: number; showText: boolean; mo
   return { height, showText, moduleWidth }
 }
 
-/** SVG EAN-13/8 o Code39 según el valor y props del bloque. */
+/**
+ * SVG de barras según props del bloque: `simbologia: 'code128'` fuerza Code 128
+ * (etiqueta de encargo: tienda + albarán); si no, EAN-13/8 o Code39.
+ */
 export function svgCodigoBarrasBloque(code: string, b: PlantillaBloque): string {
+  if (b.props?.simbologia === 'code128') {
+    const svg128 = code128Svg(code)
+    if (svg128) return svg128
+  }
   const opts = optsBarras(b)
   return eanSvg(code, opts) ?? code39Svg(code, opts)
+}
+
+export type DatosEtiquetaEncargo = {
+  cliente?: string | null
+  telefono?: string | null
+  email?: string | null
+  fecha?: string | null
+  producto?: string | null
+  /** "n/N" */
+  sobre?: string | null
+  /** Tienda + albarán. */
+  codigoBarras: string
+  tienda?: string | null
+}
+
+/** Datos de preview/impresión de una etiqueta de sobre de encargo. */
+export function datosEtiquetaEncargo(e: DatosEtiquetaEncargo): DocumentoPreviewDatos {
+  const base = datosPreviewPorTipo('etiqueta-encargo')
+  const codigo = String(e.codigoBarras ?? '').trim()
+  return {
+    ...base,
+    encargo: {
+      cliente: String(e.cliente ?? '').trim(),
+      telefono: String(e.telefono ?? '').trim(),
+      email: String(e.email ?? '').trim(),
+      fecha: String(e.fecha ?? '').trim(),
+      producto: String(e.producto ?? '').trim(),
+      sobre: String(e.sobre ?? '').trim(),
+      codigo,
+      tienda: String(e.tienda ?? '').trim(),
+    },
+    documento: { ...base.documento, codigoBarras: codigo },
+  }
 }
 
 function htmlBloque(datos: DocumentoPreviewDatos, b: PlantillaBloque): string {
@@ -162,7 +203,7 @@ export function htmlEtiquetaDesdePlantilla(
   plantilla: DocumentoPlantilla,
   datos?: DocumentoPreviewDatos | null
 ): string {
-  const d = datos ?? datosPreviewPorTipo(plantilla.tipo === 'etiqueta' ? 'etiqueta' : plantilla.tipo)
+  const d = datos ?? datosPreviewPorTipo(plantilla.tipo)
   const { widthMm, heightMm } = pageSizeMm(plantilla)
   const blocksHtml = plantilla.blocks.map((b) => htmlBloque(d, b)).join('\n')
 

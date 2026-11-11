@@ -145,6 +145,16 @@ export const articuloTabs: ArticuloTab[] = [
           inline('precioVen1', 'PVP 1', { type: 'number' }),
         ],
       },
+      {
+        title: 'Encargo',
+        columns: 2,
+        labelWidth: '9rem',
+        inputWidth: '6rem',
+        fields: [
+          cb('llevaSobre', 'Lleva sobre'),
+          inline('sobresPorUnidad', 'Sobres por unidad', { type: 'number' }),
+        ],
+      },
     ],
   },
   {

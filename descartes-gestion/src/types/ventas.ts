@@ -41,6 +41,20 @@ export type VentaResumen = {
   abonosExistentes?: { albaran: number; fecha: string | null; importe: number }[]
   /** NroLin del documento origen ya abonados por completo. */
   nroLinsAbonados?: number[]
+  /** Estado del encargo (sobres de revelado) del albarán: pendiente_revelar | pendiente_entrega | entregado. */
+  encargoEstado?: string | null
+}
+
+/** Encargo que la venta crea o actualiza al guardarse (respuesta de crear/actualizar). */
+export type EncargoDeVenta = {
+  numero: number
+  albaran: number
+  albaranEmpresa: string
+  estado: string
+  modalidad: string
+  etiquetasPedidas: number
+  etiquetasImpresas: number
+  [k: string]: unknown
 }
 
 /** Albaranes de venta incluidos en la misma factura/ticket (consulta «Otra venta»). */
@@ -74,6 +88,8 @@ export type VentaLinea = {
   pjeIva?: number
   /** Línea regalada por una oferta: la oferta no le recalcula el descuento. */
   regalo?: boolean
+  /** El artículo lleva sobre: solo en la ficha abierta, para elegir la entrega antes de grabar. */
+  llevaSobre?: boolean
 }
 
 export type VentaDetalle = VentaResumen & {
@@ -101,6 +117,10 @@ export type VentaDetalle = VentaResumen & {
   numeroDeSerie?: string | null
   observaciones?: string | null
   pagoACuenta?: number
+  /** Encargo generado por líneas con sobre; null si ya no hay sobres. */
+  encargo?: EncargoDeVenta | null
+  /** Motivo si la venta se guardó pero el encargo no se pudo crear/actualizar. */
+  encargoAviso?: string | null
   idioma?: number
   suPedido?: string | null
   clienteFinal?: string | null
@@ -234,6 +254,8 @@ export type VentaPayload = {
   puestoApertura?: string | null
   pjeIva1?: number
   preciosIvaIncluido?: boolean
+  /** Recogida o mensajero, solo mientras el encargo todavía no existe. */
+  modalidadEncargo?: 'recogida' | 'envio'
   lineas: VentaLinea[]
 }
 

@@ -328,7 +328,21 @@ async function focusCliente() {
   clienteInput.value?.select()
 }
 
-defineExpose({ focusTienda, focusCliente, adelantoPendiente, limpiarAdelanto })
+/** El código se está tecleando: cada letra no es un cliente y no se piden sus direcciones. */
+const clienteEnEdicion = ref(false)
+
+function onClienteEscrito(valor: string) {
+  clienteEnEdicion.value = true
+  patch('cliente', valor)
+}
+
+defineExpose({
+  focusTienda,
+  focusCliente,
+  adelantoPendiente,
+  limpiarAdelanto,
+  cargarDirecciones: () => cargarDireccionesEnvio(String(props.modelValue.cliente ?? '')),
+})
 
 async function cargarDireccionesEnvio(clienteCodigo: string) {
   const codigo = clienteCodigo.trim()
@@ -339,6 +353,9 @@ async function cargarDireccionesEnvio(clienteCodigo: string) {
   }
   cargandoDirs.value = true
   try {
+    // #region agent log
+    fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',hypothesisId:'D',location:'VentaCabeceraForm.vue:cargarDireccionesEnvio',message:'direcciones de cliente confirmado',data:{codigo},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     const { data } = await api.get(
       `/api/mantenimiento/clientes/${encodeURIComponent(codigo)}/direcciones`
     )
@@ -405,6 +422,12 @@ function onDocClick(e: MouseEvent) {
 watch(
   () => props.modelValue.cliente,
   (cli) => {
+    if (clienteEnEdicion.value) {
+      clienteEnEdicion.value = false
+      direccionesEnvio.value = []
+      dirMenuOpen.value = false
+      return
+    }
     void cargarDireccionesEnvio(String(cli ?? ''))
   },
   { immediate: true }
@@ -568,7 +591,7 @@ onUnmounted(() => {
                 :readonly="readonly"
                 placeholder="Vacío + Intro = venta rápida"
                 title="Intro vacío = venta rápida (ZZZZZZZZZ); F4 o … para buscar cliente"
-                @input="patch('cliente', ($event.target as HTMLInputElement).value)"
+                @input="onClienteEscrito(($event.target as HTMLInputElement).value)"
                 @keydown="emit('cliente-keydown', $event)"
               />
               <button

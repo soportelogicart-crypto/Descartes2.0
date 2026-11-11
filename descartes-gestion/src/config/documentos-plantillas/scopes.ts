@@ -51,11 +51,11 @@ export const DOCUMENTOS_PLANTILLAS_SCOPES: Record<
   etiquetas: {
     id: 'etiquetas',
     titulo: 'Etiquetas',
-    descripcionHub: 'Plantillas de etiqueta de artículo (varios tamaños mm).',
+    descripcionHub: 'Plantillas de etiqueta de artículo y de sobre de encargo (varios tamaños mm).',
     intro:
-      'Diseñador de etiquetas por empresa. Elija el tamaño al crear. Guardar actualiza la seleccionada; Nueva / Guardar como… crean otra sin sobrescribir.',
+      'Diseñador de etiquetas por empresa: de artículo y de sobre de encargo. Elija el tamaño al crear. Guardar actualiza la seleccionada; Nueva / Guardar como… crean otra sin sobrescribir.',
     ruta: '/configuracion/etiquetas',
-    tipos: ['etiqueta'],
+    tipos: ['etiqueta', 'etiqueta-encargo'],
     tipoDefault: 'etiqueta',
   },
 }

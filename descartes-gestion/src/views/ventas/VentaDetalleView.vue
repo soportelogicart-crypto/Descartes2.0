@@ -118,13 +118,22 @@ const modoEdicion = ref(false)
 const abiertoDesdeEncargo = ref(false)
 /** El albarán tiene un encargo (lo informa la API, no depende de cómo se abrió la pantalla). */
 const albaranEsEncargo = ref(false)
-const bannerEncargo = ref<{ recargar: () => Promise<void> } | null>(null)
+/** Entrega del encargo elegida antes de que exista (el alta la graba con el albarán). */
+const modalidadEncargo = ref<'recogida' | 'envio'>('recogida')
+const bannerEncargo = ref<{
+  recargar: () => Promise<void>
+  etiquetasDisponibles: number
+  imprimirEtiquetas: () => Promise<void>
+  error: string | null
+} | null>(null)
 /** Albarán de encargo: Finalizar/cobrar disponible tras Guardar, igual que en la edición. */
 const docDeEncargo = computed(() => abiertoDesdeEncargo.value || albaranEsEncargo.value)
 let cargaSeq = 0
 const esNuevo = ref(false)
 const ficha = ref<VentaDetalle | null>(null)
 const lineas = ref<VentaLinea[]>([])
+const hayLineaSobre = computed(() => lineas.value.some((l) => l.llevaSobre === true))
+const elegirModalidadAntes = computed(() => hayLineaSobre.value && !albaranEsEncargo.value)
 const confirmBorrar = ref(false)
 const confirmCancelarAlta = ref(false)
 const otraVentaOpen = ref(false)
@@ -191,6 +200,7 @@ const cabeceraForm = ref<{
   focusCliente: () => Promise<void>
   adelantoPendiente: () => { nro: number | null; importe: number; formaPago: string } | null
   limpiarAdelanto: () => void
+  cargarDirecciones: () => Promise<void>
 } | null>(null)
 const articuloInputRefs = ref<HTMLInputElement[]>([])
 const descripcionInputRefs = ref<HTMLInputElement[]>([])
@@ -1063,6 +1073,10 @@ function payloadDesdeFicha(): VentaPayload {
     fpago2: f.formasPago?.[1]?.codigo ?? '',
     impFpago1: Number(f.formasPago?.[0]?.importe ?? 0),
     impFpago2: Number(f.formasPago?.[1]?.importe ?? 0),
+    ...(elegirModalidadAntes.value ? { modalidadEncargo: modalidadEncargo.value } : {}),
+    // #region agent log
+    ...((() => { fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',runId:'post-fix-2',hypothesisId:'H',location:'VentaDetalleView.vue:payloadDesdeFicha',message:'selector de entrega',data:{hayLineaSobre:hayLineaSobre.value,albaranEsEncargo:albaranEsEncargo.value,elegirAntes:elegirModalidadAntes.value,modalidad:modalidadEncargo.value},timestamp:Date.now()})}).catch(()=>{}); return {} })()),
+    // #endregion
     lineas: lineas.value
       .filter((l) => String(l.articulo ?? '').trim())
       .map((l) => {
@@ -1505,6 +1519,9 @@ function iniciarNuevaVenta() {
   esNuevo.value = true
   modoEdicion.value = true
   omitirProximaCarga.value = false
+  // El banner del encargo se desmonta en el alta y no vuelve a avisar: el de la venta anterior no vale.
+  albaranEsEncargo.value = false
+  modalidadEncargo.value = 'recogida'
   buscarClienteOpen.value = false
   buscarArticuloOpen.value = false
   buscarVendedorOpen.value = false
@@ -1765,6 +1782,7 @@ async function aplicarArticuloEnLinea(
   linea.lotePasaporte = Boolean(art.lotePasaporte)
   linea.registroSanitario =
     art.registroSanitario != null ? String(art.registroSanitario).trim() : null
+  linea.llevaSobre = art.llevaSobre === true || art.llevaSobre === 1 || art.llevaSobre === '1'
   linea.regalo = false
   const oferta = await ofertaDeLinea(codigo)
   linea.pjeDto = oferta.pjeDto
@@ -1806,6 +1824,7 @@ async function insertarLineaRegalo(posicion: number, articulo: string, cantidad:
       pjeDto: 100,
       importe: 0,
       pjeIva: await pjeIvaArticulo(art, 21),
+      llevaSobre: art.llevaSobre === true || art.llevaSobre === 1 || art.llevaSobre === '1',
       regalo: true,
     }
     lineas.value.splice(posicion, 0, linea)
@@ -2207,9 +2226,28 @@ async function cargarDatosCliente(codigo: string): Promise<{
     throw new Error('Codigo de cliente vacio')
   }
   try {
-    const { data: cli } = await api.get(`/api/mantenimiento/clientes/${encodeURIComponent(cod)}`)
+    // El listado responde 200 aunque no coincida. El GET por código responde 404
+    // y la consola se llena al confirmar un texto que no es un código.
+    const { data: lista } = await api.get('/api/mantenimiento/clientes', {
+      params: { q: cod, page: 1, pageSize: 20 },
+    })
+    const items = (lista.items ?? []) as { codigo?: string }[]
+    const exacto = items.find(
+      (i) => String(i.codigo ?? '').trim().toUpperCase() === cod.toUpperCase()
+    )
+    const elegido = exacto ?? (items.length === 1 ? items[0] : null)
+    // #region agent log
+    fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',hypothesisId:'B',location:'VentaDetalleView.vue:cargarDatosCliente',message:'resolucion de cliente',data:{pedido:cod,coincidencias:items.length,elegido:elegido ? String(elegido.codigo ?? '') : null},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    if (!elegido) {
+      throw new Error('Cliente no encontrado')
+    }
+    const codigoReal = String(elegido.codigo ?? cod).trim()
+    const { data: cli } = await api.get(
+      `/api/mantenimiento/clientes/${encodeURIComponent(codigoReal)}`
+    )
     return {
-      sel: { codigo: String(cli.codigo ?? cod), etiqueta: String(cli.nombre ?? '') },
+      sel: { codigo: String(cli.codigo ?? codigoReal), etiqueta: String(cli.nombre ?? '') },
       cli: cli as Record<string, unknown>,
     }
   } catch (e: unknown) {
@@ -2292,6 +2330,7 @@ async function aplicarClienteEnFicha(
   }
   await resolverFormaPagoContado(fpagoCli)
   await aplicarOfertasEnLineasVenta()
+  await cabeceraForm.value?.cargarDirecciones()
 }
 
 async function onClienteSeleccionado(
@@ -2749,6 +2788,13 @@ function abrirAccionesPostVenta(venta: VentaDetalle, opcionElegida: string) {
   postVentaDocumento.value = `${etiqueta} ${numero ?? ''}`.trim()
   postVentaError.value = null
   postVentaOpen.value = true
+}
+
+async function imprimirEtiquetasDesdePostVenta() {
+  // El diálogo se queda abierto: tras las etiquetas aún puede imprimir el ticket.
+  postVentaError.value = null
+  await bannerEncargo.value?.imprimirEtiquetas()
+  postVentaError.value = bannerEncargo.value?.error ?? null
 }
 
 async function imprimirTrasFinalizar() {
@@ -3336,12 +3382,25 @@ onActivated(() => {
     <p v-if="loading && !ficha">Cargando...</p>
 
     <template v-if="ficha">
+      <aside v-if="elegirModalidadAntes" class="encargo-previo">
+        <strong>Este albarán lleva sobre.</strong>
+        <label>
+          Entrega
+          <select v-model="modalidadEncargo">
+            <option value="recogida">Recogida</option>
+            <option value="envio">Mensajero</option>
+          </select>
+        </label>
+        <span>Se guarda al finalizar. Después podrá imprimir las etiquetas.</span>
+      </aside>
       <EncargoEnAlbaran
         v-if="!esNuevo"
         ref="bannerEncargo"
         :empresa="String(ficha.empresa ?? '')"
         :tipo="String(ficha.tipo ?? '')"
         :albaran="Number(ficha.albaran ?? 0)"
+        :importe="Number(ficha.importe ?? 0)"
+        :pago-a-cuenta="Number(ficha.pagoACuenta ?? 0)"
         @encargo="albaranEsEncargo = $event"
       />
       <VentaCabeceraForm
@@ -3907,6 +3966,8 @@ onActivated(() => {
       :email-inicial="ficha?.email"
       :procesando="postVentaEnviando"
       :error="postVentaError"
+      :etiquetas="bannerEncargo?.etiquetasDisponibles ?? 0"
+      @etiquetas="imprimirEtiquetasDesdePostVenta"
       @imprimir="imprimirTrasFinalizar"
       @email="enviarTrasFinalizar"
       @omitir="postVentaOpen = false"
@@ -3998,6 +4059,39 @@ onActivated(() => {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+.encargo-previo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 1rem;
+  margin: 0;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid #e2e8f0;
+  border-left: 4px solid #f59e0b;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 6%);
+  font-size: 0.88rem;
+  color: #1e293b;
+}
+.encargo-previo label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  color: #475569;
+}
+.encargo-previo select {
+  padding: 0.2rem 0.4rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 0.85rem;
+}
+.encargo-previo span {
+  color: #64748b;
+  font-size: 0.8rem;
 }
 .pasos-alta {
   display: flex;

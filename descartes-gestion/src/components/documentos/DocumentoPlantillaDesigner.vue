@@ -57,6 +57,7 @@ const plantilla = computed({
 })
 
 const esEtiqueta = computed(() => esPlantillaEtiqueta(plantilla.value))
+const esEtiquetaEncargo = computed(() => plantilla.value.tipo === 'etiqueta-encargo')
 
 const pageDims = computed(() => pageSizeMm(plantilla.value))
 const PAGE_W = computed(() => pageDims.value.widthMm)
@@ -74,10 +75,25 @@ const catalogoAgrupado = computed(() =>
 )
 
 const bindsSugeridos = computed(() => {
-  if (!esEtiqueta.value) return CAMPOS_BIND_SUGERIDOS
+  if (!esEtiqueta.value) return CAMPOS_BIND_SUGERIDOS.filter((p) => !p.startsWith('encargo.'))
+  if (esEtiquetaEncargo.value) {
+    const enc = CAMPOS_BIND_SUGERIDOS.filter((p) => p.startsWith('encargo.'))
+    const rest = CAMPOS_BIND_SUGERIDOS.filter(
+      (p) =>
+        !p.startsWith('encargo.') &&
+        !p.startsWith('articulo.') &&
+        !p.startsWith('cliente.') &&
+        p !== 'lineas'
+    )
+    return [...enc, ...rest]
+  }
   const art = CAMPOS_BIND_SUGERIDOS.filter((p) => p.startsWith('articulo.'))
   const rest = CAMPOS_BIND_SUGERIDOS.filter(
-    (p) => !p.startsWith('articulo.') && !p.startsWith('cliente.') && p !== 'lineas'
+    (p) =>
+      !p.startsWith('articulo.') &&
+      !p.startsWith('encargo.') &&
+      !p.startsWith('cliente.') &&
+      p !== 'lineas'
   )
   return [...art, ...rest]
 })
@@ -301,16 +317,25 @@ function anadirBloque(type: PlantillaBloqueTipo) {
   const block = crearBloquePorTipo(type)
   if (esEtiqueta.value) {
     if (type === 'codigo-barras') {
-      block.bind = ['articulo.ean']
-      block.w = Math.min(32, PAGE_W.value - 2)
-      block.h = Math.min(10, PAGE_H.value - 2)
       block.x = 1.5
       block.y = 1.5
-      block.props = { ...(block.props ?? {}), showValue: true, moduleWidth: 1.2 }
+      if (esEtiquetaEncargo.value) {
+        block.bind = ['documento.codigoBarras']
+        block.w = Math.min(60, PAGE_W.value - 2)
+        block.h = Math.min(12, PAGE_H.value - 2)
+        block.props = { ...(block.props ?? {}), simbologia: 'code128', showValue: false }
+      } else {
+        block.bind = ['articulo.ean']
+        block.w = Math.min(32, PAGE_W.value - 2)
+        block.h = Math.min(10, PAGE_H.value - 2)
+        block.props = { ...(block.props ?? {}), showValue: true, moduleWidth: 1.2 }
+      }
     } else if (type === 'campo' || type === 'texto' || type === 'titulo-documento') {
       block.w = Math.min(40, PAGE_W.value - 2)
       block.h = Math.min(6, PAGE_H.value - 2)
-      if (type === 'campo') block.bind = ['articulo.descripcion']
+      if (type === 'campo') {
+        block.bind = [esEtiquetaEncargo.value ? 'encargo.producto' : 'articulo.descripcion']
+      }
       block.props = { ...(block.props ?? {}), fontSizeMm: 3.5 }
     }
   }

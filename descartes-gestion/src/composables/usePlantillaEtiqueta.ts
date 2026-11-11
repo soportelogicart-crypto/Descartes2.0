@@ -40,30 +40,33 @@ export const META_ETIQUETAS_PUESTO: MetaImpresionEtiquetaPuesto = {
   label: 'Etiquetas artículo',
 }
 
-function asDefinicion(raw: unknown, nombre: string): DocumentoPlantilla {
+function asDefinicion(raw: unknown, nombre: string, tipo = 'etiqueta'): DocumentoPlantilla {
   if (raw && typeof raw === 'object' && Array.isArray((raw as DocumentoPlantilla).blocks)) {
     const d = clonePlantilla(raw as DocumentoPlantilla)
     if (!d.nombre) d.nombre = nombre
     return d
   }
-  const base = esqueletoPorTipo('etiqueta') || documentosPlantillas.find((p) => p.tipo === 'etiqueta')
+  const base = esqueletoPorTipo(tipo) || documentosPlantillas.find((p) => p.tipo === tipo)
   return base ? clonePlantilla({ ...base, nombre }) : clonePlantilla(documentosPlantillas[0])
 }
 
 /** Lista plantillas tipo etiqueta (opcionalmente filtradas por empresa). */
-export async function listarPlantillasEtiqueta(empresa?: string | null): Promise<PlantillaEtiquetaServidor[]> {
+export async function listarPlantillasEtiqueta(
+  empresa?: string | null,
+  tipo: 'etiqueta' | 'etiqueta-encargo' = 'etiqueta'
+): Promise<PlantillaEtiquetaServidor[]> {
   const { data } = await api.get('/api/mantenimiento/documento-plantillas', {
-    params: { tipo: 'etiqueta' },
+    params: { tipo },
   })
   let lista = ((data?.items ?? []) as Record<string, unknown>[]).map((raw) => {
     const nombre = String(raw.nombre ?? '')
     return {
       id: Number(raw.id),
-      tipo: String(raw.tipo ?? 'etiqueta'),
+      tipo: String(raw.tipo ?? tipo),
       nombre,
       activa: Boolean(raw.activa),
       empresaCodigo: String(raw.empresaCodigo ?? '').trim(),
-      definicion: asDefinicion(raw.definicion, nombre),
+      definicion: asDefinicion(raw.definicion, nombre, tipo),
     }
   })
   const emp = String(empresa ?? '').trim().toUpperCase()
@@ -79,6 +82,8 @@ export type ResolverPlantillaEtiquetaOpts = {
   nombrePreferido?: string | null
   /** Id explícito (selector de impresión). */
   plantillaId?: number | null
+  /** Esqueleto de reserva si no hay plantillas guardadas (por defecto 'etiqueta'). */
+  tipoFallback?: 'etiqueta' | 'etiqueta-encargo'
 }
 
 /**
@@ -105,7 +110,7 @@ export function resolverPlantillaEtiqueta(
 
   if (lista[0]) return clonePlantilla(lista[0].definicion)
 
-  const sk = esqueletoPorTipo('etiqueta')
+  const sk = esqueletoPorTipo(opts.tipoFallback ?? 'etiqueta')
   if (sk) return sk
   throw new Error('No hay plantilla de etiqueta disponible')
 }

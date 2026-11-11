@@ -126,6 +126,15 @@ export const puestoImpresorasDocumento: PuestoImpresoraDoc[] = [
     plantillaTipo: 'etiqueta',
     rowKey: 'etiquetas-articulo',
   },
+  {
+    label: 'Etiquetas encargo',
+    nombreKey: 'impresoraEtiquetasEncargo',
+    nombreMax: 100,
+    formatoKey: 'formatoEtiquetasEncargo',
+    formatoMax: 100,
+    plantillaTipo: 'etiqueta-encargo',
+    rowKey: 'etiquetas-encargo',
+  },
 ]
 
 export const puestoTabs: PuestoTab[] = [

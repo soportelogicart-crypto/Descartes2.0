@@ -153,7 +153,9 @@ function etiquetaPlantilla(p: PlantillaOpcion, row: PuestoImpresoraDoc): string 
               ? 'Ticket'
               : p.tipo === 'etiqueta'
                 ? 'Etiqueta'
-                : p.tipo
+                : p.tipo === 'etiqueta-encargo'
+                  ? 'Etiqueta encargo'
+                  : p.tipo
   const base = fueraDeTipo ? `${tipoLbl} · ${p.nombre}` : p.nombre
   return p.activa ? `${base} (activa)` : base
 }

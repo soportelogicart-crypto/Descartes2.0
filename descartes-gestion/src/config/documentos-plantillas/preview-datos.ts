@@ -131,6 +131,24 @@ export type DocumentoPreviewDatos = {
     precio: number
     lote?: string
   }
+  /**
+   * Datos de la etiqueta de sobre de un encargo (binds encargo.*).
+   * Ausente en el resto de plantillas.
+   */
+  encargo?: {
+    cliente: string
+    telefono: string
+    email: string
+    /** Fecha de creación (dd/mm/aaaa). */
+    fecha: string
+    /** Descripción de la línea del producto. */
+    producto: string
+    /** "n/N": posición del sobre entre todos los del encargo. */
+    sobre: string
+    /** Tienda + albarán, lo que lleva el código de barras. */
+    codigo: string
+    tienda: string
+  }
 }
 
 /** Emblema placeholder (SVG data URL). */
@@ -303,6 +321,30 @@ export function datosPreviewPorTipo(tipo: DocumentoTipo): DocumentoPreviewDatos 
         reciboCliente: true,
         xml: '',
       },
+    }
+  }
+
+  if (tipo === 'etiqueta-encargo') {
+    return {
+      ...comunes,
+      encargo: {
+        cliente: 'MARIA PUJOL VIDAL',
+        telefono: '977 65 25 47',
+        email: 'maria.pujol@correu.cat',
+        fecha: '10/11/2026',
+        producto: 'REVELADO 35MM 36 FOTOS',
+        sobre: '1/3',
+        codigo: '122600803',
+        tienda: comunes.empresa.nombre,
+      },
+      documento: {
+        ...comunes.documento,
+        numero: '',
+        observaciones: '',
+        codigoBarras: '122600803',
+      },
+      lineas: [],
+      totales: { base: 0, ivas: [], importe: 0 },
     }
   }
 

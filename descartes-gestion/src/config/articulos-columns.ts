@@ -18,6 +18,7 @@ export const articuloColumns: ArticuloColumn[] = [
   { key: 'proveedorHabitual', label: 'Proveedor', type: 'select', width: '8rem', optionsSource: 'proveedores' },
   { key: 'precioVen1', label: 'PVP', type: 'number', width: '5.5rem' },
   { key: 'activo', label: 'Activo', type: 'checkbox', width: '4rem' },
+  { key: 'llevaSobre', label: 'Lleva sobre', type: 'checkbox', width: '6.5rem' },
 ]
 
 export type ArticuloFila = {
@@ -29,6 +30,7 @@ export type ArticuloFila = {
   precioVen1?: number | null
   precioVenta?: number | null
   activo?: boolean
+  llevaSobre?: boolean
   _nuevo?: boolean
   _dirty?: boolean
 }
@@ -43,6 +45,7 @@ export function articuloFilaVacia(): ArticuloFila {
     precioVen1: 0,
     precioVenta: 0,
     activo: true,
+    llevaSobre: false,
     _nuevo: true,
     _dirty: true,
   }
@@ -65,6 +68,7 @@ export function clonarArticuloFila(item: Record<string, unknown>): ArticuloFila 
     precioVen1: pvp,
     precioVenta: pvp,
     activo: item.activo !== false && item.activo !== 0,
+    llevaSobre: item.llevaSobre === true || item.llevaSobre === 1,
     _nuevo: false,
     _dirty: false,
   }

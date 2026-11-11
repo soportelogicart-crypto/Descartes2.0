@@ -7,6 +7,7 @@ import {
   ETIQUETA_TAMANOS_MM,
   conTamanoEtiqueta,
   esPlantillaTicket,
+  esTipoEtiqueta,
   parseClaveTamanoEtiqueta,
   perteneceAlScope,
   plantillasPorTipo,
@@ -48,7 +49,8 @@ const TIPOS_TODOS: { value: DocumentoTipo; label: string }[] = [
   { value: 'pedido-cliente', label: 'Pedido de cliente' },
   { value: 'recibo', label: 'Recibo' },
   { value: 'ticket', label: 'Ticket 80 mm' },
-  { value: 'etiqueta', label: 'Etiqueta' },
+  { value: 'etiqueta', label: 'Etiqueta de artículo' },
+  { value: 'etiqueta-encargo', label: 'Etiqueta de encargo (sobre)' },
 ]
 
 const route = useRoute()
@@ -308,7 +310,7 @@ function abrirModalNueva() {
   const base = esqueletoPorTipo(modalTipo.value, modalEsqueletoId.value || undefined)
   modalNombre.value = base?.nombre ?? 'Nueva plantilla'
   modalTamanoEtiqueta.value = '50x30'
-  if (modalTipo.value === 'etiqueta' && base) {
+  if (esTipoEtiqueta(modalTipo.value) && base) {
     const w = base.page.widthMm ?? 50
     const h = base.page.heightMm ?? 30
     modalTamanoEtiqueta.value = `${w}x${h}`
@@ -348,7 +350,7 @@ function onTipoModalChange() {
   if (modalModo.value !== 'nueva') return
   syncModalEsqueletoId()
   const base = esqueletoPorTipo(modalTipo.value, modalEsqueletoId.value || undefined)
-  if (modalTipo.value === 'etiqueta') {
+  if (esTipoEtiqueta(modalTipo.value)) {
     const parsed = parseClaveTamanoEtiqueta(modalTamanoEtiqueta.value) ?? { widthMm: 50, heightMm: 30 }
     modalNombre.value = `Etiqueta ${parsed.widthMm}×${parsed.heightMm}`
     return
@@ -359,7 +361,7 @@ function onTipoModalChange() {
 }
 
 function onTamanoEtiquetaModalChange() {
-  if (modalModo.value !== 'nueva' || modalTipo.value !== 'etiqueta') return
+  if (modalModo.value !== 'nueva' || !esTipoEtiqueta(modalTipo.value)) return
   const parsed = parseClaveTamanoEtiqueta(modalTamanoEtiqueta.value)
   if (!parsed) return
   const nombreGen = /^Etiqueta \d+×\d+$/
@@ -395,7 +397,7 @@ async function confirmarModalCrear() {
       return
     }
     plantilla = { ...base, nombre }
-    if (modalTipo.value === 'etiqueta') {
+    if (esTipoEtiqueta(modalTipo.value)) {
       const parsed = parseClaveTamanoEtiqueta(modalTamanoEtiqueta.value)
       if (!parsed) {
         modalError.value = 'Seleccione un tamaño de etiqueta.'
@@ -405,7 +407,10 @@ async function confirmarModalCrear() {
       plantilla = {
         ...plantilla,
         nombre,
-        descripcion: `Etiqueta de artículo ${parsed.widthMm}×${parsed.heightMm} mm.`,
+        descripcion:
+          modalTipo.value === 'etiqueta-encargo'
+            ? `Etiqueta de sobre de encargo ${parsed.widthMm}×${parsed.heightMm} mm.`
+            : `Etiqueta de artículo ${parsed.widthMm}×${parsed.heightMm} mm.`,
       }
     }
   } else {
@@ -763,7 +768,13 @@ async function confirmarImportar() {
           </div>
         </header>
 
-        <p v-if="draft?.tipo === 'etiqueta'" class="hint-etiq">
+        <p v-if="draft?.tipo === 'etiqueta-encargo'" class="hint-etiq">
+          Etiqueta del sobre de un encargo (una por sobre). Datos disponibles: encargo.cliente,
+          encargo.telefono, encargo.email, encargo.fecha, encargo.producto, encargo.sobre y
+          documento.codigoBarras (tienda + albarán, Code 128). «Activar» marca el default de la
+          empresa; en Puestos → Impresoras → Etiquetas encargo elija impresora y plantilla del puesto.
+        </p>
+        <p v-else-if="draft?.tipo === 'etiqueta'" class="hint-etiq">
           Al crear una plantilla Etiqueta elija el tamaño en el desplegable (30×20 … 100×70). Puede
           tener varias. «Activar» marca el default de la empresa; en Puestos → Generales II →
           Etiquetas artículo elija la plantilla por defecto del puesto. Al imprimir se podrá elegir el
@@ -828,7 +839,7 @@ async function confirmarImportar() {
               </option>
             </select>
           </label>
-          <label v-if="modalModo === 'nueva' && modalTipo === 'etiqueta'" class="campo">
+          <label v-if="modalModo === 'nueva' && esTipoEtiqueta(modalTipo)" class="campo">
             <span>Tamaño</span>
             <select v-model="modalTamanoEtiqueta" @change="onTamanoEtiquetaModalChange">
               <option

@@ -138,8 +138,50 @@ async function cargar() {
   }
 }
 
+const codigoBarras = ref('')
+const barrasInput = ref<HTMLInputElement | null>(null)
+
+function textoEncargo(estado: string): string {
+  if (estado === 'entregado') return 'Encargo entregado'
+  if (estado === 'pendiente_entrega') return 'Encargo revelado, pendiente de entrega'
+  return 'Encargo pendiente de revelar'
+}
+
+/**
+ * Busca por el código de barras (tienda + albarán, el de la etiqueta del encargo y del ticket).
+ * Si hay un único albarán, lo abre directamente.
+ */
+async function buscarPorCodigoBarras(texto: string) {
+  loading.value = true
+  error.value = null
+  try {
+    const data = await listarVentas({ documento: texto, page: 1, pageSize: 50 })
+    items.value = data.items
+    total.value = data.total
+    if (data.items.length === 1) {
+      busqueda.setNavegacion(data.items)
+      const v = data.items[0]
+      codigoBarras.value = ''
+      await router.push(
+        `/ventas/${encodeURIComponent(v.empresa)}/${encodeURIComponent(v.tipo)}/${v.albaran}`
+      )
+      return
+    }
+    if (data.items.length === 0) {
+      error.value = `No hay ningún albarán con el código ${texto}.`
+    }
+    barrasInput.value?.select()
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo buscar por código de barras')
+  } finally {
+    loading.value = false
+  }
+}
+
 function buscar() {
   cancelarRecargaPorColumnas()
+  const barras = codigoBarras.value.trim()
+  if (barras) return buscarPorCodigoBarras(barras)
   return cargar()
 }
 
@@ -414,6 +456,19 @@ onActivated(() => {
       <form class="panel-filtros" @submit.prevent="buscar">
         <h3>Búsqueda</h3>
 
+        <label class="filtro-barras">
+          Código de barras
+          <input
+            ref="barrasInput"
+            v-model="codigoBarras"
+            type="text"
+            inputmode="numeric"
+            autocomplete="off"
+            placeholder="Lector: tienda + albarán"
+            title="Pase el lector por la etiqueta del encargo o por el ticket (tienda + albarán) y pulse Intro"
+          />
+        </label>
+
         <label class="filtro-tienda">
           Tienda
           <select v-model="filtros.empresa" title="Tienda">
@@ -530,6 +585,14 @@ onActivated(() => {
                 <td class="col-vend">{{ v.vendedor || '—' }}</td>
                 <td class="col-estado" :title="`Estado legacy: ${v.estado || '—'}`">
                   {{ estadoTexto(v) }}
+                  <span
+                    v-if="v.encargoEstado"
+                    class="badge-encargo"
+                    :class="{ entregado: v.encargoEstado === 'entregado' }"
+                    :title="textoEncargo(v.encargoEstado)"
+                  >
+                    Encargo: {{ v.encargoEstado === 'entregado' ? 'entregado' : 'pendiente' }}
+                  </span>
                 </td>
                 <td class="num col-imp">{{ Number(v.importe ?? 0).toFixed(2) }}</td>
                 <td class="col-fact">{{ fmtFactura(v) }}</td>
@@ -818,7 +881,27 @@ th {
   width: 6rem;
 }
 .col-estado {
-  width: 8.5rem;
+  width: 10.5rem;
+}
+.badge-encargo {
+  display: block;
+  margin-top: 0.1rem;
+  padding: 0 0.3rem;
+  border: 1px solid #a15c00;
+  border-radius: 3px;
+  background: #fff1d6;
+  color: #7a4500;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+.badge-encargo.entregado {
+  border-color: #3d5c38;
+  background: #e7f0e4;
+  color: #1f5a2a;
+}
+.filtro-barras input {
+  border: 2px solid #a15c00;
+  background: #fff8ea;
 }
 .col-imp {
   width: 8rem;

@@ -9,12 +9,15 @@ const props = withDefaults(
     emailInicial?: string | null
     procesando?: boolean
     error?: string | null
+    /** Etiquetas de sobre del encargo de esta venta (0 o vacío = no hay encargo). */
+    etiquetas?: number
   }>(),
   { titulo: 'VENTA FINALIZADA' }
 )
 
 const emit = defineEmits<{
   imprimir: []
+  etiquetas: []
   email: [string]
   omitir: []
 }>()
@@ -59,6 +62,15 @@ function enviar() {
             </button>
             <button type="button" class="email" :disabled="procesando" @click="abrirEmail">
               ENVIAR POR EMAIL
+            </button>
+            <button
+              v-if="etiquetas && etiquetas > 0"
+              type="button"
+              class="etiquetas"
+              :disabled="procesando"
+              @click="emit('etiquetas')"
+            >
+              IMPRIMIR {{ etiquetas }} ETIQUETA(S) DEL SOBRE
             </button>
             <button type="button" :disabled="procesando" @click="emit('omitir')">
               NO IMPRIMIR
@@ -137,8 +149,13 @@ header {
   gap: 0.5rem;
 }
 
-.acciones button:last-child {
+.acciones button:last-child,
+.acciones button.etiquetas {
   grid-column: 1 / -1;
+}
+
+.etiquetas {
+  background: #fff1d6;
 }
 
 button {

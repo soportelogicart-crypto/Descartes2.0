@@ -21,10 +21,24 @@ final class EncargoService
     $this->pdo = $pdo;
   }
 
+  private static bool $asegurado = false;
+
   public function asegurar(): void
   {
+    if (self::$asegurado) {
+      return;
+    }
+    $this->asegurarEsquema();
+    self::$asegurado = true;
+  }
+
+  private function asegurarEsquema(): void
+  {
     if ($this->esMysql()) {
-      $this->pdo->exec("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
+      // Las tablas legacy (Clientes, Empresas_Ges, AlbaranesVentasCab) usan utf8mb4_general_ci;
+      // si creamos Encargos con unicode_ci, los JOIN por Codigo/Cliente fallan con
+      // "Illegal mix of collations (1267)". Misma collation que el resto.
+      $this->pdo->exec("SET NAMES utf8mb4 COLLATE utf8mb4_general_ci");
       $this->pdo->exec(
         'CREATE TABLE IF NOT EXISTS Encargos (
           Numero INT NOT NULL,
@@ -50,7 +64,7 @@ final class EncargoService
           FechaCierre DATETIME NULL,
           Observaciones VARCHAR(200) NULL,
           PRIMARY KEY (Numero)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci'
       );
       $this->pdo->exec(
         'CREATE TABLE IF NOT EXISTS EncargoEmails (
@@ -63,7 +77,7 @@ final class EncargoService
           Resultado VARCHAR(40) NOT NULL,
           Detalle VARCHAR(400) NULL,
           PRIMARY KEY (Id)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci'
       );
       $this->pdo->exec(
         'CREATE TABLE IF NOT EXISTS EncargoSecuencia (
@@ -73,8 +87,8 @@ final class EncargoService
         ) ENGINE=InnoDB'
       );
       $this->pdo->exec('INSERT IGNORE INTO EncargoSecuencia (Id, Ultimo) VALUES (1, 0)');
-      $this->pdo->exec('ALTER TABLE Encargos CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
-      $this->pdo->exec('ALTER TABLE EncargoEmails CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+      $this->pdo->exec('ALTER TABLE Encargos CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci');
+      $this->pdo->exec('ALTER TABLE EncargoEmails CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci');
       $this->pdo->exec('CREATE INDEX IF NOT EXISTS ix_Clientes_RazonSocial ON Clientes (RazonSocial)');
       $this->pdo->exec('CREATE INDEX IF NOT EXISTS ix_Clientes_Telefono1 ON Clientes (Telefono1)');
       $this->pdo->exec('CREATE INDEX IF NOT EXISTS ix_Clientes_Telefono2 ON Clientes (Telefono2)');
@@ -143,6 +157,11 @@ final class EncargoService
       $tipo = $this->esMysql() ? 'VARCHAR(12)' : 'NVARCHAR(12)';
       $this->pdo->exec("ALTER TABLE Encargos ADD Tipo {$tipo} NOT NULL DEFAULT 'revelado'");
     }
+    if (!$this->tieneColumna('Encargos', 'Origen')) {
+      // 'venta' = nacido de líneas con sobre: se mantiene solo desde la venta. 'manual' = pantalla antigua.
+      $origen = $this->esMysql() ? 'VARCHAR(12)' : 'NVARCHAR(12)';
+      $this->pdo->exec("ALTER TABLE Encargos ADD Origen {$origen} NOT NULL DEFAULT 'manual'");
+    }
     if ($nuevaSituacion) {
       $estado = $this->esMysql() ? 'VARCHAR(32)' : 'NVARCHAR(32)';
       $this->pdo->exec("ALTER TABLE Encargos ADD Estado {$estado} NOT NULL DEFAULT 'pendiente_realizar'");
@@ -192,11 +211,14 @@ final class EncargoService
     $params = [];
     $q = trim((string) $q);
     if ($q !== '') {
+      // El lector entrega tienda + albarán (el código de barras de la etiqueta).
       $where[] = '(e.Numero = :num OR e.Albaran = :numAlbaran
+        OR CONCAT(RTRIM(e.AlbaranEmpresa), CAST(e.Albaran AS varchar(20))) = :barras
         OR e.Cliente LIKE :qc OR c.RazonSocial LIKE :qn OR c.Telefono1 LIKE :qt)';
       $n = ctype_digit($q) ? (int) $q : -1;
       $params['num'] = $n;
       $params['numAlbaran'] = $n;
+      $params['barras'] = ctype_digit($q) ? $q : '-';
       $params['qc'] = '%' . $q . '%';
       $params['qn'] = '%' . $q . '%';
       $params['qt'] = '%' . $q . '%';
@@ -337,10 +359,45 @@ final class EncargoService
       return ['tipo' => 'encargo', 'cliente' => $this->cliente((string) $encargo['cliente']), 'encargo' => $encargo];
     }
     if (ctype_digit($codigo)) {
+      // Código de barras de la etiqueta: tienda + albarán.
+      $porBarras = $this->localizarPorBarras($codigo);
+      if ($porBarras !== null) {
+        return ['tipo' => 'encargo', 'cliente' => $this->cliente((string) $porBarras['cliente']), 'encargo' => $porBarras];
+      }
       $encargo = $this->localizarEncargo(null, (int) $codigo);
       return ['tipo' => 'encargo', 'cliente' => $this->cliente((string) $encargo['cliente']), 'encargo' => $encargo];
     }
     throw new \InvalidArgumentException('QR no reconocido');
+  }
+
+  /**
+   * Tienda + albarán pegados (122600803). Si dos encargos dan la misma cadena, el que sigue abierto.
+   *
+   * @return array<string, mixed>|null
+   */
+  public function localizarPorBarras(string $barras): ?array
+  {
+    $this->asegurar();
+    $barras = trim($barras);
+    if ($barras === '' || !ctype_digit($barras)) {
+      return null;
+    }
+    $st = $this->pdo->prepare(
+      "SELECT Numero, Estado FROM Encargos
+       WHERE CONCAT(RTRIM(AlbaranEmpresa), CAST(Albaran AS varchar(20))) = :b
+       ORDER BY Numero DESC"
+    );
+    $st->execute(['b' => $barras]);
+    $filas = $st->fetchAll(PDO::FETCH_ASSOC);
+    if ($filas === []) {
+      return null;
+    }
+    foreach ($filas as $f) {
+      if ((string) ($f['Estado'] ?? '') !== 'entregado') {
+        return $this->obtener((int) $f['Numero']);
+      }
+    }
+    return $this->obtener((int) $filas[0]['Numero']);
   }
 
   /**
@@ -443,6 +500,11 @@ final class EncargoService
     if ($albaran <= 0) {
       throw new \RuntimeException('No se pudo crear el albarán del encargo');
     }
+    $yaCreado = $this->porAlbaran($entrega, $tipoDoc, $albaran);
+    if ($yaCreado !== null) {
+      // Un artículo con sobre en las líneas ya lo creó al guardar la venta.
+      return $yaCreado;
+    }
     $numero = $this->numeroOcupado($albaran) ? $this->proponerNumero()['numero'] : $albaran;
     $this->reservarNumero($numero);
     $this->anotarVentaEncargo($entrega, $tipoDoc, $albaran, $etiquetas, $tipoTrabajo);
@@ -478,6 +540,236 @@ final class EncargoService
     ]);
     $encargo = $this->obtener($numero);
     $this->enviarEmailEncargo($encargo);
+    return $this->obtener($numero);
+  }
+
+  /**
+   * Sobres que piden unas líneas de venta (cuerpo de la petición, antes de guardar):
+   * por línea con artículo "lleva sobre", cantidad x sobres por unidad, redondeado hacia arriba.
+   *
+   * @param list<array<string, mixed>> $lineas
+   */
+  public function sobresEnLineas(array $lineas): int
+  {
+    $cantidades = [];
+    foreach ($lineas as $l) {
+      $codigo = trim((string) ($l['articulo'] ?? ''));
+      if ($codigo === '') {
+        continue;
+      }
+      $cantidades[$codigo][] = (float) ($l['cantidad'] ?? 0);
+    }
+    if ($cantidades === []) {
+      return 0;
+    }
+    try {
+      $codigos = array_keys($cantidades);
+      $marcas = implode(',', array_fill(0, count($codigos), '?'));
+      $st = $this->pdo->prepare(
+        "SELECT RTRIM(Codigo) AS Codigo, SobresPorUnidad FROM Articulos
+         WHERE COALESCE(LlevaSobre, 0) = 1 AND Codigo IN ({$marcas})"
+      );
+      $st->execute($codigos);
+      $total = 0;
+      foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $porUnidad = max(1, (int) ($row['SobresPorUnidad'] ?? 1));
+        foreach ($cantidades[trim((string) $row['Codigo'])] ?? [] as $cantidad) {
+          $total += $this->sobresDeCantidad($cantidad, $porUnidad);
+        }
+      }
+      return $total;
+    } catch (\Throwable) {
+      return 0;
+    }
+  }
+
+  private function sobresDeCantidad(float $cantidad, int $porUnidad): int
+  {
+    if ($cantidad <= 0) {
+      return 0;
+    }
+    return (int) ceil(round($cantidad * max(1, $porUnidad), 4));
+  }
+
+  /** Sin asegurar el esquema: en instalaciones sin encargos la tabla puede no existir. */
+  public function tieneEncargo(string $empresa, string $tipo, int $albaran): bool
+  {
+    try {
+      $st = $this->pdo->prepare(
+        'SELECT COUNT(*) FROM Encargos WHERE AlbaranEmpresa = :e AND AlbaranTipo = :t AND Albaran = :a'
+      );
+      $st->execute(['e' => trim($empresa), 't' => trim($tipo), 'a' => $albaran]);
+      return (int) $st->fetchColumn() > 0;
+    } catch (\Throwable) {
+      return false;
+    }
+  }
+
+  /** Cliente real con ficha. El encargo nunca es de paso. */
+  public function exigirClienteEncargo(string $codigo): void
+  {
+    $codigo = trim($codigo);
+    $mensaje = 'Las líneas con sobre exigen un cliente con ficha. Identifique al cliente antes de guardar';
+    if ($codigo === '' || strcasecmp($codigo, 'VARIOS') === 0) {
+      throw new \InvalidArgumentException($mensaje);
+    }
+    try {
+      $cliente = $this->cliente($codigo);
+    } catch (\InvalidArgumentException) {
+      throw new \InvalidArgumentException($mensaje);
+    }
+    if (strcasecmp((string) $cliente['nombre'], 'VARIOS') === 0) {
+      throw new \InvalidArgumentException($mensaje);
+    }
+  }
+
+  /**
+   * Líneas del albarán cuyo artículo lleva sobre.
+   *
+   * @return list<array{nroLin: int, articulo: string, producto: string, sobres: int}>
+   */
+  public function lineasConSobre(string $empresa, string $tipo, int $albaran): array
+  {
+    $st = $this->pdo->prepare(
+      'SELECT l.NroLin, RTRIM(l.Articulo) AS Articulo, l.Descripcion, a.Descripcion AS ArtDescripcion,
+              l.Cantidad, a.SobresPorUnidad
+       FROM AlbaranesVentasLin l
+       INNER JOIN Articulos a ON RTRIM(a.Codigo) = RTRIM(l.Articulo)
+       WHERE l.Empresa = :e AND l.Tipo = :t AND l.Albaran = :a AND COALESCE(a.LlevaSobre, 0) = 1
+       ORDER BY l.NroLin'
+    );
+    $st->execute(['e' => trim($empresa), 't' => trim($tipo), 'a' => $albaran]);
+    $out = [];
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
+      $sobres = $this->sobresDeCantidad((float) ($row['Cantidad'] ?? 0), (int) ($row['SobresPorUnidad'] ?? 1));
+      if ($sobres < 1) {
+        continue;
+      }
+      $producto = trim((string) ($row['Descripcion'] ?? ''));
+      if ($producto === '') {
+        $producto = trim((string) ($row['ArtDescripcion'] ?? ''));
+      }
+      $out[] = [
+        'nroLin' => (int) $row['NroLin'],
+        'articulo' => trim((string) $row['Articulo']),
+        'producto' => $producto,
+        'sobres' => $sobres,
+      ];
+    }
+    return $out;
+  }
+
+  /**
+   * Mantiene el encargo de un albarán según sus líneas con sobre. Va después de guardar la venta.
+   * Crea el encargo si hay sobres, ajusta el número de etiquetas y lo quita si ya no queda ninguno
+   * (solo los nacidos de la venta y todavía sin entregar).
+   *
+   * @return array<string, mixed>|null
+   */
+  public function sincronizarDesdeVenta(string $empresa, string $tipo, int $albaran, string $modalidad = ''): ?array
+  {
+    $empresa = trim($empresa);
+    $tipo = trim($tipo);
+    if ($empresa === '' || $tipo === '' || $albaran < 1) {
+      return null;
+    }
+    $this->asegurar();
+    $sobres = array_sum(array_column($this->lineasConSobre($empresa, $tipo, $albaran), 'sobres'));
+
+    $st = $this->pdo->prepare(
+      'SELECT Numero, Origen, Estado FROM Encargos
+       WHERE AlbaranEmpresa = :e AND AlbaranTipo = :t AND Albaran = :a'
+    );
+    $st->execute(['e' => $empresa, 't' => $tipo, 'a' => $albaran]);
+    $actual = $st->fetch(PDO::FETCH_ASSOC);
+
+    if ($sobres < 1) {
+      if ($actual === false) {
+        return null;
+      }
+      if ((string) $actual['Origen'] === 'venta' && (string) $actual['Estado'] !== 'entregado') {
+        $this->pdo->prepare('DELETE FROM Encargos WHERE Numero = :n')->execute(['n' => (int) $actual['Numero']]);
+        return null;
+      }
+      return $this->obtener((int) $actual['Numero']);
+    }
+
+    $stCab = $this->pdo->prepare(
+      'SELECT Cliente FROM AlbaranesVentasCab WHERE Empresa = :e AND Tipo = :t AND Albaran = :a'
+    );
+    $stCab->execute(['e' => $empresa, 't' => $tipo, 'a' => $albaran]);
+    $codigo = trim((string) $stCab->fetchColumn());
+    $this->exigirClienteEncargo($codigo);
+    if (!in_array($modalidad, ['recogida', 'envio'], true)) {
+      $modalidad = 'recogida';
+    }
+    // #region agent log
+    @file_put_contents('c:\\descartes-2.0\\.cursor\\debug-0d3608.log', json_encode(['sessionId' => '0d3608', 'runId' => 'post-fix', 'hypothesisId' => 'F', 'location' => 'EncargoService.php:sincronizarDesdeVenta', 'message' => $actual === false ? 'alta encargo' : 'encargo ya existe', 'data' => ['albaran' => $albaran, 'modalidad' => $modalidad, 'sobres' => $sobres, 'existia' => $actual !== false], 'timestamp' => (int) (microtime(true) * 1000)]) . "\n", FILE_APPEND);
+    // #endregion
+
+    if ($actual !== false) {
+      $numero = (int) $actual['Numero'];
+      if ((string) $actual['Estado'] !== 'entregado' && (string) $actual['Origen'] === 'venta') {
+        $this->pdo->prepare(
+          'UPDATE Encargos SET Cliente = :c, Rodillos = :n, EtiquetasPedidas = :n2 WHERE Numero = :num'
+        )->execute(['c' => $codigo, 'n' => $sobres, 'n2' => $sobres, 'num' => $numero]);
+      }
+      return $this->obtener($numero);
+    }
+
+    $circuito = $this->tiendasCircuito();
+    $laboratorio = $circuito['torrent']['codigo'] ?? $empresa;
+    $misma = $laboratorio === $empresa;
+    $estado = 'pendiente_revelar';
+    [$trabajo, $sobre] = $this->legado($estado, $misma);
+    $numero = $this->numeroOcupado($albaran) ? $this->proponerNumero()['numero'] : $albaran;
+    $this->reservarNumero($numero);
+    $this->pdo->prepare(
+      'INSERT INTO Encargos (
+        Numero, Cliente, AlbaranEmpresa, AlbaranTipo, Albaran, TiendaOrigen, TiendaDestino,
+        Modalidad, MismaTienda, Rodillos, EtiquetasPedidas, EtiquetasImpresas,
+        EstadoTrabajo, EstadoSobre, Estado, Tipo, Origen, FechaAlta, Observaciones
+      ) VALUES (
+        :numero, :cliente, :empresa, :tipo, :albaran, :origen, :destino,
+        :modalidad, :misma, :rodillos, :etiquetas, 0,
+        :trabajo, :sobre, :estado, :tipoTrabajo, :origenEncargo, ' . $this->ahora() . ", ''
+      )"
+    )->execute([
+      'numero' => $numero,
+      'cliente' => $codigo,
+      'empresa' => $empresa,
+      'tipo' => $tipo,
+      'albaran' => $albaran,
+      'origen' => $empresa,
+      'destino' => $laboratorio,
+      'modalidad' => $modalidad,
+      'misma' => $misma ? 1 : 0,
+      'rodillos' => $sobres,
+      'etiquetas' => $sobres,
+      'trabajo' => $trabajo,
+      'sobre' => $sobre,
+      'estado' => $estado,
+      'tipoTrabajo' => 'revelado',
+      'origenEncargo' => 'venta',
+    ]);
+    $encargo = $this->obtener($numero);
+    $this->enviarEmailEncargo($encargo);
+    return $encargo;
+  }
+
+  /** Cambia modalidad (recogida o envío) de un encargo aún abierto. */
+  public function cambiarModalidad(int $numero, string $modalidad): array
+  {
+    $modalidad = strtolower(trim($modalidad));
+    if (!in_array($modalidad, ['recogida', 'envio'], true)) {
+      throw new \InvalidArgumentException('Indique si el cliente lo recogerá o si se envía por mensajero');
+    }
+    $encargo = $this->obtener($numero);
+    if ((string) $encargo['estado'] === 'entregado') {
+      throw new \InvalidArgumentException('El encargo ya está entregado');
+    }
+    $this->pdo->prepare('UPDATE Encargos SET Modalidad = :m WHERE Numero = :n')
+      ->execute(['m' => $modalidad, 'n' => $numero]);
     return $this->obtener($numero);
   }
 
@@ -547,29 +839,36 @@ final class EncargoService
   public function entregar(int $numero): array
   {
     $encargo = $this->obtener($numero);
-    if ((string) $encargo['estado'] !== 'pendiente_recoger') {
-      throw new \InvalidArgumentException('El encargo todavía no está pendiente de recoger');
+    $estado = (string) $encargo['estado'];
+    // #region agent log
+    @file_put_contents('c:\\descartes-2.0\\.cursor\\debug-0d3608.log', json_encode(['sessionId' => '0d3608', 'runId' => 'post-fix', 'hypothesisId' => 'E', 'location' => 'EncargoService.php:entregar', 'message' => 'entregar', 'data' => ['numero' => $numero, 'estado' => $estado], 'timestamp' => (int) (microtime(true) * 1000)]) . "\n", FILE_APPEND);
+    // #endregion
+    if ($estado === 'entregado') {
+      throw new \InvalidArgumentException('El encargo ya está entregado');
+    }
+    if (!in_array($estado, ['pendiente_revelar', 'pendiente_entrega', 'pendiente_recoger'], true)) {
+      throw new \InvalidArgumentException('El encargo todavía no se puede entregar');
     }
     $this->fijarEstado($numero, 'entregado', 'FechaCierre', !empty($encargo['mismaTienda']));
     return $this->obtener($numero);
   }
 
+  /**
+   * El cobro (ticket o factura) NO entrega el encargo: la entrega es una acción explícita
+   * cuando el cliente recoge el carrete revelado. Aquí solo se deja constancia.
+   */
   public function marcarFacturado(string $empresa, string $tipo, int $albaran): void
   {
+    // #region agent log
+    $estado = null;
     try {
-      $st = $this->pdo->prepare(
-        'SELECT Numero, MismaTienda, Estado FROM Encargos
-         WHERE AlbaranEmpresa = :e AND AlbaranTipo = :t AND Albaran = :a'
-      );
+      $st = $this->pdo->prepare('SELECT Estado FROM Encargos WHERE AlbaranEmpresa = :e AND AlbaranTipo = :t AND Albaran = :a');
       $st->execute(['e' => trim($empresa), 't' => trim($tipo), 'a' => $albaran]);
-      $row = $st->fetch(PDO::FETCH_ASSOC);
+      $estado = $st->fetchColumn();
     } catch (\Throwable) {
-      return;
     }
-    if ($row === false || (string) $row['Estado'] === 'entregado') {
-      return;
-    }
-    $this->fijarEstado((int) $row['Numero'], 'entregado', 'FechaCierre', !empty($row['MismaTienda']));
+    @file_put_contents('c:\\descartes-2.0\\.cursor\\debug-0d3608.log', json_encode(['sessionId' => '0d3608', 'runId' => 'post-fix', 'hypothesisId' => 'A', 'location' => 'EncargoService.php:marcarFacturado', 'message' => 'cobro sin entregar', 'data' => ['albaran' => $albaran, 'tipo' => $tipo, 'estadoEncargo' => $estado], 'timestamp' => (int) (microtime(true) * 1000)]) . "\n", FILE_APPEND);
+    // #endregion
   }
 
   /**
@@ -662,7 +961,13 @@ final class EncargoService
     $destino = $vuelta ? (string) $encargo['origenNombre'] : (string) $encargo['destinoNombre'];
     $copias = max(1, (int) ($encargo['etiquetasPedidas'] ?? 1));
     $publico = (int) ($encargo['albaran'] ?? $encargo['numero']);
+    $etiquetas = $this->listaEtiquetas($encargo, $copias);
     return [
+      'albaran' => $publico,
+      'empresa' => (string) $encargo['albaranEmpresa'],
+      'codigoBarras' => (string) $encargo['codigoBarras'],
+      'etiquetas' => $etiquetas,
+      'entregado' => (string) $encargo['estado'] === 'entregado',
       'numero' => $encargo['numero'],
       'cliente' => $encargo['cliente'],
       'nombre' => $encargo['nombre'],
@@ -686,6 +991,54 @@ final class EncargoService
       'transporte' => false,
       'qr' => (string) ($encargo['qr'] ?? ''),
     ];
+  }
+
+  /**
+   * Una etiqueta por sobre, cada una con el producto de su línea y "n/N" en conjunto.
+   * Los encargos antiguos (sin líneas con sobre) sacan los sobres pedidos con la primera línea.
+   *
+   * @param array<string, mixed> $encargo
+   * @return list<array{producto: string, articulo: string, sobre: string}>
+   */
+  private function listaEtiquetas(array $encargo, int $copias): array
+  {
+    $lineas = $this->lineasConSobre(
+      (string) $encargo['albaranEmpresa'],
+      (string) $encargo['albaranTipo'],
+      (int) $encargo['albaran']
+    );
+    $items = [];
+    foreach ($lineas as $l) {
+      for ($i = 0; $i < $l['sobres']; $i++) {
+        $items[] = ['producto' => $l['producto'], 'articulo' => $l['articulo']];
+      }
+    }
+    if ($items === []) {
+      $producto = '';
+      $articulo = '';
+      $st = $this->pdo->prepare(
+        'SELECT RTRIM(Articulo) AS Articulo, Descripcion FROM AlbaranesVentasLin
+         WHERE Empresa = :e AND Tipo = :t AND Albaran = :a ORDER BY NroLin'
+      );
+      $st->execute([
+        'e' => (string) $encargo['albaranEmpresa'],
+        't' => (string) $encargo['albaranTipo'],
+        'a' => (int) $encargo['albaran'],
+      ]);
+      $primera = $st->fetch(PDO::FETCH_ASSOC);
+      if ($primera !== false) {
+        $producto = trim((string) ($primera['Descripcion'] ?? ''));
+        $articulo = trim((string) ($primera['Articulo'] ?? ''));
+      }
+      for ($i = 0; $i < $copias; $i++) {
+        $items[] = ['producto' => $producto, 'articulo' => $articulo];
+      }
+    }
+    $total = count($items);
+    foreach ($items as $i => $item) {
+      $items[$i]['sobre'] = ($i + 1) . '/' . $total;
+    }
+    return $items;
   }
 
   /** @return array<string, mixed> */
@@ -1089,6 +1442,9 @@ final class EncargoService
       'fechaListo' => $row['FechaListo'] ?? null,
       'fechaCierre' => $row['FechaCierre'] ?? null,
       'qr' => self::qrEncargo($cliente, $this->numeroEnCodigo($numero, $albaran, $cliente)),
+      // Tienda + albarán: lo que lleva el código de barras de la etiqueta y busca el listado de ventas.
+      'codigoBarras' => trim((string) $row['AlbaranEmpresa']) . $albaran,
+      'origen' => (string) ($row['Origen'] ?? 'manual'),
     ];
   }
 

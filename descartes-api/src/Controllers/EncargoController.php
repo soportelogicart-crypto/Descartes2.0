@@ -159,6 +159,17 @@ final class EncargoController
     return $this->accion($response, (int) ($args['numero'] ?? 0), fn (int $n) => $this->encargos->entregar($n));
   }
 
+  public function modalidad(Request $request, Response $response, array $args): Response
+  {
+    $body = (array) json_decode((string) $request->getBody(), true);
+    $modalidad = (string) ($body['modalidad'] ?? '');
+    return $this->accion(
+      $response,
+      (int) ($args['numero'] ?? 0),
+      fn (int $n) => $this->encargos->cambiarModalidad($n, $modalidad)
+    );
+  }
+
   public function etiquetaTransporte(Request $request, Response $response, array $args): Response
   {
     try {

@@ -27,6 +27,10 @@ final class MejorasGestionSchema
       ['AlbaranesVentasCab', 'Comisionista', 'VARCHAR(40) NULL', 'NVARCHAR(40) NULL'],
       ['AlbaranesVentasCab', 'PjeComision', 'DECIMAL(9,2) NULL', 'DECIMAL(9,2) NULL'],
       ['AlbaranesVentasLin', 'Anotacion', 'VARCHAR(80) NULL', 'NVARCHAR(80) NULL'],
+      ['Articulos', 'LlevaSobre', 'TINYINT NULL DEFAULT 0', 'BIT NULL DEFAULT 0'],
+      ['Articulos', 'SobresPorUnidad', 'INT NULL DEFAULT 1', 'INT NULL DEFAULT 1'],
+      ['Puestos', 'ImpresoraEtiquetasEncargo', 'VARCHAR(100) NULL', 'NVARCHAR(100) NULL'],
+      ['Puestos', 'FormatoEtiquetasEncargo', 'VARCHAR(100) NULL', 'NVARCHAR(100) NULL'],
     ];
     foreach ($columnas as [$tabla, $columna, $mysql, $sqlsrv]) {
       if (self::existe($pdo, $driver, $tabla, $columna)) {
