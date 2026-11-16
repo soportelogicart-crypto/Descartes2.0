@@ -116,6 +116,7 @@ watch(
   () => props.open,
   async (abierto) => {
     cancelarBusquedaPendiente()
+    consultaCargada.value = null
     if (!abierto) return
     const inicial = props.busquedaInicial?.trim() ?? ''
     omitirBusquedaDeQ = inicial !== q.value
@@ -159,19 +160,33 @@ async function posicionarEnActual() {
 
 /** Descarta respuestas de consultas que ya han quedado atras al seguir tecleando. */
 let ultimaPeticion = 0
+/** Texto con el que se cargó `items`. Si no coincide con el cuadro, la lista está vieja. */
+const consultaCargada = ref<string | null>(null)
+
+function señalarCodigoEscrito() {
+  const texto = q.value.trim().toLowerCase()
+  if (!texto) return
+  const exacta = itemsMostrados.value.findIndex(
+    (fila) => fila.codigo.trim().toLowerCase() === texto
+  )
+  if (exacta >= 0) indice.value = exacta
+}
 
 async function buscar() {
   const peticion = ++ultimaPeticion
+  const consulta = q.value
   loading.value = true
   error.value = null
   try {
     const { data } = await api.get(`/api/mantenimiento/${props.entidad}`, {
-      params: { q: q.value, page: 1, pageSize: 200 },
+      params: { q: consulta, page: 1, pageSize: 200 },
     })
     if (peticion !== ultimaPeticion) return
+    consultaCargada.value = consulta
     if (props.entidad === 'tipos-descuento') {
       items.value = agruparTiposDescuento((data.items ?? []) as Record<string, unknown>[])
       indice.value = Math.min(indice.value, Math.max(0, items.value.length - 1))
+      señalarCodigoEscrito()
       return
     }
     const crudos = (data.items ?? []) as Record<string, unknown>[]
@@ -197,6 +212,7 @@ async function buscar() {
       return { codigo, etiqueta }
     })
     indice.value = Math.min(indice.value, Math.max(0, items.value.length - 1))
+    señalarCodigoEscrito()
   } catch {
     if (peticion !== ultimaPeticion) return
     error.value = 'No se pudo cargar el listado'
@@ -262,13 +278,40 @@ function onBusquedaKeydown(e: KeyboardEvent) {
   }
   if (e.key !== 'Enter' && e.key !== 'NumpadEnter') return
   e.preventDefault()
-  if (loading.value) return
-  const list = itemsMostrados.value
-  if (list.length === 1) {
-    aceptar(0)
+  void confirmarBusqueda()
+}
+
+/**
+ * Intro confirma el código escrito. Si la lista aún es la anterior (el usuario
+ * acaba de teclear TV y la búsqueda no ha vuelto), no vale la primera fila:
+ * esa era EU y el cobro del adelanto entraba en la caja equivocada.
+ */
+async function confirmarBusqueda() {
+  const exactaDe = (texto: string) =>
+    itemsMostrados.value.findIndex((fila) => fila.codigo.trim().toLowerCase() === texto)
+
+  const texto = q.value.trim().toLowerCase()
+  if (texto) {
+    const exacta = exactaDe(texto)
+    if (exacta >= 0) {
+      aceptar(exacta)
+      return
+    }
+  }
+  if (temporizador !== null || loading.value || consultaCargada.value !== q.value) {
+    cancelarBusquedaPendiente()
+    await buscar()
+  }
+  if (texto) {
+    const exacta = exactaDe(texto)
+    if (exacta >= 0) {
+      aceptar(exacta)
+      return
+    }
+    if (itemsMostrados.value.length === 1) aceptar(0)
     return
   }
-  if (list.length > 0) aceptar()
+  if (itemsMostrados.value.length > 0) aceptar()
 }
 </script>
 

@@ -198,8 +198,6 @@ const omitirProximaCarga = ref(false)
 const cabeceraForm = ref<{
   focusTienda: () => Promise<void>
   focusCliente: () => Promise<void>
-  adelantoPendiente: () => { nro: number | null; importe: number; formaPago: string } | null
-  limpiarAdelanto: () => void
   cargarDirecciones: () => Promise<void>
 } | null>(null)
 const articuloInputRefs = ref<HTMLInputElement[]>([])
@@ -394,7 +392,7 @@ const TIPOS_FINAL = [
   { codigo: 'F', label: 'Factura' },
 ]
 
-/** Contado = forma de pago con CobroDeArqueo → no Albarán. */
+/** Contado = forma de pago con CobroDeArqueo. Un encargo sí puede quedar como albarán. */
 const clienteContado = ref(false)
 const formaPagoCliente = ref('')
 /** Formas de pago de contado: la regla de negocio es CobroDeArqueo. */
@@ -444,7 +442,7 @@ const tiposFinalDisponibles = computed(() => {
   if (esPlantillaAlta.value) {
     return TIPOS_FINAL.filter((t) => {
       if (t.codigo !== 'P' && t.codigo !== 'A') return false
-      if (clienteContado.value && t.codigo === 'A') return false
+      if (clienteContado.value && t.codigo === 'A' && !docDeEncargo.value && !hayLineaSobre.value) return false
       return true
     })
   }
@@ -452,7 +450,7 @@ const tiposFinalDisponibles = computed(() => {
     return TIPOS_FINAL.filter((t) => t.codigo === 'F')
   }
   return TIPOS_FINAL.filter((t) => {
-    if (clienteContado.value && t.codigo === 'A') return false
+    if (clienteContado.value && t.codigo === 'A' && !docDeEncargo.value && !hayLineaSobre.value) return false
     // Sin NIF/razón: solo Ticket o Presupuesto (no Factura). ZZZZZZZZZ sí vale si hay datos.
     if (t.codigo === 'F' && !tieneDatosFactura.value) return false
     return true
@@ -462,7 +460,8 @@ const tiposFinalDisponibles = computed(() => {
 const mostrarSelectorFpago = computed(
   () =>
     !esTicketCerrado.value &&
-    (clienteContado.value || tipoFinal.value === 'T' || tipoFinal.value === 'F')
+    !adelantoParcial.value &&
+    (tipoFinal.value === 'T' || tipoFinal.value === 'F')
 )
 
 const formaFinalEsVale = computed(
@@ -492,6 +491,46 @@ const faltaFormaDiferencia = computed(
 const importeDocumentoFinal = computed(() =>
   Math.max(0, Number(totales.value.importe ?? ficha.value?.importe ?? 0))
 )
+
+const adelantoFinal = computed(() => Math.max(0, Number(ficha.value?.pagoACuenta ?? 0)))
+const cobraAhoraFinal = computed(() =>
+  Math.max(0, Math.round((importeDocumentoFinal.value - adelantoFinal.value) * 100) / 100)
+)
+const importeAdelantoFinal = ref('')
+const importeAdelantoNumero = computed(() => {
+  const n = Number(String(importeAdelantoFinal.value).replace(',', '.'))
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0
+})
+/** Encargo de contado con dinero aún pendiente: el adelanto se anota en esta ventana. */
+const puedeDejarAdelanto = computed(
+  () =>
+    !esTicketCerrado.value &&
+    !esPlantillaAlta.value &&
+    (docDeEncargo.value || hayLineaSobre.value) &&
+    cobraAhoraFinal.value > 0.004
+)
+const adelantoParcial = computed(
+  () =>
+    puedeDejarAdelanto.value &&
+    importeAdelantoNumero.value > 0.004 &&
+    importeAdelantoNumero.value < cobraAhoraFinal.value - 0.004
+)
+const adelantoExcede = computed(
+  () => puedeDejarAdelanto.value && importeAdelantoNumero.value > cobraAhoraFinal.value + 0.004
+)
+const adelantoCubrePendiente = computed(
+  () =>
+    puedeDejarAdelanto.value &&
+    importeAdelantoNumero.value > 0.004 &&
+    Math.abs(importeAdelantoNumero.value - cobraAhoraFinal.value) <= 0.009
+)
+/**
+ * El ticket liquida lo que falta. Solo se bloquea si en esta ventana se está
+ * dejando otro adelanto parcial: un ticket no puede quedar a medias.
+ * Si el albarán ya tiene dinero a cuenta, Ticket cobra el pendiente al entregar.
+ */
+const ticketDeshabilitado = computed(() => adelantoParcial.value)
+const eurosFinal = (n: number) => n.toFixed(2).replace('.', ',')
 
 const importeParteNumero = computed(() => {
   const n = Number(String(importeParteFinal.value).replace(',', '.'))
@@ -608,6 +647,11 @@ const esTicketCerrado = computed(() => {
   if (f.esTicket) return true
   const ft = String(f.facturaTipo ?? '').trim().toUpperCase()
   return ft === 'T' && Number(f.factura ?? 0) > 0
+})
+// Después de esTicketCerrado: el watch lee el computed al registrarse y ese
+// computed llega hasta aquí. Antes de esta línea, la pantalla del albarán quedaba en blanco.
+watch(ticketDeshabilitado, (bloqueado) => {
+  if (bloqueado && tipoFinal.value === 'T') tipoFinal.value = 'A'
 })
 const ticketNoEditable = computed(() => esTicketCerrado.value)
 const soloLectura = computed(
@@ -1324,16 +1368,6 @@ async function guardarPagoACuenta(payload: { nro: number | null; importe: number
   }
 }
 
-/** Importe y forma escritos y aún no anotados. Se graban al guardar o al imprimir. */
-async function anotarAdelantoPendiente(): Promise<boolean> {
-  const pendiente = cabeceraForm.value?.adelantoPendiente?.() ?? null
-  if (!pendiente) return true
-  const ok = await guardarPagoACuenta(pendiente)
-  if (!ok) return false
-  cabeceraForm.value?.limpiarAdelanto()
-  return true
-}
-
 async function borrarPagoACuenta(nro: number) {
   const venta = ficha.value
   if (!venta || pagosOcupado.value) return
@@ -1351,8 +1385,21 @@ async function borrarPagoACuenta(nro: number) {
 }
 
 function aplicarDetalle(data: VentaDetalle) {
+  const prevLineas = lineas.value
   ficha.value = data
-  lineas.value = data.lineas?.length ? data.lineas.map((l) => ({ ...l })) : [lineaVacia()]
+  // La ficha del servidor no trae llevaSobre. Si se pierde aquí, el adelanto
+  // escrito en el diálogo deja de contar y no se anota ni entra en caja.
+  lineas.value = data.lineas?.length
+    ? data.lineas.map((l, i) => {
+        const anterior =
+          prevLineas.find((p) => Number(p.nroLin) > 0 && Number(p.nroLin) === Number(l.nroLin)) ??
+          prevLineas[i]
+        return {
+          ...l,
+          llevaSobre: l.llevaSobre === true || anterior?.llevaSobre === true,
+        }
+      })
+    : [lineaVacia()]
   void cargarPreciosIvaIncluido(data.empresa)
   void resolverNombreVendedor(String(data.vendedor ?? ''))
   void cargarPagosACuenta(data)
@@ -2497,10 +2544,6 @@ async function onGuardar() {
             ? 'Albarán guardado. Ya puede finalizarlo.'
             : 'Venta guardada'
     busqueda.upsertResumen(resumenDesdeDetalle(saved))
-    if (!(await anotarAdelantoPendiente())) {
-      error.value = pagosError.value
-      return
-    }
     if (
       route.params.empresa !== saved.empresa ||
       route.params.tipo !== saved.tipo ||
@@ -2630,6 +2673,8 @@ async function onFinalizar() {
   valeAvisoFinal.value = ''
   fpago2Final.value = ''
   importeParteFinal.value = ''
+  importeAdelantoFinal.value = ''
+  if (ticketDeshabilitado.value && tipoFinal.value === 'T') tipoFinal.value = 'A'
   puntosCanjeFinal.value = null
   const clienteFinal = String(ficha.value.cliente ?? '').trim()
   const importeFinal = Number(totales.value.importe ?? ficha.value.importe ?? 0)
@@ -2918,8 +2963,22 @@ async function confirmarFinalizar() {
     error.value = 'No se puede finalizar la venta sin vendedor. Selecciónelo en la cabecera.'
     return
   }
-  if (mostrarSelectorFpago.value && !String(fpagoFinal.value).trim()) {
-    error.value = 'Seleccione una forma de pago de contado'
+  if ((mostrarSelectorFpago.value || adelantoParcial.value) && !String(fpagoFinal.value).trim()) {
+    error.value = adelantoParcial.value
+      ? 'Seleccione la forma de pago del adelanto'
+      : 'Seleccione una forma de pago de contado'
+    return
+  }
+  if (ticketDeshabilitado.value && tipoFinal.value === 'T') {
+    error.value = 'Con un adelanto parcial no se puede hacer ticket. Deje el importe vacío y elija Ticket para cobrar lo pendiente.'
+    return
+  }
+  if (adelantoExcede.value) {
+    error.value = 'El importe no puede superar lo pendiente'
+    return
+  }
+  if (adelantoCubrePendiente.value && tipoFinal.value === 'A') {
+    error.value = 'Ese importe es todo lo pendiente. Elija Ticket para liquidarlo, sin dejarlo como adelanto.'
     return
   }
   if (pedirNumeroValeFinal.value && valeCodigoFinal.value <= 0) {
@@ -2941,7 +3000,12 @@ async function confirmarFinalizar() {
     error.value = 'Espere a que se anote el adelanto'
     return
   }
-  const opcion = tipoFinal.value
+  // Se congela antes de grabar: al volver la ficha, llevaSobre puede desaparecer
+  // y adelantoParcial pasaría a falso. El importe y la forma ya no se anotarían.
+  const adelantoAlConfirmar = adelantoParcial.value
+    ? { importe: importeAdelantoNumero.value, formaPago: String(fpagoFinal.value).trim() }
+    : null
+  const opcion = adelantoAlConfirmar ? 'A' : tipoFinal.value
   finalizarOpen.value = false
   loading.value = true
   error.value = null
@@ -2996,9 +3060,16 @@ async function confirmarFinalizar() {
       })
       aplicarDetalle(saved)
     }
-    if (!(await anotarAdelantoPendiente())) {
-      error.value = pagosError.value || 'No se pudo guardar el pago a cuenta'
-      return
+    if (adelantoAlConfirmar) {
+      const anotado = await guardarPagoACuenta({
+        nro: null,
+        importe: adelantoAlConfirmar.importe,
+        formaPago: adelantoAlConfirmar.formaPago,
+      })
+      if (!anotado) {
+        error.value = pagosError.value || 'No se pudo anotar el adelanto'
+        return
+      }
     }
     const done = await finalizarVenta(
       ficha.value.empresa,
@@ -3418,7 +3489,6 @@ onActivated(() => {
         :pagos-error="pagosError"
         :pagos-ocupado="pagosOcupado"
         :totales="totales"
-        @guardar-pago="guardarPagoACuenta"
         @borrar-pago="borrarPagoACuenta"
         @buscar-vendedor="abrirBuscarVendedor"
         @vendedor-keydown="onVendedorKeydown"
@@ -3731,7 +3801,7 @@ onActivated(() => {
             />
           </template>
           <p v-else>Que tipo de documento es?</p>
-          <p v-if="clienteContado && !esTicketCerrado" class="ok">
+          <p v-if="clienteContado && !esTicketCerrado && !docDeEncargo && !hayLineaSobre" class="ok">
             Cliente de contado (forma de pago
             <strong>{{ formaPagoCliente || '—' }}</strong>
             con cobro de arqueo): no se puede cerrar como albaran.
@@ -3740,16 +3810,50 @@ onActivated(() => {
             {{ faltanteDatosFactura() }} Solo Ticket o Presupuesto.
           </p>
           <div class="tipos">
-            <label v-for="t in tiposFinalDisponibles" :key="t.codigo" class="tipo-opt">
+            <label
+              v-for="t in tiposFinalDisponibles"
+              :key="t.codigo"
+              class="tipo-opt"
+              :class="{ 'tipo-off': t.codigo === 'T' && ticketDeshabilitado }"
+            >
               <input
                 type="checkbox"
                 :checked="tipoFinal === t.codigo"
+                :disabled="t.codigo === 'T' && ticketDeshabilitado"
                 @change="tipoFinal = t.codigo"
               />
               {{ t.label }} ({{ t.codigo }})
             </label>
           </div>
-          <div v-if="mostrarSelectorFpago" class="fpago-final">
+          <div v-if="puedeDejarAdelanto" class="fpago-final">
+            <p class="vale-dif-detalle">
+              Ya a cuenta {{ eurosFinal(adelantoFinal) }} € · Pendiente {{ eurosFinal(cobraAhoraFinal) }} €
+            </p>
+            <label>
+              Adelanto
+              <input
+                v-model="importeAdelantoFinal"
+                inputmode="decimal"
+                placeholder="Vacío = no dejar adelanto"
+                :disabled="pagosOcupado"
+              />
+            </label>
+            <p v-if="adelantoParcial" class="ok">
+              Se anotan {{ eurosFinal(importeAdelantoNumero) }} € y el albarán queda pendiente.
+              El ticket está deshabilitado mientras deja un adelanto parcial.
+            </p>
+            <p v-else-if="adelantoExcede" class="warn">
+              El importe supera lo pendiente ({{ eurosFinal(cobraAhoraFinal) }} €).
+            </p>
+            <p v-else-if="adelantoCubrePendiente" class="warn">
+              Ese importe es todo lo pendiente. Elija Ticket para liquidarlo.
+            </p>
+            <p v-else-if="adelantoFinal > 0.004 && cobraAhoraFinal > 0.004" class="ok">
+              Al entregar, elija Ticket: se cobran {{ eurosFinal(cobraAhoraFinal) }} €
+              y lo ya a cuenta no vuelve a entrar en la caja.
+            </p>
+          </div>
+          <div v-if="mostrarSelectorFpago || adelantoParcial" class="fpago-final">
             <label>
               Forma de pago
               <select v-model="fpagoFinal">
@@ -3817,7 +3921,7 @@ onActivated(() => {
               </div>
             </div>
 
-            <div v-else-if="fpagoFinal && importeDocumentoFinal > 0.005" class="vale-bloque">
+            <div v-else-if="fpagoFinal && importeDocumentoFinal > 0.005 && !puedeDejarAdelanto" class="vale-bloque">
               <label>
                 Cuánto con esta forma
                 <span class="vale-dif-detalle">
@@ -3852,8 +3956,12 @@ onActivated(() => {
               </div>
             </div>
           </div>
-          <p v-if="tipoFinal === 'A' && !esTicketCerrado" class="ok">
-            En la caja entra el pago a cuenta anotado en el albarán.
+          <p v-if="tipoFinal === 'A' && !esTicketCerrado && !puedeDejarAdelanto" class="ok">
+            El adelanto ya está en la caja. El resto queda pendiente hasta que se haga el ticket.
+          </p>
+          <p v-if="tipoFinal === 'T' && adelantoFinal > 0.004" class="ok">
+            Total {{ eurosFinal(importeDocumentoFinal) }} € · A cuenta {{ eurosFinal(adelantoFinal) }} €
+            · Se cobra ahora {{ eurosFinal(cobraAhoraFinal) }} €
           </p>
           <p v-if="tipoFinal === 'F' && !esTicketCerrado" class="warn">Factura: el documento quedara bloqueado.</p>
           <div v-if="puntosCanjeFinal && tipoFinal !== 'P' && !esTicketCerrado" class="vale-puntos">
@@ -3879,7 +3987,7 @@ onActivated(() => {
             <button
               type="button"
               class="primary"
-              :disabled="(mostrarSelectorFpago && !fpagoFinal) || (pedirNumeroValeFinal && !valeCodigoFinal) || faltaFormaDiferencia || faltaSegundaForma || (esTicketCerrado && !datosFacturaFinalOk)"
+              :disabled="((mostrarSelectorFpago || adelantoParcial) && !fpagoFinal) || (pedirNumeroValeFinal && !valeCodigoFinal) || faltaFormaDiferencia || faltaSegundaForma || (esTicketCerrado && !datosFacturaFinalOk) || (ticketDeshabilitado && tipoFinal === 'T')"
               @click="confirmarFinalizar"
             >
               Aceptar
@@ -4470,6 +4578,9 @@ tr.comentario td input {
   display: flex;
   gap: 0.5rem;
   align-items: center;
+}
+.tipo-off {
+  opacity: 0.45;
 }
 .vale-puntos {
   display: flex;

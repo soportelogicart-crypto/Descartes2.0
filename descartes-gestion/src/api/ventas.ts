@@ -1,5 +1,6 @@
 import { api } from '@/api/client'
 import { useEncargoVentaStore } from '@/stores/encargoVenta'
+import { useVentasBusquedaStore } from '@/stores/ventasBusqueda'
 import type {
   AbcVentasFiltros,
   AbcVentasResponse,
@@ -184,6 +185,8 @@ export async function registrarAutorizacionTarjetaAlbaran(
 /** Si la venta ha creado/actualizado un encargo (líneas con sobre), avisa al banner del albarán. */
 function avisarEncargo(d: VentaDetalle) {
   if (!d || (d.encargo === undefined && !d.encargoAviso)) return
+  // El listado de ventas guarda una copia de cada fila: sin el encargo, la tarjeta no sale.
+  useVentasBusquedaStore().marcarListadoObsoleto()
   useEncargoVentaStore().registrar({
     empresa: d.empresa,
     tipo: d.tipo,

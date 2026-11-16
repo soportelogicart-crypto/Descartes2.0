@@ -159,8 +159,15 @@ async function buscarPorCodigoBarras(texto: string) {
     items.value = data.items
     total.value = data.total
     if (data.items.length === 1) {
-      busqueda.setNavegacion(data.items)
       const v = data.items[0]
+      const aqui = normalizarEmpresaCodigo(String(puestoContexto.empresaCodigo ?? ''))
+      const delDoc = normalizarEmpresaCodigo(String(v.empresa ?? ''))
+      if (aqui && delDoc && aqui !== delDoc) {
+        error.value = `Este albarán es de la tienda ${etiquetaTienda(v.empresa)}. No está en esta tienda (${etiquetaTienda(aqui)}).`
+        barrasInput.value?.select()
+        return
+      }
+      busqueda.setNavegacion(data.items)
       codigoBarras.value = ''
       await router.push(
         `/ventas/${encodeURIComponent(v.empresa)}/${encodeURIComponent(v.tipo)}/${v.albaran}`
@@ -331,6 +338,12 @@ function nueva() {
 function nombreTienda(codigo: string) {
   const t = tiendas.value.find((x) => x.value === codigo)
   return t ? t.corto : codigo
+}
+
+function etiquetaTienda(codigo: string) {
+  const n = normalizarEmpresaCodigo(String(codigo ?? ''))
+  const t = tiendas.value.find((x) => normalizarEmpresaCodigo(x.value) === n)
+  return t?.label ?? (n || codigo)
 }
 
 function fmtFecha(iso: string | null | undefined) {

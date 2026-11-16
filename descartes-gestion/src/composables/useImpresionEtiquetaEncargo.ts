@@ -44,15 +44,20 @@ function fechaCorta(valor: unknown): string {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : String(valor ?? '')
 }
 
-/** Une varias etiquetas en un solo documento, una por página. */
-function unirPaginas(htmls: string[]): string {
-  if (htmls.length === 1) return htmls[0]
-  const cuerpo = (h: string) => /<body[^>]*>([\s\S]*)<\/body>/i.exec(h)?.[1] ?? ''
-  const salto =
-    '<style>.page{page-break-after:always}.page:last-child{page-break-after:auto}</style>'
-  return htmls[0]
-    .replace(/<body[^>]*>[\s\S]*<\/body>/i, `<body>${htmls.map(cuerpo).join('\n')}</body>`)
-    .replace('</head>', `${salto}</head>`)
+/**
+ * El rollo entra en el driver en vertical (p. ej. 40×76) aunque la etiqueta se diseñe
+ * apaisada (76×40): se gira el contenido 90° y la página pasa a alto×ancho.
+ */
+function girarEtiqueta(html: string, anchoMm: number, altoMm: number): string {
+  const estilo =
+    `<style>@page{size:${altoMm}mm ${anchoMm}mm;margin:0}` +
+    `html,body{width:${altoMm}mm;height:${anchoMm}mm}` +
+    `.giro{position:relative;width:${altoMm}mm;height:${anchoMm}mm;overflow:hidden}` +
+    `.giro>.page{position:absolute;top:0;left:0;transform-origin:0 0;` +
+    `transform:translateX(${altoMm}mm) rotate(90deg)}</style>`
+  return html
+    .replace('</head>', `${estilo}</head>`)
+    .replace(/<body([^>]*)>([\s\S]*)<\/body>/i, '<body$1><div class="giro">$2</div></body>')
 }
 
 /**
@@ -116,14 +121,22 @@ export async function imprimirEtiquetasEncargo(
     )
   )
 
-  await imprimirEtiquetaViaBridge({
-    html: unirPaginas(preparadas.map((p) => p.html)),
-    pageWidthMm: preparadas[0].pageWidthMm,
-    pageHeightMm: preparadas[0].pageHeightMm,
-    copies: 1,
-    impresora: impresora.nombre || undefined,
-    impresoraId: impresora.id ?? undefined,
-    silent: Boolean(impresora.nombre),
-  })
+  // Una etiqueta = un trabajo de impresión. Si se unen en un solo HTML, Chromium
+  // encoge el contenido para que quepan todas en el tamaño de página.
+  const { pageWidthMm: ancho, pageHeightMm: alto } = preparadas[0]
+  const girar = ancho > alto
+  const pageWidthMm = girar ? alto : ancho
+  const pageHeightMm = girar ? ancho : alto
+  for (const prep of preparadas) {
+    await imprimirEtiquetaViaBridge({
+      html: girar ? girarEtiqueta(prep.html, ancho, alto) : prep.html,
+      pageWidthMm,
+      pageHeightMm,
+      copies: 1,
+      impresora: impresora.nombre || undefined,
+      impresoraId: impresora.id ?? undefined,
+      silent: Boolean(impresora.nombre),
+    })
+  }
   return { etiquetas: preparadas.length, impresora: impresora.nombre }
 }

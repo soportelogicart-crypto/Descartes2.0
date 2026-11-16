@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onActivated, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import { extractApiError } from '@/composables/extractApiError'
@@ -23,6 +23,7 @@ type Encargo = {
   albaran: number
   origenNombre: string
   destinoNombre: string
+  tiendaOrigen?: string
   modalidad: string
   etiquetasPedidas: number
   etiquetasImpresas: number
@@ -30,6 +31,9 @@ type Encargo = {
   estado: string
   fechaAlta: string
   codigoBarras?: string
+  importe?: number
+  pagoACuenta?: number
+  pendiente?: number
 }
 
 type FiltroEstado = 'todos' | 'pendientes' | 'entregados'
@@ -64,6 +68,10 @@ function fechaCorta(valor: unknown): string {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : String(valor ?? '')
 }
 
+function euros(valor: unknown): string {
+  return `${Number(valor ?? 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`
+}
+
 const visibles = computed(() => {
   if (filtroEstado.value === 'pendientes') return encargos.value.filter((e) => e.estado !== 'entregado')
   if (filtroEstado.value === 'entregados') return encargos.value.filter((e) => e.estado === 'entregado')
@@ -73,6 +81,47 @@ const visibles = computed(() => {
 onMounted(() => {
   void cargar()
 })
+
+// La vista sigue viva (KeepAlive) al cambiar de sección: al volver hay que releer
+// la lista, porque los encargos creados mientras tanto no estaban.
+const primeraActivacion = ref(true)
+onActivated(() => {
+  if (primeraActivacion.value) {
+    primeraActivacion.value = false
+    return
+  }
+  void cargar()
+})
+
+function codigoTienda(valor: string): string {
+  const t = valor.trim()
+  if (/^\d+$/.test(t)) return String(Number.parseInt(t, 10))
+  return t
+}
+
+/** El lector entrega solo dígitos: tienda + albarán, o el número del albarán. */
+function esLecturaDeEsteEncargo(texto: string, e: Encargo): boolean {
+  const digitos = texto.replace(/\D/g, '')
+  if (!digitos || digitos !== texto.trim()) return false
+  const codigo = String(e.codigoBarras || `${e.albaranEmpresa}${e.albaran}`).replace(/\D/g, '')
+  return digitos === codigo || digitos === String(e.albaran) || digitos === String(e.numero)
+}
+
+/**
+ * El sobre está en la tienda que lo generó. Escanearlo en otra tiene que avisar
+ * y no darlo por encontrado aquí.
+ */
+function avisoDeOtraTienda(texto: string) {
+  const aqui = codigoTienda(String(puesto.empresaCodigo ?? ''))
+  if (!aqui) return
+  const lecturas = encargos.value.filter((e) => esLecturaDeEsteEncargo(texto, e))
+  if (!lecturas.length) return
+  const propios = lecturas.filter((e) => codigoTienda(e.albaranEmpresa) === aqui)
+  if (propios.length) return
+  const e = lecturas[0]
+  const donde = e.origenNombre || e.albaranEmpresa
+  error.value = `Este sobre es de la tienda ${donde}. No está en esta tienda.`
+}
 
 function lecturaNormalizada(texto: string): string {
   let normal = texto.trim().replace(/Ñ/gi, ':')
@@ -107,6 +156,7 @@ async function cargar() {
       if (seq !== listaSeq) return
       if (data?.tipo === 'encargo' && data.encargo) {
         encargos.value = [data.encargo as Encargo]
+        avisoDeOtraTienda(texto)
         return
       }
       if (data?.tipo === 'cliente' && data.cliente) {
@@ -124,6 +174,7 @@ async function cargar() {
     if (seq !== listaSeq) return
     encargos.value = data.items ?? []
     if (texto && !encargos.value.length) aviso.value = 'No hay encargos con ese dato.'
+    else if (texto) avisoDeOtraTienda(texto)
   } catch (e: unknown) {
     if (seq !== listaSeq) return
     encargos.value = []
@@ -294,6 +345,9 @@ function abrirAlbaran(e: Encargo) {
             <th>Fecha</th>
             <th class="num">Sobres</th>
             <th>Cliente</th>
+            <th class="euros">Importe</th>
+            <th class="euros">A cuenta</th>
+            <th class="euros">Pendiente</th>
             <th>Trabajo</th>
             <th>Situación</th>
             <th class="col-acc">Acciones</th>
@@ -311,6 +365,9 @@ function abrirAlbaran(e: Encargo) {
               <span class="nombre">{{ e.nombre }}</span>
               <small>{{ e.telefono }}</small>
             </td>
+            <td class="euros">{{ euros(e.importe) }}</td>
+            <td class="euros">{{ euros(e.pagoACuenta) }}</td>
+            <td class="euros">{{ euros(e.pendiente) }}</td>
             <td>
               <span>{{ e.tipo === 'impresion' ? 'Impresión' : 'Revelado' }} · {{ e.modalidad === 'envio' ? 'Mensajero' : 'Recogida' }}</span>
               <small>{{ e.origenNombre }} → {{ e.destinoNombre }}</small>
@@ -351,7 +408,7 @@ function abrirAlbaran(e: Encargo) {
             </td>
           </tr>
           <tr v-if="!visibles.length">
-            <td colspan="7" class="vacio">No hay encargos que mostrar.</td>
+            <td colspan="10" class="vacio">No hay encargos que mostrar.</td>
           </tr>
         </tbody>
       </table>
@@ -453,6 +510,7 @@ td {
 tbody tr:hover td { background: #f8fafc; }
 td small { display: block; color: #64748b; font-size: 0.78rem; }
 .num { text-align: center; }
+.euros { text-align: right; white-space: nowrap; }
 .codigo { font-weight: 700; color: #1e40af; }
 .nombre { font-weight: 600; }
 .estado {

@@ -175,8 +175,18 @@ export function lineasTotalesTicket(
     tipo: 'doble',
     texto: padLinea('TOTAL', importeCorto(d.totales.importe), ANCHO_TICKET_GRANDE),
   })
+  const aCuenta = Number(d.totales.pagoACuenta) || 0
+  const cobradoAhora = Math.max(0, Math.round((d.totales.importe - aCuenta) * 100) / 100)
+  if (aCuenta > 0.004) {
+    out.push(g('A CUENTA', importeCorto(aCuenta)))
+  }
   const pagos = (d.documento.pagos ?? []).filter((p) => Math.abs(p.importe) > 0.004)
-  if (pagos.length > 1) {
+  if (aCuenta > 0.004) {
+    const fp = str(d, 'documento.formaPago')
+    if (fp && cobradoAhora > 0.004) {
+      out.push(g(fp.toUpperCase().startsWith('ENTREGA') ? fp : `ENTREGA ${fp}`, importeCorto(cobradoAhora)))
+    }
+  } else if (pagos.length > 1) {
     for (const p of pagos) {
       out.push(g(`ENTREGA ${p.codigo}`, importeCorto(p.importe)))
     }

@@ -140,10 +140,58 @@ final class PagoACuentaAlbaranService
     $stmt->execute(['c' => $formaCliente]);
     $cobro = $stmt->fetchColumn();
     $stmt->closeCursor();
-    if ($cobro !== false && (int) $cobro !== 0) {
+    if ($cobro !== false && (int) $cobro !== 0 && !$this->albaranEsEncargo($cab)) {
       return 'El cliente es de contado y no puede llevar pagos a cuenta';
     }
     return '';
+  }
+
+  /**
+   * Contado solo deja adelanto si el trabajo no se lleva ahora: hay encargo
+   * o alguna línea cuyo artículo lleva sobre.
+   *
+   * @param array<string, mixed> $cab
+   */
+  private function albaranEsEncargo(array $cab): bool
+  {
+    $empresa = trim((string) ($cab['Empresa'] ?? ''));
+    $tipo = trim((string) ($cab['Tipo'] ?? ''));
+    $albaran = (int) ($cab['Albaran'] ?? 0);
+    if ($empresa === '' || $tipo === '' || $albaran <= 0) {
+      return false;
+    }
+    $collate = (string) $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql'
+      ? ' COLLATE utf8mb4_general_ci'
+      : '';
+    try {
+      $st = $this->pdo->prepare(
+        "SELECT 1 FROM Encargos
+         WHERE AlbaranEmpresa{$collate} = :e{$collate}
+           AND AlbaranTipo{$collate} = :t{$collate}
+           AND Albaran = :a"
+      );
+      $st->execute(['e' => $empresa, 't' => $tipo, 'a' => $albaran]);
+      $hay = $st->fetchColumn() !== false;
+      $st->closeCursor();
+      if ($hay) {
+        return true;
+      }
+    } catch (\Throwable) {
+      // La tabla Encargos puede no existir todavía.
+    }
+    try {
+      $st = $this->pdo->prepare(
+        'SELECT 1 FROM AlbaranesVentasLin l
+         INNER JOIN Articulos a ON RTRIM(a.Codigo) = RTRIM(l.Articulo)
+         WHERE l.Empresa = :e AND l.Tipo = :t AND l.Albaran = :a AND COALESCE(a.LlevaSobre, 0) = 1'
+      );
+      $st->execute(['e' => $empresa, 't' => $tipo, 'a' => $albaran]);
+      $hay = $st->fetchColumn() !== false;
+      $st->closeCursor();
+      return $hay;
+    } catch (\Throwable) {
+      return false;
+    }
   }
 
   private function exigirEfectivo(string $codigo): string
@@ -529,6 +577,9 @@ final class PagoACuentaAlbaranService
     if ($row === false) {
       throw new \RuntimeException('Albarán no encontrado', 404);
     }
+    $row['Empresa'] = $empresa;
+    $row['Tipo'] = $tipo;
+    $row['Albaran'] = $albaran;
     return $row;
   }
 

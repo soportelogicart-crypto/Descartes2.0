@@ -79,10 +79,8 @@ const importeFmt = (n: number) =>
   `${n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`
 
 const aCuenta = computed(() => Number(props.pagoACuenta ?? 0))
-const pendiente = computed(() => {
-  if (props.importe == null) return null
-  return Math.max(0, Number(props.importe) - aCuenta.value)
-})
+const totalEncargo = computed(() => Number(props.importe ?? 0))
+const pendiente = computed(() => Math.max(0, totalEncargo.value - aCuenta.value))
 
 watch(
   () => [props.empresa, props.tipo, props.albaran] as const,
@@ -249,10 +247,15 @@ function volver() {
               </select>
             </label>
             <span v-else>{{ encargo.modalidad === 'envio' ? 'Mensajero' : 'Recogida en tienda' }}</span>
-            <span v-if="aCuenta > 0" class="cuenta">
-              A cuenta {{ importeFmt(aCuenta) }}<template v-if="pendiente != null"> · Pendiente {{ importeFmt(pendiente) }}</template>
-            </span>
           </div>
+          <div class="dinero">
+            <span>Total {{ importeFmt(totalEncargo) }}</span>
+            <span>A cuenta {{ importeFmt(aCuenta) }}</span>
+            <span class="pendiente">Pendiente {{ importeFmt(pendiente) }}</span>
+          </div>
+          <p v-if="encargo.estado !== 'entregado' && pendiente > 0.004" class="pista">
+            El adelanto se anota al finalizar, con una sola forma de pago.
+          </p>
           <p class="pista">
             {{ encargo.estado !== 'entregado'
               ? 'Se entrega cuando el cliente recoge el carrete; el cobro no lo marca como entregado.'
@@ -369,7 +372,35 @@ function volver() {
   background: #fff;
   font-size: 0.85rem;
 }
-.cuenta { font-weight: 600; color: #1e293b; }
+.dinero {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1rem;
+  font-weight: 600;
+}
+.dinero .pendiente { color: #b45309; }
+.adelanto {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  margin-top: 0.35rem;
+}
+.adelanto label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.78rem;
+  color: #64748b;
+}
+.adelanto select {
+  padding: 0.25rem 0.4rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 0.85rem;
+  color: #1e293b;
+}
 .pista { margin: 0; color: #64748b; font-size: 0.8rem; }
 .acciones {
   display: flex;

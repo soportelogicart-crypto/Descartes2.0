@@ -86,6 +86,8 @@ export type DocumentoPreviewDatos = {
     basRetIrpf?: number
     impRetIrpf?: number
     liquido?: number
+    /** Adelanto ya cobrado. El ticket imprime el resto como entrega de ahora. */
+    pagoACuenta?: number
   }
   fidelizacion?: {
     puntosCompra: number

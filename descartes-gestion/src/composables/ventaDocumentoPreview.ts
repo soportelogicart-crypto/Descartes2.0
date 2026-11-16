@@ -23,6 +23,40 @@ function redondear2(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100
 }
 
+function eurosDoc(n: number): string {
+  return `${(Number(n) || 0).toFixed(2).replace('.', ',')} €`
+}
+
+function formaDelPago(p: { formaPago?: string; formaPagoNombre?: string }): string {
+  const nombre = String(p.formaPagoNombre ?? '').trim()
+  if (nombre) return nombre
+  return String(p.formaPago ?? '').trim()
+}
+
+/** Una línea por entrega. Con una sola, la forma va en la misma frase. */
+export function textoPagosACuenta(
+  total: number,
+  items: { importe: number; formaPago?: string; formaPagoNombre?: string; fecha?: string }[] | undefined,
+): string {
+  const lineas = (items ?? []).filter((p) => Math.abs(Number(p.importe) || 0) > 0.004)
+  if (!lineas.length) {
+    return total > 0.004 ? `Pago a cuenta: ${eurosDoc(total)}` : ''
+  }
+  if (lineas.length === 1) {
+    const forma = formaDelPago(lineas[0])
+    const importe = eurosDoc(lineas[0].importe)
+    return forma ? `Pago a cuenta: ${importe} ${forma}` : `Pago a cuenta: ${importe}`
+  }
+  return lineas
+    .map((p) => {
+      const forma = formaDelPago(p)
+      const fecha = String(p.fecha ?? '').trim().slice(0, 10)
+      const rotulo = fecha ? `Pago a cuenta ${fecha}` : 'Pago a cuenta'
+      return forma ? `${rotulo}: ${eurosDoc(p.importe)} ${forma}` : `${rotulo}: ${eurosDoc(p.importe)}`
+    })
+    .join('\n')
+}
+
 /** Artículos con Control fitosanitario (Articulos.PasaporteFitosanitario). */
 export function lineaRequiereAsteriscoPasaporteFito(l: VentaLinea): boolean {
   return Boolean(l.pasaporteFitosanitario)
@@ -108,6 +142,8 @@ export function ventaAPreviewDatos(
     plantillaTipo?: string
     /** Imprime PrecioTarifa. No cambia los importes guardados. */
     preciosVenta?: boolean
+    /** Entregas a cuenta, cada una con su forma. En crédito puede haber varias. */
+    pagosACuenta?: { importe: number; formaPago?: string; formaPagoNombre?: string; fecha?: string }[]
   } = {}
 ): DocumentoPreviewDatos {
   const ivas = (venta.importesIva ?? []).map((x) => ({
@@ -131,7 +167,7 @@ export function ventaAPreviewDatos(
     numeroOffline ? 'EMITIDO SIN CONEXIÓN' : '',
     String(venta.clienteFinal ?? '').trim() ? `Cliente final: ${String(venta.clienteFinal).trim()}` : '',
     refs.length ? `Ref. cliente: ${refs.join(' · ')}` : '',
-    pagoACuenta > 0.004 ? `A cuenta: ${pagoACuenta.toFixed(2)}` : '',
+    textoPagosACuenta(pagoACuenta, extras.pagosACuenta),
     String(venta.observaciones ?? '').trim(),
   ]
     .filter(Boolean)
@@ -307,6 +343,7 @@ export function ventaAPreviewDatos(
       pjeRetIrpf: Number(venta.pjeRetIrpf) || 0,
       basRetIrpf: redondear2(Number(venta.basRetIrpf) || 0),
       impRetIrpf: redondear2(Number(venta.impRetIrpf) || 0),
+      pagoACuenta: redondear2(pagoACuenta),
       liquido: extras.preciosVenta
         ? importePvp
         : redondear2(

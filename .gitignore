@@ -33,6 +33,9 @@ composer.lock
 .phpunit.result.cache
 coverage/
 
+# Volcados y bloques locales de importación
+tmp/
+
 # Legacy / copias locales (no subir a GitHub)
 DesAbacusIA/
 Descartez-xampp/

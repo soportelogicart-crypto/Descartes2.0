@@ -25,11 +25,15 @@ final class EncargoService
 
   public function asegurar(): void
   {
-    if (self::$asegurado) {
+    if (!self::$asegurado) {
+      $this->asegurarEsquema();
+      self::$asegurado = true;
       return;
     }
-    $this->asegurarEsquema();
-    self::$asegurado = true;
+    // En procesos PHP largos: si el hosting creó la tabla mal, reintentar la collation.
+    if ($this->esMysql()) {
+      $this->igualarCollationEncargos();
+    }
   }
 
   private function asegurarEsquema(): void
@@ -87,12 +91,16 @@ final class EncargoService
         ) ENGINE=InnoDB'
       );
       $this->pdo->exec('INSERT IGNORE INTO EncargoSecuencia (Id, Ultimo) VALUES (1, 0)');
-      $this->pdo->exec('ALTER TABLE Encargos CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci');
-      $this->pdo->exec('ALTER TABLE EncargoEmails CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci');
-      $this->pdo->exec('CREATE INDEX IF NOT EXISTS ix_Clientes_RazonSocial ON Clientes (RazonSocial)');
-      $this->pdo->exec('CREATE INDEX IF NOT EXISTS ix_Clientes_Telefono1 ON Clientes (Telefono1)');
-      $this->pdo->exec('CREATE INDEX IF NOT EXISTS ix_Clientes_Telefono2 ON Clientes (Telefono2)');
       $this->ampliarEncargos();
+      // Después de crear/ampliar: si la tabla nació con unicode_ci (hosting), la igualamos solas.
+      $this->igualarCollationEncargos();
+      foreach (['RazonSocial', 'Telefono1', 'Telefono2'] as $col) {
+        try {
+          $this->pdo->exec("CREATE INDEX IF NOT EXISTS ix_Clientes_{$col} ON Clientes ({$col})");
+        } catch (\Throwable) {
+          // MySQL antiguo o índice ya presente: no bloquea el resto.
+        }
+      }
       return;
     }
 
@@ -150,21 +158,83 @@ final class EncargoService
     $this->ampliarEncargos();
   }
 
+  /**
+   * JOIN con Clientes/Empresas forzando la misma collation.
+   * Así el listado funciona aunque el hosting no deje hacer ALTER TABLE.
+   */
+  private function joinEncargoClienteTiendas(): string
+  {
+    if ($this->esMysql()) {
+      return 'LEFT JOIN Clientes c ON RTRIM(c.Codigo) COLLATE utf8mb4_general_ci = e.Cliente COLLATE utf8mb4_general_ci
+            LEFT JOIN Empresas_Ges o ON RTRIM(o.Codigo) COLLATE utf8mb4_general_ci = e.TiendaOrigen COLLATE utf8mb4_general_ci
+            LEFT JOIN Empresas_Ges d ON RTRIM(d.Codigo) COLLATE utf8mb4_general_ci = e.TiendaDestino COLLATE utf8mb4_general_ci';
+    }
+    return 'LEFT JOIN Clientes c ON RTRIM(c.Codigo) = e.Cliente
+            LEFT JOIN Empresas_Ges o ON RTRIM(o.Codigo) = e.TiendaOrigen
+            LEFT JOIN Empresas_Ges d ON RTRIM(d.Codigo) = e.TiendaDestino';
+  }
+
+  /** Importe y adelanto del albarán. COLLATE para no chocar con Encargos en el hosting. */
+  private function joinAlbaranCabecera(): string
+  {
+    if ($this->esMysql()) {
+      return 'LEFT JOIN AlbaranesVentasCab cab
+              ON RTRIM(cab.Empresa) COLLATE utf8mb4_general_ci = e.AlbaranEmpresa COLLATE utf8mb4_general_ci
+             AND RTRIM(cab.Tipo) COLLATE utf8mb4_general_ci = e.AlbaranTipo COLLATE utf8mb4_general_ci
+             AND cab.Albaran = e.Albaran';
+    }
+    return 'LEFT JOIN AlbaranesVentasCab cab
+            ON RTRIM(cab.Empresa) = e.AlbaranEmpresa
+           AND RTRIM(cab.Tipo) = e.AlbaranTipo
+           AND cab.Albaran = e.Albaran';
+  }
+
+  /**
+   * En el hosting las tablas Encargos a menudo nacen con utf8mb4_unicode_ci y
+   * Clientes/Empresas_Ges van con utf8mb4_general_ci → error 1267 en los JOIN.
+   * Se corrige solo, sin tocar phpMyAdmin.
+   */
+  private function igualarCollationEncargos(): void
+  {
+    if (!$this->esMysql()) {
+      return;
+    }
+    foreach (['Encargos', 'EncargoEmails'] as $tabla) {
+      try {
+        $st = $this->pdo->prepare(
+          'SELECT TABLE_COLLATION FROM information_schema.TABLES
+           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t'
+        );
+        $st->execute(['t' => $tabla]);
+        $collation = strtolower((string) $st->fetchColumn());
+        if ($collation === '' || $collation === 'utf8mb4_general_ci') {
+          continue;
+        }
+        $this->pdo->exec(
+          "ALTER TABLE `{$tabla}` CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"
+        );
+      } catch (\Throwable) {
+        // Sin permiso ALTER en algún hosting: el listado fallará hasta que se pueda.
+      }
+    }
+  }
+
   private function ampliarEncargos(): void
   {
     $nuevaSituacion = !$this->tieneColumna('Encargos', 'Estado');
+    $collate = $this->esMysql() ? ' COLLATE utf8mb4_general_ci' : '';
     if (!$this->tieneColumna('Encargos', 'Tipo')) {
       $tipo = $this->esMysql() ? 'VARCHAR(12)' : 'NVARCHAR(12)';
-      $this->pdo->exec("ALTER TABLE Encargos ADD Tipo {$tipo} NOT NULL DEFAULT 'revelado'");
+      $this->pdo->exec("ALTER TABLE Encargos ADD Tipo {$tipo}{$collate} NOT NULL DEFAULT 'revelado'");
     }
     if (!$this->tieneColumna('Encargos', 'Origen')) {
       // 'venta' = nacido de líneas con sobre: se mantiene solo desde la venta. 'manual' = pantalla antigua.
       $origen = $this->esMysql() ? 'VARCHAR(12)' : 'NVARCHAR(12)';
-      $this->pdo->exec("ALTER TABLE Encargos ADD Origen {$origen} NOT NULL DEFAULT 'manual'");
+      $this->pdo->exec("ALTER TABLE Encargos ADD Origen {$origen}{$collate} NOT NULL DEFAULT 'manual'");
     }
     if ($nuevaSituacion) {
       $estado = $this->esMysql() ? 'VARCHAR(32)' : 'NVARCHAR(32)';
-      $this->pdo->exec("ALTER TABLE Encargos ADD Estado {$estado} NOT NULL DEFAULT 'pendiente_realizar'");
+      $this->pdo->exec("ALTER TABLE Encargos ADD Estado {$estado}{$collate} NOT NULL DEFAULT 'pendiente_realizar'");
       $this->pdo->exec(
         "UPDATE Encargos SET Estado = CASE
           WHEN EstadoSobre = 'entregado' OR EstadoTrabajo = 'finalizado' THEN 'entregado'
@@ -230,11 +300,12 @@ final class EncargoService
     }
     $sql = 'SELECT e.*, c.RazonSocial AS Nombre, c.Telefono1 AS Telefono, c.Telefono2 AS Telefono2, c.Email AS Email,
               c.Direccion AS DireccionCliente, c.CodigoPostal AS CodigoPostal, c.Poblacion AS Poblacion, c.Provincia AS Provincia,
-              o.Nombre AS OrigenNombre, d.Nombre AS DestinoNombre
+              o.Nombre AS OrigenNombre, d.Nombre AS DestinoNombre,
+              cab.Importe AS ImporteAlbaran, cab.PagoaCuenta AS PagoACuenta,
+              cab.FacturaTipo AS FacturaTipoAlbaran, cab.Factura AS NumeroFacturaAlbaran
             FROM Encargos e
-            LEFT JOIN Clientes c ON RTRIM(c.Codigo) = e.Cliente
-            LEFT JOIN Empresas_Ges o ON RTRIM(o.Codigo) = e.TiendaOrigen
-            LEFT JOIN Empresas_Ges d ON RTRIM(d.Codigo) = e.TiendaDestino
+            ' . $this->joinEncargoClienteTiendas() . '
+            ' . $this->joinAlbaranCabecera() . '
             WHERE ' . implode(' AND ', $where) . '
             ORDER BY e.FechaAlta DESC, e.Numero DESC
             LIMIT 200';
@@ -1394,9 +1465,7 @@ final class EncargoService
               c.Direccion AS DireccionCliente, c.CodigoPostal AS CodigoPostal, c.Poblacion AS Poblacion, c.Provincia AS Provincia,
               o.Nombre AS OrigenNombre, d.Nombre AS DestinoNombre
        FROM Encargos e
-       LEFT JOIN Clientes c ON RTRIM(c.Codigo) = e.Cliente
-       LEFT JOIN Empresas_Ges o ON RTRIM(o.Codigo) = e.TiendaOrigen
-       LEFT JOIN Empresas_Ges d ON RTRIM(d.Codigo) = e.TiendaDestino
+       ' . $this->joinEncargoClienteTiendas() . '
        WHERE e.Numero = :n'
     );
     $st->execute(['n' => $numero]);
@@ -1416,9 +1485,7 @@ final class EncargoService
               c.Direccion AS DireccionCliente, c.CodigoPostal AS CodigoPostal, c.Poblacion AS Poblacion, c.Provincia AS Provincia,
               o.Nombre AS OrigenNombre, d.Nombre AS DestinoNombre
        FROM Encargos e
-       LEFT JOIN Clientes c ON RTRIM(c.Codigo) = e.Cliente
-       LEFT JOIN Empresas_Ges o ON RTRIM(o.Codigo) = e.TiendaOrigen
-       LEFT JOIN Empresas_Ges d ON RTRIM(d.Codigo) = e.TiendaDestino
+       ' . $this->joinEncargoClienteTiendas() . '
        WHERE e.AlbaranEmpresa = :e AND e.AlbaranTipo = :t AND e.Albaran = :a'
     );
     $st->execute(['e' => trim($empresa), 't' => trim($tipo), 'a' => $albaran]);
@@ -1472,7 +1539,28 @@ final class EncargoService
       // Tienda + albarán: lo que lleva el código de barras de la etiqueta y busca el listado de ventas.
       'codigoBarras' => trim((string) $row['AlbaranEmpresa']) . $albaran,
       'origen' => (string) ($row['Origen'] ?? 'manual'),
+      'importe' => round((float) ($row['ImporteAlbaran'] ?? 0), 2),
+      'pagoACuenta' => round((float) ($row['PagoACuenta'] ?? 0), 2),
+      'pendiente' => $this->pendienteEncargo($row),
     ];
+  }
+
+  /**
+   * Ticket o factura ya liquidan el documento: no queda importe pendiente.
+   * El albarán abierto sigue debiendo el total menos el adelanto.
+   *
+   * @param array<string, mixed> $row
+   */
+  private function pendienteEncargo(array $row): float
+  {
+    $tipoDoc = strtoupper(trim((string) ($row['FacturaTipoAlbaran'] ?? '')));
+    $factura = (int) ($row['NumeroFacturaAlbaran'] ?? 0);
+    if (($tipoDoc === 'T' && $factura > 0) || $tipoDoc === 'F' || ($tipoDoc === 'A' && $factura > 0)) {
+      return 0.0;
+    }
+    $importe = (float) ($row['ImporteAlbaran'] ?? 0);
+    $aCuenta = (float) ($row['PagoACuenta'] ?? 0);
+    return round(max(0, $importe - $aCuenta), 2);
   }
 
   /** @return array{codigo: string, nombre: string, nif: string, telefono: string, email: string, direccion: string, codigoPostal: string, poblacion: string, provincia: string, formaPago: string} */

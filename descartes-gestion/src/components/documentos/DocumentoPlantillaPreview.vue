@@ -122,6 +122,11 @@ function blockStyle(b: PlantillaBloque) {
   if (accentSoft) style['--block-accent-soft'] = accentSoft
   const accentText = String(b.props?.accentTextColor ?? '').trim()
   if (accentText) style['--block-accent-text'] = accentText
+  if (observacionesAmplias(b)) {
+    style.overflow = 'visible'
+    style.height = 'auto'
+    style.minHeight = `${b.h * pxPerMm.value}px`
+  }
   return style
 }
 
@@ -318,6 +323,22 @@ function campoVisible(b: PlantillaBloque): boolean {
   return path ? str(path) !== '' : true
 }
 
+function textoCampo(b: PlantillaBloque, path: string): string {
+  if (b.props?.format === 'importe') return formatImporte(Number(str(path) || 0))
+  return str(path)
+}
+
+/** Cada salto de línea del dato es una línea impresa (varios pagos a cuenta). */
+function lineasCampo(b: PlantillaBloque): string[] {
+  const texto = (b.bind ?? []).map((path) => textoCampo(b, path)).join('\n')
+  const partes = texto.split('\n').filter((linea) => linea.trim() !== '')
+  return partes.length ? partes : ['']
+}
+
+function observacionesAmplias(b: PlantillaBloque): boolean {
+  return b.type === 'campo' && (b.bind ?? []).includes('documento.observaciones')
+}
+
 function metaFilas(b: PlantillaBloque): { label: string; valor: string }[] {
   const paths = b.bind && b.bind.length > 0 ? b.bind : META_FILAS_DEFECTO
   const ocultarVacias = b.props?.ocultarVacias === true
@@ -389,7 +410,7 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
           v-for="b in plantilla.blocks.filter((bloque) => bloque.type !== 'qr-verifactu')"
           :key="b.id"
           class="block"
-          :class="`type-${b.type}`"
+          :class="[`type-${b.type}`, { 'obs-amplia': observacionesAmplias(b) }]"
           :style="blockStyle(b)"
         >
           <!-- Emblema -->
@@ -531,9 +552,7 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
                 :class="{ 'campo-label-plana': b.props?.etiquetaPlana === true }"
                 >{{ rotulo(b.label) }}</span
               >
-              <span v-for="path in b.bind ?? []" :key="path">{{
-                b.props?.format === 'importe' ? formatImporte(Number(str(path) || 0)) : str(path)
-              }}</span>
+              <span v-for="(linea, i) in lineasCampo(b)" :key="i">{{ linea }}</span>
             </div>
           </template>
 

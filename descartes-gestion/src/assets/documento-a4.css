@@ -156,6 +156,17 @@
   color: #0f172a;
 }
 
+/* Varios pagos a cuenta: cada línea se lee entera, sin recortar el recuadro. */
+.block.obs-amplia {
+  overflow: visible;
+  height: auto !important;
+  min-height: 9mm;
+}
+
+.block.obs-amplia .campo {
+  height: auto;
+}
+
 .cli-cod {
   display: flex;
   align-items: center;

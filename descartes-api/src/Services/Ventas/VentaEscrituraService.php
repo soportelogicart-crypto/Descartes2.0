@@ -533,8 +533,13 @@ final class VentaEscrituraService
       }
     }
 
-    // Cliente de contado = forma de pago con CobroDeArqueo: no permite Albaran.
-    if ($opcion === 'A' && $this->esFormaPagoContado($actual)) {
+    // Contado no cierra como albarán, salvo un encargo: el adelanto se queda ahí
+    // y el ticket solo se hace cuando el cliente paga el resto.
+    if (
+      $opcion === 'A'
+      && $this->esFormaPagoContado($actual)
+      && !$this->albaranEsEncargo($empresa, $tipoActual, $albaran)
+    ) {
       throw new \InvalidArgumentException(
         'Cliente de contado: no se puede finalizar como albaran. Use Ticket o Factura.'
       );
@@ -3168,6 +3173,20 @@ final class VentaEscrituraService
       $this->arqueo->incrementarContadorDocumento($empresaArq, $puesto, $sesion, 'Tickets', $importe);
     } elseif ($opcion === 'F') {
       $this->arqueo->incrementarContadorDocumento($empresaArq, $puesto, $sesion, 'Facturas', $importe);
+    }
+  }
+
+  /** Encargo o línea con sobre: el albarán puede quedar abierto con un adelanto. */
+  private function albaranEsEncargo(string $empresa, string $tipo, int $albaran): bool
+  {
+    try {
+      $encargos = new EncargoService($this->pdo);
+      if ($encargos->porAlbaran($empresa, $tipo, $albaran) !== null) {
+        return true;
+      }
+      return $encargos->lineasConSobre($empresa, $tipo, $albaran) !== [];
+    } catch (\Throwable) {
+      return false;
     }
   }
 

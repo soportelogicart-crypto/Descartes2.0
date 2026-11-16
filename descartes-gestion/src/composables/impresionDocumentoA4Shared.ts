@@ -250,18 +250,24 @@ export async function resolverNombreImpresoraDoc(
     try {
       const listed = await bridge.listPrinters()
       const printers = listed.printers || []
-      if (id != null && id > 0) {
-        const byId = printers.find((p) => p.id === id)
-        if (byId) return { nombre: byId.name, id }
-      }
+      // Primero el nombre guardado: el id de Electron es la posición en la lista de Windows
+      // y cambia cuando se añade o reordena una impresora (un albarán acababa en «Fax»).
       if (corto) {
         const w = corto.toLowerCase()
+        const exacta = printers.find(
+          (p) => p.name.toLowerCase() === w || String(p.displayName || '').toLowerCase() === w
+        )
+        if (exacta) return { nombre: exacta.name, id: exacta.id }
         const hit = printers.find((p) => {
           const n = p.name.toLowerCase()
           const d = String(p.displayName || '').toLowerCase()
-          return n === w || d === w || n.startsWith(w) || d.startsWith(w) || n.includes(w)
+          return n.startsWith(w) || d.startsWith(w) || n.includes(w)
         })
         if (hit) return { nombre: hit.name, id: hit.id }
+      }
+      if (id != null && id > 0) {
+        const byId = printers.find((p) => p.id === id)
+        if (byId) return { nombre: byId.name, id }
       }
     } catch {
       /* ignore */

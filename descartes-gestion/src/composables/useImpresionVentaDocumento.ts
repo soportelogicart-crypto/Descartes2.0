@@ -1,5 +1,5 @@
 import { api } from '@/api/client'
-import { marcarVentaImpresa } from '@/api/ventas'
+import { listarPagosACuenta, marcarVentaImpresa, type PagoACuentaItem } from '@/api/ventas'
 import {
   TICKET_MARCA_BARRAS,
   TICKET_MARCA_DOBLE,
@@ -73,6 +73,21 @@ export async function precalentarImpresion(puestoCodigo: string, empresa: string
   ])
 }
 
+/** Las entregas ya cobradas, para imprimir cada una con su forma de pago. */
+async function pagosACuentaDeVenta(venta: VentaDetalle): Promise<PagoACuentaItem[]> {
+  if ((Number(venta.pagoACuenta) || 0) <= 0.004) return []
+  const empresa = String(venta.empresa ?? '').trim()
+  const tipo = String(venta.tipo ?? '').trim()
+  const albaran = Number(venta.albaran) || 0
+  if (!empresa || !tipo || albaran <= 0) return []
+  try {
+    const lista = await listarPagosACuenta(empresa, tipo, albaran)
+    return lista.items ?? []
+  } catch {
+    return []
+  }
+}
+
 /** A4 al forzar folio: un ticket recuperado se imprime como albarán. */
 function metaA4Forzado(venta: VentaDetalle) {
   const meta = tipoPlantillaDesdeVenta(venta)
@@ -104,11 +119,12 @@ export async function prepararOImprimirVenta(
     throw new Error('Configure el puesto de este equipo para imprimir.')
   }
 
-  const [puesto, tienda, plantillas, vendedorNombre] = await Promise.all([
+  const [puesto, tienda, plantillas, vendedorNombre, pagosACuenta] = await Promise.all([
     cargarPuesto(puestoCodigo),
     cargarTienda(String(venta.empresa || '').trim()),
     cargarPlantillasEmpresa(String(venta.empresa || '').trim()),
     nombreTrabajador(String(venta.vendedor ?? '')),
+    pagosACuentaDeVenta(venta),
   ])
 
   const extras = await extrasEmpresaParaDocumento(
@@ -122,6 +138,7 @@ export async function prepararOImprimirVenta(
     vendedorNombre,
     plantillaTipo: meta.plantillaTipo,
     preciosVenta: opciones.preciosVenta,
+    pagosACuenta,
   })
   const receipt = String(opciones.receiptDatafono ?? '').trim()
   let comprobanteTarjeta: ComprobanteTarjetaDatos | null = null
@@ -272,11 +289,12 @@ export async function pdfBase64TicketVenta(
   if (!puestoCodigo) {
     throw new Error('Configure el puesto de este equipo para imprimir.')
   }
-  const [puesto, tienda, plantillas, vendedorNombre] = await Promise.all([
+  const [puesto, tienda, plantillas, vendedorNombre, pagosACuenta] = await Promise.all([
     cargarPuesto(puestoCodigo),
     cargarTienda(String(venta.empresa || '').trim()),
     cargarPlantillasEmpresa(String(venta.empresa || '').trim()),
     nombreTrabajador(String(venta.vendedor ?? '')),
+    pagosACuentaDeVenta(venta),
   ])
   const extras = await extrasEmpresaParaDocumento(
     tienda,
@@ -287,6 +305,7 @@ export async function pdfBase64TicketVenta(
     ...extras,
     literalesPuesto: literalesDesdePuesto(puesto),
     vendedorNombre,
+    pagosACuenta,
   })
   const receipt = String(opciones.receiptDatafono ?? '').trim()
   if (receipt) {
