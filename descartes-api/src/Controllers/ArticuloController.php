@@ -315,6 +315,24 @@ final class ArticuloController
     $stmt->execute(['ficha' => $ficha, 'c' => $codigo]);
   }
 
+  public function marcarLlevaSobre(Request $request, Response $response): Response
+  {
+    $body = (array) ($request->getParsedBody() ?? []);
+    $codigos = $body['codigos'] ?? [];
+    if (!is_array($codigos)) {
+      return ErrorResponse::json($response, 400, 'Indique la lista de articulos', 'VALIDACION');
+    }
+    $valor = filter_var($body['llevaSobre'] ?? false, FILTER_VALIDATE_BOOL);
+    try {
+      $actualizados = $this->mantenimientoService->marcarLlevaSobre($codigos, $valor);
+      return $this->json($response, 200, ['actualizados' => $actualizados, 'llevaSobre' => $valor]);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
   private function json(Response $response, int $status, array $payload): Response
   {
     $out = new SlimResponse($status);

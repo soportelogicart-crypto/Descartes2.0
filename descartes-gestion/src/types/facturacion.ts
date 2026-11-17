@@ -187,6 +187,8 @@ export type FacturaImpresionItem = {
   importe: number
   fpago: string
   impresa: boolean
+  /** El cliente tiene Factura-e: se puede descargar el XML. */
+  facturaE?: boolean
   estado: string
   /** true solo en contado diferido TPV (no es crédito). */
   facturaContadoDiferida?: boolean

@@ -9,6 +9,7 @@ use Descartes\Api\Services\Facturacion\AlbaranesPendientesService;
 use Descartes\Api\Services\Facturacion\AlbaranesPeriodicosService;
 use Descartes\Api\Services\Facturacion\DiarioFacturacionService;
 use Descartes\Api\Services\Facturacion\FacturaEmailService;
+use Descartes\Api\Services\Facturacion\FacturaeXmlService;
 use Descartes\Api\Services\Facturacion\GeneracionFacturasManualService;
 use Descartes\Api\Services\Facturacion\ImpresionFacturasService;
 use Descartes\Api\Services\Facturacion\ImpresionRecibosService;
@@ -24,6 +25,7 @@ final class FacturacionController
   private GeneracionFacturasManualService $manual;
   private FacturaEmailService $facturaEmail;
   private ImpresionFacturasService $impresion;
+  private FacturaeXmlService $facturae;
   private ImpresionRecibosService $impresionRecibos;
   private TraspasoComercialService $traspaso;
   private AlbaranesPeriodicosService $periodicos;
@@ -37,6 +39,7 @@ final class FacturacionController
     GeneracionFacturasManualService $manual,
     FacturaEmailService $facturaEmail,
     ImpresionFacturasService $impresion,
+    FacturaeXmlService $facturae,
     ImpresionRecibosService $impresionRecibos,
     TraspasoComercialService $traspaso,
     AlbaranesPeriodicosService $periodicos,
@@ -49,6 +52,7 @@ final class FacturacionController
     $this->manual = $manual;
     $this->facturaEmail = $facturaEmail;
     $this->impresion = $impresion;
+    $this->facturae = $facturae;
     $this->impresionRecibos = $impresionRecibos;
     $this->traspaso = $traspaso;
     $this->periodicos = $periodicos;
@@ -216,6 +220,36 @@ final class FacturacionController
         ->withHeader('Content-Type', 'application/pdf')
         ->withHeader('Content-Disposition', 'attachment; filename="facturas.pdf"')
         ->withHeader('Content-Length', (string) strlen($pdf))
+        ->withStatus(200);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function facturaeImpresion(Request $request, Response $response, array $args): Response
+  {
+    try {
+      $generado = $this->facturae->generar(
+        (string) ($args['empresa'] ?? ''),
+        strtoupper((string) ($args['facturaTipo'] ?? '')),
+        (int) ($args['factura'] ?? 0)
+      );
+      $xml = $generado['xml'];
+      $nombre = $generado['filename'];
+      $this->logger->info('Facturae XML generado', [
+        'source' => 'api',
+        'action' => 'facturacion.impresion.facturae',
+        'bytes' => strlen($xml),
+      ]);
+      $response->getBody()->write($xml);
+      return $response
+        ->withHeader('Content-Type', 'application/xml; charset=utf-8')
+        ->withHeader('Content-Disposition', 'attachment; filename="' . $nombre . '"')
+        ->withHeader('Content-Length', (string) strlen($xml))
         ->withStatus(200);
     } catch (\InvalidArgumentException $e) {
       return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');

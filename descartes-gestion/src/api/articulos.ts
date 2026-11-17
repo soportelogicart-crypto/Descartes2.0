@@ -68,3 +68,10 @@ export async function asignarProveedorHabitualArticulo(
     proveedorHabitual: p,
   })
 }
+
+/** Marca o quita «Lleva sobre» en los artículos que se están viendo. */
+export async function marcarLlevaSobreArticulos(codigos: string[], llevaSobre: boolean): Promise<void> {
+  const lista = codigos.map((c) => c.trim()).filter(Boolean)
+  if (!lista.length) return
+  await api.post('/api/mantenimiento/articulos/lleva-sobre', { codigos: lista, llevaSobre })
+}

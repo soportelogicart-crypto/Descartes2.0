@@ -4,6 +4,7 @@ import { computed, nextTick, onActivated, onMounted, onUnmounted, ref, watch } f
 import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api/client'
+import { marcarLlevaSobreArticulos } from '@/api/articulos'
 import { extractApiError, useMantenimiento } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
 import { filtrosIniciales, type ColumnFilter } from '@/composables/useGridColumnFilters'
@@ -71,6 +72,8 @@ const busqueda = useArticulosBusquedaStore()
 
 const puedeCrear = computed(() => puede(MODULO, 'crear'))
 const puedeEditar = computed(() => puede(MODULO, 'editar'))
+/** Las casillas de sobre no responden hasta pulsar el botón. */
+const sobresActivos = ref(false)
 const puedeEliminar = computed(() => puede(MODULO, 'eliminar'))
 /** Impresión rápida etiquetas (005 / US1): módulo etiquetas. */
 const puedeEtiquetasVer = computed(() => puede('etiquetas', 'ver'))
@@ -526,6 +529,50 @@ const {
   mensajeExito: 'Articulo eliminado',
 })
 
+function aplicarLlevaSobre(codigos: string[], valor: boolean) {
+  const set = new Set(codigos)
+  filasTodas.value = filasTodas.value.map((fila) =>
+    set.has(String(fila.codigo ?? '').trim()) ? { ...fila, llevaSobre: valor } : fila
+  )
+}
+
+async function onCeldaArticulo(_index: number, fila: ArticuloFila) {
+  if (!puedeEditar.value || !sobresActivos.value || fila._nuevo) return
+  const codigo = String(fila.codigo ?? '').trim()
+  if (!codigo) return
+  const valor = fila.llevaSobre === true
+  const anterior = filasTodas.value.find((f) => String(f.codigo ?? '').trim() === codigo)
+  if (anterior && Boolean(anterior.llevaSobre) === valor) return
+  error.value = null
+  try {
+    await api.put(`/api/mantenimiento/articulos/${encodeURIComponent(codigo)}`, { llevaSobre: valor })
+    aplicarLlevaSobre([codigo], valor)
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo marcar el sobre')
+  }
+}
+
+async function onMarcarColumna(key: string, valor: boolean) {
+  if (key !== 'llevaSobre' || !puedeEditar.value || !sobresActivos.value || loading.value) return
+  const codigos = filasFiltradasGrid.value
+    .map((fila) => String(fila.codigo ?? '').trim())
+    .filter(Boolean)
+  if (!codigos.length) return
+  error.value = null
+  loading.value = true
+  try {
+    await marcarLlevaSobreArticulos(codigos, valor)
+    aplicarLlevaSobre(codigos, valor)
+    mensaje.value = valor
+      ? 'Lleva sobre marcado en los artículos de la lista.'
+      : 'Lleva sobre quitado en los artículos de la lista.'
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo marcar el sobre')
+  } finally {
+    loading.value = false
+  }
+}
+
 function seleccionar(index: number) {
   indiceSeleccionado.value = index
 }
@@ -809,6 +856,16 @@ function navArticulos(dir: 'primero' | 'anterior' | 'siguiente' | 'ultimo') {
           >
             Ficha
           </button>
+          <button
+            v-if="puedeEditar"
+            type="button"
+            class="tool-btn"
+            :class="{ active: sobresActivos }"
+            :disabled="loading"
+            @click="sobresActivos = !sobresActivos"
+          >
+            {{ sobresActivos ? 'Bloquear sobres' : 'Marcar sobres' }}
+          </button>
 
           <label class="scan-box" title="Escanee o escriba código / EAN y pulse Intro">
             <span>Escanear</span>
@@ -846,9 +903,12 @@ function navArticulos(dir: 'primero' | 'anterior' | 'siguiente' | 'ultimo') {
           :filterable-keys="FILTER_KEYS"
           v-model:filters="filtros"
           :readonly="true"
+          :editable-keys="puedeEditar && sobresActivos ? ['llevaSobre'] : []"
           :loading="loading"
           :total-servidor="total"
           @seleccionar="seleccionar"
+          @actualizar="onCeldaArticulo"
+          @marcar-columna="onMarcarColumna"
           @abrir="abrirFicha"
           @nuevo="onNuevoFicha"
           @search="onFiltroSearch"
@@ -857,7 +917,7 @@ function navArticulos(dir: 'primero' | 'anterior' | 'siguiente' | 'ultimo') {
         <p class="hint">
           <strong>Escanear</strong> código o EAN abre la ficha. Al escribir en código, descripción, familia, etc. se busca en
           <strong>toda la base</strong> (hasta 200 coincidencias; Intro recarga). Precio se filtra en pantalla. Doble clic o
-          <strong>*</strong> para crear.
+          <strong>*</strong> para crear. <strong>Marcar sobres</strong> habilita las casillas; <strong>Bloquear sobres</strong> las deja quietas.
         </p>
         </div>
       </template>

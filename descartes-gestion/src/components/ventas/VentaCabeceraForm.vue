@@ -58,12 +58,14 @@ const emit = defineEmits<{
   'vendedor-blur': []
   'buscar-cliente': []
   'cliente-keydown': [event: KeyboardEvent]
+  'guardar-pago': [payload: { nro: number | null; importe: number; formaPago: string }]
   'borrar-pago': [nro: number]
 }>()
 
 const tiendas = ref<{ value: string; label: string }[]>([])
 const tiendaSelect = ref<HTMLSelectElement | null>(null)
 const clienteInput = ref<HTMLInputElement | null>(null)
+const razonSocialInput = ref<HTMLInputElement | null>(null)
 const direccionesEnvio = ref<DireccionEnvioOpcion[]>([])
 const dirMenuOpen = ref(false)
 const cargandoDirs = ref(false)
@@ -73,6 +75,21 @@ const fpagoDescripcion = ref('')
 const ficha = computed({
   get: () => props.modelValue,
   set: (v) => emit('update:modelValue', v),
+})
+
+const pagoNro = ref<number | null>(null)
+const pagoForma = ref('')
+const pagoFormaNombre = ref('')
+const pagoImporte = ref<number | null>(0)
+const buscarFpagoArqueo = ref(false)
+const pagoEnviado = ref(false)
+
+const puedeAnotarAdelanto = computed(
+  () => Boolean(props.pagosACuenta?.editable || props.esNuevo)
+)
+const etiquetaFormaElegida = computed(() => {
+  if (!pagoForma.value) return 'Buscar forma de pago'
+  return pagoFormaNombre.value ? `${pagoForma.value} — ${pagoFormaNombre.value}` : pagoForma.value
 })
 
 const totalPagosTexto = computed(() => {
@@ -88,6 +105,46 @@ function etiquetaForma(pago: PagoACuentaItem) {
   const nombre = pago.formaPagoNombre.trim()
   return nombre ? `${pago.formaPago} — ${nombre}` : pago.formaPago
 }
+
+function abrirPagoNuevo() {
+  pagoNro.value = null
+  pagoImporte.value = 0
+}
+
+function editarPago(pago: PagoACuentaItem) {
+  pagoNro.value = pago.nro
+  pagoForma.value = pago.formaPago
+  pagoFormaNombre.value = pago.formaPagoNombre
+  pagoImporte.value = pago.importe
+}
+
+function abrirBuscarFormaAdelanto() {
+  buscarFpagoArqueo.value = true
+  buscarFpagoOpen.value = true
+}
+
+function confirmarPago() {
+  const importe = Math.round((Number(pagoImporte.value) || 0) * 100) / 100
+  if (!pagoForma.value) {
+    abrirBuscarFormaAdelanto()
+    return
+  }
+  if (importe <= 0) return
+  pagoEnviado.value = true
+  emit('guardar-pago', { nro: pagoNro.value, importe, formaPago: pagoForma.value })
+}
+
+watch(
+  () => props.pagosOcupado,
+  (ocupado) => {
+    if (ocupado || !pagoEnviado.value) return
+    pagoEnviado.value = false
+    if (!props.pagosError) {
+      pagoNro.value = null
+      pagoImporte.value = 0
+    }
+  }
+)
 
 const fechaBloqueada = computed(() =>
   Boolean(props.readonly || props.soloDatosFiscales || props.puedeEditarFecha === false)
@@ -214,11 +271,17 @@ function setFpago(index: number, codigo: string) {
 
 function abrirBuscarFpago() {
   if (props.readonly) return
+  buscarFpagoArqueo.value = false
   buscarFpagoOpen.value = true
 }
 
 function onFpagoSeleccionado(sel: EntidadBuscarResultado) {
   buscarFpagoOpen.value = false
+  if (buscarFpagoArqueo.value) {
+    pagoForma.value = sel.codigo
+    pagoFormaNombre.value = sel.etiqueta
+    return
+  }
   setFpago(0, sel.codigo)
   fpagoDescripcion.value = sel.etiqueta
 }
@@ -254,6 +317,12 @@ async function focusCliente() {
   clienteInput.value?.select()
 }
 
+async function focusRazonSocial() {
+  await nextTick()
+  razonSocialInput.value?.focus()
+  razonSocialInput.value?.select()
+}
+
 /** El código se está tecleando: cada letra no es un cliente y no se piden sus direcciones. */
 const clienteEnEdicion = ref(false)
 
@@ -265,6 +334,7 @@ function onClienteEscrito(valor: string) {
 defineExpose({
   focusTienda,
   focusCliente,
+  focusRazonSocial,
   cargarDirecciones: () => cargarDireccionesEnvio(String(props.modelValue.cliente ?? '')),
 })
 
@@ -589,6 +659,7 @@ onUnmounted(() => {
           <label class="field">
             <span class="label">Razon social</span>
             <input
+              ref="razonSocialInput"
               :value="ficha.razonSocial ?? ''"
               maxlength="50"
               :readonly="readonly"
@@ -821,10 +892,12 @@ onUnmounted(() => {
         <div class="field span-6 pagos-cuenta">
           <span class="label">Pago a cuenta</span>
           <strong class="pagos-total">{{ totalPagosTexto }}</strong>
-          <template v-if="pagosACuenta?.items.length">
+          <template v-if="pagosACuenta || esNuevo">
             <p v-if="pagosACuenta?.motivo" class="pagos-nota">{{ pagosACuenta.motivo }}</p>
-            <p v-else class="pagos-nota">El adelanto se anota al finalizar el documento.</p>
-            <table class="pagos-tabla">
+            <p v-else-if="esNuevo && !(Number(ficha.albaran) > 0)" class="pagos-nota">
+              Añadir anota el adelanto en la caja abierta. En un albarán nuevo, primero hay que poner artículos.
+            </p>
+            <table v-if="pagosACuenta?.items.length" class="pagos-tabla">
               <thead>
                 <tr>
                   <th>Fecha</th>
@@ -841,6 +914,7 @@ onUnmounted(() => {
                   <td>{{ etiquetaForma(p) }}</td>
                   <td>{{ p.enCajaHoy ? 'Caja de hoy' : 'Caja cerrada' }}</td>
                   <td v-if="pagosACuenta?.editable" class="pagos-acciones">
+                    <button type="button" :disabled="pagosOcupado" @click="editarPago(p)">Cambiar</button>
                     <button type="button" :disabled="pagosOcupado" @click="emit('borrar-pago', p.nro)">
                       Borrar
                     </button>
@@ -848,6 +922,34 @@ onUnmounted(() => {
                 </tr>
               </tbody>
             </table>
+            <p v-else class="pagos-nota">Sin pagos a cuenta.</p>
+            <div v-if="puedeAnotarAdelanto" class="pagos-form">
+              <label>
+                Importe
+                <DecimalInput v-model="pagoImporte" :empty-as-null="false" :disabled="pagosOcupado" />
+              </label>
+              <label>
+                Forma de pago
+                <div class="combo-input">
+                  <span class="combo-nombre">{{ etiquetaFormaElegida }}</span>
+                  <button
+                    type="button"
+                    class="btn-buscar"
+                    title="Buscar forma de pago"
+                    :disabled="pagosOcupado"
+                    @click="abrirBuscarFormaAdelanto"
+                  >
+                    ...
+                  </button>
+                </div>
+              </label>
+              <button type="button" :disabled="pagosOcupado" @click="confirmarPago">
+                {{ pagoNro == null ? 'Añadir' : 'Guardar' }}
+              </button>
+              <button v-if="pagoNro != null" type="button" :disabled="pagosOcupado" @click="abrirPagoNuevo">
+                Cancelar
+              </button>
+            </div>
           </template>
           <p v-else class="pagos-nota">Sin pagos a cuenta. El adelanto se anota al finalizar.</p>
           <p v-if="pagosError" class="pagos-error">{{ pagosError }}</p>
@@ -915,8 +1017,9 @@ onUnmounted(() => {
     <EntidadBuscarModal
       :open="buscarFpagoOpen"
       entidad="formas-pago"
-      titulo="Seleccionar forma de pago"
-      :codigo-actual="fpagoCodigo(0)"
+      :titulo="buscarFpagoArqueo ? 'Forma de pago del adelanto' : 'Seleccionar forma de pago'"
+      :codigo-actual="buscarFpagoArqueo ? pagoForma : fpagoCodigo(0)"
+      :solo-cobro-de-arqueo="buscarFpagoArqueo"
       @seleccionar="onFpagoSeleccionado"
       @cerrar="buscarFpagoOpen = false"
     />

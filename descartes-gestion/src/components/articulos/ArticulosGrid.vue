@@ -16,6 +16,8 @@ const props = defineProps<{
   impuestoOpciones: { value: string; label: string }[]
   proveedorOpciones: { value: string; label: string }[]
   readonly?: boolean
+  /** Columnas que se pueden marcar aunque el resto del grid sea de solo lectura. */
+  editableKeys?: string[]
   loading?: boolean
   filterableKeys?: string[]
   filters?: Record<string, ColumnFilter>
@@ -29,6 +31,7 @@ const emit = defineEmits<{
   nuevo: []
   'update:filters': [filters: Record<string, ColumnFilter>]
   search: []
+  'marcar-columna': [key: string, valor: boolean]
 }>()
 
 const filterMenuOpen = ref(false)
@@ -81,10 +84,21 @@ function labelSelect(col: ArticuloColumn, fila: ArticuloFila) {
   return opt?.label ?? raw
 }
 
+function esColumnaEditable(col: ArticuloColumn) {
+  return (props.editableKeys ?? []).includes(col.key)
+}
+
 function isReadOnly(col: ArticuloColumn, fila: ArticuloFila) {
-  if (props.readonly || col.readOnly || fila._nuevo) return true
+  if (fila._nuevo) return true
+  if (esColumnaEditable(col)) return false
+  if (props.readonly || col.readOnly) return true
   if (col.key === 'codigo' && !fila._nuevo) return true
   return false
+}
+
+function columnaTodaMarcada(col: ArticuloColumn) {
+  const datos = filasOrdenadas.value.filter((fila) => !fila._nuevo)
+  return datos.length > 0 && datos.every((fila) => Boolean(cellValue(fila, col)))
 }
 
 function onSeleccionar(fila: ArticuloFila) {
@@ -118,15 +132,28 @@ function optionsFor(col: ArticuloColumn) {
           <th
             v-for="col in articuloColumns"
             :key="col.key"
-            class="ordenable"
+            :class="{ ordenable: !esColumnaEditable(col) }"
             :style="{ minWidth: col.width }"
-            :title="`Ordenar por ${col.label}`"
-            @click="clicar(col.key)"
+            :title="esColumnaEditable(col) ? 'Marcar todos los de la lista' : `Ordenar por ${col.label}`"
+            @click="esColumnaEditable(col) ? undefined : clicar(col.key)"
           >
-            {{ col.label }}
-            <span v-if="orden?.key === col.key" class="marca-orden">{{
-              orden.dir === 'asc' ? '▲' : '▼'
-            }}</span>
+            <label v-if="col.type === 'checkbox' && esColumnaEditable(col)" class="marca-todos" @click.stop>
+              <input
+                type="checkbox"
+                :checked="columnaTodaMarcada(col)"
+                :disabled="loading"
+                title="Todos los de la lista"
+                @dblclick.stop
+                @change="emit('marcar-columna', col.key, ($event.target as HTMLInputElement).checked)"
+              />
+              <span>{{ col.label }}</span>
+            </label>
+            <template v-else>
+              {{ col.label }}
+              <span v-if="orden?.key === col.key" class="marca-orden">{{
+                orden.dir === 'asc' ? '▲' : '▼'
+              }}</span>
+            </template>
           </th>
         </tr>
         <GridFilterRow
@@ -157,7 +184,7 @@ function optionsFor(col: ArticuloColumn) {
           <template v-else>
             <td v-for="col in articuloColumns" :key="col.key">
               <!-- Grid siempre en solo lectura: la edición se hace en ficha -->
-              <template v-if="readonly || isReadOnly(col, fila)">
+              <template v-if="isReadOnly(col, fila)">
                 <input
                   v-if="col.type === 'checkbox'"
                   type="checkbox"
@@ -194,7 +221,9 @@ function optionsFor(col: ArticuloColumn) {
                   v-else-if="col.type === 'checkbox'"
                   type="checkbox"
                   :checked="Boolean(cellValue(fila, col))"
+                  :disabled="loading"
                   @click.stop
+                  @dblclick.stop
                   @change="onCellChange(index, col.key, ($event.target as HTMLInputElement).checked)"
                 />
 
@@ -234,5 +263,12 @@ function optionsFor(col: ArticuloColumn) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.marca-todos {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
+  font-weight: 600;
 }
 </style>

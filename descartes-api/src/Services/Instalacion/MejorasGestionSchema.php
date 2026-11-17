@@ -26,11 +26,17 @@ final class MejorasGestionSchema
       ['AlbaranesVentasCab', 'ClienteFinal', 'VARCHAR(80) NULL', 'NVARCHAR(80) NULL'],
       ['AlbaranesVentasCab', 'Comisionista', 'VARCHAR(40) NULL', 'NVARCHAR(40) NULL'],
       ['AlbaranesVentasCab', 'PjeComision', 'DECIMAL(9,2) NULL', 'DECIMAL(9,2) NULL'],
+      ['AlbaranesVentasCab', 'ImporteDtoFidelizacion', 'DOUBLE NOT NULL DEFAULT 0', 'FLOAT NOT NULL DEFAULT 0'],
+      ['AlbaranesVentasCab', 'PuntosFidelizacionCompra', 'DOUBLE NOT NULL DEFAULT 0', 'FLOAT NOT NULL DEFAULT 0'],
+      ['AlbaranesVentasCab', 'PuntosFidelizacionAcumulados', 'DOUBLE NOT NULL DEFAULT 0', 'FLOAT NOT NULL DEFAULT 0'],
       ['AlbaranesVentasLin', 'Anotacion', 'VARCHAR(80) NULL', 'NVARCHAR(80) NULL'],
       ['Articulos', 'LlevaSobre', 'TINYINT NULL DEFAULT 0', 'BIT NULL DEFAULT 0'],
       ['Articulos', 'SobresPorUnidad', 'INT NULL DEFAULT 1', 'INT NULL DEFAULT 1'],
       ['Puestos', 'ImpresoraEtiquetasEncargo', 'VARCHAR(100) NULL', 'NVARCHAR(100) NULL'],
       ['Puestos', 'FormatoEtiquetasEncargo', 'VARCHAR(100) NULL', 'NVARCHAR(100) NULL'],
+      // Vendedor y usuario del puesto: en bases recuperadas de SQL Server no existen y el guardado los omitia en silencio.
+      ['Puestos', 'Trabajador', 'VARCHAR(4) NULL', 'NVARCHAR(4) NULL'],
+      ['Puestos', 'Usuario', 'VARCHAR(6) NULL', 'NVARCHAR(6) NULL'],
     ];
     foreach ($columnas as [$tabla, $columna, $mysql, $sqlsrv]) {
       if (self::existe($pdo, $driver, $tabla, $columna)) {

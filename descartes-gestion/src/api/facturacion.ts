@@ -104,6 +104,18 @@ export async function listarFacturasImpresion(
   return data
 }
 
+export async function descargarFacturae(
+  empresa: string,
+  facturaTipo: string,
+  factura: number
+): Promise<Blob> {
+  const { data } = await api.get(
+    `/api/facturacion/impresion/facturae/${encodeURIComponent(empresa)}/${encodeURIComponent(facturaTipo)}/${factura}`,
+    { responseType: 'blob' }
+  )
+  return data as Blob
+}
+
 export async function obtenerFacturaDocumento(
   empresa: string,
   facturaTipo: string,

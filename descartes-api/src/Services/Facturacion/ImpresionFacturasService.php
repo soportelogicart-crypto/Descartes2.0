@@ -55,6 +55,7 @@ final class ImpresionFacturasService
     $sql = "SELECT TOP 5000
         f.Empresa, f.FacturaTipo, f.Factura, f.Fecha, f.Cliente, f.Importe, f.Fpago,
         ISNULL(f.Impresa, 0) AS Impresa, f.Estado,
+        ISNULL(c.FacturaE, 0) AS FacturaE,
         ISNULL(f.FacturaContadoDiferida, 0) AS FacturaContadoDiferida,
         c.RazonSocial, c.NIF,
         ISNULL(
@@ -95,6 +96,7 @@ final class ImpresionFacturasService
         'importe' => $imp,
         'fpago' => trim((string) ($r['Fpago'] ?? '')),
         'impresa' => !empty($r['Impresa']),
+        'facturaE' => !empty($r['FacturaE']),
         'estado' => $estado,
         'facturaContadoDiferida' => $contadoDif,
         'tipoCobro' => $tipoCobro,
@@ -212,6 +214,17 @@ final class ImpresionFacturasService
     }
 
     return $pdf->build();
+  }
+
+  /**
+   * Cabecera, líneas y vencimientos tal como están en la base.
+   * Lo usa el XML Facturae, que necesita centros DIR3 y la forma de pago FACe.
+   *
+   * @return array{cab: array<string, mixed>, lineas: list<array<string, mixed>>, albaranes: list<array<string, mixed>>, recibos: list<array<string, mixed>>}|null
+   */
+  public function cargarCruda(string $empresa, string $facturaTipo, int $factura): ?array
+  {
+    return $this->cargarFactura($empresa, $facturaTipo, $factura);
   }
 
   /**
@@ -642,10 +655,17 @@ final class ImpresionFacturasService
         f.ImporteRec1, f.ImporteRec2, f.ImporteRec3, f.ImporteRec4, f.ImporteRec5, f.ImporteRec6,
         c.RazonSocial, c.RazonSocial2, c.NIF, c.Direccion, c.Poblacion, c.CodigoPostal, c.Provincia,
         c.Pais, c.Telefono1, c.CuentaBancaria, c.IBAN, c.Swift, c.Agencia, c.Banco,
+        ISNULL(c.FacturaE, 0) AS FacturaE, c.OficinaContable, c.OrganoGestor,
+        c.UnidadTramitadora, c.OrganoProponente, c.TratamientoFiscal,
         fp.Descripcion AS FpagoDescripcion, fp.Tipo AS FpagoTipo, fp.Nota AS FpagoNota,
+        ISNULL(fp.FACTEFPCodigo, 0) AS FacteFpCodigo,
+        ISNULL(fp.FACTETransferencia, 0) AS FacteTransferencia,
+        ISNULL(fp.FACTEReciboDom, 0) AS FacteReciboDom,
+        fp.FACTEIban AS FacteIban,
         e.Nombre AS EmpNombre, e.NombreFiscal AS EmpNombreFiscal, e.NIF AS EmpNif,
         e.Direccion AS EmpDireccion, e.Poblacion AS EmpPoblacion,
-        e.CodigoPostal AS EmpCodigoPostal, e.Provincia AS EmpProvincia
+        e.CodigoPostal AS EmpCodigoPostal, e.Provincia AS EmpProvincia, e.Pais AS EmpPais,
+        ISNULL(e.SW_IVA, 0) AS EmpSwIva
       FROM Facturas f
       INNER JOIN Clientes c ON c.Codigo = f.Cliente
       LEFT JOIN FormasPago fp ON fp.Codigo = f.Fpago

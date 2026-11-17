@@ -80,8 +80,26 @@ const CAMPOS_SEGUN_TARJETA = new Set([
   'acumuladoPuntos',
 ])
 
+/** Centros DIR3 de FACe: solo se editan con Factura-e marcada. */
+const CAMPOS_FACTURAE = new Set([
+  'oficinaContable',
+  'organoGestor',
+  'unidadTramitadora',
+  'organoProponente',
+])
+
+const CENTROS_FACTURAE_OBLIGATORIOS = new Set([
+  'oficinaContable',
+  'organoGestor',
+  'unidadTramitadora',
+])
+
 function sinTarjetaFidelizacion() {
   return String(props.modelValue.tarjetaFidelizacion ?? '').trim() === ''
+}
+
+function sinFacturaE() {
+  return !props.modelValue.facturaE
 }
 
 function vacioPorFaltaDeTarjeta(field: ClienteField) {
@@ -102,13 +120,21 @@ function tituloCampo(field: ClienteField): string | undefined {
   if (field.key === 'tipoDescuentoFidelizacion' && pjeFidelizacionDistintoDeCero()) {
     return 'Desactivado mientras % Fidelizacion sea distinto de 0'
   }
+  if (CAMPOS_FACTURAE.has(field.key) && sinFacturaE()) {
+    return 'Marque Factura-e para indicar los centros'
+  }
   return undefined
+}
+
+function centroFacturaeObligatorio(field: ClienteField) {
+  return CENTROS_FACTURAE_OBLIGATORIOS.has(field.key) && !sinFacturaE()
 }
 
 function isReadOnly(field: ClienteField) {
   if (props.readonly || field.readOnly) return true
   if (field.key === 'codigo' && props.codigoReadOnly) return true
   if (vacioPorFaltaDeTarjeta(field)) return true
+  if (CAMPOS_FACTURAE.has(field.key) && sinFacturaE()) return true
   if (field.key === 'tipoDescuentoFidelizacion' && pjeFidelizacionDistintoDeCero()) return true
   const motor = props.motorFidelizacion ?? 'NINGUNO'
   if (field.key === 'pjeFidelizacion' || field.key === 'acumuladoFidelizacion') {
@@ -257,7 +283,7 @@ function colsClass(section: ClienteSection) {
             <template v-else>
               <span class="label">
                 {{ field.label }}
-                <span v-if="field.required" class="req">*</span>
+                <span v-if="field.required || centroFacturaeObligatorio(field)" class="req">*</span>
               </span>
 
               <div v-if="conAltaCuentaCtb(field)" class="campo-con-accion">

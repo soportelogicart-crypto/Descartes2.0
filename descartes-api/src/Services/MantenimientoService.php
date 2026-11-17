@@ -559,6 +559,42 @@ final class MantenimientoService
     return $this->get($entidad, $codigo);
   }
 
+  /**
+   * Marca o quita LlevaSobre en los artículos visibles del listado.
+   *
+   * @param list<mixed> $codigos
+   */
+  public function marcarLlevaSobre(array $codigos, bool $valor): int
+  {
+    $limpios = [];
+    foreach ($codigos as $codigo) {
+      $c = trim((string) $codigo);
+      if ($c === '' || in_array($c, $limpios, true)) {
+        continue;
+      }
+      $limpios[] = $c;
+    }
+    if ($limpios === []) {
+      throw new \InvalidArgumentException('Indique al menos un articulo');
+    }
+    if (count($limpios) > 500) {
+      throw new \InvalidArgumentException('Solo se pueden marcar los articulos visibles del listado');
+    }
+
+    $params = ['v' => $valor ? 1 : 0];
+    $marcas = [];
+    foreach ($limpios as $i => $codigo) {
+      $clave = 'c' . $i;
+      $marcas[] = ':' . $clave;
+      $params[$clave] = $codigo;
+    }
+    $sql = 'UPDATE [Articulos] SET [LlevaSobre] = :v WHERE RTRIM([Codigo]) IN (' . implode(', ', $marcas) . ')';
+    $stmt = $this->pdo->prepare($sql);
+    $stmt->execute($params);
+
+    return $stmt->rowCount();
+  }
+
   public function softDelete(string $entidad, string $codigo): void
   {
     $check = $this->dependencyCheckService->puedeDarDeBaja($entidad, $codigo);
@@ -2044,6 +2080,7 @@ final class MantenimientoService
 
     $this->validarClienteDatosObligatorios($data, $esAlta);
     $this->validarClienteIbanMandatoEmail($data, $codigoActual, $esAlta);
+    $this->validarClienteFacturaE($data, $codigoActual, $esAlta);
 
     if (array_key_exists('pjeFidelizacion', $data)) {
       $porcentaje = (float) ($data['pjeFidelizacion'] ?? 0);
@@ -2132,6 +2169,41 @@ final class MantenimientoService
       if (filter_var($destinatario, FILTER_VALIDATE_EMAIL) === false) {
         throw new \InvalidArgumentException(
           'El email usado para enviar las facturas no es valido'
+        );
+      }
+    }
+  }
+
+  private function validarClienteFacturaE(array $data, string $codigo, bool $esAlta): void
+  {
+    $actual = [];
+    if (!$esAlta && $codigo !== '') {
+      $stmt = $this->pdo->prepare(
+        'SELECT TOP 1 [FacturaE], [OficinaContable], [OrganoGestor], [UnidadTramitadora]
+         FROM [Clientes] WHERE RTRIM([Codigo]) = :codigo'
+      );
+      $stmt->execute(['codigo' => $codigo]);
+      $actual = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    $valor = static function (string $api, string $sql) use ($data, $actual) {
+      return array_key_exists($api, $data) ? $data[$api] : ($actual[$sql] ?? null);
+    };
+
+    $facturaE = filter_var($valor('facturaE', 'FacturaE'), FILTER_VALIDATE_BOOL);
+    if (!$facturaE) {
+      return;
+    }
+
+    $centros = [
+      'oficinaContable' => ['OficinaContable', 'la oficina contable'],
+      'organoGestor' => ['OrganoGestor', 'el organo gestor'],
+      'unidadTramitadora' => ['UnidadTramitadora', 'la unidad tramitadora'],
+    ];
+    foreach ($centros as $api => [$sql, $etiqueta]) {
+      if (trim((string) $valor($api, $sql)) === '') {
+        throw new \InvalidArgumentException(
+          'Con Factura-e marcada hay que indicar ' . $etiqueta
         );
       }
     }

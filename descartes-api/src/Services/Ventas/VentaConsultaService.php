@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Descartes\Api\Services\Ventas;
 
 use Descartes\Api\Database\SqlPagination;
+use Descartes\Api\Services\Instalacion\MejorasGestionSchema;
 use PDO;
 
 final class VentaConsultaService
@@ -14,6 +15,11 @@ final class VentaConsultaService
   public function __construct(PDO $pdo)
   {
     $this->pdo = $pdo;
+    try {
+      MejorasGestionSchema::asegurar($pdo);
+    } catch (\Throwable) {
+      // Si no se puede alterar, la consulta sigue y muestra el error de columna.
+    }
   }
 
   /** @param array<string, mixed> $query */

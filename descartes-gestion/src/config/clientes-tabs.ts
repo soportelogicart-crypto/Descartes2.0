@@ -467,6 +467,23 @@ export function validarUsoCliente(ficha: Record<string, unknown>): ClienteValida
     }
   }
 
+  if (ficha.facturaE) {
+    const centros: { campo: string; etiqueta: string }[] = [
+      { campo: 'oficinaContable', etiqueta: 'la oficina contable' },
+      { campo: 'organoGestor', etiqueta: 'el órgano gestor' },
+      { campo: 'unidadTramitadora', etiqueta: 'la unidad tramitadora' },
+    ]
+    for (const centro of centros) {
+      if (!String(ficha[centro.campo] ?? '').trim()) {
+        return {
+          campo: centro.campo,
+          titulo: 'Factura-e incompleta',
+          mensaje: `Con Factura-e marcada hay que indicar ${centro.etiqueta}.`,
+        }
+      }
+    }
+  }
+
   if (ficha.facturasEmail) {
     const emailFacturacion = String(ficha.emailFacturacion ?? '').trim()
     const email = String(ficha.email ?? '').trim()
@@ -495,6 +512,15 @@ export function validarUsoCliente(ficha: Record<string, unknown>): ClienteValida
 
 export function tabDeCampoCliente(key: string): string {
   if (key === 'formaPago') return 'facturacion'
+  if (
+    key === 'facturaE' ||
+    key === 'oficinaContable' ||
+    key === 'organoGestor' ||
+    key === 'unidadTramitadora' ||
+    key === 'organoProponente'
+  ) {
+    return 'marketing'
+  }
   return 'generales'
 }
 

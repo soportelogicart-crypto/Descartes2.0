@@ -26,6 +26,7 @@ import { buscarArticulos, resolverArticulo } from '@/api/articulos'
 import { createBarcodeScanWatcher } from '@/composables/useBarcodeScanWatcher'
 import { api } from '@/api/client'
 import EncargoEnAlbaran from '@/components/ventas/EncargoEnAlbaran.vue'
+import ClienteAltaVentaModal from '@/components/ventas/ClienteAltaVentaModal.vue'
 import type {
   VentaAlbaranFacturaResumen,
   VentaDetalle,
@@ -187,6 +188,7 @@ const pasoAlta = ref<'tienda' | 'cliente' | 'listo'>('listo')
 /** Evita que el watch de tienda dispare busqueda antes de terminar iniciarNuevaVenta. */
 const iniciandoAltaVenta = ref(false)
 const buscarClienteOpen = ref(false)
+const altaClienteOpen = ref(false)
 const buscarArticuloOpen = ref(false)
 const buscarVendedorOpen = ref(false)
 const finalizarTrasVendedor = ref(false)
@@ -198,6 +200,7 @@ const omitirProximaCarga = ref(false)
 const cabeceraForm = ref<{
   focusTienda: () => Promise<void>
   focusCliente: () => Promise<void>
+  focusRazonSocial: () => Promise<void>
   cargarDirecciones: () => Promise<void>
 } | null>(null)
 const articuloInputRefs = ref<HTMLInputElement[]>([])
@@ -664,6 +667,9 @@ const tieneLineas = computed(() =>
   })
 )
 const tieneCliente = computed(() => Boolean(String(ficha.value?.cliente ?? '').trim()))
+const esVentaRapida = computed(
+  () => String(ficha.value?.cliente ?? '').trim().toUpperCase() === CLIENTE_SIN_NOMBRE
+)
 /** Líneas solo tras tener cliente. Un ticket cerrado no cambia artículos. */
 const puedeEditarLineas = computed(
   () => !soloLectura.value && tieneCliente.value && !esTicketCerrado.value
@@ -2310,7 +2316,7 @@ async function cargarDatosCliente(codigo: string): Promise<{
 
 async function confirmarCliente(
   codigo: string,
-  opts?: { abrirBusquedaSiNoExiste?: boolean }
+  opts?: { abrirBusquedaSiNoExiste?: boolean; ventaRapida?: boolean }
 ) {
   await onClienteSeleccionado({ codigo, etiqueta: '' }, opts)
 }
@@ -2359,7 +2365,19 @@ async function aplicarClienteEnFicha(
     razonSocial: String(cli.nombre ?? sel.etiqueta ?? '').trim(),
     razonSocial2: cli.razonSocial2 != null ? String(cli.razonSocial2) : '',
     nif: cli.nif != null ? String(cli.nif) : '',
-    telefono: cli.telefono1 != null ? String(cli.telefono1) : '',
+    telefono: String(cli.telefono1 ?? '').trim() || String(ficha.value.telefono ?? ''),
+    direccionEnvio:
+      String(cli.direccionEnvio ?? cli.direccion ?? '').trim() ||
+      String(ficha.value.direccionEnvio ?? ''),
+    poblacionEnvio:
+      String(cli.poblacionEnvio ?? cli.poblacion ?? '').trim() ||
+      String(ficha.value.poblacionEnvio ?? ''),
+    codigoPostalEnvio:
+      String(cli.codigoPostalEnvio ?? cli.codigoPostal ?? '').trim() ||
+      String(ficha.value.codigoPostalEnvio ?? ''),
+    provinciaEnvio:
+      String(cli.provinciaEnvio ?? cli.provincia ?? '').trim() ||
+      String(ficha.value.provinciaEnvio ?? ''),
     telefono2: cli.telefono2 != null ? String(cli.telefono2) : '',
     fax: cli.fax != null ? String(cli.fax) : '',
     email: correoDelCliente(cli, String(ficha.value.facturaTipo ?? '')),
@@ -2382,7 +2400,7 @@ async function aplicarClienteEnFicha(
 
 async function onClienteSeleccionado(
   sel: { codigo: string; etiqueta: string },
-  opts?: { abrirBusquedaSiNoExiste?: boolean }
+  opts?: { abrirBusquedaSiNoExiste?: boolean; ventaRapida?: boolean }
 ) {
   buscarClienteOpen.value = false
   if (!ficha.value) return
@@ -2401,7 +2419,11 @@ async function onClienteSeleccionado(
     if (esNuevo.value) {
       pasoAlta.value = 'listo'
       mensaje.value = null
-      await focusArticuloLinea(0)
+      if (opts?.ventaRapida) {
+        await cabeceraForm.value?.focusRazonSocial()
+      } else {
+        await focusArticuloLinea(0)
+      }
       return
     }
 
@@ -2444,7 +2466,25 @@ async function onClienteSeleccionado(
 
 async function usarVentaRapida() {
   if (!esNuevo.value || pasoAlta.value !== 'cliente' || loading.value) return
-  await confirmarCliente(CLIENTE_SIN_NOMBRE)
+  await confirmarCliente(CLIENTE_SIN_NOMBRE, { ventaRapida: true })
+}
+
+async function abrirAltaCliente() {
+  if (loading.value) return
+  if (esNuevo.value && pasoAlta.value === 'tienda') {
+    const ok = await avanzarDesdeTienda()
+    if (!ok) return
+  }
+  if (soloLectura.value) {
+    if (!puedeEditar.value || bloqueado.value) return
+    modoEdicion.value = true
+  }
+  altaClienteOpen.value = true
+}
+
+async function onClienteCreado(codigo: string) {
+  altaClienteOpen.value = false
+  await confirmarCliente(codigo)
 }
 
 function onModificar() {
@@ -3416,10 +3456,16 @@ onActivated(() => {
         <button type="button" class="btn-paso" :disabled="loading" @click="abrirBuscarCliente">
           Buscar cliente
         </button>
+        <button type="button" class="btn-paso" :disabled="loading" @click="abrirAltaCliente">
+          Nuevo cliente
+        </button>
         <button type="button" class="btn-paso primary" :disabled="loading" @click="usarVentaRapida">
           Venta rápida
         </button>
       </div>
+      <p class="paso-nota">
+        Venta rápida usa el cliente ZZZZZZZZZ. Después puede escribir nombre, NIF, teléfono y dirección en la cabecera: se guardan en el documento.
+      </p>
     </div>
     <p v-if="esNuevo && pasoAlta === 'listo' && !tieneVendedor" class="error">
       Falta vendedor. Si el puesto no lo tiene asignado, selecciónelo en cabecera (F4) o al pulsar
@@ -3489,6 +3535,7 @@ onActivated(() => {
         :pagos-error="pagosError"
         :pagos-ocupado="pagosOcupado"
         :totales="totales"
+        @guardar-pago="guardarPagoACuenta"
         @borrar-pago="borrarPagoACuenta"
         @buscar-vendedor="abrirBuscarVendedor"
         @vendedor-keydown="onVendedorKeydown"
@@ -3503,7 +3550,10 @@ onActivated(() => {
           <button v-if="puedeEditarLineas" type="button" class="btn-add" @click="addLinea">+ Linea</button>
         </div>
         <p v-if="!tieneCliente && !soloLectura" class="hint">
-          Confirme el <strong>cliente</strong> (Intro vacío = venta rapida, F4 / … para buscar) antes de añadir artículos.
+          Confirme el <strong>cliente</strong> (Intro vacío = venta rápida, F4 / … para buscar, o Nuevo cliente) antes de añadir artículos.
+        </p>
+        <p v-else-if="esVentaRapida && !soloLectura" class="hint">
+          Venta rápida (ZZZZZZZZZ). Nombre, NIF, teléfono y dirección de la cabecera se guardan en este documento, sin ficha de cliente.
         </p>
         <div class="grid-wrap">
           <table class="tabla-lineas">
@@ -3737,6 +3787,13 @@ onActivated(() => {
         </div>
       </div>
     </Teleport>
+
+    <ClienteAltaVentaModal
+      :open="altaClienteOpen"
+      :empresa="String(ficha?.empresa || '')"
+      @cerrar="altaClienteOpen = false"
+      @creado="onClienteCreado"
+    />
 
     <EntidadBuscarModal
       :open="buscarClienteOpen"
@@ -4232,6 +4289,7 @@ onActivated(() => {
 .paso-accion {
   max-width: 960px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
@@ -4244,6 +4302,13 @@ onActivated(() => {
 .paso-botones {
   display: flex;
   gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.paso-nota {
+  flex-basis: 100%;
+  margin: 0.45rem 0 0;
+  font-size: 0.85rem;
+  color: #1e3a8a;
 }
 .btn-paso {
   border: 1px solid #64748b;

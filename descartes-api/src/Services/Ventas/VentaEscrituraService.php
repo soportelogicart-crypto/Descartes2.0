@@ -138,6 +138,13 @@ final class VentaEscrituraService
 
     $sobres = $this->validarSobresDeLineas($lineas, (string) ($body['cliente'] ?? ''));
 
+    $libre = $this->albaranVentaLibre($empresa, $albaran);
+    if ($libre !== $albaran) {
+      $albaran = $libre;
+      $this->pdo->prepare('UPDATE Empresas_Ges SET UltAlbaranVen = :n WHERE Codigo = :e')
+        ->execute(['n' => $albaran, 'e' => $empresa]);
+    }
+
     $this->pdo->beginTransaction();
     try {
       $sql = 'INSERT INTO AlbaranesVentasCab (
@@ -1463,23 +1470,36 @@ final class VentaEscrituraService
   /** UltAlbaranVen dentro de la transacción de finalizar, sin abrir otra. */
   private function reservarAlbaranEnTransaccion(string $empresa): int
   {
-    $n = $this->nextContadorEmpresa($empresa, 'UltAlbaranVen');
+    $propuesto = $this->nextContadorEmpresa($empresa, 'UltAlbaranVen');
+    $n = $this->albaranVentaLibre($empresa, $propuesto);
+    if ($n !== $propuesto) {
+      $this->pdo->prepare('UPDATE Empresas_Ges SET UltAlbaranVen = :n WHERE Codigo = :e')
+        ->execute(['n' => $n, 'e' => $empresa]);
+    }
+    return $n;
+  }
+
+  /**
+   * El contador de la tienda puede ir por detrás de los albaranes ya importados.
+   * Si el número pedido existe, salta al máximo de esa tienda.
+   */
+  private function albaranVentaLibre(string $empresa, int $candidato): int
+  {
+    $candidato = max(1, $candidato);
     $ocupado = $this->pdo->prepare(
       'SELECT 1 FROM AlbaranesVentasCab WHERE Empresa = :e AND Tipo = \'A\' AND Albaran = :a'
     );
-    $ocupado->execute(['e' => $empresa, 'a' => $n]);
+    $ocupado->execute(['e' => $empresa, 'a' => $candidato]);
     if ($ocupado->fetchColumn() === false) {
-      return $n;
+      return $candidato;
     }
     $max = $this->pdo->prepare(
-      'SELECT ISNULL(MAX(Albaran), 0) + 1 FROM AlbaranesVentasCab WITH (UPDLOCK, ROWLOCK)
+      'SELECT ISNULL(MAX(Albaran), 0) + 1 FROM AlbaranesVentasCab
        WHERE Empresa = :e AND Tipo = \'A\''
     );
     $max->execute(['e' => $empresa]);
-    $n = (int) $max->fetchColumn();
-    $this->pdo->prepare('UPDATE Empresas_Ges SET UltAlbaranVen = :n WHERE Codigo = :e')
-      ->execute(['n' => $n, 'e' => $empresa]);
-    return $n;
+    $libre = (int) $max->fetchColumn();
+    return $libre > $candidato ? $libre : $candidato + 1;
   }
 
   private function anotarObservaciones(string $empresa, string $tipo, int $albaran, string $nota): void
@@ -2217,7 +2237,7 @@ final class VentaEscrituraService
         throw new \RuntimeException('Tienda no encontrada', 404);
       }
 
-      $albaran = (int) ($row['UltAlbaranVen'] ?? 0) + 1;
+      $albaran = $this->albaranVentaLibre($empresa, (int) ($row['UltAlbaranVen'] ?? 0) + 1);
       $this->pdo->prepare(
         'UPDATE Empresas_Ges SET UltAlbaranVen = :n WHERE Codigo = :e'
       )->execute(['n' => $albaran, 'e' => $empresa]);

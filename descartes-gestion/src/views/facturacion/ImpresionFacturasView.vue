@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
-import { listarFacturasImpresion, marcarFacturasImpresas, enviarFacturasImpresionEmail } from '@/api/facturacion'
+import {
+  listarFacturasImpresion,
+  marcarFacturasImpresas,
+  enviarFacturasImpresionEmail,
+  descargarFacturae,
+} from '@/api/facturacion'
 import { api } from '@/api/client'
 import type { FacturaImpresionItem } from '@/types/facturacion'
 import { extractApiError } from '@/composables/useMantenimiento'
@@ -32,6 +37,7 @@ const { puede } = usePermisos()
 const loading = ref(false)
 const loadingOpts = ref(false)
 const saving = ref(false)
+const descargandoFace = ref('')
 const error = ref<string | null>(null)
 const mensaje = ref<string | null>(null)
 const items = ref<FacturaImpresionItem[]>([])
@@ -62,6 +68,49 @@ function hoyIso() {
 
 function rowKey(r: FacturaImpresionItem) {
   return `${r.empresa}|${r.facturaTipo}|${r.factura}`
+}
+
+async function descargarXmlFace(r: FacturaImpresionItem) {
+  const clave = rowKey(r)
+  descargandoFace.value = clave
+  error.value = null
+  mensaje.value = null
+  try {
+    const blob = await descargarFacturae(r.empresa, r.facturaTipo, r.factura)
+    if (blob.type.includes('json')) {
+      const texto = await blob.text()
+      let motivo = 'No se pudo generar el XML'
+      try {
+        const body = JSON.parse(texto) as { error?: string }
+        if (body.error) motivo = body.error
+      } catch {
+        if (texto.trim()) motivo = texto.trim()
+      }
+      error.value = motivo
+      return
+    }
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `facturae-${r.facturaTipo}${r.factura}.xml`
+    a.click()
+    URL.revokeObjectURL(url)
+    mensaje.value = `XML de la factura ${r.facturaTipo}/${r.factura} descargado. Falta firmarlo.`
+  } catch (e: unknown) {
+    const data = (e as { response?: { data?: Blob } }).response?.data
+    if (data instanceof Blob) {
+      try {
+        const body = JSON.parse(await data.text()) as { error?: string }
+        error.value = body.error || 'No se pudo generar el XML'
+        return
+      } catch {
+        /* el mensaje genérico vale */
+      }
+    }
+    error.value = extractApiError(e, 'No se pudo generar el XML')
+  } finally {
+    descargandoFace.value = ''
+  }
 }
 
 const form = ref({
@@ -731,6 +780,7 @@ onMounted(async () => {
                     @change="toggleTodos(($event.target as HTMLInputElement).checked)"
                   />
                 </th>
+                <th class="col-face">FACe</th>
                 <th v-for="c in COLUMNAS" :key="c.key" :class="c.clase">
                   <span
                     class="th-titulo"
@@ -763,6 +813,18 @@ onMounted(async () => {
                 <td class="sel" @click.stop>
                   <input v-model="selected[rowKey(r)]" type="checkbox" />
                 </td>
+                <td class="face" @click.stop>
+                  <button
+                    v-if="r.facturaE"
+                    type="button"
+                    class="btn-face"
+                    :disabled="descargandoFace === rowKey(r)"
+                    title="Descargar el XML para firmarlo y enviarlo a FACe"
+                    @click="descargarXmlFace(r)"
+                  >
+                    {{ descargandoFace === rowKey(r) ? '…' : 'XML' }}
+                  </button>
+                </td>
                 <td>{{ r.fecha }}</td>
                 <td>{{ r.factura }}</td>
                 <td>{{ r.cliente }}</td>
@@ -775,7 +837,7 @@ onMounted(async () => {
                 <td>{{ r.impresa ? 'Sí' : 'No' }}</td>
               </tr>
               <tr v-if="!itemsFiltrados.length">
-                <td :colspan="COLUMNAS.length + 1" class="sin-filtro">
+                <td :colspan="COLUMNAS.length + 2" class="sin-filtro">
                   Ninguna factura con esos filtros
                 </td>
               </tr>
@@ -1125,6 +1187,19 @@ th {
   top: 0;
   z-index: 1;
   vertical-align: top;
+}
+.btn-face {
+  border: 1px solid #0369a1;
+  background: #e0f2fe;
+  color: #0c4a6e;
+  border-radius: 3px;
+  font-size: 0.72rem;
+  padding: 0.1rem 0.35rem;
+  cursor: pointer;
+}
+.btn-face:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 th.sel,
 td.sel {
