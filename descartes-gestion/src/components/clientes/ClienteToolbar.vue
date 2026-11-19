@@ -13,6 +13,8 @@ defineProps<{
   total?: number
   loading?: boolean
   hayCliente?: boolean
+  /** Carpeta del cliente dentro de la carpeta compartida. */
+  mostrarCarpeta?: boolean
 }>()
 
 defineEmits<{
@@ -31,6 +33,7 @@ defineEmits<{
   contactos: []
   intereses: []
   direccion: []
+  carpeta: []
 }>()
 </script>
 
@@ -109,6 +112,19 @@ defineEmits<{
     </div>
 
     <div class="toolbar-group">
+      <button
+        v-if="mostrarCarpeta"
+        type="button"
+        class="tool-btn"
+        :disabled="loading"
+        title="Carpeta del cliente"
+        @click="$emit('carpeta')"
+      >
+        <svg class="ico-carpeta" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z" />
+        </svg>
+        <span>Carpeta</span>
+      </button>
       <button type="button" class="tool-btn" :disabled="loading || !hayCliente" title="Estadistica" @click="$emit('estadistica')">
         <ToolIcon name="estadistica" />
         <span>Estadistica</span>
@@ -186,6 +202,12 @@ defineEmits<{
 
 .toolbar > .toolbar-group:last-child {
   margin-left: auto;
+}
+
+.ico-carpeta {
+  width: 1.05rem;
+  height: 1.05rem;
+  fill: currentColor;
 }
 
 .tool-btn {

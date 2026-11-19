@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('descartes', {
     abrir: (ruta, relativa, nombre) => ipcRenderer.invoke('carpeta:abrir', ruta, relativa, nombre),
     borrar: (ruta, relativa, nombre) => ipcRenderer.invoke('carpeta:borrar', ruta, relativa, nombre),
     elegirLocal: () => ipcRenderer.invoke('carpeta:elegirLocal'),
+    cliente: (ruta, codigo) => ipcRenderer.invoke('carpeta:cliente', ruta, codigo),
   },
   imagenTeclado: (ruta) => ipcRenderer.invoke('teclado:imagen', ruta),
   elegirImagenTeclado: () => ipcRenderer.invoke('teclado:elegirImagen'),

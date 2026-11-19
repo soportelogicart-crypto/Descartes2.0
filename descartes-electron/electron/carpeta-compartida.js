@@ -8,7 +8,13 @@ const os = require('os')
 const path = require('path')
 const { execFileSync } = require('child_process')
 const { dialog, shell } = require('electron')
-const { rutaRaizValida, nombreValido, rutaDentro, explicarAcceso } = require('./carpeta-compartida-rutas')
+const {
+  rutaRaizValida,
+  nombreValido,
+  rutaCarpetaCliente,
+  rutaDentro,
+  explicarAcceso,
+} = require('./carpeta-compartida-rutas')
 
 const PREFIJO_PRUEBA = '.descartes-prueba-'
 
@@ -177,6 +183,26 @@ function borrar(ruta, relativa, nombre) {
 }
 
 /**
+ * Carpeta del cliente dentro de la compartida: Clientes\{codigo}.
+ * La crea si no existe y devuelve su UNC para abrirla como raíz.
+ */
+function carpetaCliente(ruta, codigo) {
+  const { raiz, error: fallo } = raizOError(ruta)
+  if (fallo) return fallo
+  const destino = rutaCarpetaCliente(raiz, codigo)
+  if (!destino) return error('El código del cliente no vale como nombre de carpeta.')
+  try {
+    fs.mkdirSync(destino, { recursive: true })
+    if (!fs.statSync(destino).isDirectory()) {
+      return error('La ruta del cliente existe pero no es una carpeta.')
+    }
+    return { ok: true, ruta: destino }
+  } catch (err) {
+    return error(mensajeDe(raiz, err))
+  }
+}
+
+/**
  * Elige una carpeta local de este PC y propone la ruta de red que tendría
  * si se comparte con el mismo nombre: \\EQUIPO\NombreCarpeta.
  */
@@ -205,4 +231,5 @@ module.exports = {
   abrir,
   borrar,
   elegirCarpetaLocal,
+  carpetaCliente,
 }

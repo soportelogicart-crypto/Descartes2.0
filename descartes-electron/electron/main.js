@@ -292,6 +292,7 @@ function registerIpc() {
   ipcMain.handle('carpeta:borrar', (_event, ruta, relativa, nombre) =>
     carpetaCompartida.borrar(ruta, relativa, nombre)
   )
+  ipcMain.handle('carpeta:cliente', (_event, ruta, codigo) => carpetaCompartida.carpetaCliente(ruta, codigo))
   ipcMain.handle('carpeta:elegirLocal', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     return carpetaCompartida.elegirCarpetaLocal(win)
