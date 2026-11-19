@@ -80,6 +80,7 @@ const tiendaSelect = ref<HTMLSelectElement | null>(null)
 const clienteInput = ref<HTMLInputElement | null>(null)
 const lineasEl = ref<HTMLElement | null>(null)
 const cabeceraExpandida = ref(false)
+const pestanaCabecera = ref<'datos' | 'comisiones'>('datos')
 const pedidoNum = ref<number | null>(null)
 const nifVista = ref('')
 const razonVista = ref('')
@@ -1666,12 +1667,37 @@ onActivated(() => {
           </button>
         </div>
         <template v-else>
-        <div v-if="cabeceraRecogida" class="cabecera-plegar">
-          <button type="button" class="btn-cabecera-toggle" @click="cabeceraExpandida = false">
+        <div class="cabecera-barra">
+          <div class="cabecera-pestanas" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="pestanaCabecera === 'datos'"
+              :class="{ activa: pestanaCabecera === 'datos' }"
+              @click="pestanaCabecera = 'datos'"
+            >
+              Datos
+            </button>
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="pestanaCabecera === 'comisiones'"
+              :class="{ activa: pestanaCabecera === 'comisiones' }"
+              @click="pestanaCabecera = 'comisiones'"
+            >
+              Comisiones
+            </button>
+          </div>
+          <button
+            v-if="cabeceraRecogida"
+            type="button"
+            class="btn-cabecera-toggle"
+            @click="cabeceraExpandida = false"
+          >
             Ocultar cabecera
           </button>
         </div>
-        <div class="grid-cab">
+        <div v-show="pestanaCabecera === 'datos'" class="grid-cab">
           <label class="field-tienda">
             Tienda
             <select ref="tiendaSelect" v-model="editForm.empresa" :disabled="!tiendaEditable">
@@ -1811,7 +1837,7 @@ onActivated(() => {
           </label>
         </div>
 
-        <label class="obs">
+        <label v-show="pestanaCabecera === 'datos'" class="obs">
           Observaciones pedido
           <textarea
             v-model="editForm.observaciones"
@@ -1819,14 +1845,7 @@ onActivated(() => {
             rows="3"
           />
         </label>
-        </template>
-      </div>
-
-      <section
-        v-if="(detalle || esNuevo) && (!esNuevo || pasoAlta === 'listo')"
-        class="comisiones"
-      >
-        <h3>Comisiones</h3>
+        <section v-show="pestanaCabecera === 'comisiones'" class="comisiones">
         <p class="hint-comision">
           Opcionales. La del proveedor es un importe fijo. Las de trabajador se calculan sobre el importe del pedido.
         </p>
@@ -1897,7 +1916,9 @@ onActivated(() => {
             />
           </label>
         </div>
-      </section>
+        </section>
+        </template>
+      </div>
 
     <div
       v-if="(detalle || esNuevo) && (!esNuevo || pasoAlta === 'listo')"
@@ -2340,27 +2361,28 @@ onActivated(() => {
   margin-top: 0.65rem;
 }
 .comisiones {
-  margin-top: 0.75rem;
-  padding: 0.65rem 0.75rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #fff;
-}
-.comisiones h3 {
-  margin: 0;
-  font-size: 0.95rem;
+  margin-top: 0.35rem;
 }
 .hint-comision {
-  margin: 0.25rem 0 0.55rem;
+  margin: 0 0 0.55rem;
   color: #64748b;
   font-size: 0.78rem;
 }
 .comision-fila {
-  display: grid;
-  grid-template-columns: minmax(10rem, 16rem) minmax(8rem, 1fr) 7rem 7rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: flex-start;
   gap: 0.45rem 0.65rem;
-  align-items: end;
   margin-bottom: 0.45rem;
+}
+.comision-fila > label:first-child {
+  width: 14rem;
+  flex: 0 0 14rem;
+}
+.comision-fila > label:not(:first-child) {
+  width: 6.5rem;
+  flex: 0 0 6.5rem;
 }
 .comision-fila label {
   display: flex;
@@ -2370,10 +2392,40 @@ onActivated(() => {
   color: #475569;
 }
 .comision-nombre {
-  align-self: center;
-  padding-top: 0.9rem;
+  flex: 0 1 auto;
+  max-width: 16rem;
+  padding-bottom: 0.35rem;
   font-size: 0.82rem;
   color: #0f172a;
+}
+.comision-nombre:empty {
+  display: none;
+}
+.cabecera-barra {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.55rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+.cabecera-pestanas {
+  display: flex;
+  gap: 0.15rem;
+}
+.cabecera-pestanas button {
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: #475569;
+}
+.cabecera-pestanas button.activa {
+  border-bottom-color: #0f172a;
+  color: #0f172a;
+  font-weight: 600;
 }
 input,
 textarea,
@@ -2574,11 +2626,6 @@ td input {
   font-weight: 600;
   color: #0f172a;
 }
-.cabecera-plegar {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 0.45rem;
-}
 .btn-cabecera-toggle {
   border: 1px solid #64748b;
   background: #fff;
@@ -2613,8 +2660,10 @@ select:disabled {
   .grid-cab {
     grid-template-columns: 1fr 1fr;
   }
-  .comision-fila {
-    grid-template-columns: 1fr 1fr;
+  .comision-fila > label:first-child,
+  .comision-fila > label:not(:first-child) {
+    width: auto;
+    flex: 1 1 8rem;
   }
 }
 </style>
