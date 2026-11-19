@@ -51,3 +51,7 @@ descartes-api/var/logia-demo-datos.sql
 descartes-api/var/logia-demo-hosting.sql.gz
 descartes-api/storage/logs/*
 !descartes-api/storage/logs/.gitignore
+
+# Claves locales y temporales de trabajo (no subir)
+claves.txt
+tmp/
