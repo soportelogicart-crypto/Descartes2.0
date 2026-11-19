@@ -17,6 +17,7 @@ $containerBuilder->addDefinitions([
   \Descartes\Api\Controllers\MantenimientoController::class => DI\autowire(),
   \Descartes\Api\Controllers\EmpresaClienteController::class => DI\autowire(),
   \Descartes\Api\Controllers\ConfigEquipoController::class => DI\autowire(),
+  \Descartes\Api\Controllers\CarpetaCompartidaController::class => DI\autowire(),
   \Descartes\Api\Controllers\DocumentoPlantillasController::class => DI\autowire(),
   \Descartes\Api\Controllers\RolController::class => DI\autowire(),
   \Descartes\Api\Controllers\ClienteController::class => DI\autowire(),

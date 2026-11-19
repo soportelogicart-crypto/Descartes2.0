@@ -21,6 +21,15 @@ contextBridge.exposeInMainWorld('descartes', {
   guardarLogoEmpresa: (codigo) => ipcRenderer.invoke('logos:guardar', codigo),
   abrirCarpetaLogos: () => ipcRenderer.invoke('logos:abrirCarpeta'),
   getLogosDir: () => ipcRenderer.invoke('logos:directorio'),
+  carpetaCompartida: {
+    probar: (ruta) => ipcRenderer.invoke('carpeta:probar', ruta),
+    listar: (ruta, relativa) => ipcRenderer.invoke('carpeta:listar', ruta, relativa),
+    crear: (ruta, relativa, nombre) => ipcRenderer.invoke('carpeta:crear', ruta, relativa, nombre),
+    subir: (ruta, relativa) => ipcRenderer.invoke('carpeta:subir', ruta, relativa),
+    abrir: (ruta, relativa, nombre) => ipcRenderer.invoke('carpeta:abrir', ruta, relativa, nombre),
+    borrar: (ruta, relativa, nombre) => ipcRenderer.invoke('carpeta:borrar', ruta, relativa, nombre),
+    elegirLocal: () => ipcRenderer.invoke('carpeta:elegirLocal'),
+  },
   imagenTeclado: (ruta) => ipcRenderer.invoke('teclado:imagen', ruta),
   elegirImagenTeclado: () => ipcRenderer.invoke('teclado:elegirImagen'),
 

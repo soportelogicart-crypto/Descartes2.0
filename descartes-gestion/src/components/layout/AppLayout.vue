@@ -32,8 +32,12 @@ import {
 } from '@/api/ventas'
 import { extractApiError } from '@/composables/extractApiError'
 import { getInstalacionEstado } from '@/api/instalacion'
+import { useCarpetaCompartidaStore } from '@/stores/carpetaCompartida'
+import CarpetaCompartidaModal from '@/components/carpeta/CarpetaCompartidaModal.vue'
 
 const auth = useAuthStore()
+const carpetaStore = useCarpetaCompartidaStore()
+const modalCarpeta = ref(false)
 const nombreBaseDatos = ref('')
 const etiquetaRol = computed(() => {
   const rol = auth.usuario?.rolNombre?.trim() || auth.usuario?.rolCodigo?.trim() || ''
@@ -41,6 +45,7 @@ const etiquetaRol = computed(() => {
 })
 
 onMounted(async () => {
+  void carpetaStore.cargar()
   try {
     const estado = await getInstalacionEstado()
     nombreBaseDatos.value = (estado.diagnostico?.baseDatos || estado.database || '').trim()
@@ -704,6 +709,18 @@ async function logout() {
           <span v-else-if="etiquetaTienda" class="topbar-tienda" :title="`Tienda ${etiquetaTienda}`">
             {{ etiquetaTienda }}
           </span>
+          <button
+            v-if="carpetaStore.ruta"
+            type="button"
+            class="topbar-carpeta"
+            title="Carpeta compartida"
+            aria-label="Carpeta compartida"
+            @click="modalCarpeta = true"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z" />
+            </svg>
+          </button>
           <span v-if="nombreBaseDatos" class="topbar-bd" :title="`Base de datos ${nombreBaseDatos}`">
             {{ nombreBaseDatos }}
           </span>
@@ -722,6 +739,11 @@ async function logout() {
       </main>
     </div>
 
+    <CarpetaCompartidaModal
+      :open="modalCarpeta && !!carpetaStore.ruta"
+      :ruta="carpetaStore.ruta"
+      @cerrar="modalCarpeta = false"
+    />
     <PuestoEquipoModal
       :open="modalEquipoAbierto"
       :obligatorio="!puestoContexto.configurado"
@@ -1063,6 +1085,30 @@ select.topbar-tienda {
   color: #0f172a;
   background: #fff;
   cursor: pointer;
+}
+
+.topbar-carpeta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.45rem;
+  padding: 0;
+  border: 1px solid #7a8ec0;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fbbf24;
+  cursor: pointer;
+}
+
+.topbar-carpeta:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.topbar-carpeta svg {
+  width: 1.15rem;
+  height: 1.15rem;
+  fill: currentColor;
 }
 
 .content {

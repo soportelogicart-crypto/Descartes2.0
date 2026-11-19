@@ -39,6 +39,13 @@ const opciones = [
     disponible: true,
   },
   {
+    id: 'carpeta-compartida',
+    titulo: 'Carpeta compartida',
+    descripcion: 'Carpeta de documentos e imágenes para todos los PCs de la tienda, en la red local.',
+    ruta: '/configuracion/carpeta-compartida',
+    disponible: true,
+  },
+  {
     id: 'correo',
     titulo: 'Correo',
     descripcion: 'SMTP del usuario para enviar pedidos, albaranes y facturas sin abrir un programa de correo.',
