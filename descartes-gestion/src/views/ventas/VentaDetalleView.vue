@@ -566,8 +566,14 @@ watch(fpagoFinal, async () => {
   valeInputFinal.value?.focus()
 })
 
+let lineaClaveSeq = 1
+function claveLinea() {
+  return `vl${lineaClaveSeq++}`
+}
+
 function lineaVacia(): VentaLinea {
   return {
+    clave: claveLinea(),
     articulo: '',
     descripcion: '',
     loteVenta: '',
@@ -1129,10 +1135,12 @@ function payloadDesdeFicha(): VentaPayload {
     // #endregion
     lineas: lineas.value
       .filter((l) => String(l.articulo ?? '').trim())
-      .map((l) => {
-        if (String(l.articulo ?? '').trim().toUpperCase() === 'NO') {
+      .map((l, i) => {
+        const { clave: _clave, ...resto } = l
+        if (String(resto.articulo ?? '').trim().toUpperCase() === 'NO') {
           return {
-            ...l,
+            ...resto,
+            nroLin: i + 1,
             articulo: 'NO',
             cantidad: 0,
             precio: 0,
@@ -1141,7 +1149,7 @@ function payloadDesdeFicha(): VentaPayload {
             pjeIva: 0,
           }
         }
-        return { ...l, importe: importeLinea(l) }
+        return { ...resto, nroLin: i + 1, importe: importeLinea(l) }
       }),
   }
 }
@@ -1402,6 +1410,7 @@ function aplicarDetalle(data: VentaDetalle) {
           prevLineas[i]
         return {
           ...l,
+          clave: l.clave || claveLinea(),
           llevaSobre: l.llevaSobre === true || anterior?.llevaSobre === true,
         }
       })
@@ -3343,6 +3352,18 @@ function addLinea() {
   lineas.value.push(lineaVacia())
 }
 
+function insertarLinea(i: number) {
+  lineas.value.splice(i + 1, 0, lineaVacia())
+  void nextTick(() => focusArticuloLinea(i + 1))
+}
+
+function moverLinea(i: number, dir: -1 | 1) {
+  const j = i + dir
+  if (j < 0 || j >= lineas.value.length) return
+  const [fila] = lineas.value.splice(i, 1)
+  if (fila) lineas.value.splice(j, 0, fila)
+}
+
 function removeLinea(i: number) {
   lineas.value.splice(i, 1)
   if (!lineas.value.length) lineas.value.push(lineaVacia())
@@ -3565,7 +3586,7 @@ onActivated(() => {
               <col class="col-precio" />
               <col class="col-dto" />
               <col class="col-imp" />
-              <col v-if="puedeEditarLineas" class="col-x" />
+              <col v-if="puedeEditarLineas" class="col-mover" />
             </colgroup>
             <thead>
               <tr>
@@ -3582,7 +3603,7 @@ onActivated(() => {
             <tbody @keydown="onLineasPanelKeydown">
               <tr
                 v-for="(l, i) in lineas"
-                :key="i"
+                :key="l.clave || i"
                 :data-linea-idx="i"
                 :class="{ comentario: esLineaComentario(l) }"
               >
@@ -3652,8 +3673,18 @@ onActivated(() => {
                 <td class="num importe">
                   {{ esLineaComentario(l) ? '—' : importeLinea(l).toFixed(2) }}
                 </td>
-                <td v-if="puedeEditarLineas">
-                  <button type="button" class="btn-x" title="Quitar" @click="removeLinea(i)">x</button>
+                <td v-if="puedeEditarLineas" class="col-mover">
+                  <div class="acciones-linea">
+                    <button type="button" title="Subir línea" :disabled="i === 0" @click="moverLinea(i, -1)">↑</button>
+                    <button
+                      type="button"
+                      title="Bajar línea"
+                      :disabled="i === lineas.length - 1"
+                      @click="moverLinea(i, 1)"
+                    >↓</button>
+                    <button type="button" title="Insertar línea debajo" @click="insertarLinea(i)">+</button>
+                    <button type="button" class="btn-x" title="Quitar línea" @click="removeLinea(i)">×</button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -3663,6 +3694,7 @@ onActivated(() => {
           <strong>Intro</strong> avanza al siguiente campo de la misma línea (en código: resolver artículo);
           en el último campo pasa a la línea siguiente.
           <strong>Flechas</strong> arriba/abajo cambian de línea;
+          <strong>↑ ↓</strong> mueven la línea y <strong>+</strong> inserta una debajo;
           <strong>Supr</strong> elimina la línea.
           <strong>F4</strong> / doble clic: buscar artículo.
           Código <strong>NO</strong> = comentario (sin importe).
@@ -4449,8 +4481,27 @@ onActivated(() => {
 .tabla-lineas .col-imp {
   width: 5rem;
 }
-.tabla-lineas .col-x {
-  width: 2rem;
+.tabla-lineas .col-x,
+.tabla-lineas .col-mover {
+  width: 6.5rem;
+}
+.acciones-linea {
+  display: flex;
+  gap: 0.1rem;
+}
+.acciones-linea button {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  border-radius: 4px;
+  padding: 0 0.28rem;
+  min-width: 1.3rem;
+  cursor: pointer;
+  line-height: 1.3;
+  font: inherit;
+}
+.acciones-linea button:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 th,
 td {

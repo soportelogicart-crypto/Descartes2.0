@@ -4,6 +4,8 @@ import type { DocumentoTipo } from './types'
 export type DocumentoPreviewLinea = {
   articulo: string
   descripcion: string
+  /** Zona de preparación. En el pedido va la primera columna. */
+  zona?: string
   unidades: number
   precioSinIva?: number
   precio?: number

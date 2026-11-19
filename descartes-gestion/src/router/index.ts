@@ -83,6 +83,7 @@ const InformeIvaListadoView = vista(() => import('@/views/listados/InformeIvaLis
 const InformeTicketsListadoView = vista(() => import('@/views/listados/InformeTicketsListadoView.vue'))
 const ExtractoClientesListadoView = vista(() => import('@/views/listados/ExtractoClientesListadoView.vue'))
 const DetalleVentasListadoView = vista(() => import('@/views/listados/DetalleVentasListadoView.vue'))
+const ComisionesPedidoListadoView = vista(() => import('@/views/listados/ComisionesPedidoListadoView.vue'))
 
 const articulosSeccionesPendientes = [
   { path: 'mantenimiento/secciones', name: 'secciones', titulo: 'Secciones' },
@@ -200,6 +201,18 @@ const router = createRouter({
           name: 'listados-detalle-ventas',
           component: DetalleVentasListadoView,
           meta: { titulo: 'Detalle de ventas', modulo: 'listados-detalle-ventas', accion: 'ver' },
+        },
+        {
+          path: 'listados/comisiones-proveedor',
+          name: 'listados-comisiones-proveedor',
+          component: ComisionesPedidoListadoView,
+          meta: { titulo: 'Comisiones de proveedor', modulo: 'listados-comisiones-proveedor', accion: 'ver' },
+        },
+        {
+          path: 'listados/comisiones-trabajadores',
+          name: 'listados-comisiones-trabajadores',
+          component: ComisionesPedidoListadoView,
+          meta: { titulo: 'Comisiones de trabajadores', modulo: 'listados-comisiones-trabajadores', accion: 'ver' },
         },
         {
           path: 'listados/abc-ventas/:dimension?',

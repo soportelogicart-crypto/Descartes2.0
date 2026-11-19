@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onActivated, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onDeactivated, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import {
@@ -18,7 +18,6 @@ import { extractApiError } from '@/composables/useMantenimiento'
 import { usePermisos } from '@/composables/usePermisos'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { usePedidosBusquedaStore } from '@/stores/pedidosBusqueda'
-import { useVentanaPreviewDocumento } from '@/composables/previewDocumentoVentana'
 import type { PrepImpresionA4 } from '@/composables/impresionDocumentoA4Shared'
 import {
   imprimirA4PedidoCliente,
@@ -26,7 +25,9 @@ import {
 } from '@/composables/useImpresionPedidoCliente'
 import VentaToolbar from '@/components/ventas/VentaToolbar.vue'
 import VentaImpresionA4Modal from '@/components/ventas/VentaImpresionA4Modal.vue'
+import VentaVistaPreviewHtml from '@/components/ventas/VentaVistaPreviewHtml.vue'
 import EntidadBuscarModal from '@/components/common/EntidadBuscarModal.vue'
+import EntidadLookupField from '@/components/common/EntidadLookupField.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import DecimalInput from '@/components/common/DecimalInput.vue'
 
@@ -36,10 +37,12 @@ const { puede } = usePermisos()
 const puedeCrear = computed(() => puede('ventas-pedidos', 'crear'))
 const puedeEditar = computed(() => puede('ventas-pedidos', 'editar'))
 const puestoContexto = usePuestoContextoStore()
-const preview = useVentanaPreviewDocumento({ imprimir: () => confirmarImpresionPedido() })
 const a4Open = ref(false)
 const a4Prep = ref<PrepImpresionA4 | null>(null)
 const a4Imprimiendo = ref(false)
+const previewAbierta = ref(false)
+const previewHtml = ref('')
+const previewError = ref('')
 const a4ModalRef = ref<{ capturarHtmlFolio: () => Promise<string> } | null>(null)
 const busqueda = usePedidosBusquedaStore()
 
@@ -81,6 +84,12 @@ const pedidoNum = ref<number | null>(null)
 const nifVista = ref('')
 const razonVista = ref('')
 const vendedorNombre = ref('')
+const proveedorComisionNombre = ref('')
+const trabajadorComisionNombre1 = ref('')
+const trabajadorComisionNombre2 = ref('')
+let hidratandoComisiones = false
+let trabajadorComisionPrev1 = ''
+let trabajadorComisionPrev2 = ''
 
 function esEstaInstanciaActiva(): boolean {
   return route.fullPath === pathInstancia
@@ -100,6 +109,12 @@ const editForm = ref({
   provinciaEnvio: '',
   paisEnvio: '',
   observaciones: '',
+  proveedorComision: '',
+  importeComisionProveedor: null as number | null,
+  trabajadorComision1: '',
+  pjeComision1: null as number | null,
+  trabajadorComision2: '',
+  pjeComision2: null as number | null,
   lineas: [] as PedidoLinea[],
 })
 
@@ -116,8 +131,14 @@ function esRutaNuevoPedido(): boolean {
   return path.endsWith('/ventas/pedidos/nuevo')
 }
 
+let lineaClaveSeq = 1
+function claveLinea() {
+  return `pl${lineaClaveSeq++}`
+}
+
 function lineaVacia(): PedidoLinea {
   return {
+    clave: claveLinea(),
     nroLin: 0,
     articulo: '',
     descripcion: null,
@@ -135,8 +156,25 @@ function lineaVacia(): PedidoLinea {
   }
 }
 
+function esLineaComentario(l: PedidoLinea | null | undefined): boolean {
+  return String(l?.articulo ?? '').trim().toUpperCase() === 'NO'
+}
+
+function marcarLineaComentario(l: PedidoLinea) {
+  l.articulo = 'NO'
+  l.cantidadPedida = 0
+  l.cantidadServida = 0
+  l.cantidadAServir = 0
+  l.pendiente = 0
+  l.precio = 0
+  l.pjeDto = 0
+  l.importe = 0
+}
+
 function tieneLineasArticulo() {
-  return editForm.value.lineas.some((l) => String(l.articulo ?? '').trim() !== '')
+  return editForm.value.lineas.some(
+    (l) => String(l.articulo ?? '').trim() !== '' && !esLineaComentario(l)
+  )
 }
 
 const puedeModificarPedido = computed(
@@ -161,6 +199,7 @@ function cargarEnForm(d: PedidoDetalle) {
   pedidoNum.value = d.pedido
   nifVista.value = d.nif ?? ''
   razonVista.value = d.razonSocial ?? ''
+  hidratandoComisiones = true
   editForm.value = {
     empresa: d.empresa,
     cliente: d.cliente ?? '',
@@ -175,8 +214,15 @@ function cargarEnForm(d: PedidoDetalle) {
     provinciaEnvio: d.provinciaEnvio ?? '',
     paisEnvio: d.paisEnvio ?? '',
     observaciones: d.observaciones ?? '',
+    proveedorComision: d.proveedorComision ?? '',
+    importeComisionProveedor: Number(d.importeComisionProveedor) > 0 ? Number(d.importeComisionProveedor) : null,
+    trabajadorComision1: d.trabajadorComision1 ?? '',
+    pjeComision1: Number(d.pjeComision1) > 0 ? Number(d.pjeComision1) : null,
+    trabajadorComision2: d.trabajadorComision2 ?? '',
+    pjeComision2: Number(d.pjeComision2) > 0 ? Number(d.pjeComision2) : null,
     lineas: (d.lineas.length ? d.lineas : [lineaVacia()]).map((l) => ({
       ...l,
+      clave: l.clave || claveLinea(),
       cantidadServida: Number(l.cantidadServida) || 0,
       cantidadAServir: Number(l.cantidadAServir) || 0,
       pendiente: Number(l.pendiente) || 0,
@@ -184,6 +230,80 @@ function cargarEnForm(d: PedidoDetalle) {
     })),
   }
   void resolverNombreVendedor(editForm.value.vendedor)
+  trabajadorComisionPrev1 = editForm.value.trabajadorComision1.trim()
+  trabajadorComisionPrev2 = editForm.value.trabajadorComision2.trim()
+  void resolverNombreComision('proveedores', editForm.value.proveedorComision, proveedorComisionNombre)
+  void resolverNombreComision('trabajadores', editForm.value.trabajadorComision1, trabajadorComisionNombre1)
+  void resolverNombreComision('trabajadores', editForm.value.trabajadorComision2, trabajadorComisionNombre2)
+  void nextTick(() => {
+    hidratandoComisiones = false
+  })
+}
+
+function onProveedorComision(codigo: string) {
+  if (!hidratandoComisiones && !codigo.trim()) editForm.value.importeComisionProveedor = null
+  void resolverNombreComision('proveedores', codigo, proveedorComisionNombre)
+}
+
+async function resolverNombreComision(
+  entidad: 'proveedores' | 'trabajadores',
+  codigo: string,
+  destino: { value: string }
+) {
+  const c = String(codigo ?? '').trim()
+  if (!c) {
+    destino.value = ''
+    return
+  }
+  try {
+    const { data } = await api.get(`/api/mantenimiento/${entidad}/${encodeURIComponent(c)}`)
+    destino.value = String(data.nombre ?? data.razonSocial ?? data.descripcion ?? '').trim()
+  } catch {
+    destino.value = ''
+  }
+}
+
+async function alElegirTrabajador(slot: 1 | 2, codigo: string) {
+  if (hidratandoComisiones) return
+  const pjeKey = slot === 1 ? 'pjeComision1' : 'pjeComision2'
+  const nombre = slot === 1 ? trabajadorComisionNombre1 : trabajadorComisionNombre2
+  const previo = slot === 1 ? trabajadorComisionPrev1 : trabajadorComisionPrev2
+  const c = String(codigo ?? '').trim()
+  if (c === previo) return
+  if (slot === 1) trabajadorComisionPrev1 = c
+  else trabajadorComisionPrev2 = c
+  if (!c) {
+    editForm.value[pjeKey] = null
+    nombre.value = ''
+    return
+  }
+  try {
+    const { data } = await api.get(`/api/mantenimiento/trabajadores/${encodeURIComponent(c)}`)
+    nombre.value = String(data.nombre ?? data.descripcion ?? '').trim()
+    const defecto = Number(data.comision) || 0
+    if (defecto > 0) editForm.value[pjeKey] = defecto
+    else if (!(Number(editForm.value[pjeKey]) > 0)) editForm.value[pjeKey] = null
+  } catch {
+    nombre.value = ''
+  }
+}
+
+function importeComisionTrabajador(pje: number | null): number | null {
+  const porcentaje = Number(pje) || 0
+  const total = importe.value
+  if (porcentaje <= 0 || total <= 0) return porcentaje > 0 ? 0 : null
+  return Math.round(total * porcentaje) / 100
+}
+
+function fijarImporteComisionTrabajador(slot: 1 | 2, valor: number | null) {
+  const pjeKey = slot === 1 ? 'pjeComision1' : 'pjeComision2'
+  const total = importe.value
+  const cantidad = Number(valor) || 0
+  if (total <= 0 || cantidad <= 0) {
+    if (cantidad <= 0) editForm.value[pjeKey] = null
+    return
+  }
+  editForm.value[pjeKey] = Math.round((cantidad / total) * 100 * 10000) / 10000
 }
 
 async function resolverNombreVendedor(codigo: string) {
@@ -218,6 +338,9 @@ function prepararNuevo() {
   nifVista.value = ''
   razonVista.value = ''
   vendedorNombre.value = puestoContexto.vendedorNombre || ''
+  proveedorComisionNombre.value = ''
+  trabajadorComisionNombre1.value = ''
+  trabajadorComisionNombre2.value = ''
   buscarVendedorOpen.value = false
   editForm.value = {
     empresa: String(puestoContexto.empresaCodigo || '').trim(),
@@ -233,6 +356,12 @@ function prepararNuevo() {
     provinciaEnvio: '',
     paisEnvio: 'España',
     observaciones: '',
+    proveedorComision: '',
+    importeComisionProveedor: null,
+    trabajadorComision1: '',
+    pjeComision1: null,
+    trabajadorComision2: '',
+    pjeComision2: null,
     lineas: [lineaVacia()],
   }
   msg.value = 'Elija la tienda y pulse Intro para reservar el número de pedido'
@@ -649,6 +778,11 @@ async function onArticuloKeydown(e: KeyboardEvent, index: number) {
   barcodeWatcher.cancel()
   const linea = editForm.value.lineas[index]
   const codigo = String(linea?.articulo ?? '').trim()
+  if (linea && codigo.toUpperCase() === 'NO') {
+    marcarLineaComentario(linea)
+    focusLineaCampo(index, 'descripcion')
+    return
+  }
   if (codigo && String(linea?.descripcion ?? '').trim()) {
     focusLineaCampo(index, 'cantidadPedida')
     return
@@ -664,6 +798,12 @@ const barcodeWatcher = createBarcodeScanWatcher(async (codigo) => {
 
 async function resolverArticuloEnLinea(index: number, codigo: string) {
   const q = String(codigo ?? '').trim()
+  const linea = editForm.value.lineas[index]
+  if (linea && q.toUpperCase() === 'NO') {
+    marcarLineaComentario(linea)
+    focusLineaCampo(index, 'descripcion')
+    return
+  }
   if (!q) {
     abrirBuscarArticulo(index)
     return
@@ -871,6 +1011,62 @@ function addLinea() {
   editForm.value.lineas.push(lineaVacia())
 }
 
+function esLineaProducto(l: PedidoLinea): boolean {
+  return String(l.articulo ?? '').trim() !== '' && !esLineaComentario(l)
+}
+
+function ordenarLineasPorZona() {
+  type Bloque = { zona: string; lineas: PedidoLinea[]; suelto: boolean }
+  const bloques: Bloque[] = []
+  for (const linea of editForm.value.lineas) {
+    if (esLineaComentario(linea)) {
+      let producto: Bloque | undefined
+      for (let i = bloques.length - 1; i >= 0; i--) {
+        const bloque = bloques[i]
+        if (bloque && bloque.lineas.some(esLineaProducto)) {
+          producto = bloque
+          break
+        }
+      }
+      if (producto) {
+        producto.lineas.push(linea)
+        continue
+      }
+      const suelto = bloques[bloques.length - 1]
+      if (suelto?.suelto) suelto.lineas.push(linea)
+      else bloques.push({ zona: '', lineas: [linea], suelto: true })
+      continue
+    }
+    bloques.push({
+      zona: esLineaProducto(linea) ? String(linea.zona ?? '').trim() : '',
+      lineas: [linea],
+      suelto: false,
+    })
+  }
+  bloques.sort((a, b) => {
+    if (a.suelto !== b.suelto) return a.suelto ? -1 : 1
+    if (a.zona === '' && b.zona === '') return 0
+    if (a.zona === '') return 1
+    if (b.zona === '') return -1
+    return a.zona.localeCompare(b.zona, 'es', { numeric: true, sensitivity: 'base' })
+  })
+  editForm.value.lineas = bloques.flatMap((b) => b.lineas)
+  msg.value = 'Líneas ordenadas por zona. Pulse Grabar para conservarlo.'
+}
+
+function insertarLinea(i: number) {
+  editForm.value.lineas.splice(i + 1, 0, lineaVacia())
+  void nextTick(() => focusArticuloLinea(i + 1))
+}
+
+function moverLinea(i: number, dir: -1 | 1) {
+  const j = i + dir
+  const filas = editForm.value.lineas
+  if (j < 0 || j >= filas.length) return
+  const [fila] = filas.splice(i, 1)
+  if (fila) filas.splice(j, 0, fila)
+}
+
 function removeLinea(i: number) {
   editForm.value.lineas.splice(i, 1)
   if (!editForm.value.lineas.length) addLinea()
@@ -886,7 +1082,7 @@ function pendienteDe(l: PedidoLinea) {
 
 function servirTodoPendiente() {
   for (const l of editForm.value.lineas) {
-    if (!String(l.articulo ?? '').trim()) continue
+    if (!String(l.articulo ?? '').trim() || esLineaComentario(l)) continue
     l.cantidadAServir = pendienteDe(l)
   }
   msg.value = 'Cantidades a servir rellenadas con el pendiente'
@@ -896,7 +1092,7 @@ function resumentLineasAServir(usarPendiente: boolean) {
   let lineas = 0
   let unidades = 0
   for (const l of editForm.value.lineas) {
-    if (!String(l.articulo ?? '').trim()) continue
+    if (!String(l.articulo ?? '').trim() || esLineaComentario(l)) continue
     const qty = usarPendiente ? pendienteDe(l) : Number(l.cantidadAServir) || 0
     if (qty <= 0.00001) continue
     lineas += 1
@@ -907,14 +1103,14 @@ function resumentLineasAServir(usarPendiente: boolean) {
 
 const totalPendiente = computed(() =>
   editForm.value.lineas.reduce((acc, l) => {
-    if (!String(l.articulo ?? '').trim()) return acc
+    if (!String(l.articulo ?? '').trim() || esLineaComentario(l)) return acc
     return acc + pendienteDe(l)
   }, 0)
 )
 
 const totalAServir = computed(() =>
   editForm.value.lineas.reduce((acc, l) => {
-    if (!String(l.articulo ?? '').trim()) return acc
+    if (!String(l.articulo ?? '').trim() || esLineaComentario(l)) return acc
     return acc + (Number(l.cantidadAServir) || 0)
   }, 0)
 )
@@ -973,7 +1169,7 @@ function pedirConvertir(servirPendiente: boolean) {
       msg.value = 'Cantidades a servir rellenadas con el pendiente'
     }
     for (const l of editForm.value.lineas) {
-      if (!String(l.articulo ?? '').trim()) continue
+      if (!String(l.articulo ?? '').trim() || esLineaComentario(l)) continue
       const aServir = Number(l.cantidadAServir) || 0
       const pend = pendienteDe(l)
       if (aServir > pend + 0.0001) {
@@ -1085,7 +1281,17 @@ function descargarExcel() {
 function payloadLineas() {
   return editForm.value.lineas
     .filter((l) => String(l.articulo ?? '').trim())
-    .map((l) => ({
+    .map((l) => esLineaComentario(l)
+      ? {
+          articulo: 'NO',
+          descripcion: l.descripcion ?? '',
+          cantidadPedida: 0,
+          cantidadServida: 0,
+          cantidadAServir: 0,
+          precio: 0,
+          pjeDto: 0,
+        }
+      : ({
       articulo: String(l.articulo).trim(),
       descripcion: l.descripcion ?? undefined,
       cantidadPedida: Number(l.cantidadPedida) || 0,
@@ -1114,6 +1320,12 @@ function payloadCab() {
     provinciaEnvio: editForm.value.provinciaEnvio.trim() || undefined,
     paisEnvio: editForm.value.paisEnvio.trim() || undefined,
     observaciones: editForm.value.observaciones,
+    proveedorComision: editForm.value.proveedorComision.trim(),
+    importeComisionProveedor: Number(editForm.value.importeComisionProveedor) || 0,
+    trabajadorComision1: editForm.value.trabajadorComision1.trim(),
+    pjeComision1: Number(editForm.value.pjeComision1) || 0,
+    trabajadorComision2: editForm.value.trabajadorComision2.trim(),
+    pjeComision2: Number(editForm.value.pjeComision2) || 0,
   }
 }
 
@@ -1150,19 +1362,24 @@ async function onGuardar() {
   }
 }
 
+function cerrarPreviewPedido() {
+  previewAbierta.value = false
+  previewHtml.value = ''
+  previewError.value = ''
+}
+
 async function mostrarPreviewPedido(prep: PrepImpresionA4) {
-  if (!preview.abrir(prep.titulo)) {
-    throw new Error('Permita las ventanas emergentes para previsualizar el documento')
-  }
   a4Prep.value = prep
   a4Open.value = true
   await nextTick()
   const html = (await a4ModalRef.value?.capturarHtmlFolio()) || ''
+  a4Open.value = false
   if (!html) {
-    preview.cerrar()
     throw new Error('No hay plantilla configurada para este documento en el puesto')
   }
-  preview.mostrar(html, { impresoraNombre: prep.impresoraNombre })
+  previewHtml.value = html
+  previewError.value = ''
+  previewAbierta.value = true
 }
 
 async function onImpreso() {
@@ -1179,21 +1396,19 @@ async function onImpreso() {
   }
 }
 
+/** Imprime lo que se ve en la vista previa; solo marca el pedido si la impresión sale. */
 async function confirmarImpresionPedido() {
-  if (!a4Prep.value || !detalle.value) return
+  if (!a4Prep.value || !detalle.value || !previewHtml.value) return
   a4Imprimiendo.value = true
   error.value = ''
+  previewError.value = ''
   try {
+    msg.value = await imprimirA4PedidoCliente(a4Prep.value, previewHtml.value)
     detalle.value = await marcarPedidoImpreso(detalle.value.empresa, detalle.value.pedido)
     busqueda.upsertResumen(detalle.value)
-    const html = (await a4ModalRef.value?.capturarHtmlFolio()) || ''
-    msg.value = await imprimirA4PedidoCliente(a4Prep.value, html)
-    preview.cerrar()
-    a4Open.value = false
+    cerrarPreviewPedido()
   } catch (e: unknown) {
-    const texto = extractApiError(e, 'No se pudo imprimir el pedido')
-    error.value = texto
-    preview.notificarError(texto)
+    previewError.value = extractApiError(e, 'No se pudo imprimir el pedido')
   } finally {
     a4Imprimiendo.value = false
   }
@@ -1254,6 +1469,10 @@ onMounted(() => {
 })
 
 // KeepAlive + :key=fullPath: cada URL es una instancia. activated cubre alta y reentrada.
+onDeactivated(() => {
+  cerrarPreviewPedido()
+})
+
 onActivated(() => {
   void cargar()
 })
@@ -1603,6 +1822,83 @@ onActivated(() => {
         </template>
       </div>
 
+      <section
+        v-if="(detalle || esNuevo) && (!esNuevo || pasoAlta === 'listo')"
+        class="comisiones"
+      >
+        <h3>Comisiones</h3>
+        <p class="hint-comision">
+          Opcionales. La del proveedor es un importe fijo. Las de trabajador se calculan sobre el importe del pedido.
+        </p>
+        <div class="comision-fila">
+          <label>
+            Proveedor
+            <EntidadLookupField
+              v-model="editForm.proveedorComision"
+              entidad="proveedores"
+              titulo-modal="Buscar proveedor"
+              :readonly="!editando"
+              @update:model-value="onProveedorComision(String($event ?? ''))"
+            />
+          </label>
+          <span class="comision-nombre">{{ proveedorComisionNombre }}</span>
+          <label>
+            Importe
+            <DecimalInput v-model="editForm.importeComisionProveedor" :disabled="!editando" />
+          </label>
+        </div>
+        <div class="comision-fila">
+          <label>
+            Trabajador 1
+            <EntidadLookupField
+              v-model="editForm.trabajadorComision1"
+              entidad="trabajadores"
+              titulo-modal="Buscar trabajador"
+              :readonly="!editando"
+              @update:model-value="alElegirTrabajador(1, String($event ?? ''))"
+            />
+          </label>
+          <span class="comision-nombre">{{ trabajadorComisionNombre1 }}</span>
+          <label>
+            %
+            <DecimalInput v-model="editForm.pjeComision1" :disabled="!editando" />
+          </label>
+          <label>
+            Importe
+            <DecimalInput
+              :model-value="importeComisionTrabajador(editForm.pjeComision1)"
+              :disabled="!editando"
+              @update:model-value="fijarImporteComisionTrabajador(1, $event)"
+            />
+          </label>
+        </div>
+        <div class="comision-fila">
+          <label>
+            Trabajador 2
+            <EntidadLookupField
+              v-model="editForm.trabajadorComision2"
+              entidad="trabajadores"
+              titulo-modal="Buscar trabajador"
+              :readonly="!editando"
+              @update:model-value="alElegirTrabajador(2, String($event ?? ''))"
+            />
+          </label>
+          <span class="comision-nombre">{{ trabajadorComisionNombre2 }}</span>
+          <label>
+            %
+            <DecimalInput v-model="editForm.pjeComision2" :disabled="!editando" />
+          </label>
+          <label>
+            Importe
+            <DecimalInput
+              :model-value="importeComisionTrabajador(editForm.pjeComision2)"
+              :disabled="!editando"
+              @update:model-value="fijarImporteComisionTrabajador(2, $event)"
+            />
+          </label>
+        </div>
+      </section>
+
     <div
       v-if="(detalle || esNuevo) && (!esNuevo || pasoAlta === 'listo')"
       ref="lineasEl"
@@ -1612,6 +1908,7 @@ onActivated(() => {
       <div v-if="editando" class="lin-toolbar">
         <button type="button" @click="servirTodoPendiente">Rellenar a servir (pendiente)</button>
         <button type="button" @click="addLinea">+ Línea</button>
+        <button type="button" @click="ordenarLineasPorZona">Ordenar por zona</button>
         <button type="button" @click="descargarExcel">Excel</button>
       </div>
       <div v-else class="lin-toolbar">
@@ -1620,6 +1917,9 @@ onActivated(() => {
       <p v-if="editando" class="hint-lin">
         En código: <strong>Intro</strong> carga el artículo y pasa a la cantidad; luego precio y dto %.
         <strong>Flecha arriba / abajo</strong> cambia de fila en la misma columna.
+        <strong>↑ ↓</strong> mueven la línea; <strong>+</strong> inserta una línea debajo.
+        Código <strong>NO</strong> = texto explicativo (sin importe); al generar el albarán se conserva en su sitio.
+        <strong>Ordenar por zona</strong> agrupa por zona y, dentro de cada una, mantiene el orden de introducción. Las líneas NO viajan con el producto anterior.
         <strong>F4</strong> / doble clic / <strong>...</strong> abre la búsqueda.
         Para pasar a venta, rellene <strong>A servir</strong> y use Generar albarán.
       </p>
@@ -1644,19 +1944,25 @@ onActivated(() => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(l, i) in editForm.lineas" :key="i" :data-linea-idx="i">
+            <tr
+              v-for="(l, i) in editForm.lineas"
+              :key="l.clave || i"
+              :data-linea-idx="i"
+              :class="{ comentario: esLineaComentario(l) }"
+            >
               <td class="col-art" data-linea-field="articulo">
                 <div v-if="editando" class="celda-articulo">
                   <input
                     :ref="(el) => setArticuloInputRef(el, i)"
                     v-model="l.articulo"
                     maxlength="18"
-                    placeholder="Código / buscar..."
+                    :placeholder="esLineaComentario(l) ? 'NO' : 'Código / buscar...'"
                     @input="onArticuloInput(i)"
                     @keydown="onArticuloKeydown($event, i)"
                     @dblclick="abrirBuscarArticulo(i)"
                   />
                   <button
+                    v-if="!esLineaComentario(l)"
                     type="button"
                     class="btn-buscar-art"
                     title="Buscar artículo (Intro / F4)"
@@ -1668,7 +1974,11 @@ onActivated(() => {
                 <span v-else>{{ l.articulo }}</span>
               </td>
               <td class="col-desc" data-linea-field="descripcion">
-                <input v-if="editando" v-model="l.descripcion" />
+                <input
+                  v-if="editando"
+                  v-model="l.descripcion"
+                  :placeholder="esLineaComentario(l) ? 'Texto explicativo…' : ''"
+                />
                 <span v-else>{{ l.descripcion }}</span>
               </td>
               <td data-linea-field="anotacion">
@@ -1692,6 +2002,7 @@ onActivated(() => {
                   v-if="editando"
                   v-model="l.cantidadPedida"
                   :empty-as-null="false"
+                  :readonly="esLineaComentario(l)"
                 />
                 <span v-else>{{ Number(l.cantidadPedida).toFixed(2) }}</span>
               </td>
@@ -1703,6 +2014,7 @@ onActivated(() => {
                   v-model="l.cantidadAServir"
                   :empty-as-null="false"
                   class="input-servir"
+                  :readonly="esLineaComentario(l)"
                 />
                 <span v-else>{{ Number(l.cantidadAServir || 0).toFixed(2) }}</span>
               </td>
@@ -1711,6 +2023,7 @@ onActivated(() => {
                   v-if="editando"
                   v-model="l.precio"
                   :empty-as-null="false"
+                  :readonly="esLineaComentario(l)"
                 />
                 <span v-else>{{ Number(l.precio).toFixed(4) }}</span>
               </td>
@@ -1719,20 +2032,33 @@ onActivated(() => {
                   v-if="editando"
                   v-model="l.pjeDto"
                   :empty-as-null="false"
+                  :readonly="esLineaComentario(l)"
                 />
                 <span v-else>{{ Number(l.pjeDto || 0).toFixed(2) }}</span>
               </td>
               <td class="num">
                 {{
-                  (
-                    (Number(l.cantidadPedida) || 0) *
-                    (Number(l.precio) || 0) *
-                    (1 - (Number(l.pjeDto) || 0) / 100)
-                  ).toFixed(2)
+                  esLineaComentario(l)
+                    ? '—'
+                    : (
+                        (Number(l.cantidadPedida) || 0) *
+                        (Number(l.precio) || 0) *
+                        (1 - (Number(l.pjeDto) || 0) / 100)
+                      ).toFixed(2)
                 }}
               </td>
-              <td v-if="editando">
-                <button type="button" @click="removeLinea(i)">×</button>
+              <td v-if="editando" class="col-mover">
+                <div class="acciones-linea">
+                  <button type="button" title="Subir línea" :disabled="i === 0" @click="moverLinea(i, -1)">↑</button>
+                  <button
+                    type="button"
+                    title="Bajar línea"
+                    :disabled="i === editForm.lineas.length - 1"
+                    @click="moverLinea(i, 1)"
+                  >↓</button>
+                  <button type="button" title="Insertar línea debajo" @click="insertarLinea(i)">+</button>
+                  <button type="button" title="Quitar línea" @click="removeLinea(i)">×</button>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -1790,6 +2116,17 @@ onActivated(() => {
       :imprimiendo="a4Imprimiendo"
       oculto
       @cerrar="a4Open = false"
+      @imprimir="confirmarImpresionPedido"
+    />
+
+    <VentaVistaPreviewHtml
+      :open="previewAbierta"
+      :titulo="a4Prep?.titulo || 'Pedido'"
+      :html="previewHtml"
+      :impresora-nombre="a4Prep?.impresoraNombre || ''"
+      :imprimiendo="a4Imprimiendo"
+      :error="previewError"
+      @cerrar="cerrarPreviewPedido"
       @imprimir="confirmarImpresionPedido"
     />
 
@@ -2002,6 +2339,42 @@ onActivated(() => {
 .obs {
   margin-top: 0.65rem;
 }
+.comisiones {
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+.comisiones h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+.hint-comision {
+  margin: 0.25rem 0 0.55rem;
+  color: #64748b;
+  font-size: 0.78rem;
+}
+.comision-fila {
+  display: grid;
+  grid-template-columns: minmax(10rem, 16rem) minmax(8rem, 1fr) 7rem 7rem;
+  gap: 0.45rem 0.65rem;
+  align-items: end;
+  margin-bottom: 0.45rem;
+}
+.comision-fila label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  font-size: 0.72rem;
+  color: #475569;
+}
+.comision-nombre {
+  align-self: center;
+  padding-top: 0.9rem;
+  font-size: 0.82rem;
+  color: #0f172a;
+}
 input,
 textarea,
 select {
@@ -2045,6 +2418,34 @@ textarea:disabled {
   display: flex;
   gap: 0.4rem;
   margin-bottom: 0.4rem;
+}
+.col-mover {
+  width: 6.5rem;
+  white-space: nowrap;
+}
+.acciones-linea {
+  display: flex;
+  gap: 0.15rem;
+}
+.acciones-linea button {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  border-radius: 4px;
+  padding: 0 0.3rem;
+  min-width: 1.35rem;
+  cursor: pointer;
+  line-height: 1.3;
+}
+.acciones-linea button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+tr.comentario td {
+  background: #f8fafc;
+}
+tr.comentario td input {
+  font-style: italic;
+  color: #475569;
 }
 .grid-wrap {
   overflow: auto;
@@ -2210,6 +2611,9 @@ select:disabled {
     grid-template-columns: 1fr;
   }
   .grid-cab {
+    grid-template-columns: 1fr 1fr;
+  }
+  .comision-fila {
     grid-template-columns: 1fr 1fr;
   }
 }

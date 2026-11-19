@@ -427,3 +427,69 @@ export async function generarDetalleVentas(params: DetalleVentasParams): Promise
   const { data } = await api.get<DetalleVentasResult>('/api/listados/detalle-ventas', { params })
   return data
 }
+
+export type ComisionPedidoFiltros = {
+  tienda?: string
+  fechaDesde?: string
+  fechaHasta?: string
+  pedidoDesde?: string
+  pedidoHasta?: string
+  clienteDesde?: string
+  clienteHasta?: string
+  proveedorDesde?: string
+  proveedorHasta?: string
+  trabajadorDesde?: string
+  trabajadorHasta?: string
+}
+
+export type ComisionProveedorFila = {
+  empresa: string
+  pedido: number
+  fecha: string
+  cliente: string
+  clienteNombre: string
+  proveedor: string
+  proveedorNombre: string
+  importePedido: number
+  comision: number
+}
+
+export type ComisionTrabajadorFila = {
+  empresa: string
+  pedido: number
+  fecha: string
+  cliente: string
+  clienteNombre: string
+  trabajador: string
+  trabajadorNombre: string
+  importePedido: number
+  pje: number
+  comision: number
+}
+
+export type ComisionesPedidoResult<T> = {
+  items: T[]
+  totales: { lineas: number; importePedido?: number; comision: number }
+  truncado: boolean
+  limite: number
+}
+
+export async function generarComisionesProveedor(
+  params: ComisionPedidoFiltros
+): Promise<ComisionesPedidoResult<ComisionProveedorFila>> {
+  const { data } = await api.get<ComisionesPedidoResult<ComisionProveedorFila>>(
+    '/api/listados/comisiones-proveedor',
+    { params }
+  )
+  return data
+}
+
+export async function generarComisionesTrabajadores(
+  params: ComisionPedidoFiltros
+): Promise<ComisionesPedidoResult<ComisionTrabajadorFila>> {
+  const { data } = await api.get<ComisionesPedidoResult<ComisionTrabajadorFila>>(
+    '/api/listados/comisiones-trabajadores',
+    { params }
+  )
+  return data
+}
