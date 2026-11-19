@@ -39,7 +39,35 @@ final class MejorasGestionSchema
       }
     }
     self::asegurarPagosACuenta($pdo, $driver);
+    self::asegurarConfigInstalacion($pdo, $driver);
     self::$comprobado = true;
+  }
+
+  /** Ajustes de toda la instalación (no de un PC): clave/valor. */
+  private static function asegurarConfigInstalacion(PDO $pdo, string $driver): void
+  {
+    if (self::existeTabla($pdo, $driver, 'ConfigInstalacion')) {
+      return;
+    }
+    if ($driver === 'mysql') {
+      $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS `ConfigInstalacion` (
+          `Clave` VARCHAR(40) NOT NULL,
+          `Valor` VARCHAR(500) NULL,
+          `Actualizado` DATETIME NULL,
+          PRIMARY KEY (`Clave`)
+        )'
+      );
+      return;
+    }
+    $pdo->exec(
+      'CREATE TABLE [ConfigInstalacion] (
+        [Clave] NVARCHAR(40) NOT NULL,
+        [Valor] NVARCHAR(500) NULL,
+        [Actualizado] DATETIME NULL,
+        CONSTRAINT [PK_ConfigInstalacion] PRIMARY KEY ([Clave])
+      )'
+    );
   }
 
   private static function asegurarPagosACuenta(PDO $pdo, string $driver): void

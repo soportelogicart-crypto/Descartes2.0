@@ -135,6 +135,41 @@ export type PaymentTerminalResult = {
   receipt?: string | null
 }
 
+export type CarpetaCompartidaElemento = {
+  nombre: string
+  carpeta: boolean
+  tamano: number
+  modificado: string | null
+}
+
+export type CarpetaCompartidaResultado = {
+  ok: boolean
+  message?: string
+}
+
+/** Carpeta compartida de la instalación en la red local (solo Electron). */
+export type CarpetaCompartidaBridge = {
+  probar: (ruta: string) => Promise<CarpetaCompartidaResultado>
+  listar: (
+    ruta: string,
+    relativa: string
+  ) => Promise<CarpetaCompartidaResultado & { elementos?: CarpetaCompartidaElemento[] }>
+  crear: (ruta: string, relativa: string, nombre: string) => Promise<CarpetaCompartidaResultado>
+  subir: (
+    ruta: string,
+    relativa: string
+  ) => Promise<CarpetaCompartidaResultado & { copiados?: number; cancelado?: boolean }>
+  abrir: (ruta: string, relativa: string, nombre: string) => Promise<CarpetaCompartidaResultado>
+  borrar: (ruta: string, relativa: string, nombre: string) => Promise<CarpetaCompartidaResultado>
+  elegirLocal: () => Promise<
+    CarpetaCompartidaResultado & {
+      carpetaLocal?: string
+      rutaCompartida?: string
+      cancelado?: boolean
+    }
+  >
+}
+
 export type DescartesBridge = {
   isElectron: true
   platform: string
@@ -218,6 +253,8 @@ export type DescartesBridge = {
   ) => Promise<PaymentTerminalResult>
   /** Solo en instaladores recientes. */
   reenfocar?: () => void
+  /** Carpeta compartida de la red local. Solo en instaladores recientes. */
+  carpetaCompartida?: CarpetaCompartidaBridge
   /** Modo sin conexión del TPV (instaladores con base local). */
   offline?: DescartesOfflineBridge
 }

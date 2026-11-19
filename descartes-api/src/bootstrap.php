@@ -30,6 +30,7 @@ use Descartes\Api\Repositories\RolPermisoRepository;
 use Descartes\Api\Repositories\RolRepository;
 use Descartes\Api\Services\ArticuloService;
 use Descartes\Api\Services\ConfigEquipoService;
+use Descartes\Api\Services\CarpetaCompartidaService;
 use Descartes\Api\Services\DocumentoPlantillasService;
 use Descartes\Api\Services\DependencyCheckService;
 use Descartes\Api\Services\TiendaAlmacenService;
@@ -99,6 +100,10 @@ return function (App $app): void {
   $container->set(ConfigEquipoRepository::class, static fn (ContainerInterface $c) => new ConfigEquipoRepository($c->get(PDO::class)));
   $container->set(ConfigEquipoService::class, static fn (ContainerInterface $c) => new ConfigEquipoService(
     $c->get(ConfigEquipoRepository::class),
+    $c->get(PDO::class)
+  ));
+
+  $container->set(CarpetaCompartidaService::class, static fn (ContainerInterface $c) => new CarpetaCompartidaService(
     $c->get(PDO::class)
   ));
 

@@ -4,6 +4,7 @@ const fs = require('fs')
 const localConfig = require('./local-config')
 const logos = require('./logos')
 const tecladoImagenes = require('./teclado-imagenes')
+const carpetaCompartida = require('./carpeta-compartida')
 const peripherals = require('./peripherals')
 const dispositivoAgente = require('./dispositivo-agente')
 const { bindWindowMenu, clearMenu } = require('./app-menu')
@@ -287,6 +288,25 @@ function registerIpc() {
   ipcMain.handle('teclado:elegirImagen', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     return tecladoImagenes.elegirImagen(win)
+  })
+  ipcMain.handle('carpeta:probar', (_event, ruta) => carpetaCompartida.probar(ruta))
+  ipcMain.handle('carpeta:listar', (_event, ruta, relativa) => carpetaCompartida.listar(ruta, relativa))
+  ipcMain.handle('carpeta:crear', (_event, ruta, relativa, nombre) =>
+    carpetaCompartida.crearCarpeta(ruta, relativa, nombre)
+  )
+  ipcMain.handle('carpeta:subir', (event, ruta, relativa) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    return carpetaCompartida.subirArchivos(ruta, relativa, win)
+  })
+  ipcMain.handle('carpeta:abrir', (_event, ruta, relativa, nombre) =>
+    carpetaCompartida.abrir(ruta, relativa, nombre)
+  )
+  ipcMain.handle('carpeta:borrar', (_event, ruta, relativa, nombre) =>
+    carpetaCompartida.borrar(ruta, relativa, nombre)
+  )
+  ipcMain.handle('carpeta:elegirLocal', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    return carpetaCompartida.elegirCarpetaLocal(win)
   })
   // En Windows, tras alert/confirm nativo la página no recupera el teclado hasta cambiar de ventana.
   ipcMain.on('ventana:reenfocar', (event) => {

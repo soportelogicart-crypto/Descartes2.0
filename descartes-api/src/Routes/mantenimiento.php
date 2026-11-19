@@ -6,6 +6,7 @@ use Descartes\Api\Config\EntityConfig;
 use Descartes\Api\Controllers\ArticuloController;
 use Descartes\Api\Controllers\ClienteController;
 use Descartes\Api\Controllers\CodigoPostalController;
+use Descartes\Api\Controllers\CarpetaCompartidaController;
 use Descartes\Api\Controllers\ConfigEquipoController;
 use Descartes\Api\Controllers\DocumentoPlantillasController;
 use Descartes\Api\Controllers\EmpresaClienteController;
@@ -211,6 +212,11 @@ return function (App $app): void {
       ->add($setPermisoModulo('puestos-parametros', 'ver'));
     $group->put('/config-equipo/{equipoId}', [ConfigEquipoController::class, 'put'])
       ->add($setPermisoModulo('puestos-parametros', 'ver'));
+
+    // Carpeta compartida de la instalación: lectura para todos los puestos, cambio con permiso de parámetros
+    $group->get('/carpeta-compartida', [CarpetaCompartidaController::class, 'get']);
+    $group->put('/carpeta-compartida', [CarpetaCompartidaController::class, 'put'])
+      ->add($setPermisoModulo('puestos-parametros', 'editar'));
 
     $group->get('/documento-plantillas', [DocumentoPlantillasController::class, 'list']);
     // Lectura autenticada (puestos y configuración); escritura sigue con facturación

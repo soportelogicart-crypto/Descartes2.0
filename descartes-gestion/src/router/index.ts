@@ -70,6 +70,7 @@ const RetrocesoFacturaView = vista(() => import('@/views/facturacion/RetrocesoFa
 const TraspasoContableView = vista(() => import('@/views/facturacion/TraspasoContableView.vue'))
 const ConfiguracionHubView = vista(() => import('@/views/configuracion/ConfiguracionHubView.vue'))
 const DatafonoConfiguracionView = vista(() => import('@/views/configuracion/DatafonoConfiguracionView.vue'))
+const CarpetaCompartidaView = vista(() => import('@/views/configuracion/CarpetaCompartidaView.vue'))
 const FidelizacionConfigView = vista(() => import('@/views/configuracion/FidelizacionConfigView.vue'))
 const CorreoConfigView = vista(() => import('@/views/configuracion/CorreoConfigView.vue'))
 const DocumentosPlantillasView = vista(() => import('@/views/configuracion/DocumentosPlantillasView.vue'))
@@ -116,6 +117,12 @@ const router = createRouter({
           name: 'configuracion-datafono',
           component: DatafonoConfiguracionView,
           meta: { titulo: 'Datáfono integrado' },
+        },
+        {
+          path: 'configuracion/carpeta-compartida',
+          name: 'configuracion-carpeta-compartida',
+          component: CarpetaCompartidaView,
+          meta: { titulo: 'Carpeta compartida' },
         },
         {
           path: 'configuracion/fidelizacion',
