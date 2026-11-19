@@ -10,6 +10,7 @@ return [
     'codigo' => 'Puesto',
     'descripcion' => 'Descripcion',
     'tiendaCodigo' => 'EmpresaArqueo',
+    'tiendasExtra' => 'TiendasExtra',
     'trabajadorCodigo' => 'Trabajador',
     'usuarioCodigo' => 'Usuario',
     'impresora80' => 'Impresora80',
@@ -149,6 +150,7 @@ return [
    * Se trunca en mapApiToRow para no fallar el UPDATE.
    */
   'stringMaxLengths' => [
+    'TiendasExtra' => 200,
     'ImpresoraTickets' => 100,
     'ImpresoraTicketsF' => 100,
     'ImpresoraEtiquetas' => 100,

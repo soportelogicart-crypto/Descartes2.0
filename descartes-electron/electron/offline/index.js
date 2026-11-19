@@ -115,9 +115,6 @@ function registrarIpc() {
     if (url.includes('/api/mantenimiento/')) {
       const data = r?.data
       const items = Array.isArray(data?.items) ? data.items.length : null
-      // #region agent log
-      fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',location:'offline/index.js:peticion',message:'consulta mantenimiento',data:{url:url.slice(0,180),status:r?.status,codigo:data?.codigo||'',error:typeof data?.error==='string'?data.error.slice(0,160):'',items,total:data?.total??null},timestamp:Date.now(),hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
     }
     publicarEstado()
     return r

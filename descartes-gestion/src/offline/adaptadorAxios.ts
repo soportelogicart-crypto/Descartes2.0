@@ -40,6 +40,7 @@ function esErrorDeRed(e: unknown): boolean {
   if (!axios.isAxiosError(e)) return false
   if (!e.response) return true
   const s = e.response.status
+  if (s === 503 && cuerpoDeApi(e.response.data)) return false
   if (s === 502 || s === 503 || s === 504) return true
   return s === 500 && !cuerpoDeApi(e.response.data)
 }

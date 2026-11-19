@@ -178,9 +178,6 @@ async function cargarEstado() {
     if (estado.value.server) form.server = estado.value.server
     if (estado.value.database) form.database = estado.value.database
     if (estado.value.user) form.user = estado.value.user
-    // #region agent log
-    fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',runId:'post-fix',hypothesisId:'B',location:'InstalacionView.vue:cargarEstado',message:'pantalla conexion',data:{routeName:route.name,routePath:route.path,requiereAccion:estado.value.requiereAccion},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
   } catch {
     error.value = 'No se pudo contactar con la API. Compruebe que Apache/XAMPP esta en marcha.'
     mostrarFeedback('error', error.value)

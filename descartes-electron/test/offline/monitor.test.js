@@ -31,6 +31,14 @@ test('un 500 con JSON lo ha contestado el PHP y no corta', async () => {
   assert.equal(monitor.conectado, true)
 })
 
+test('un 503 con JSON lo ha contestado el PHP y no corta', async () => {
+  reset()
+  red.responder = () => ({ status: 503, datos: { error: 'base', codigo: 'INSTALACION_SIN_CONEXION' } })
+  monitor.avisarFallo()
+  await monitor.comprobar()
+  assert.equal(monitor.conectado, true)
+})
+
 test('sin aviso de la ventana hacen falta tres fallos', async () => {
   reset()
   red.responder = () => ({ status: 500, datos: null })

@@ -37,6 +37,10 @@ final class MejorasGestionSchema
       // Vendedor y usuario del puesto: en bases recuperadas de SQL Server no existen y el guardado los omitia en silencio.
       ['Puestos', 'Trabajador', 'VARCHAR(4) NULL', 'NVARCHAR(4) NULL'],
       ['Puestos', 'Usuario', 'VARCHAR(6) NULL', 'NVARCHAR(6) NULL'],
+      // Otras tiendas en las que puede trabajar este puesto, ademas de la de arqueo.
+      ['Puestos', 'TiendasExtra', 'VARCHAR(200) NULL', 'NVARCHAR(200) NULL'],
+      // Otras tiendas en las que puede trabajar este usuario, ademas de la de arqueo del puesto.
+      ['Usuarios_Ges', 'TiendasExtra', 'VARCHAR(200) NULL', 'NVARCHAR(200) NULL'],
     ];
     foreach ($columnas as [$tabla, $columna, $mysql, $sqlsrv]) {
       if (self::existe($pdo, $driver, $tabla, $columna)) {

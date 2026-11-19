@@ -801,9 +801,6 @@ final class EncargoService
     if (!in_array($modalidad, ['recogida', 'envio'], true)) {
       $modalidad = 'recogida';
     }
-    // #region agent log
-    @file_put_contents('c:\\descartes-2.0\\.cursor\\debug-0d3608.log', json_encode(['sessionId' => '0d3608', 'runId' => 'post-fix', 'hypothesisId' => 'F', 'location' => 'EncargoService.php:sincronizarDesdeVenta', 'message' => $actual === false ? 'alta encargo' : 'encargo ya existe', 'data' => ['albaran' => $albaran, 'modalidad' => $modalidad, 'sobres' => $sobres, 'existia' => $actual !== false], 'timestamp' => (int) (microtime(true) * 1000)]) . "\n", FILE_APPEND);
-    // #endregion
 
     if ($actual !== false) {
       $numero = (int) $actual['Numero'];
@@ -938,9 +935,6 @@ final class EncargoService
   {
     $encargo = $this->obtener($numero);
     $estado = (string) $encargo['estado'];
-    // #region agent log
-    @file_put_contents('c:\\descartes-2.0\\.cursor\\debug-0d3608.log', json_encode(['sessionId' => '0d3608', 'runId' => 'post-fix', 'hypothesisId' => 'E', 'location' => 'EncargoService.php:entregar', 'message' => 'entregar', 'data' => ['numero' => $numero, 'estado' => $estado], 'timestamp' => (int) (microtime(true) * 1000)]) . "\n", FILE_APPEND);
-    // #endregion
     if ($estado === 'entregado') {
       throw new \InvalidArgumentException('El encargo ya está entregado');
     }
@@ -957,16 +951,6 @@ final class EncargoService
    */
   public function marcarFacturado(string $empresa, string $tipo, int $albaran): void
   {
-    // #region agent log
-    $estado = null;
-    try {
-      $st = $this->pdo->prepare('SELECT Estado FROM Encargos WHERE AlbaranEmpresa = :e AND AlbaranTipo = :t AND Albaran = :a');
-      $st->execute(['e' => trim($empresa), 't' => trim($tipo), 'a' => $albaran]);
-      $estado = $st->fetchColumn();
-    } catch (\Throwable) {
-    }
-    @file_put_contents('c:\\descartes-2.0\\.cursor\\debug-0d3608.log', json_encode(['sessionId' => '0d3608', 'runId' => 'post-fix', 'hypothesisId' => 'A', 'location' => 'EncargoService.php:marcarFacturado', 'message' => 'cobro sin entregar', 'data' => ['albaran' => $albaran, 'tipo' => $tipo, 'estadoEncargo' => $estado], 'timestamp' => (int) (microtime(true) * 1000)]) . "\n", FILE_APPEND);
-    // #endregion
   }
 
   /**

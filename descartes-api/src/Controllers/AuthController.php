@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Descartes\Api\Controllers;
 
 use Descartes\Api\Http\ErrorResponse;
+use Descartes\Api\Services\Instalacion\MejorasGestionSchema;
 use Descartes\Api\Services\PermissionService;
 use Descartes\Api\Services\UsuarioCorreoService;
 use PDO;
@@ -88,6 +89,119 @@ final class AuthController
       'usuario' => $usuario,
       'permisos' => $this->permissionService->permisosPorRol((string) ($usuario['rolCodigo'] ?? '')),
     ]);
+  }
+
+  /**
+   * Tienda de arqueo del puesto y las otras marcadas en el usuario de la sesión.
+   */
+  public function tiendasPuesto(Request $request, Response $response): Response
+  {
+    if (($_SESSION['usuario'] ?? null) === null) {
+      return ErrorResponse::json($response, 401, 'Sesion no iniciada', 'NO_AUTENTICADO');
+    }
+
+    $puesto = trim((string) ($request->getQueryParams()['puesto'] ?? ''));
+    if ($puesto === '') {
+      return $this->json($response, 200, ['items' => []]);
+    }
+
+    try {
+      MejorasGestionSchema::asegurar($this->pdo);
+    } catch (\Throwable) {
+      // Si no se puede crear la columna, se devuelve al menos la tienda de arqueo.
+    }
+
+    try {
+      $stmt = $this->pdo->prepare(
+        'SELECT RTRIM([EmpresaArqueo]) AS tienda
+         FROM [Puestos]
+         WHERE RTRIM([Puesto]) = :puesto'
+      );
+      $stmt->execute(['puesto' => $puesto]);
+      $row = $stmt->fetch();
+    } catch (\Throwable) {
+      return $this->json($response, 200, ['items' => []]);
+    }
+
+    if (!is_array($row)) {
+      return $this->json($response, 200, ['items' => []]);
+    }
+
+    $extra = '';
+    $codigoUsuario = trim((string) ($_SESSION['usuario']['codigo'] ?? ''));
+    if ($codigoUsuario !== '') {
+      try {
+        $stmtUsuario = $this->pdo->prepare(
+          'SELECT RTRIM([TiendasExtra]) AS extra
+           FROM [Usuarios_Ges]
+           WHERE RTRIM([Codigo]) = :codigo'
+        );
+        $stmtUsuario->execute(['codigo' => $codigoUsuario]);
+        $filaUsuario = $stmtUsuario->fetch();
+        if (is_array($filaUsuario)) {
+          $extra = (string) ($filaUsuario['extra'] ?? '');
+        }
+      } catch (\Throwable) {
+        $extra = '';
+      }
+    }
+
+    $codigos = [];
+    $arqueo = trim((string) ($row['tienda'] ?? ''));
+    if ($arqueo !== '') {
+      $codigos[] = $arqueo;
+    }
+    foreach (preg_split('/[,;]+/', $extra) ?: [] as $codigo) {
+      $codigo = trim((string) $codigo);
+      if ($codigo !== '' && !in_array($codigo, $codigos, true)) {
+        $codigos[] = $codigo;
+      }
+    }
+
+    $nombres = $this->nombresTienda($codigos);
+    $items = [];
+    foreach ($codigos as $codigo) {
+      $nombre = $nombres[$codigo] ?? '';
+      $items[] = [
+        'tienda' => $codigo,
+        'tiendaNombre' => $nombre !== '' ? $nombre : $codigo,
+      ];
+    }
+
+    return $this->json($response, 200, ['items' => $items]);
+  }
+
+  /** @param list<string> $codigos @return array<string, string> */
+  private function nombresTienda(array $codigos): array
+  {
+    if ($codigos === []) {
+      return [];
+    }
+    $marcas = [];
+    $params = [];
+    foreach ($codigos as $i => $codigo) {
+      $marcas[] = ':c' . $i;
+      $params['c' . $i] = $codigo;
+    }
+    try {
+      $stmt = $this->pdo->prepare(
+        'SELECT RTRIM([Codigo]) AS codigo, RTRIM([Nombre]) AS nombre
+         FROM [Empresas_Ges]
+         WHERE RTRIM([Codigo]) IN (' . implode(', ', $marcas) . ')'
+      );
+      $stmt->execute($params);
+    } catch (\Throwable) {
+      return [];
+    }
+    $nombres = [];
+    foreach ($stmt->fetchAll() as $fila) {
+      $codigo = trim((string) ($fila['codigo'] ?? ''));
+      if ($codigo === '') {
+        continue;
+      }
+      $nombres[$codigo] = trim((string) ($fila['nombre'] ?? ''));
+    }
+    return $nombres;
   }
 
   public function getCorreo(Request $request, Response $response): Response

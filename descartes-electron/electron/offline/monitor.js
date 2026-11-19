@@ -140,6 +140,7 @@ class Monitor extends EventEmitter {
  * Apache parado) no cuentan: la API no ha contestado.
  */
 function alcanzaServidor(status, datos) {
+  if (status === 503 && datos && typeof datos === 'object') return true
   if (esFalloDeRed(status)) return false
   if (status === 500) return !!datos && typeof datos === 'object'
   return status > 0

@@ -37,7 +37,14 @@ const USUARIO_CAMPOS_OBLIGATORIOS: { key: string; label: string }[] = [
 ]
 
 function usuarioVacio(): Record<string, unknown> {
-  return { codigo: '', nombre: '', rolCodigo: '', password: '', activo: true }
+  return { codigo: '', nombre: '', rolCodigo: '', password: '', tiendasExtra: '', activo: true }
+}
+
+function codigosTiendasExtra(ficha: Record<string, unknown>): string[] {
+  return String(ficha.tiendasExtra ?? '')
+    .split(/[,;]+/)
+    .map((c) => c.trim())
+    .filter((c) => c !== '')
 }
 
 function camposUsuarioObligatoriosVacios(ficha: Record<string, unknown>): string[] {
@@ -85,11 +92,22 @@ const camposInvalidos = ref<string[]>([])
 const codigoInput = ref<HTMLInputElement | null>(null)
 const optionsMap = ref<GridOptionsMap>({})
 const rolesOpciones = ref<{ value: string; label: string }[]>([])
+const tiendasOpciones = ref<{ value: string; label: string }[]>([])
 
 const modoEdicion = ref(false)
 const esNuevo = ref(false)
 const ficha = ref<Record<string, unknown>>({})
 const indiceFicha = ref(-1)
+
+function tiendaExtraMarcada(codigo: string): boolean {
+  return codigosTiendasExtra(ficha.value).includes(codigo.trim())
+}
+
+function toggleTiendaExtra(codigo: string, marcada: boolean) {
+  const codigos = codigosTiendasExtra(ficha.value).filter((c) => c !== codigo)
+  if (marcada) codigos.push(codigo)
+  ficha.value = { ...ficha.value, tiendasExtra: codigos.join(',') }
+}
 
 function mostrarAvisoModal(titulo: string, message: string, campo?: string | null) {
   campoAvisoActual.value = campo ?? null
@@ -180,9 +198,21 @@ const {
 
 onMounted(async () => {
   if (!puedeVer.value) return
-  await cargarRoles()
+  await Promise.all([cargarRoles(), cargarTiendas()])
   await cargar()
 })
+
+async function cargarTiendas() {
+  try {
+    const { data } = await api.get('/api/mantenimiento/tiendas', { params: { pageSize: 500 } })
+    tiendasOpciones.value = (data.items ?? []).map((t: { codigo: string; nombre: string }) => ({
+      value: String(t.codigo ?? '').trim(),
+      label: `${String(t.codigo ?? '').trim()} - ${t.nombre}`,
+    })).filter((t: { value: string }) => t.value !== '')
+  } catch {
+    tiendasOpciones.value = []
+  }
+}
 
 async function cargarRoles() {
   try {
@@ -303,6 +333,7 @@ async function onGuardarFicha() {
       nombre: ficha.value.nombre,
       rolCodigo: ficha.value.rolCodigo,
       password: String(ficha.value.password ?? '').trim(),
+      tiendasExtra: codigosTiendasExtra(ficha.value).join(','),
       activo: ficha.value.activo,
     }
 
@@ -612,6 +643,21 @@ async function onUltimo() {
               </label>
             </div>
           </fieldset>
+          <fieldset class="form-section">
+            <legend>Otras tiendas</legend>
+            <p v-if="!tiendasOpciones.length" class="tiendas-extra-vacio">No hay otras tiendas.</p>
+            <div v-else class="tiendas-extra">
+              <label v-for="tienda in tiendasOpciones" :key="tienda.value" class="tienda-extra">
+                <input
+                  type="checkbox"
+                  :checked="tiendaExtraMarcada(tienda.value)"
+                  :disabled="soloLecturaFicha"
+                  @change="toggleTiendaExtra(tienda.value, ($event.target as HTMLInputElement).checked)"
+                />
+                {{ tienda.label }}
+              </label>
+            </div>
+          </fieldset>
         </div>
       </template>
 
@@ -815,6 +861,26 @@ async function onUltimo() {
   align-items: center;
   gap: 0.35rem;
   padding-bottom: 0.25rem;
+}
+
+.tiendas-extra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.8rem;
+}
+
+.tienda-extra {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+}
+
+.tiendas-extra-vacio {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #64748b;
 }
 
 .ficha-campos input[type='text'],

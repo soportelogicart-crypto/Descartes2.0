@@ -2,7 +2,8 @@ import type { TiendaField } from '@/config/tiendas-tabs'
 
 export type PuestoFieldLayout = 'inline' | 'checkbox'
 
-export type PuestoField = TiendaField & {
+export type PuestoField = Omit<TiendaField, 'type'> & {
+  type?: TiendaField['type']
   layout?: PuestoFieldLayout
   optionsSource?: 'trabajadores' | 'usuarios' | 'tiendas' | 'impresoras-sistema' | TiendaField['optionsSource']
 }

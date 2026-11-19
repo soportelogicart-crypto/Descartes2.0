@@ -39,15 +39,20 @@ final class OfflineEstadoService
   private function versionCatalogo(): string
   {
     $archivo = self::dirVar() . '/offline-version.json';
-    if (is_file($archivo) && (time() - (int) filemtime($archivo)) < self::CACHE_SEGUNDOS) {
-      $guardado = json_decode((string) file_get_contents($archivo), true);
-      if (is_array($guardado) && isset($guardado['version'])) {
-        return (string) $guardado['version'];
-      }
+    $previa = $this->versionGuardada($archivo);
+    $edad = is_file($archivo) ? time() - (int) filemtime($archivo) : PHP_INT_MAX;
+    if ($previa !== null && $edad < self::CACHE_SEGUNDOS) {
+      return $previa;
+    }
+    if ($previa !== null && $edad < 21600) {
+      return $previa;
     }
 
     $partes = [];
     try {
+      if ((string) $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
+        $this->pdo->exec('SET SESSION MAX_EXECUTION_TIME=800');
+      }
       $partes[] = json_encode($this->pdo->query(
         'SELECT COUNT(*) AS N, SUM(ISNULL(PrecioVen1, 0)) AS P1, SUM(ISNULL(PrecioVen2, 0)) AS P2,
                 SUM(ISNULL(PrecioVen3, 0)) AS P3
@@ -60,12 +65,25 @@ final class OfflineEstadoService
         'SELECT COUNT(*) AS N, MAX(LUpdate) AS U, SUM(ISNULL(Descuento, 0)) AS D FROM TiposDescuentos'
       )->fetch(PDO::FETCH_ASSOC));
     } catch (\Throwable $e) {
-      return 'desconocida';
+      return $previa ?? 'desconocida';
     }
     $version = substr(md5(implode('|', $partes)), 0, 16);
     @file_put_contents($archivo, json_encode(['version' => $version]));
 
     return $version;
+  }
+
+  private function versionGuardada(string $archivo): ?string
+  {
+    if (!is_file($archivo)) {
+      return null;
+    }
+    $guardado = json_decode((string) file_get_contents($archivo), true);
+    if (!is_array($guardado) || !isset($guardado['version']) || (string) $guardado['version'] === '') {
+      return null;
+    }
+
+    return (string) $guardado['version'];
   }
 
   /**

@@ -64,9 +64,7 @@ function normalizarEmpresaCodigo(v: string): string {
 }
 
 const filtros = ref({
-  empresa: normalizarEmpresaCodigo(
-    busqueda.filtros?.empresa || puestoContexto.empresaCodigo || ''
-  ),
+  empresa: normalizarEmpresaCodigo(puestoContexto.empresaCodigo || busqueda.filtros?.empresa || ''),
   fechaDesde: busqueda.filtros?.fechaDesde ?? '',
   fechaHasta: busqueda.filtros?.fechaHasta ?? '',
   puesto: busqueda.filtros?.puesto || '',

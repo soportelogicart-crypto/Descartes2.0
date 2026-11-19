@@ -1034,27 +1034,6 @@ final class AlbaranCompraEscrituraService
        )'
     );
 
-    // #region agent log
-    @file_put_contents(
-      'C:\\descartes-2.0\\debug-0d3608.log',
-      json_encode([
-        'sessionId' => '0d3608',
-        'runId' => 'compra-albaran-lin',
-        'hypothesisId' => 'A',
-        'location' => 'AlbaranCompraEscrituraService.php:reemplazarLineas',
-        'message' => 'Insert lineas compra',
-        'data' => [
-          'empresa' => $empresa,
-          'albaran' => $albaran,
-          'lineas' => count($lineas),
-          'asignarNroLin' => $asignarNroLin,
-          'nroLinInicial' => $nroLinSeq,
-        ],
-        'timestamp' => (int) round(microtime(true) * 1000),
-      ], JSON_UNESCAPED_UNICODE) . PHP_EOL,
-      FILE_APPEND | LOCK_EX
-    );
-    // #endregion
 
     foreach ($lineas as $lin) {
       $articulo = trim((string) ($lin['articulo'] ?? ''));

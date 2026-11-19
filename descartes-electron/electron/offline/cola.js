@@ -252,9 +252,6 @@ class Cola extends EventEmitter {
     const claveAhora = db.meta('claveOffline') || ''
     const hmacAhora = claveAhora ? hmac(claveAhora, item.payload) : ''
     const huella = (texto) => crypto.createHash('sha256').update(String(texto)).digest('hex').slice(0, 12)
-    // #region agent log
-    fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',location:'cola.js:refirmar',message:'firma rechazada',data:{empresa:venta.empresa??null,puesto:venta.puesto??null,fotoEmpresa:db.meta('fotoEmpresa'),fotoPuesto:db.meta('fotoPuesto'),payloadLen:String(item.payload||'').length,coincideConClaveAnterior:coincideAntes,claveCambio:claveAntes!==claveAhora,huellaAntes:huella(claveAntes),huellaAhora:huella(claveAhora),refrescoOk:!!refresco?.ok,refrescoMotivo:refresco?.motivo||null},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
     if (!hmacAhora || hmacAhora === item.hmac) return false
     db.ejecutar('UPDATE ventas_pendientes SET hmac = ? WHERE uuid = ?', [hmacAhora, item.uuid])
     db.guardar({ inmediato: true })

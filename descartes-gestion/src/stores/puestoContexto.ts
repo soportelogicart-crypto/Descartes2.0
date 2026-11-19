@@ -8,6 +8,10 @@ import { getDescartesBridge, isElectronShell } from '@/bridge/electron'
 const KEY_EQUIPO = 'descartes.equipoId'
 const KEY_PUESTO = 'descartes.puestoCodigo'
 const KEY_EMPRESA = 'descartes.empresaCodigo'
+const KEY_TIENDA_NOMBRE = 'descartes.tiendaNombre'
+const KEY_TIENDA_ACTIVA = 'descartes.tiendaActiva'
+
+export type TiendaPuesto = { tienda: string; tiendaNombre: string }
 
 function leer(key: string): string | null {
   const valor = localStorage.getItem(key)
@@ -22,6 +26,8 @@ export const usePuestoContextoStore = defineStore('puestoContexto', () => {
   const equipoId = ref<string | null>(leer(KEY_EQUIPO))
   const puestoCodigo = ref<string | null>(leer(KEY_PUESTO))
   const empresaCodigo = ref<string | null>(leer(KEY_EMPRESA))
+  const tiendaNombre = ref<string | null>(leer(KEY_TIENDA_NOMBRE))
+  const tiendas = ref<TiendaPuesto[]>([])
   const vendedorCodigo = ref<string | null>(null)
   const vendedorNombre = ref<string | null>(null)
   const puestoExiste = ref<boolean | null>(null)
@@ -45,6 +51,14 @@ export const usePuestoContextoStore = defineStore('puestoContexto', () => {
     localStorage.setItem(KEY_EMPRESA, empresa)
     localStorage.setItem(KEY_PUESTO, puesto)
     void cargarVendedorPuesto()
+  }
+
+  /** La tienda elegida en la cabecera manda sobre la de arqueo guardada en el equipo. */
+  function conservarTiendaElegida() {
+    const recordada = leer(KEY_TIENDA_ACTIVA)
+    if (!recordada) return
+    empresaCodigo.value = recordada
+    localStorage.setItem(KEY_EMPRESA, recordada)
   }
 
   async function cargarVendedorPuesto() {
@@ -87,6 +101,7 @@ export const usePuestoContextoStore = defineStore('puestoContexto', () => {
         localStorage.setItem(KEY_EMPRESA, data.empresaCodigo)
         localStorage.setItem(KEY_PUESTO, data.puestoCodigo)
       }
+      conservarTiendaElegida()
       hydrateError.value = null
       return !!data.configurado
     } catch (e: unknown) {
@@ -95,6 +110,7 @@ export const usePuestoContextoStore = defineStore('puestoContexto', () => {
     } finally {
       hydrating.value = false
       void cargarVendedorPuesto()
+      void cargarTiendasPuesto()
     }
   }
 
@@ -125,6 +141,7 @@ export const usePuestoContextoStore = defineStore('puestoContexto', () => {
     const data = await obtenerDesdeServidor(id)
     if (!data) return false
     aplicarLocal(data.equipoId, data.empresaCodigo, data.puestoCodigo)
+    conservarTiendaElegida()
     hydrateError.value = null
     return true
   }
@@ -139,6 +156,7 @@ export const usePuestoContextoStore = defineStore('puestoContexto', () => {
       return await cargarDesdeServidor(equipoId.value)
     } finally {
       hydrating.value = false
+      void cargarTiendasPuesto()
     }
   }
 
@@ -158,6 +176,8 @@ export const usePuestoContextoStore = defineStore('puestoContexto', () => {
         puestoCodigo: puestoLimpio,
       })
       aplicarLocal(data.equipoId, data.empresaCodigo!, data.puestoCodigo!)
+      localStorage.setItem(KEY_TIENDA_ACTIVA, empresaLimpia)
+      void cargarTiendasPuesto()
       // Espejo opcional en BD para administracion centralizada
       try {
         await api.put(`/api/mantenimiento/config-equipo/${encodeURIComponent(data.equipoId)}`, {
@@ -185,6 +205,55 @@ export const usePuestoContextoStore = defineStore('puestoContexto', () => {
       String(data.empresaCodigo ?? empresaLimpia).trim(),
       String(data.puestoCodigo ?? puestoLimpio).trim()
     )
+    localStorage.setItem(KEY_TIENDA_ACTIVA, empresaLimpia)
+    void cargarTiendasPuesto()
+  }
+
+  function recordarTienda(nombre: string) {
+    const limpio = nombre.trim()
+    tiendaNombre.value = limpio || null
+    if (limpio) localStorage.setItem(KEY_TIENDA_NOMBRE, limpio)
+    else localStorage.removeItem(KEY_TIENDA_NOMBRE)
+  }
+
+  /** Tienda de arqueo del puesto y las otras marcadas en el usuario. No cambia el puesto del PC. */
+  async function cargarTiendasPuesto() {
+    const puesto = puestoCodigo.value?.trim() ?? ''
+    if (!puesto) {
+      tiendas.value = []
+      return
+    }
+    try {
+      const { data } = await api.get('/api/auth/tiendas-puesto', { params: { puesto } })
+      const items = ((data.items ?? []) as TiendaPuesto[])
+        .map((item) => ({
+          tienda: String(item.tienda ?? '').trim(),
+          tiendaNombre: String(item.tiendaNombre ?? '').trim(),
+        }))
+        .filter((item) => item.tienda !== '')
+      tiendas.value = items
+      const codigos = new Set(items.map((item) => item.tienda))
+      const recordada = leer(KEY_TIENDA_ACTIVA)
+      const actual = empresaCodigo.value?.trim() ?? ''
+      const codigo =
+        (recordada && codigos.has(recordada) ? recordada : '') ||
+        (actual && codigos.has(actual) ? actual : '') ||
+        items[0]?.tienda ||
+        ''
+      const elegida = items.find((item) => item.tienda === codigo)
+      if (elegida) elegirTienda(elegida.tienda, elegida.tiendaNombre || elegida.tienda)
+    } catch {
+      // Se queda la tienda recordada en este PC.
+    }
+  }
+
+  function elegirTienda(codigo: string, nombre: string) {
+    const limpio = codigo.trim()
+    if (!limpio || !puestoCodigo.value) return
+    empresaCodigo.value = limpio
+    localStorage.setItem(KEY_EMPRESA, limpio)
+    localStorage.setItem(KEY_TIENDA_ACTIVA, limpio)
+    recordarTienda(nombre || limpio)
   }
 
   function clearEquipo() {
@@ -195,9 +264,13 @@ export const usePuestoContextoStore = defineStore('puestoContexto', () => {
     vendedorNombre.value = null
     puestoExiste.value = null
     puestoAviso.value = null
+    tiendaNombre.value = null
     localStorage.removeItem(KEY_EQUIPO)
     localStorage.removeItem(KEY_EMPRESA)
     localStorage.removeItem(KEY_PUESTO)
+    localStorage.removeItem(KEY_TIENDA_NOMBRE)
+    localStorage.removeItem(KEY_TIENDA_ACTIVA)
+    tiendas.value = []
     const bridge = getDescartesBridge()
     if (bridge) {
       void bridge.clearEquipoConfig()
@@ -208,6 +281,8 @@ export const usePuestoContextoStore = defineStore('puestoContexto', () => {
     equipoId,
     puestoCodigo,
     empresaCodigo,
+    tiendaNombre,
+    tiendas,
     vendedorCodigo,
     vendedorNombre,
     puestoExiste,
@@ -222,6 +297,9 @@ export const usePuestoContextoStore = defineStore('puestoContexto', () => {
     cargarDesdeServidor,
     cargarVendedorPuesto,
     setEquipo,
+    recordarTienda,
+    cargarTiendasPuesto,
+    elegirTienda,
     clearEquipo,
   }
 })

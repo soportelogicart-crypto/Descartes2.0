@@ -50,6 +50,29 @@ onMounted(async () => {
 })
 const { puede } = usePermisos()
 const puestoContexto = usePuestoContextoStore()
+
+const etiquetaTienda = computed(() => {
+  const nombre = puestoContexto.tiendaNombre?.trim() ?? ''
+  if (nombre) return nombre
+  return puestoContexto.empresaCodigo?.trim() ?? ''
+})
+
+onMounted(() => {
+  void puestoContexto.cargarTiendasPuesto()
+})
+
+watch(
+  () => [puestoContexto.puestoCodigo, auth.usuario?.codigo],
+  () => {
+    void puestoContexto.cargarTiendasPuesto()
+  }
+)
+
+function onCambiarTienda(evento: Event) {
+  const codigo = (evento.target as HTMLSelectElement).value
+  const tienda = puestoContexto.tiendas.find((item) => item.tienda === codigo)
+  if (tienda) puestoContexto.elegirTienda(tienda.tienda, tienda.tiendaNombre)
+}
 const tabsStore = useTabsStore()
 const route = useRoute()
 const router = useRouter()
@@ -197,7 +220,9 @@ const puestosItems = computed(() =>
  * (vuelve a la rejilla) al pasar de ficha con las flechas.
  */
 function claveVistaCacheada(r: { path: string; fullPath: string }): string {
-  return r.path.startsWith('/mantenimiento/') ? r.path : r.fullPath
+  const base = r.path.startsWith('/mantenimiento/') ? r.path : r.fullPath
+  const empresa = puestoContexto.empresaCodigo?.trim() ?? ''
+  return empresa ? `${base}@${empresa}` : base
 }
 
 const articulosActivo = computed(() => esRutaArticulos(route.path))
@@ -665,6 +690,20 @@ async function logout() {
       <header class="topbar">
         <span class="topbar-titulo">{{ tituloPantalla }}</span>
         <span class="topbar-derecha">
+          <select
+            v-if="puestoContexto.tiendas.length > 1"
+            class="topbar-tienda"
+            :value="puestoContexto.empresaCodigo ?? ''"
+            title="Tienda activa"
+            @change="onCambiarTienda"
+          >
+            <option v-for="tienda in puestoContexto.tiendas" :key="tienda.tienda" :value="tienda.tienda">
+              {{ tienda.tiendaNombre || tienda.tienda }}
+            </option>
+          </select>
+          <span v-else-if="etiquetaTienda" class="topbar-tienda" :title="`Tienda ${etiquetaTienda}`">
+            {{ etiquetaTienda }}
+          </span>
           <span v-if="nombreBaseDatos" class="topbar-bd" :title="`Base de datos ${nombreBaseDatos}`">
             {{ nombreBaseDatos }}
           </span>
@@ -676,7 +715,7 @@ async function logout() {
       <AppTabs />
       <main class="content" :class="{ 'content--flush': route.meta.contentFlush }">
         <RouterView v-slot="{ Component, route: r }">
-          <KeepAlive :max="8">
+          <KeepAlive :key="puestoContexto.empresaCodigo ?? ''" :max="8">
             <component :is="Component" :key="claveVistaCacheada(r)" />
           </KeepAlive>
         </RouterView>
@@ -1002,6 +1041,7 @@ async function logout() {
 }
 
 .topbar-bd,
+.topbar-tienda,
 .topbar-usuario {
   max-width: 18rem;
   padding: 0.05rem 0.4rem;
@@ -1016,6 +1056,13 @@ async function logout() {
 
 .topbar-usuario {
   max-width: 22rem;
+}
+
+select.topbar-tienda {
+  max-width: 16rem;
+  color: #0f172a;
+  background: #fff;
+  cursor: pointer;
 }
 
 .content {

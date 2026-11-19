@@ -227,18 +227,6 @@ async function createWindow() {
   })
 
   console.log(`[descartes-electron] Cargando UI en la ventana Electron: ${url}`)
-  // #region agent log
-  fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',location:'main.js:createWindow',message:'url de arranque',data:{url,local,apiBase:apiBaseDe(cfg)},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
-  const anotarNavegacion = (navUrl) => {
-    const u = String(navUrl || '')
-    if (!/mantenimiento|login|instalacion/.test(u)) return
-    fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',location:'main.js:navegacion',message:'cambio de pantalla',data:{url:u.slice(0,220)},timestamp:Date.now(),hypothesisId:'D'})}).catch(()=>{});
-  }
-  win.webContents.on('did-navigate-in-page', (_e, navUrl) => anotarNavegacion(navUrl))
-  win.webContents.on('did-fail-load', (_e, code, desc, validatedURL) => {
-    fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',location:'main.js:did-fail-load',message:'fallo de carga',data:{code,desc:String(desc||'').slice(0,160),url:String(validatedURL||'').slice(0,220)},timestamp:Date.now(),hypothesisId:'H'})}).catch(()=>{});
-  })
-  // #endregion
   console.log(`[descartes-electron] Config equipo: ${localConfig.equipoPath()}`)
 
   offline.adjuntarVentana(win)

@@ -133,6 +133,9 @@ final class Database
       PDO::ATTR_EMULATE_PREPARES => true,
       PDO::MYSQL_ATTR_INIT_COMMAND => "SET SESSION sql_mode = 'NO_ENGINE_SUBSTITUTION'",
     ];
+    if (defined('PDO::MYSQL_ATTR_CONNECT_TIMEOUT')) {
+      $options[PDO::MYSQL_ATTR_CONNECT_TIMEOUT] = 3;
+    }
     $dsn = 'mysql:host=' . $server . ';port=' . $port . ';dbname=' . $database . ';charset=utf8mb4';
 
     try {

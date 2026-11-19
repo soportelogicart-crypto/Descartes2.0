@@ -36,9 +36,6 @@ export function usePermisos() {
       )
       if (!consultaRegistrada.has(modulo)) {
         consultaRegistrada.add(modulo)
-        // #region agent log
-        fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',location:'usePermisos.ts:puede',message:'consulta local',data:{modulo,ok,tienePropio:!!propio,verPropio:!!propio?.ver,tienePadre:!!delPadre,verTpv:!!tpv?.ver},timestamp:Date.now(),hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
       }
       return ok
     }

@@ -536,9 +536,6 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
-  // #region agent log
-  fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',location:'router/index.ts:beforeEach',message:'navegacion',data:{path:to.fullPath,name:String(to.name??'')},timestamp:Date.now(),hypothesisId:'G'})}).catch(()=>{});
-  // #endregion
   if (to.name !== 'instalacion') {
     try {
       const estado = await getInstalacionEstado()
@@ -621,11 +618,6 @@ export const albaranCompraFocusLineas = ref<{ empresa: string; albaran: number }
 
 router.afterEach((to, from) => {
   routeNavigationFrom.value = from.fullPath
-  // #region agent log
-  if (/mantenimiento|login|instalacion/.test(to.fullPath)) {
-    fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',location:'router/index.ts:afterEach',message:'pantalla abierta',data:{path:to.fullPath,desde:from.fullPath},timestamp:Date.now(),hypothesisId:'I'})}).catch(()=>{});
-  }
-  // #endregion
 })
 
 export default router

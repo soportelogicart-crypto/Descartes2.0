@@ -9,6 +9,7 @@ use Descartes\Api\Config\Database;
 use Descartes\Api\Http\ErrorResponse;
 use Descartes\Api\RequestContext;
 use Descartes\Api\Services\Instalacion\MigrationService;
+use Descartes\Api\Services\Offline\OfflineEstadoService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
@@ -86,6 +87,11 @@ final class ClienteDbMiddleware implements MiddlewareInterface
       }
       RequestContext::setPdo($pdo);
     } catch (\Throwable $e) {
+      // El ejecutable toma 502/503/504 como "no hay internet". La base no se ha
+      // abierto, pero el PHP sí ha contestado: 500 con JSON no corta la conexión.
+      if (str_contains($path, '/api/offline/estado')) {
+        return $this->pingSinBase();
+      }
       if ($isInstalacion && !$explicita) {
         return $handler->handle(
           $request
@@ -93,18 +99,15 @@ final class ClienteDbMiddleware implements MiddlewareInterface
             ->withAttribute('clienteId', $clientId)
         );
       }
-      if ($explicita) {
-        return ErrorResponse::json(
-          new Response(),
-          503,
-          'No se pudo abrir la base de la instalación ' . $clientId . ': ' . $e->getMessage(),
-          'INSTALACION_SIN_CONEXION',
-          [],
-          ['clienteId' => $clientId],
-          true
-        );
-      }
-      throw $e;
+      return ErrorResponse::json(
+        new Response(),
+        500,
+        'No se pudo abrir la base de la instalación ' . $clientId . ': ' . $e->getMessage(),
+        'INSTALACION_SIN_CONEXION',
+        [],
+        ['clienteId' => $clientId],
+        true
+      );
     }
 
     return $handler->handle(
@@ -112,6 +115,20 @@ final class ClienteDbMiddleware implements MiddlewareInterface
         ->withAttribute('pdo', $pdo)
         ->withAttribute('clienteId', $clientId)
     );
+  }
+
+  /** El ping del ejecutable solo comprueba que el PHP vive. No abre la base. */
+  private function pingSinBase(): ResponseInterface
+  {
+    $response = new Response();
+    $response->getBody()->write((string) json_encode([
+      'ok' => true,
+      'hora' => date('c'),
+      'versionDatos' => OfflineEstadoService::VERSION_DATOS,
+      'versionCatalogo' => '0',
+    ], JSON_UNESCAPED_UNICODE));
+
+    return $response->withHeader('Content-Type', 'application/json');
   }
 
   private function autoMigrateEnabled(): bool

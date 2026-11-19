@@ -577,9 +577,6 @@ final class VentaConsultaService
     }
 
     if ($abonosExistentes === []) {
-      // #region agent log
-      @file_put_contents('C:\\descartes-2.0\\debug-0d3608.log', json_encode(['sessionId' => '0d3608', 'runId' => 'pre-fix-venta-abono-factura', 'hypothesisId' => 'B,C', 'location' => 'VentaConsultaService.php:resolverEstadoAbonos', 'message' => 'Estado de abonos sin documentos hijos', 'data' => ['empresa' => $empresa, 'albaranOrigen' => $albaranOrigen, 'lineasOrigen' => array_values(array_map(static fn (array $l): array => ['nroLin' => (int) ($l['nroLin'] ?? 0), 'articulo' => (string) ($l['articulo'] ?? ''), 'cantidad' => (float) ($l['cantidad'] ?? 0)], array_filter($lineasOrig, 'is_array')))], 'timestamp' => (int) round(microtime(true) * 1000)], JSON_UNESCAPED_UNICODE) . PHP_EOL, FILE_APPEND | LOCK_EX);
-      // #endregion
       return ['abonosExistentes' => [], 'nroLinsAbonados' => []];
     }
 
@@ -587,9 +584,6 @@ final class VentaConsultaService
       'abonosExistentes' => $abonosExistentes,
       'nroLinsAbonados' => $this->nroLinsAbonadosDesdeBd($empresa, $albaranOrigen, $lineasOrig),
     ];
-    // #region agent log
-    @file_put_contents('C:\\descartes-2.0\\debug-0d3608.log', json_encode(['sessionId' => '0d3608', 'runId' => 'pre-fix-venta-abono-factura', 'hypothesisId' => 'B,C', 'location' => 'VentaConsultaService.php:resolverEstadoAbonos', 'message' => 'Estado de abonos resuelto', 'data' => ['empresa' => $empresa, 'albaranOrigen' => $albaranOrigen, 'abonos' => array_map(static fn (array $a): array => ['albaran' => $a['albaran'], 'importe' => $a['importe']], $abonosExistentes), 'nroLinsAbonados' => $resultado['nroLinsAbonados']], 'timestamp' => (int) round(microtime(true) * 1000)], JSON_UNESCAPED_UNICODE) . PHP_EOL, FILE_APPEND | LOCK_EX);
-    // #endregion
     return $resultado;
   }
 
@@ -619,18 +613,12 @@ final class VentaConsultaService
       }
       if ($nroLins !== []) {
         sort($nroLins);
-        // #region agent log
-        @file_put_contents('C:\\descartes-2.0\\debug-0d3608.log', json_encode(['sessionId' => '0d3608', 'runId' => 'pre-fix-venta-abono-factura', 'hypothesisId' => 'C', 'location' => 'VentaConsultaService.php:nroLinsAbonadosDesdeBd', 'message' => 'Relacion de lineas por NroLinOrigen', 'data' => ['empresa' => $empresa, 'albaranOrigen' => $albaranOrigen, 'nroLins' => $nroLins], 'timestamp' => (int) round(microtime(true) * 1000)], JSON_UNESCAPED_UNICODE) . PHP_EOL, FILE_APPEND | LOCK_EX);
-        // #endregion
         return array_values(array_unique($nroLins));
       }
     } catch (\Throwable $e) {
       // Columna NroLinOrigen ausente o error de consulta: emparejar por cantidades.
     }
 
-    // #region agent log
-    @file_put_contents('C:\\descartes-2.0\\debug-0d3608.log', json_encode(['sessionId' => '0d3608', 'runId' => 'pre-fix-venta-abono-factura', 'hypothesisId' => 'C', 'location' => 'VentaConsultaService.php:nroLinsAbonadosDesdeBd', 'message' => 'Relacion de lineas por cantidades', 'data' => ['empresa' => $empresa, 'albaranOrigen' => $albaranOrigen], 'timestamp' => (int) round(microtime(true) * 1000)], JSON_UNESCAPED_UNICODE) . PHP_EOL, FILE_APPEND | LOCK_EX);
-    // #endregion
     return $this->nroLinsAbonadosPorCantidad($empresa, $albaranOrigen, $lineasOrig);
   }
 

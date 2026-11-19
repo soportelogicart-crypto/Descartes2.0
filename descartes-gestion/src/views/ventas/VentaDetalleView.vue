@@ -1124,9 +1124,6 @@ function payloadDesdeFicha(): VentaPayload {
     impFpago1: Number(f.formasPago?.[0]?.importe ?? 0),
     impFpago2: Number(f.formasPago?.[1]?.importe ?? 0),
     ...(elegirModalidadAntes.value ? { modalidadEncargo: modalidadEncargo.value } : {}),
-    // #region agent log
-    ...((() => { fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',runId:'post-fix-2',hypothesisId:'H',location:'VentaDetalleView.vue:payloadDesdeFicha',message:'selector de entrega',data:{hayLineaSobre:hayLineaSobre.value,albaranEsEncargo:albaranEsEncargo.value,elegirAntes:elegirModalidadAntes.value,modalidad:modalidadEncargo.value},timestamp:Date.now()})}).catch(()=>{}); return {} })()),
-    // #endregion
     lineas: lineas.value
       .filter((l) => String(l.articulo ?? '').trim())
       .map((l) => {
@@ -2289,9 +2286,6 @@ async function cargarDatosCliente(codigo: string): Promise<{
       (i) => String(i.codigo ?? '').trim().toUpperCase() === cod.toUpperCase()
     )
     const elegido = exacto ?? (items.length === 1 ? items[0] : null)
-    // #region agent log
-    fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',hypothesisId:'B',location:'VentaDetalleView.vue:cargarDatosCliente',message:'resolucion de cliente',data:{pedido:cod,coincidencias:items.length,elegido:elegido ? String(elegido.codigo ?? '') : null},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     if (!elegido) {
       throw new Error('Cliente no encontrado')
     }

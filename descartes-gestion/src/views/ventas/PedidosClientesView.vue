@@ -45,7 +45,7 @@ const buscarInicial = ref('')
 
 const hoy = new Date().toISOString().slice(0, 10)
 const filtros = ref({
-  empresa: busqueda.filtros?.empresa || puestoContexto.empresaCodigo || '',
+  empresa: puestoContexto.empresaCodigo || busqueda.filtros?.empresa || '',
   fechaDesde: busqueda.filtros?.fechaDesde || hoy,
   fechaHasta: busqueda.filtros?.fechaHasta || hoy,
   puesto: busqueda.filtros?.puesto || '',

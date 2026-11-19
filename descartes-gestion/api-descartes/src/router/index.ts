@@ -515,22 +515,13 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
-  // #region agent log
-  fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',hypothesisId:'D',location:'router/index.ts:beforeEach',message:'navegacion',data:{toName:to.name,toPath:to.fullPath},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   if (to.name !== 'instalacion') {
     try {
       const estado = await getInstalacionEstado()
-      // #region agent log
-      fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',hypothesisId:'A',location:'router/index.ts:estado',message:'estado instalacion',data:{toName:to.name,requiereAccion:estado.requiereAccion,configurado:estado.configurado,conexionOk:estado.conexionOk,esquemaOk:estado.esquemaOk,adminListo:estado.adminListo,pendientes:estado.migraciones?.pendientes?.length??null},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       if (estado.requiereAccion) {
         return { name: 'instalacion', query: to.fullPath !== '/' ? { redirect: to.fullPath } : undefined }
       }
     } catch (error) {
-      // #region agent log
-      fetch('http://127.0.0.1:7584/ingest/0f1f3667-dd3e-47f6-820d-e79b40345fcc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0d3608'},body:JSON.stringify({sessionId:'0d3608',hypothesisId:'E',location:'router/index.ts:catch',message:'estado fallo',data:{toName:to.name,error:error instanceof Error?error.message:String(error)},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       if (to.name !== 'login') {
         return { name: 'instalacion' }
       }

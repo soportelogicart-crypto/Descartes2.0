@@ -31,11 +31,13 @@ return [
       'nombre' => 'Nombre',
       'rolCodigo' => 'Rol',
       'password' => 'PassWord',
+      'tiendasExtra' => 'TiendasExtra',
       'activo' => 'Baja',
     ],
     'stringMaxLengths' => [
       'Codigo' => 20,
       'Nombre' => 50,
+      'TiendasExtra' => 200,
     ],
   ],
   'roles' => [
