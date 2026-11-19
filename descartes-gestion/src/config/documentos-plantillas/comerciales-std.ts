@@ -6,6 +6,17 @@ const pageA4: DocumentoPlantilla['page'] = {
   marginMm: { top: 10, right: 10, bottom: 12, left: 10 },
 }
 
+const columnasPedido: NonNullable<PlantillaBloque['columns']> = [
+  { key: 'zona', label: 'Zona', width: 8 },
+  { key: 'articulo', label: 'Artículo', width: 12 },
+  { key: 'descripcion', label: 'Descripción', width: 32 },
+  { key: 'unidades', label: 'Unidades', width: 10, align: 'right' },
+  { key: 'precio', label: 'Precio', width: 12, align: 'right' },
+  { key: 'dto', label: 'Dto', width: 7, align: 'right' },
+  { key: 'pjeIva', label: '%IVA', width: 7, align: 'right' },
+  { key: 'importe', label: 'Importe', width: 12, align: 'right' },
+]
+
 const columnasVenta: NonNullable<PlantillaBloque['columns']> = [
   { key: 'articulo', label: 'Artículo', width: 14 },
   { key: 'descripcion', label: 'Descripción', width: 38 },
@@ -401,7 +412,7 @@ export const plantillaPedidoCliente: DocumentoPlantilla = {
       props: { inline: true, ocultarVacio: true },
     },
     ...observaciones(),
-    tabla(columnasVenta),
+    tabla(columnasPedido),
     totales('IMPORTE PEDIDO EU'),
     pie,
   ],

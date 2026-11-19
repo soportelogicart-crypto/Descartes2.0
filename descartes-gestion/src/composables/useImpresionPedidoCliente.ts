@@ -46,20 +46,38 @@ export function pedidoClienteAPreviewDatos(
     emblemaUrl?: string
   } = {}
 ): DocumentoPreviewDatos {
-  const lineas = (ped.lineas ?? [])
-    .filter((l) => {
-      const art = String(l.articulo ?? '').trim()
-      return art !== '' && art.toUpperCase() !== 'NO'
-    })
-    .map((l) => ({
-      articulo: String(l.articulo ?? ''),
+  const lineas: DocumentoPreviewDatos['lineas'] = []
+  for (const l of ped.lineas ?? []) {
+    const art = String(l.articulo ?? '').trim()
+    if (art === '') continue
+    if (art.toUpperCase() === 'NO') {
+      const nota = String(l.descripcion ?? '').trim()
+      if (nota) {
+        lineas.push({
+          zona: '',
+          articulo: '',
+          descripcion: '',
+          unidades: 0,
+          precio: 0,
+          dto: 0,
+          pjeIva: 0,
+          importe: 0,
+          nota,
+        })
+      }
+      continue
+    }
+    lineas.push({
+      zona: String(l.zona ?? '').trim(),
+      articulo: art,
       descripcion: String(l.descripcion ?? ''),
       unidades: Number(l.cantidadPedida) || 0,
       precio: Number(l.precio) || 0,
       dto: Number(l.pjeDto) || 0,
       pjeIva: Number(l.pjeIva) || 0,
       importe: redondear2(Number(l.importe) || 0),
-    }))
+    })
+  }
 
   const base = redondear2(Number(ped.importeBase1) || Number(ped.importe) || 0)
   const cuota = redondear2(Number(ped.importeIva1) || 0)

@@ -229,6 +229,7 @@ return function (App $app): void {
   $container->set(\Descartes\Api\Services\Listados\InformeTicketsListadoService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Listados\InformeTicketsListadoService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Listados\ExtractoClientesListadoService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Listados\ExtractoClientesListadoService($c->get(PDO::class), $c->get(ClientesRiesgoRepository::class)));
   $container->set(\Descartes\Api\Services\Listados\DetalleVentasListadoService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Listados\DetalleVentasListadoService($c->get(PDO::class)));
+  $container->set(\Descartes\Api\Services\Listados\ComisionesPedidoListadoService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Listados\ComisionesPedidoListadoService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Facturacion\GeneracionFacturasManualService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Facturacion\GeneracionFacturasManualService(
     $c->get(PDO::class),
     $c->get(\Descartes\Api\Services\Facturacion\RecibosFacturaService::class),

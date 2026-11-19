@@ -46,6 +46,10 @@ return function (App $app): void {
       ->add($setPermiso('listados-extracto-clientes', 'ver'));
     $group->get('/detalle-ventas', [ListadosController::class, 'listDetalleVentas'])
       ->add($setPermiso('listados-detalle-ventas', 'ver'));
+    $group->get('/comisiones-proveedor', [ListadosController::class, 'listComisionesProveedor'])
+      ->add($setPermiso('listados-comisiones-proveedor', 'ver'));
+    $group->get('/comisiones-trabajadores', [ListadosController::class, 'listComisionesTrabajadores'])
+      ->add($setPermiso('listados-comisiones-trabajadores', 'ver'));
   })
     ->add(PermissionMiddleware::class)
     ->add(AuthMiddleware::class);

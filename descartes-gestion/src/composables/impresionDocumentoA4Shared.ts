@@ -164,6 +164,26 @@ function complementarPlantillaAlbaran(
   return { ...guardada, blocks: [...guardada.blocks, bloque] }
 }
 
+/** El pedido imprime la zona como primera columna, aunque la plantilla guardada no la tenga. */
+function asegurarZonaPrimeraColumna(plantilla: DocumentoPlantilla): DocumentoPlantilla {
+  let cambio = false
+  const blocks = plantilla.blocks.map((b) => {
+    if (b.type !== 'tabla-lineas' || !b.columns?.length) return b
+    if (b.columns[0]?.key === 'zona') return b
+    cambio = true
+    const cols = b.columns.map((c) => ({ ...c }))
+    const idx = cols.findIndex((c) => c.key === 'zona')
+    const zona =
+      idx >= 0 ? cols.splice(idx, 1)[0]! : { key: 'zona', label: 'Zona', width: 8 }
+    if (idx < 0) {
+      const desc = cols.find((c) => c.key === 'descripcion')
+      if (desc && desc.width >= 16) desc.width -= 8
+    }
+    return { ...b, columns: [zona, ...cols] }
+  })
+  return cambio ? { ...plantilla, blocks } : plantilla
+}
+
 /**
  * Plantilla a imprimir a partir de la guardada en BD.
  * Tickets: puede completar bloques nuevos del esqueleto.
@@ -179,6 +199,9 @@ function plantillaVigente(
   if (!skeleton) return guardada
   if (tipo === 'albaran') {
     return complementarPlantillaAlbaran(guardada, skeleton)
+  }
+  if (tipo === 'pedido-cliente') {
+    return asegurarZonaPrimeraColumna(guardada)
   }
   if (tipo !== 'ticket') return guardada
 
@@ -404,15 +427,52 @@ export async function imprimirA4Html(
     return res.message || `Enviado a ${res.impresora || prep.impresoraNombre}`
   }
 
-  const w = window.open('', '_blank', 'width=820,height=1100')
-  if (!w) {
-    throw new Error('Popup bloqueado: permita ventanas emergentes para imprimir')
-  }
-  w.document.write(html)
-  w.document.close()
-  w.focus()
-  w.print()
+  await imprimirHtmlEnMarcoOculto(html)
   return prep.impresoraNombre
     ? `Diálogo de impresión abierto (preferida: ${prep.impresoraNombre})`
     : 'Diálogo de impresión abierto'
+}
+
+/**
+ * Imprime en el propio navegador sin abrir ventanas: el HTML se carga en un
+ * marco oculto de la página y se manda a su diálogo de impresión.
+ */
+function imprimirHtmlEnMarcoOculto(html: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const marco = document.createElement('iframe')
+    marco.setAttribute('aria-hidden', 'true')
+    marco.style.cssText =
+      'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;'
+    document.body.appendChild(marco)
+    const limpiar = () => {
+      setTimeout(() => marco.remove(), 1000)
+    }
+    let escrito = false
+    marco.onload = () => {
+      // La carga inicial de about:blank no cuenta: esperamos al HTML escrito.
+      if (!escrito) return
+      marco.onload = null
+      try {
+        const win = marco.contentWindow
+        if (!win) throw new Error('No se pudo preparar la impresión')
+        win.focus()
+        win.print()
+        resolve()
+      } catch (e) {
+        reject(e)
+      } finally {
+        limpiar()
+      }
+    }
+    const doc = marco.contentDocument
+    if (!doc) {
+      limpiar()
+      reject(new Error('No se pudo preparar la impresión'))
+      return
+    }
+    escrito = true
+    doc.open()
+    doc.write(html)
+    doc.close()
+  })
 }

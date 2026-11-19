@@ -204,6 +204,7 @@ final class PedidoClienteService
     $detalle['email'] = isset($cab['Email']) ? trim((string) $cab['Email']) : null;
     $detalle['suPedido'] = isset($cab['SuPedido']) ? trim((string) $cab['SuPedido']) : null;
     $detalle['observaciones'] = isset($cab['Observaciones']) ? (string) $cab['Observaciones'] : null;
+    $this->anexarComisiones($detalle, $cab);
     $detalle['fechaPrevista'] = isset($cab['FechaPrevista']) && $cab['FechaPrevista']
       ? date('c', strtotime((string) $cab['FechaPrevista']))
       : null;
@@ -307,18 +308,23 @@ final class PedidoClienteService
         'provincia' => isset($body['provinciaEnvio']) ? trim((string) $body['provinciaEnvio']) : null,
         'pais' => isset($body['paisEnvio']) ? trim((string) $body['paisEnvio']) : null,
       ];
+      $comisiones = $this->normalizarComisiones($body, null);
 
       try {
         $this->pdo->prepare(
           'INSERT INTO PedidosClientes
             (Empresa, Pedido, Cliente, RazonSocial, NIF, Fecha, Puesto, Vendedor, Importe, Impreso,
              Actualizado, TrasModem, Estado, Situacion, SuPedido, Observaciones, Email, Transporte,
-             DireccionEnvio, PoblacionEnvio, CodigoPostalEnvio, ProvinciaEnvio, PaisEnvio)
+             DireccionEnvio, PoblacionEnvio, CodigoPostalEnvio, ProvinciaEnvio, PaisEnvio,
+             ProveedorComision, ImporteComisionProveedor,
+             TrabajadorComision1, PjeComision1, TrabajadorComision2, PjeComision2)
            VALUES
             (:empresa, :pedido, :cliente, :razon, :nif, GETDATE(), :puesto, :vendedor, :importe, 0,
              0, 0, :estado, :situacion, :suPedido, :observaciones, :email, :transporte,
-             :direccion, :poblacion, :cp, :provincia, :pais)'
-        )->execute($params);
+             :direccion, :poblacion, :cp, :provincia, :pais,
+             :proveedorComision, :importeComisionProveedor,
+             :trabajadorComision1, :pjeComision1, :trabajadorComision2, :pjeComision2)'
+        )->execute($params + $comisiones);
       } catch (\Throwable $e) {
         $this->pdo->prepare(
           'INSERT INTO PedidosClientes
@@ -492,6 +498,7 @@ final class PedidoClienteService
       $transporte = array_key_exists('transporte', $body)
         ? trim((string) $body['transporte'])
         : trim((string) ($actual['Transporte'] ?? ''));
+      $comisiones = $this->normalizarComisiones($body, $actual);
 
       try {
         $this->pdo->prepare(
@@ -510,6 +517,12 @@ final class PedidoClienteService
               PaisEnvio = :pais,
               Transporte = :transporte,
               Importe = :importe,
+              ProveedorComision = :proveedorComision,
+              ImporteComisionProveedor = :importeComisionProveedor,
+              TrabajadorComision1 = :trabajadorComision1,
+              PjeComision1 = :pjeComision1,
+              TrabajadorComision2 = :trabajadorComision2,
+              PjeComision2 = :pjeComision2,
               Actualizado = 0
            WHERE Empresa = :e AND Pedido = :p'
         )->execute([
@@ -529,7 +542,7 @@ final class PedidoClienteService
           'importe' => $importeTotal,
           'e' => $empresa,
           'p' => $pedido,
-        ]);
+        ] + $comisiones);
       } catch (\Throwable $e) {
         $this->pdo->prepare(
           'UPDATE PedidosClientes SET
@@ -593,7 +606,25 @@ final class PedidoClienteService
 
     foreach ($lineasPedido as $lin) {
       $articulo = trim((string) ($lin['articulo'] ?? ''));
-      if ($articulo === '' || strtoupper($articulo) === 'NO') {
+      if ($articulo === '') {
+        continue;
+      }
+      if (strtoupper($articulo) === 'NO') {
+        $texto = trim((string) ($lin['descripcion'] ?? ''));
+        if ($texto === '') {
+          continue;
+        }
+        $lineasVenta[] = [
+          'articulo' => 'NO',
+          'descripcion' => $texto,
+          'cantidad' => 0,
+          'precio' => 0,
+          'pjeDto' => 0,
+          'importe' => 0,
+          'anotacion' => '',
+          'transportista' => '',
+          'nroLin' => 0,
+        ];
         continue;
       }
       $pedida = (float) ($lin['cantidadPedida'] ?? 0);
@@ -634,11 +665,19 @@ final class PedidoClienteService
       ];
     }
 
-    if ($lineasVenta === []) {
+    $hayArticuloAServir = false;
+    foreach ($lineasVenta as $lin) {
+      if (strtoupper(trim((string) ($lin['articulo'] ?? ''))) !== 'NO') {
+        $hayArticuloAServir = true;
+        break;
+      }
+    }
+    if (!$hayArticuloAServir) {
       throw new \InvalidArgumentException(
         'No hay cantidades a servir. Indique cantidad a servir en las lineas o use servirPendiente.'
       );
     }
+    $this->acomodarComentariosAlTransportista($lineasVenta);
 
     $puesto = trim((string) ($body['puesto'] ?? $detalle['puesto'] ?? ''));
     if ($puesto === '') {
@@ -663,11 +702,15 @@ final class PedidoClienteService
       $lineasGrupo = [];
       $servidasGrupo = [];
       foreach ($grupo as $lin) {
+        $esComentario = strtoupper(trim((string) ($lin['articulo'] ?? ''))) === 'NO';
         $nota = trim((string) ($lin['anotacion'] ?? ''));
         unset($lin['anotacion'], $lin['transportista']);
         $nro = (int) ($lin['nroLin'] ?? 0);
         unset($lin['nroLin']);
         $lineasGrupo[] = $lin;
+        if ($esComentario) {
+          continue;
+        }
         if ($nota !== '') {
           $lineasGrupo[] = [
             'articulo' => 'NO',
@@ -811,17 +854,23 @@ final class PedidoClienteService
       if ($articulo === '') {
         throw new \InvalidArgumentException('Cada linea requiere articulo');
       }
+      $esComentario = strtoupper($articulo) === 'NO';
+      if ($esComentario) {
+        $articulo = 'NO';
+      }
       $n++;
       $nroLinParam = $nroLinAuto ? ['nroLin' => $n] : [];
-      $cant = (float) ($lin['cantidadPedida'] ?? 0);
-      $servida = (float) ($lin['cantidadServida'] ?? 0);
-      $aServir = (float) ($lin['cantidadAServir'] ?? 0);
-      $precio = (float) ($lin['precio'] ?? 0);
-      $pjeDto = (float) ($lin['pjeDto'] ?? 0);
-      $pjeIva = (float) ($lin['pjeIva'] ?? 0);
-      $importe = round($cant * $precio * (1 - $pjeDto / 100), 2);
+      $cant = $esComentario ? 0.0 : (float) ($lin['cantidadPedida'] ?? 0);
+      $servida = $esComentario ? 0.0 : (float) ($lin['cantidadServida'] ?? 0);
+      $aServir = $esComentario ? 0.0 : (float) ($lin['cantidadAServir'] ?? 0);
+      $precio = $esComentario ? 0.0 : (float) ($lin['precio'] ?? 0);
+      $pjeDto = $esComentario ? 0.0 : (float) ($lin['pjeDto'] ?? 0);
+      $pjeIva = $esComentario ? 0.0 : (float) ($lin['pjeIva'] ?? 0);
+      $importe = $esComentario ? 0.0 : round($cant * $precio * (1 - $pjeDto / 100), 2);
       $importeTotal += $importe;
-      $desc = $lin['descripcion'] ?? $this->descripcionArticulo($articulo);
+      $desc = $esComentario
+        ? trim((string) ($lin['descripcion'] ?? ''))
+        : ($lin['descripcion'] ?? $this->descripcionArticulo($articulo));
       $zona = $lin['zona'] ?? null;
       $lote = $lin['loteVenta'] ?? null;
       $ok = false;
@@ -933,6 +982,40 @@ final class PedidoClienteService
       return false;
     }
     return true;
+  }
+
+  /**
+   * Un comentario sigue al artículo anterior (o al siguiente, si va el primero)
+   * para no abrir un albarán aparte por no tener transportista.
+   *
+   * @param list<array<string, mixed>> $lineas
+   */
+  private function acomodarComentariosAlTransportista(array &$lineas): void
+  {
+    $n = count($lineas);
+    for ($i = 0; $i < $n; $i++) {
+      if (strtoupper(trim((string) ($lineas[$i]['articulo'] ?? ''))) !== 'NO') {
+        continue;
+      }
+      $clave = '';
+      for ($j = $i - 1; $j >= 0; $j--) {
+        if (strtoupper(trim((string) ($lineas[$j]['articulo'] ?? ''))) === 'NO') {
+          continue;
+        }
+        $clave = trim((string) ($lineas[$j]['transportista'] ?? ''));
+        break;
+      }
+      if ($clave === '') {
+        for ($j = $i + 1; $j < $n; $j++) {
+          if (strtoupper(trim((string) ($lineas[$j]['articulo'] ?? ''))) === 'NO') {
+            continue;
+          }
+          $clave = trim((string) ($lineas[$j]['transportista'] ?? ''));
+          break;
+        }
+      }
+      $lineas[$i]['transportista'] = $clave;
+    }
   }
 
   /** @param list<array<string, mixed>> $lineas */
@@ -1093,6 +1176,161 @@ final class PedidoClienteService
     } catch (\Throwable $e) {
       return null;
     }
+  }
+
+  /**
+   * Comisión de proveedor (importe fijo) y dos de trabajador (porcentaje).
+   * Vacío en los dos campos de un par = sin esa comisión.
+   *
+   * @param array<string, mixed> $body
+   * @param array<string, mixed>|null $actual
+   * @return array{
+   *   proveedorComision: ?string,
+   *   importeComisionProveedor: ?float,
+   *   trabajadorComision1: ?string,
+   *   pjeComision1: ?float,
+   *   trabajadorComision2: ?string,
+   *   pjeComision2: ?float
+   * }
+   */
+  private function normalizarComisiones(array $body, ?array $actual): array
+  {
+    $proveedor = $this->textoComision($body, 'proveedorComision', $actual, 'ProveedorComision');
+    $importeProv = $this->numeroComision($body, 'importeComisionProveedor', $actual, 'ImporteComisionProveedor');
+    if ($proveedor === '' && $importeProv <= 0) {
+      $proveedorOut = null;
+      $importeOut = null;
+    } elseif ($proveedor === '' || $importeProv <= 0) {
+      throw new \InvalidArgumentException(
+        'La comisión de proveedor necesita el código del proveedor y un importe mayor que cero'
+      );
+    } elseif (!$this->existeProveedor($proveedor)) {
+      throw new \InvalidArgumentException("El proveedor {$proveedor} no existe");
+    } else {
+      $proveedorOut = mb_substr($proveedor, 0, 15);
+      $importeOut = round($importeProv, 2);
+    }
+
+    $t1 = $this->textoComision($body, 'trabajadorComision1', $actual, 'TrabajadorComision1');
+    $p1 = $this->numeroComision($body, 'pjeComision1', $actual, 'PjeComision1');
+    $t2 = $this->textoComision($body, 'trabajadorComision2', $actual, 'TrabajadorComision2');
+    $p2 = $this->numeroComision($body, 'pjeComision2', $actual, 'PjeComision2');
+    [$t1Out, $p1Out] = $this->normalizarComisionTrabajador($t1, $p1, '1');
+    [$t2Out, $p2Out] = $this->normalizarComisionTrabajador($t2, $p2, '2');
+    if ($t1Out !== null && $t2Out !== null && strcasecmp($t1Out, $t2Out) === 0) {
+      throw new \InvalidArgumentException('El mismo trabajador no puede llevar las dos comisiones');
+    }
+
+    return [
+      'proveedorComision' => $proveedorOut,
+      'importeComisionProveedor' => $importeOut,
+      'trabajadorComision1' => $t1Out,
+      'pjeComision1' => $p1Out,
+      'trabajadorComision2' => $t2Out,
+      'pjeComision2' => $p2Out,
+    ];
+  }
+
+  /**
+   * @return array{0: ?string, 1: ?float}
+   */
+  private function normalizarComisionTrabajador(string $codigo, float $pje, string $cual): array
+  {
+    if ($codigo === '' && $pje <= 0) {
+      return [null, null];
+    }
+    if ($codigo === '' || $pje <= 0) {
+      throw new \InvalidArgumentException(
+        "La comisión del trabajador {$cual} necesita el código y un porcentaje mayor que cero"
+      );
+    }
+    if ($pje > 100) {
+      throw new \InvalidArgumentException(
+        "El porcentaje de la comisión del trabajador {$cual} no puede pasar de 100"
+      );
+    }
+    if (!$this->existeTrabajadorActivo($codigo)) {
+      throw new \InvalidArgumentException("El trabajador {$codigo} no existe o está de baja");
+    }
+
+    return [mb_substr($codigo, 0, 4), round($pje, 4)];
+  }
+
+  /** @param array<string, mixed> $body @param array<string, mixed>|null $actual */
+  private function textoComision(array $body, string $key, ?array $actual, string $columna): string
+  {
+    if (array_key_exists($key, $body)) {
+      return trim((string) $body[$key]);
+    }
+    if ($actual === null) {
+      return '';
+    }
+
+    return trim((string) ($this->cabCampo($actual, $columna) ?? ''));
+  }
+
+  /** @param array<string, mixed> $body @param array<string, mixed>|null $actual */
+  private function numeroComision(array $body, string $key, ?array $actual, string $columna): float
+  {
+    if (array_key_exists($key, $body)) {
+      return (float) $body[$key];
+    }
+    if ($actual === null) {
+      return 0.0;
+    }
+
+    return (float) ($this->cabCampo($actual, $columna) ?? 0);
+  }
+
+  /** @param array<string, mixed> $cab */
+  private function cabCampo(array $cab, string $nombre): mixed
+  {
+    if (array_key_exists($nombre, $cab)) {
+      return $cab[$nombre];
+    }
+    $buscado = strtolower($nombre);
+    foreach ($cab as $clave => $valor) {
+      if (strtolower((string) $clave) === $buscado) {
+        return $valor;
+      }
+    }
+
+    return null;
+  }
+
+  private function existeProveedor(string $codigo): bool
+  {
+    $st = $this->pdo->prepare('SELECT 1 FROM Proveedores WHERE RTRIM(Codigo) = :c');
+    $st->execute(['c' => $codigo]);
+
+    return $st->fetchColumn() !== false;
+  }
+
+  private function existeTrabajadorActivo(string $codigo): bool
+  {
+    $st = $this->pdo->prepare(
+      'SELECT 1 FROM Vendedores WHERE RTRIM(Codigo) = :c AND ISNULL(Baja, 0) = 0'
+    );
+    $st->execute(['c' => $codigo]);
+
+    return $st->fetchColumn() !== false;
+  }
+
+  /** @param array<string, mixed> $detalle @param array<string, mixed> $cab */
+  private function anexarComisiones(array &$detalle, array $cab): void
+  {
+    $proveedor = trim((string) ($this->cabCampo($cab, 'ProveedorComision') ?? ''));
+    $importeProv = $this->cabCampo($cab, 'ImporteComisionProveedor');
+    $t1 = trim((string) ($this->cabCampo($cab, 'TrabajadorComision1') ?? ''));
+    $p1 = $this->cabCampo($cab, 'PjeComision1');
+    $t2 = trim((string) ($this->cabCampo($cab, 'TrabajadorComision2') ?? ''));
+    $p2 = $this->cabCampo($cab, 'PjeComision2');
+    $detalle['proveedorComision'] = $proveedor;
+    $detalle['importeComisionProveedor'] = $importeProv === null || $importeProv === '' ? 0.0 : (float) $importeProv;
+    $detalle['trabajadorComision1'] = $t1;
+    $detalle['pjeComision1'] = $p1 === null || $p1 === '' ? 0.0 : (float) $p1;
+    $detalle['trabajadorComision2'] = $t2;
+    $detalle['pjeComision2'] = $p2 === null || $p2 === '' ? 0.0 : (float) $p2;
   }
 
   /** @param array<string, mixed> $row */

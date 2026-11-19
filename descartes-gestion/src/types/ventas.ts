@@ -68,6 +68,8 @@ export type VentaAlbaranFacturaResumen = {
 }
 
 export type VentaLinea = {
+  /** Clave solo de pantalla, para no reutilizar la fila al reordenar. */
+  clave?: string
   nroLin?: number
   articulo: string | null
   descripcion: string | null
@@ -508,6 +510,8 @@ export type PedidoResumen = {
 }
 
 export type PedidoLinea = {
+  /** Clave solo de pantalla, para no reutilizar la fila al reordenar. */
+  clave?: string
   nroLin: number
   articulo: string | null
   descripcion: string | null
@@ -535,6 +539,12 @@ export type PedidoDetalle = PedidoResumen & {
   paisEnvio?: string | null
   email?: string | null
   observaciones?: string | null
+  proveedorComision?: string | null
+  importeComisionProveedor?: number
+  trabajadorComision1?: string | null
+  pjeComision1?: number
+  trabajadorComision2?: string | null
+  pjeComision2?: number
   fechaPrevista?: string | null
   importeBase1?: number
   importeIva1?: number

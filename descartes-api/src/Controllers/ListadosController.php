@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Descartes\Api\Controllers;
 
 use Descartes\Api\Http\ErrorResponse;
+use Descartes\Api\Services\Listados\ComisionesPedidoListadoService;
 use Descartes\Api\Services\Listados\DetalleVentasListadoService;
 use Descartes\Api\Services\Listados\ExtractoClientesListadoService;
 use Descartes\Api\Services\Listados\InformeIvaListadoService;
@@ -24,6 +25,7 @@ final class ListadosController
   private InformeTicketsListadoService $informeTickets;
   private ExtractoClientesListadoService $extractoClientes;
   private DetalleVentasListadoService $detalleVentas;
+  private ComisionesPedidoListadoService $comisionesPedido;
   private LoggerInterface $logger;
 
   public function __construct(
@@ -33,6 +35,7 @@ final class ListadosController
     InformeTicketsListadoService $informeTickets,
     ExtractoClientesListadoService $extractoClientes,
     DetalleVentasListadoService $detalleVentas,
+    ComisionesPedidoListadoService $comisionesPedido,
     LoggerInterface $logger
   ) {
     $this->stock = $stock;
@@ -41,6 +44,7 @@ final class ListadosController
     $this->informeTickets = $informeTickets;
     $this->extractoClientes = $extractoClientes;
     $this->detalleVentas = $detalleVentas;
+    $this->comisionesPedido = $comisionesPedido;
     $this->logger = $logger;
   }
 
@@ -138,6 +142,32 @@ final class ListadosController
       $this->logger->error('listados.detalle-ventas', ['error' => $e->getMessage()]);
 
       return ErrorResponse::json($response, 500, 'No se pudo generar el detalle de ventas', 'ERROR_INTERNO');
+    }
+  }
+
+  public function listComisionesProveedor(Request $request, Response $response): Response
+  {
+    try {
+      return $this->json($response, 200, $this->comisionesPedido->proveedor($request->getQueryParams()));
+    } catch (InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      $this->logger->error('listados.comisiones-proveedor', ['error' => $e->getMessage()]);
+
+      return ErrorResponse::json($response, 500, 'No se pudo generar el informe de comisiones de proveedor', 'ERROR_INTERNO');
+    }
+  }
+
+  public function listComisionesTrabajadores(Request $request, Response $response): Response
+  {
+    try {
+      return $this->json($response, 200, $this->comisionesPedido->trabajadores($request->getQueryParams()));
+    } catch (InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      $this->logger->error('listados.comisiones-trabajadores', ['error' => $e->getMessage()]);
+
+      return ErrorResponse::json($response, 500, 'No se pudo generar el informe de comisiones de trabajadores', 'ERROR_INTERNO');
     }
   }
 

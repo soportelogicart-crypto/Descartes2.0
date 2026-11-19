@@ -122,8 +122,26 @@ function sinEtiquetas(): boolean {
   return etiquetas.value.every((l) => !l.trim())
 }
 
+/** Al elegir un resultado el teclado ocupa su sitio y un segundo clic (o el doble clic) cae en una tecla. */
+let ignorarTecladoHasta = 0
+
+function tecladoBloqueado(): boolean {
+  return Date.now() < ignorarTecladoHasta
+}
+
 function pulsar(digito: string) {
+  if (tecladoBloqueado()) return
   if (codigo.value.length < LARGO_TEXTO) codigo.value += digito
+}
+
+function borrarCodigo() {
+  if (tecladoBloqueado()) return
+  codigo.value = codigo.value.slice(0, -1)
+}
+
+function limpiarCodigo() {
+  if (tecladoBloqueado()) return
+  codigo.value = ''
 }
 
 async function buscarArticulo() {
@@ -150,6 +168,7 @@ function elegirArticulo(articulo: TpvArticuloPrecio) {
   codigo.value = articulo.codigo
   etiquetas.value = repartirEtiquetas(articulo.descripcion)
   resultados.value = []
+  ignorarTecladoHasta = Date.now() + 500
 }
 
 function clasificacion(articulo: TpvArticuloPrecio): string {
@@ -318,8 +337,8 @@ async function confirmar() {
             <TpvTecladoNumerico
               v-else
               @tecla="pulsar"
-              @borrar="codigo = codigo.slice(0, -1)"
-              @limpiar="codigo = ''"
+              @borrar="borrarCodigo"
+              @limpiar="limpiarCodigo"
             />
 
             <label class="check">
