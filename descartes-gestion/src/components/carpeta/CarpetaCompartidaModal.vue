@@ -2,10 +2,16 @@
 import { onBeforeUnmount, watch } from 'vue'
 import CarpetaCompartidaExplorador from '@/components/carpeta/CarpetaCompartidaExplorador.vue'
 
-const props = defineProps<{
-  open: boolean
-  ruta: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    open: boolean
+    ruta: string
+    titulo?: string
+    /** Acceso de la cabecera: solo archivos. En el cliente se pueden crear carpetas. */
+    soloArchivos?: boolean
+  }>(),
+  { titulo: 'Carpeta compartida', soloArchivos: true },
+)
 
 const emit = defineEmits<{
   cerrar: []
@@ -28,14 +34,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onTecla))
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="overlay" role="dialog" aria-modal="true" aria-label="Carpeta compartida" @click.self="emit('cerrar')">
+    <div v-if="open" class="overlay" role="dialog" aria-modal="true" :aria-label="titulo" @click.self="emit('cerrar')">
       <div class="dialogo">
         <header class="cabecera">
-          <h2>Carpeta compartida</h2>
+          <h2>{{ titulo }}</h2>
           <button type="button" class="cerrar" aria-label="Cerrar" @click="emit('cerrar')">×</button>
         </header>
         <div class="cuerpo">
-          <CarpetaCompartidaExplorador :ruta="ruta" solo-archivos />
+          <CarpetaCompartidaExplorador :ruta="ruta" :solo-archivos="soloArchivos" />
         </div>
       </div>
     </div>

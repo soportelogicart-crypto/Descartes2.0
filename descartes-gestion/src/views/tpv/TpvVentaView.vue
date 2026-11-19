@@ -77,6 +77,8 @@ import type {
   TpvZonaTeclado,
 } from '@/types/tpv'
 import { CLIENTE_RAPIDO_TPV, TPV_NIVEL_GRUPOS, TPV_NIVEL_INICIAL } from '@/types/tpv'
+import CarpetaCompartidaModal from '@/components/carpeta/CarpetaCompartidaModal.vue'
+import { useCarpetaCliente } from '@/composables/carpetaCliente'
 import type { VentaDetalle, VentaResumen } from '@/types/ventas'
 
 const router = useRouter()
@@ -155,6 +157,13 @@ const avisoBorrarBoton = ref<string | null>(null)
 const moviendoBoton = ref<{ zona: TpvZonaTeclado; posicion: number } | null>(null)
 const cobrado = ref<string | null>(null)
 const clienteAbierto = ref(false)
+const carpetaCliente = useCarpetaCliente()
+
+async function abrirCarpetaCliente() {
+  const c = tpv.cliente
+  await carpetaCliente.abrir(c?.codigo ?? '', c?.razonSocial ?? '')
+  if (carpetaCliente.error.value) tpv.error = carpetaCliente.error.value
+}
 /** Último ticket cerrado: permite reintentar la impresión sin rehacer la venta. */
 const ultimoTicket = ref<VentaDetalle | null>(null)
 const ultimoTipoDocumento = ref('T')
@@ -2136,6 +2145,16 @@ onMounted(() => {
             CLIENTE
           </button>
           <button
+            v-if="carpetaCliente.disponible.value && carpetaCliente.tieneCarpeta(tpv.cliente?.codigo)"
+            type="button"
+            class="btn-tpv"
+            :disabled="tpv.guardando"
+            title="Carpeta del cliente"
+            @click="abrirCarpetaCliente"
+          >
+            CARPETA
+          </button>
+          <button
             type="button"
             class="btn-tpv"
             :disabled="!lineaSeleccionada || tpv.guardando || tpv.enConsulta"
@@ -2505,6 +2524,14 @@ onMounted(() => {
       :funciones="otrasFunciones"
       @ejecutar="onOtraFuncion"
       @cerrar="cerrarOtrasFunciones"
+    />
+
+    <CarpetaCompartidaModal
+      :open="carpetaCliente.abierta.value"
+      :ruta="carpetaCliente.ruta.value"
+      :titulo="carpetaCliente.titulo.value"
+      :solo-archivos="false"
+      @cerrar="carpetaCliente.cerrar()"
     />
 
     <TpvValeRegaloModal

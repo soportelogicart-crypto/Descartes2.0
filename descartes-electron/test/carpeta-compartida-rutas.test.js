@@ -1,6 +1,12 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { rutaRaizValida, nombreValido, rutaDentro, explicarAcceso } = require('../electron/carpeta-compartida-rutas')
+const {
+  rutaRaizValida,
+  nombreValido,
+  rutaCarpetaCliente,
+  rutaDentro,
+  explicarAcceso,
+} = require('../electron/carpeta-compartida-rutas')
 
 test('acepta solo rutas UNC como raíz', () => {
   assert.equal(rutaRaizValida('\\\\PC-CAJA\\Descartes'), '\\\\PC-CAJA\\Descartes')
@@ -39,6 +45,19 @@ test('rutaDentro resuelve subcarpetas y no sale de la raíz', () => {
   assert.equal(rutaDentro(raiz, '', '..'), null)
   assert.equal(rutaDentro(raiz, 'Documentos', 'x\\y'), null)
   assert.equal(rutaDentro(raiz, 'C:\\Windows'), null)
+})
+
+test('la carpeta del cliente queda dentro de Clientes y no sale con .. ni separadores', () => {
+  const raiz = '\\\\PC-CAJA\\Descartes'
+  assert.equal(rutaCarpetaCliente(raiz, 'C0001'), '\\\\PC-CAJA\\Descartes\\Clientes\\C0001')
+  assert.equal(rutaCarpetaCliente(raiz, 'A\\B'), '\\\\PC-CAJA\\Descartes\\Clientes\\AB')
+  assert.equal(rutaCarpetaCliente(raiz, '..\\..\\Windows'), '\\\\PC-CAJA\\Descartes\\Clientes\\Windows')
+  assert.equal(rutaCarpetaCliente(raiz, '..'), null)
+  assert.equal(rutaCarpetaCliente(raiz, '   '), null)
+  assert.equal(rutaCarpetaCliente('C:\\local', 'C0001'), null)
+  const rara = rutaCarpetaCliente(raiz, '..\\..\\Windows')
+  assert.ok(rara.startsWith(raiz + '\\Clientes\\'))
+  assert.equal(rara.includes('..'), false)
 })
 
 test('UNKNOWN en el propio PC sin recurso compartido explica que hay que compartir', () => {
