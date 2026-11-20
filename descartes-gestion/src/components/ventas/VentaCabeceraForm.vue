@@ -5,6 +5,8 @@ import type { PagosACuentaRespuesta, PagoACuentaItem } from '@/api/ventas'
 import type { VentaDetalle } from '@/types/ventas'
 import { lookupCodigoPostal } from '@/composables/useCodigoPostalLookup'
 import DecimalInput from '@/components/common/DecimalInput.vue'
+import CarpetaCompartidaModal from '@/components/carpeta/CarpetaCompartidaModal.vue'
+import { useCarpetaCliente } from '@/composables/carpetaCliente'
 import EntidadBuscarModal, {
   type EntidadBuscarResultado,
 } from '@/components/common/EntidadBuscarModal.vue'
@@ -65,6 +67,11 @@ const emit = defineEmits<{
 const tiendas = ref<{ value: string; label: string }[]>([])
 const tiendaSelect = ref<HTMLSelectElement | null>(null)
 const clienteInput = ref<HTMLInputElement | null>(null)
+const carpetaCliente = useCarpetaCliente()
+
+async function abrirCarpetaCliente() {
+  await carpetaCliente.abrir(String(props.modelValue.cliente ?? ''), String(props.modelValue.razonSocial ?? ''))
+}
 const razonSocialInput = ref<HTMLInputElement | null>(null)
 const direccionesEnvio = ref<DireccionEnvioOpcion[]>([])
 const dirMenuOpen = ref(false)
@@ -594,8 +601,27 @@ onUnmounted(() => {
               >
                 ...
               </button>
+              <button
+                v-if="carpetaCliente.disponible.value && carpetaCliente.tieneCarpeta(ficha.cliente)"
+                type="button"
+                class="btn-buscar btn-carpeta"
+                title="Carpeta del cliente"
+                @click="abrirCarpetaCliente"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z" />
+                </svg>
+              </button>
             </div>
           </label>
+          <p v-if="carpetaCliente.error.value" class="carpeta-error">{{ carpetaCliente.error.value }}</p>
+          <CarpetaCompartidaModal
+            :open="carpetaCliente.abierta.value"
+            :ruta="carpetaCliente.ruta.value"
+            :titulo="carpetaCliente.titulo.value"
+            :solo-archivos="false"
+            @cerrar="carpetaCliente.cerrar()"
+          />
           <label class="field">
             <span class="label">NIF</span>
             <input
@@ -1309,6 +1335,20 @@ select:disabled {
 .btn-buscar:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.carpeta-error {
+  margin: 0.2rem 0 0;
+  font-size: 0.75rem;
+  color: #b91c1c;
+}
+
+.btn-carpeta svg {
+  width: 0.95rem;
+  height: 0.95rem;
+  fill: currentColor;
+  display: block;
+  margin: 0 auto;
 }
 
 .btn-buscar:not(:disabled):hover {

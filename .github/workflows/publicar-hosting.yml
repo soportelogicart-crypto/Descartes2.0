@@ -1,0 +1,86 @@
+# Al subir a main, publica la gestión y la API en el hosting.
+# Electron no se publica: el instalador se genera en cada PC.
+#
+# Secretos del repositorio (Settings → Secrets and variables → Actions):
+#   FTP_SERVER, FTP_USERNAME, FTP_PASSWORD
+# Son los del sitio FTP «plesk». No borra archivos que solo existen en el servidor
+# (vendor, var, la base).
+
+name: Publicar hosting
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'descartes-gestion/**'
+      - 'descartes-api/src/**'
+      - 'descartes-api/public/**'
+      - 'descartes-api/database/**'
+      - '.github/workflows/publicar-hosting.yml'
+
+concurrency:
+  group: publicar-hosting
+  cancel-in-progress: false
+
+jobs:
+  publicar:
+    name: Compilar y publicar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: descartes-gestion/package-lock.json
+      - name: Compilar la gestión
+        working-directory: descartes-gestion
+        run: npm ci && npm run build
+      - name: Subir la gestión a httpdocs
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          port: 21
+          protocol: ftp
+          local-dir: descartes-gestion/dist/
+          server-dir: httpdocs/
+          dangerous-clean-slate: false
+          timeout: 600000
+      - name: Subir src de la API
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          port: 21
+          protocol: ftp
+          local-dir: descartes-api/src/
+          server-dir: httpdocs/api-descartes/src/
+          dangerous-clean-slate: false
+          timeout: 600000
+      - name: Subir public de la API
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          port: 21
+          protocol: ftp
+          local-dir: descartes-api/public/
+          server-dir: httpdocs/api-descartes/public/
+          dangerous-clean-slate: false
+          timeout: 600000
+      - name: Subir migraciones de la API
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          port: 21
+          protocol: ftp
+          local-dir: descartes-api/database/
+          server-dir: httpdocs/api-descartes/database/
+          dangerous-clean-slate: false
+          timeout: 600000

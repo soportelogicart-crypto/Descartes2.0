@@ -168,6 +168,8 @@ export type CarpetaCompartidaBridge = {
       cancelado?: boolean
     }
   >
+  /** Crea Clientes\{codigo} dentro de la compartida y devuelve su UNC. */
+  cliente: (ruta: string, codigo: string) => Promise<CarpetaCompartidaResultado & { ruta?: string }>
 }
 
 export type DescartesBridge = {

@@ -43,6 +43,9 @@ import ClienteEstadisticaModal from '@/components/clientes/ClienteEstadisticaMod
 import ClienteConsumoModal from '@/components/clientes/ClienteConsumoModal.vue'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { useClienteFichaStore } from '@/stores/clienteFicha'
+import { useCarpetaCompartidaStore } from '@/stores/carpetaCompartida'
+import { getDescartesBridge } from '@/bridge/electron'
+import CarpetaCompartidaModal from '@/components/carpeta/CarpetaCompartidaModal.vue'
 import { onEnterSiguienteCampo } from '@/composables/useEnterFieldNav'
 
 const MODULO = 'clientes'
@@ -276,6 +279,13 @@ const tieneCuentaCtb = computed(() => {
   if (valor == null || String(valor).trim() === '') return false
   return Number(valor) !== 0
 })
+const carpetaStore = useCarpetaCompartidaStore()
+const modalCarpetaCliente = ref(false)
+const rutaCarpetaCliente = ref('')
+const tituloCarpetaCliente = ref('Carpeta del cliente')
+const mostrarCarpetaCliente = computed(
+  () => !esNuevo.value && Boolean(String(ficha.value.codigo ?? '').trim())
+)
 const mostrarCrearCuentaCtb = computed(
   () => !esNuevo.value && Boolean(String(ficha.value.codigo ?? '').trim()) && puedeEditar.value
 )
@@ -749,12 +759,35 @@ async function onBorrarFicha() {
 }
 
 function volverAlGrid() {
+  modalCarpetaCliente.value = false
   mostrarIntereses.value = false
   mostrarEstadistica.value = false
   mostrarConsumo.value = false
   mostrarDireccion.value = false
   mostrarContactos.value = false
   fichaStore.limpiarFicha()
+}
+
+async function onCarpetaCliente() {
+  const codigo = String(ficha.value.codigo ?? '').trim()
+  const carpeta = getDescartesBridge()?.carpetaCompartida
+  if (!codigo || !carpeta?.cliente) {
+    mensaje.value = 'La carpeta del cliente solo está disponible en Descartes Electron.'
+    return
+  }
+  if (!carpetaStore.ruta) {
+    mensaje.value = 'Configure primero la carpeta compartida. Ahí se crea una carpeta para cada cliente.'
+    return
+  }
+  const res = await carpeta.cliente(carpetaStore.ruta, codigo)
+  if (!res.ok || !res.ruta) {
+    mensaje.value = res.message ?? 'No se pudo abrir la carpeta del cliente'
+    return
+  }
+  rutaCarpetaCliente.value = res.ruta
+  const nombre = String(ficha.value.nombre ?? '').trim()
+  tituloCarpetaCliente.value = nombre ? `Carpeta de ${nombre}` : `Carpeta de ${codigo}`
+  modalCarpetaCliente.value = true
 }
 
 function onEstadistica() {
@@ -929,6 +962,7 @@ async function onUltimo() {
             :total="totalFicha"
             :loading="guardando"
             :hay-cliente="hayCliente"
+            :mostrar-carpeta="mostrarCarpetaCliente"
             @nuevo="onNuevo"
             @modificar="onModificar"
             @borrar="onBorrarFicha"
@@ -944,6 +978,7 @@ async function onUltimo() {
             @contactos="onContactos"
             @intereses="onIntereses"
             @direccion="onDireccion"
+            @carpeta="onCarpetaCliente"
           />
 
           <div ref="fichaCamposRoot" class="ficha-campos" @keydown="onFichaCamposEnterNav">
@@ -1056,6 +1091,14 @@ async function onUltimo() {
         :cliente-nombre="String(ficha.nombre ?? '')"
         :puede-editar="puedeEditar"
         @cerrar="mostrarEstadistica = false"
+      />
+
+      <CarpetaCompartidaModal
+        :open="modalCarpetaCliente"
+        :ruta="rutaCarpetaCliente"
+        :titulo="tituloCarpetaCliente"
+        :solo-archivos="false"
+        @cerrar="modalCarpetaCliente = false"
       />
 
       <ClienteConsumoModal

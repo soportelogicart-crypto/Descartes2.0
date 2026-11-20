@@ -18,6 +18,29 @@ function rutaRaizValida(ruta) {
   return RAIZ_UNC.test(limpia) ? limpia : null
 }
 
+/**
+ * Nombre de la carpeta de un cliente. Quita los caracteres que Windows no
+ * admite en un nombre. `..` o una ruta no pueden salir de `Clientes`.
+ * @returns {string | null}
+ */
+function nombreCarpetaCliente(codigo) {
+  let n = String(codigo ?? '').replace(/[<>:"|?*\\/\x00-\x1f]/g, '')
+  while (n.includes('..')) n = n.replaceAll('..', '')
+  n = n.trim().replace(/[. ]+$/g, '')
+  return nombreValido(n) ? n : null
+}
+
+/**
+ * UNC de la carpeta del cliente, o null si el código no vale como nombre.
+ * Siempre cuelga de `Clientes` dentro de la raíz compartida.
+ */
+function rutaCarpetaCliente(raiz, codigo) {
+  const base = rutaRaizValida(raiz)
+  const nombre = nombreCarpetaCliente(codigo)
+  if (!base || !nombre) return null
+  return rutaDentro(base, 'Clientes', nombre)
+}
+
 /** Nombre de archivo o carpeta sin separadores ni caracteres prohibidos. */
 function nombreValido(nombre) {
   const n = String(nombre ?? '').trim()
@@ -106,6 +129,8 @@ function explicarAcceso(raiz, codigo, opciones = {}) {
 module.exports = {
   rutaRaizValida,
   nombreValido,
+  nombreCarpetaCliente,
+  rutaCarpetaCliente,
   rutaDentro,
   explicarAcceso,
 }
