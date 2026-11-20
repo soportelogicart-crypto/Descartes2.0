@@ -32,12 +32,18 @@ return [
       'rolCodigo' => 'Rol',
       'password' => 'PassWord',
       'tiendasExtra' => 'TiendasExtra',
+      'idioma' => 'Idioma',
+      'colorTema' => 'ColorTema',
+      'ayudasMenu' => 'AyudasMenu',
       'activo' => 'Baja',
     ],
+    'booleanFields' => ['ayudasMenu'],
     'stringMaxLengths' => [
       'Codigo' => 20,
       'Nombre' => 50,
       'TiendasExtra' => 200,
+      'Idioma' => 5,
+      'ColorTema' => 20,
     ],
   ],
   'roles' => [

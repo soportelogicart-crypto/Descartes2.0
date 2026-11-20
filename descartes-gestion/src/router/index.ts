@@ -78,6 +78,7 @@ const DocumentosPlantillasView = vista(() => import('@/views/configuracion/Docum
 const TpvVentaView = vista(() => import('@/views/tpv/TpvVentaView.vue'))
 const ConsultaSinConexionView = vista(() => import('@/views/tpv/ConsultaSinConexionView.vue'))
 const ListadosHubView = vista(() => import('@/views/listados/ListadosHubView.vue'))
+const NovedadesView = vista(() => import('@/views/NovedadesView.vue'))
 const StockListadoShell = vista(() => import('@/views/listados/StockListadoShell.vue'))
 const StockMinimosListadoView = vista(() => import('@/views/listados/StockMinimosListadoView.vue'))
 const InformeIvaListadoView = vista(() => import('@/views/listados/InformeIvaListadoView.vue'))
@@ -103,6 +104,12 @@ const router = createRouter({
       component: AppLayout,
       children: [
         { path: '', name: 'home', component: HomeView },
+        {
+          path: 'novedades',
+          name: 'novedades',
+          component: NovedadesView,
+          meta: { titulo: 'Novedades' },
+        },
         {
           path: 'configuracion',
           name: 'configuracion',

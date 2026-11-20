@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 defineProps<{
   titulo: string
@@ -20,19 +23,19 @@ const emit = defineEmits<{
   <section class="listado-informe">
     <header class="cabecera">
       <div>
-        <RouterLink to="/listados" class="volver">← Listados</RouterLink>
+        <RouterLink to="/listados" class="volver">← {{ t('listado.volver') }}</RouterLink>
         <h2>{{ titulo }}</h2>
         <p v-if="descripcion" class="desc">{{ descripcion }}</p>
       </div>
       <div class="acciones">
         <button type="button" class="btn primary" :disabled="generando" @click="emit('generar')">
-          {{ generando ? 'Generando…' : 'Generar' }}
+          {{ generando ? t('listado.generando') : t('listado.generar') }}
         </button>
         <button type="button" class="btn" :disabled="!tieneDatos || exportando" @click="emit('excel')">
-          Excel
+          {{ t('listado.excel') }}
         </button>
         <button type="button" class="btn" :disabled="!tieneDatos || exportando" @click="emit('imprimir')">
-          Vista previa / Imprimir
+          {{ t('listado.imprimir') }}
         </button>
       </div>
     </header>
@@ -42,7 +45,7 @@ const emit = defineEmits<{
     </div>
 
     <details v-if="$slots['mas-filtros']" class="mas-filtros">
-      <summary>Más filtros</summary>
+      <summary>{{ t('listado.masFiltros') }}</summary>
       <div class="mas-filtros-body">
         <slot name="mas-filtros" />
       </div>

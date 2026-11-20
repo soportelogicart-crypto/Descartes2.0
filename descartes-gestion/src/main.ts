@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
+import { i18n } from './i18n'
 import { installGlobalErrorReporting } from './api/clientLogger'
 import { cargarVinculoInstalacion } from './api/vinculoInstalacion'
 import { registerElectronNavigation } from './bridge/electronNavigation'
@@ -15,6 +16,7 @@ iniciarEstadoConexion()
 
 const app = createApp(App)
 app.use(createPinia())
+app.use(i18n)
 
 // app.use(router) lanza ya la primera navegación y su guard pide el estado:
 // sin el vínculo cargado iría a la instalación por defecto.

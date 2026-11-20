@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { api } from '@/api/client'
 import ListadoInformeLayout from '@/components/listados/ListadoInformeLayout.vue'
@@ -20,13 +21,14 @@ import { imprimirListadoHtml } from '@/composables/imprimirListadoHtml'
 
 type Opt = { value: string; label: string }
 
+const { t, locale } = useI18n()
 const route = useRoute()
 const puesto = usePuestoContextoStore()
 const { registrarReciente } = useListadosRecientes()
 
 const esProveedor = computed(() => route.name === 'listados-comisiones-proveedor')
 const titulo = computed(() =>
-  esProveedor.value ? 'Comisiones de proveedor' : 'Comisiones de trabajadores'
+  esProveedor.value ? t('listado.comisionesProveedorTitulo') : t('listado.comisionesTrabajadoresTitulo')
 )
 
 const generando = ref(false)
@@ -82,23 +84,24 @@ function params(): ComisionPedidoFiltros {
 }
 
 function metaImpresion(): string[] {
+  const idiomaFecha = locale.value === 'ca' ? 'ca-ES' : locale.value === 'en' ? 'en-GB' : 'es-ES'
   const lineas = [
     form.fechaDesde || form.fechaHasta
-      ? `Periodo: ${form.fechaDesde || '…'} — ${form.fechaHasta || '…'}`
-      : 'Periodo: todos',
-    form.tienda ? `Tienda: ${form.tienda}` : 'Tienda: todas',
+      ? t('listado.periodo', { desde: form.fechaDesde || '…', hasta: form.fechaHasta || '…' })
+      : t('listado.periodoTodos'),
+    form.tienda ? t('listado.tiendaFiltro', { nombre: form.tienda }) : t('listado.tiendaTodas'),
   ]
   if (form.pedidoDesde || form.pedidoHasta) {
-    lineas.push(`Pedido: ${form.pedidoDesde || '…'} — ${form.pedidoHasta || '…'}`)
+    lineas.push(t('listado.rango', { rotulo: t('listado.pedido'), desde: form.pedidoDesde || '…', hasta: form.pedidoHasta || '…' }))
   }
   if (form.clienteDesde || form.clienteHasta) {
-    lineas.push(`Cliente: ${form.clienteDesde || '…'} — ${form.clienteHasta || '…'}`)
+    lineas.push(t('listado.rango', { rotulo: t('listado.cliente'), desde: form.clienteDesde || '…', hasta: form.clienteHasta || '…' }))
   }
   if (form.terceroDesde || form.terceroHasta) {
-    const rotulo = esProveedor.value ? 'Proveedor' : 'Trabajador'
-    lineas.push(`${rotulo}: ${form.terceroDesde || '…'} — ${form.terceroHasta || '…'}`)
+    const rotulo = esProveedor.value ? t('listado.proveedor') : t('listado.trabajador')
+    lineas.push(t('listado.rango', { rotulo, desde: form.terceroDesde || '…', hasta: form.terceroHasta || '…' }))
   }
-  lineas.push(`Generado: ${new Date().toLocaleString('es-ES')}`)
+  lineas.push(t('listado.generado', { cuando: new Date().toLocaleString(idiomaFecha) }))
   return lineas
 }
 
@@ -121,7 +124,7 @@ async function cargarTiendas() {
 
 async function generar() {
   if (form.fechaDesde && form.fechaHasta && form.fechaDesde > form.fechaHasta) {
-    error.value = 'La fecha desde no puede ser posterior a la fecha hasta.'
+    error.value = t('listado.fechaInvalida')
     return
   }
   generando.value = true
@@ -132,11 +135,11 @@ async function generar() {
       ? await generarComisionesProveedor(params())
       : await generarComisionesTrabajadores(params())
     if (resultado.value.truncado) {
-      mensaje.value = `Listado limitado a ${resultado.value.limite} líneas.`
+      mensaje.value = t('listado.limitado', { limite: resultado.value.limite })
     }
   } catch (e: unknown) {
     resultado.value = null
-    error.value = extractApiError(e, 'No se pudo generar el informe')
+    error.value = extractApiError(e, t('listado.errorGenerar'))
   } finally {
     generando.value = false
   }
@@ -148,7 +151,7 @@ function exportarExcel() {
   const lines: string[] = []
   if (esProveedor.value) {
     lines.push(
-      ['Fecha', 'Pedido', 'Cliente', 'Nombre', 'Proveedor', 'Nombre proveedor', 'Importe pedido', 'Comisión']
+      [t('listado.fecha'), t('listado.pedido'), t('listado.cliente'), t('usuarios.nombre'), t('listado.proveedor'), t('listado.proveedor'), t('listado.importePedido'), t('listado.comision')]
         .map(escCsv)
         .join(';')
     )
@@ -169,13 +172,13 @@ function exportarExcel() {
       )
     }
     lines.push(
-      ['', '', '', '', '', 'Total', numCsv(r.totales.importePedido ?? 0), numCsv(r.totales.comision)]
+      ['', '', '', '', '', t('listado.total'), numCsv(r.totales.importePedido ?? 0), numCsv(r.totales.comision)]
         .map(escCsv)
         .join(';')
     )
   } else {
     lines.push(
-      ['Fecha', 'Pedido', 'Cliente', 'Nombre', 'Trabajador', 'Nombre trabajador', 'Importe pedido', '%', 'Comisión']
+      [t('listado.fecha'), t('listado.pedido'), t('listado.cliente'), t('usuarios.nombre'), t('listado.trabajador'), t('listado.trabajador'), t('listado.importePedido'), t('listado.porcentaje'), t('listado.comision')]
         .map(escCsv)
         .join(';')
     )
@@ -197,11 +200,11 @@ function exportarExcel() {
       )
     }
     lines.push(
-      ['', '', '', '', '', 'Total', '', '', numCsv(r.totales.comision)].map(escCsv).join(';')
+      ['', '', '', '', '', t('listado.total'), '', '', numCsv(r.totales.comision)].map(escCsv).join(';')
     )
   }
   descargarCsv(esProveedor.value ? 'comisiones-proveedor.csv' : 'comisiones-trabajadores.csv', lines)
-  mensaje.value = 'Excel (CSV) exportado'
+  mensaje.value = t('listado.excelOk')
 }
 
 async function imprimir() {
@@ -229,10 +232,10 @@ async function imprimir() {
     titulo: titulo.value,
     metaLineas: metaImpresion(),
     thead: esProveedor.value
-      ? ['Fecha', 'Pedido', 'Cliente', 'Proveedor', 'Importe pedido', 'Comisión']
-      : ['Fecha', 'Pedido', 'Cliente', 'Trabajador', 'Importe pedido', '%', 'Comisión'],
+      ? [t('listado.fecha'), t('listado.pedido'), t('listado.cliente'), t('listado.proveedor'), t('listado.importePedido'), t('listado.comision')]
+      : [t('listado.fecha'), t('listado.pedido'), t('listado.cliente'), t('listado.trabajador'), t('listado.importePedido'), t('listado.porcentaje'), t('listado.comision')],
     filas,
-    pie: [`Total comisión: ${numCsv(r.totales.comision)} €`, `Líneas: ${r.totales.lineas}`],
+    pie: [t('listado.pieComision', { importe: numCsv(r.totales.comision) }), t('listado.pieLineas', { n: r.totales.lineas })],
     filenameFallback: esProveedor.value ? 'comisiones-proveedor.html' : 'comisiones-trabajadores.html',
   })
   mensaje.value = res.message
@@ -261,8 +264,8 @@ onMounted(() => {
     :titulo="titulo"
     :descripcion="
       esProveedor
-        ? 'Una línea por pedido con comisión de proveedor. El importe de la comisión es el guardado en el pedido.'
-        : 'Una línea por comisión de trabajador. Si el pedido tiene dos, sale dos veces. El importe es el porcentaje sobre el total del pedido.'
+        ? t('listado.comisionesProveedorDesc')
+        : t('listado.comisionesTrabajadoresDesc')
     "
     :generando="generando"
     :tiene-datos="tieneDatos"
@@ -272,17 +275,17 @@ onMounted(() => {
   >
     <template #filtros>
       <label>
-        <span>Desde</span>
+        <span>{{ t('listado.desde') }}</span>
         <input v-model="form.fechaDesde" type="date" />
       </label>
       <label>
-        <span>Hasta</span>
+        <span>{{ t('listado.hasta') }}</span>
         <input v-model="form.fechaHasta" type="date" />
       </label>
       <label>
-        <span>Tienda</span>
+        <span>{{ t('listado.tienda') }}</span>
         <select v-model="form.tienda" :disabled="loadingOpts">
-          <option value="">Todas</option>
+          <option value="">{{ t('listado.todas') }}</option>
           <option v-for="t in tiendas" :key="t.value" :value="t.value">{{ t.label }}</option>
         </select>
       </label>
@@ -291,26 +294,26 @@ onMounted(() => {
     <template #mas-filtros>
       <div class="rangos">
         <div class="rango">
-          <span class="rango-titulo">Pedido</span>
-          <input v-model="form.pedidoDesde" inputmode="numeric" placeholder="Desde" />
-          <input v-model="form.pedidoHasta" inputmode="numeric" placeholder="Hasta" />
+          <span class="rango-titulo">{{ t('listado.pedido') }}</span>
+          <input v-model="form.pedidoDesde" inputmode="numeric" :placeholder="t('listado.desde')" />
+          <input v-model="form.pedidoHasta" inputmode="numeric" :placeholder="t('listado.hasta')" />
         </div>
         <div class="rango">
-          <span class="rango-titulo">Cliente</span>
-          <EntidadLookupField v-model="form.clienteDesde" entidad="clientes" titulo-modal="Buscar cliente" />
-          <EntidadLookupField v-model="form.clienteHasta" entidad="clientes" titulo-modal="Buscar cliente" />
+          <span class="rango-titulo">{{ t('listado.cliente') }}</span>
+          <EntidadLookupField v-model="form.clienteDesde" entidad="clientes" :titulo-modal="t('listado.buscarCliente')" />
+          <EntidadLookupField v-model="form.clienteHasta" entidad="clientes" :titulo-modal="t('listado.buscarCliente')" />
         </div>
         <div class="rango">
-          <span class="rango-titulo">{{ esProveedor ? 'Proveedor' : 'Trabajador' }}</span>
+          <span class="rango-titulo">{{ esProveedor ? t('listado.proveedor') : t('listado.trabajador') }}</span>
           <EntidadLookupField
             v-model="form.terceroDesde"
             :entidad="esProveedor ? 'proveedores' : 'trabajadores'"
-            titulo-modal="Buscar"
+            :titulo-modal="t('listado.buscar')"
           />
           <EntidadLookupField
             v-model="form.terceroHasta"
             :entidad="esProveedor ? 'proveedores' : 'trabajadores'"
-            titulo-modal="Buscar"
+            :titulo-modal="t('listado.buscar')"
           />
         </div>
       </div>
@@ -325,12 +328,12 @@ onMounted(() => {
       <table class="grid">
         <thead>
           <tr>
-            <th>Fecha</th>
-            <th>Pedido</th>
-            <th>Cliente</th>
-            <th>Proveedor</th>
-            <th class="num">Importe pedido</th>
-            <th class="num">Comisión</th>
+            <th>{{ t('listado.fecha') }}</th>
+            <th>{{ t('listado.pedido') }}</th>
+            <th>{{ t('listado.cliente') }}</th>
+            <th>{{ t('listado.proveedor') }}</th>
+            <th class="num">{{ t('listado.importePedido') }}</th>
+            <th class="num">{{ t('listado.comision') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -345,7 +348,7 @@ onMounted(() => {
         </tbody>
         <tfoot>
           <tr>
-            <td colspan="4"><strong>Total</strong></td>
+            <td colspan="4"><strong>{{ t('listado.total') }}</strong></td>
             <td class="num"><strong>{{ numCsv(resultado!.totales.importePedido ?? 0) }}</strong></td>
             <td class="num"><strong>{{ numCsv(resultado!.totales.comision) }}</strong></td>
           </tr>
@@ -356,13 +359,13 @@ onMounted(() => {
       <table class="grid">
         <thead>
           <tr>
-            <th>Fecha</th>
-            <th>Pedido</th>
-            <th>Cliente</th>
-            <th>Trabajador</th>
-            <th class="num">Importe pedido</th>
-            <th class="num">%</th>
-            <th class="num">Comisión</th>
+            <th>{{ t('listado.fecha') }}</th>
+            <th>{{ t('listado.pedido') }}</th>
+            <th>{{ t('listado.cliente') }}</th>
+            <th>{{ t('listado.trabajador') }}</th>
+            <th class="num">{{ t('listado.importePedido') }}</th>
+            <th class="num">{{ t('listado.porcentaje') }}</th>
+            <th class="num">{{ t('listado.comision') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -378,13 +381,13 @@ onMounted(() => {
         </tbody>
         <tfoot>
           <tr>
-            <td colspan="6"><strong>Total comisión</strong></td>
+            <td colspan="6"><strong>{{ t('listado.totalComision') }}</strong></td>
             <td class="num"><strong>{{ numCsv(resultado!.totales.comision) }}</strong></td>
           </tr>
         </tfoot>
       </table>
     </div>
-    <p v-else-if="resultado && !generando" class="sin-datos">No hay comisiones con los filtros indicados.</p>
+    <p v-else-if="resultado && !generando" class="sin-datos">{{ t('listado.sinComisiones') }}</p>
   </ListadoInformeLayout>
 </template>
 

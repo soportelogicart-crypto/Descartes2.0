@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import MantenimientoListadoButton from '@/components/mantenimiento/MantenimientoListadoButton.vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api } from '@/api/client'
+import { TEMAS } from '@/config/temas'
+import { IDIOMAS } from '@/i18n'
+import { aplicarPreferencias } from '@/preferencias/aplicar'
+import { useAuthStore } from '@/stores/auth'
 import {
   clonarFilaGrid,
   filaVaciaDesdeColumnas,
@@ -23,6 +28,11 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EntidadGrid, { type GridOptionsMap } from '@/components/mantenimiento/EntidadGrid.vue'
 import ToolIcon from '@/components/common/ToolIcon.vue'
 
+const { t } = useI18n()
+const auth = useAuthStore()
+const idiomas = IDIOMAS
+const temas = TEMAS
+
 const ENTIDAD = 'usuarios'
 const MODULO = 'usuarios'
 const FILTER_KEYS = ['codigo', 'nombre', 'rolCodigo']
@@ -37,7 +47,17 @@ const USUARIO_CAMPOS_OBLIGATORIOS: { key: string; label: string }[] = [
 ]
 
 function usuarioVacio(): Record<string, unknown> {
-  return { codigo: '', nombre: '', rolCodigo: '', password: '', tiendasExtra: '', activo: true }
+  return {
+    codigo: '',
+    nombre: '',
+    rolCodigo: '',
+    password: '',
+    tiendasExtra: '',
+    idioma: 'es',
+    colorTema: 'azul',
+    ayudasMenu: true,
+    activo: true,
+  }
 }
 
 function codigosTiendasExtra(ficha: Record<string, unknown>): string[] {
@@ -59,8 +79,13 @@ function camposUsuarioObligatoriosVacios(ficha: Record<string, unknown>): string
 function validarUsuario(ficha: Record<string, unknown>): string | null {
   const key = camposUsuarioObligatoriosVacios(ficha)[0]
   if (!key) return null
-  const label = USUARIO_CAMPOS_OBLIGATORIOS.find((c) => c.key === key)?.label ?? key
-  return `El campo "${label}" es obligatorio.`
+  const etiquetas: Record<string, string> = {
+    codigo: t('usuarios.codigo'),
+    nombre: t('usuarios.nombre'),
+    rolCodigo: t('usuarios.rol'),
+    password: t('usuarios.contrasena'),
+  }
+  return t('usuarios.obligatorio', { campo: etiquetas[key] ?? key })
 }
 
 const { puede } = usePermisos()
@@ -260,20 +285,25 @@ async function onGuardarGrid() {
   }
   try {
     await actualizar(String(fila.codigo), payloadFilaGrid(fila, columns))
-    mensaje.value = 'Usuario actualizado'
+    mensaje.value = t('usuarios.actualizado')
     await cargar()
   } catch (e: unknown) {
-    mensaje.value = extractApiError(e, 'No se pudo guardar el usuario')
+    mensaje.value = extractApiError(e, t('usuarios.errorGuardar'))
   }
 }
 
 async function abrirFichaPorCodigo(codigo: string) {
   try {
     const data = await obtener(codigo)
+    const idioma = data.idioma === 'ca' || data.idioma === 'en' || data.idioma === 'es' ? data.idioma : 'es'
+    const color = TEMAS.some((tema) => tema.id === data.colorTema) ? String(data.colorTema) : 'azul'
     ficha.value = {
       ...data,
       password: String(data.password ?? ''),
       activo: data.activo !== false && data.activo !== 0,
+      idioma,
+      colorTema: color,
+      ayudasMenu: data.ayudasMenu !== false && data.ayudasMenu !== 0,
     }
     indiceFicha.value = filasNavegacion.value.findIndex((f) => String(f.codigo) === codigo)
     modoEdicion.value = false
@@ -311,6 +341,18 @@ async function onNuevo() {
   codigoInput.value?.select()
 }
 
+function sincronizarPreferenciasPropias() {
+  if (!auth.usuario) return
+  if (String(ficha.value.codigo ?? '').trim() !== auth.usuario.codigo.trim()) return
+  auth.usuario = {
+    ...auth.usuario,
+    idioma: String(ficha.value.idioma || 'es'),
+    colorTema: String(ficha.value.colorTema || 'azul'),
+    ayudasMenu: ficha.value.ayudasMenu !== false,
+  }
+  aplicarPreferencias(auth.usuario)
+}
+
 function onModificar() {
   if (!puedeEditar.value || !ficha.value.codigo) return
   modoEdicion.value = true
@@ -323,7 +365,7 @@ async function onGuardarFicha() {
     const label = USUARIO_CAMPOS_OBLIGATORIOS.find((c) => c.key === key)?.label ?? key
     const msg = validarUsuario(ficha.value) ?? `El campo "${label}" es obligatorio.`
     mensaje.value = msg
-    mostrarAvisoModal('Campo obligatorio', msg, key)
+    mostrarAvisoModal(t('usuarios.campoObligatorio'), msg, key)
     return
   }
   camposInvalidos.value = []
@@ -334,12 +376,15 @@ async function onGuardarFicha() {
       rolCodigo: ficha.value.rolCodigo,
       password: String(ficha.value.password ?? '').trim(),
       tiendasExtra: codigosTiendasExtra(ficha.value).join(','),
+      idioma: ficha.value.idioma,
+      colorTema: ficha.value.colorTema,
+      ayudasMenu: ficha.value.ayudasMenu !== false,
       activo: ficha.value.activo,
     }
 
     if (esNuevo.value) {
       const creado = await crear(payload)
-      mensaje.value = 'Usuario creado correctamente'
+      mensaje.value = t('usuarios.creado')
       await cargar()
       const idx = filas.value.findIndex((p) => String(p.codigo) === String(creado.codigo))
       if (idx >= 0) await abrirFicha(idx)
@@ -347,19 +392,20 @@ async function onGuardarFicha() {
     } else {
       const codigo = String(ficha.value.codigo)
       await actualizar(codigo, payload)
-      mensaje.value = 'Usuario actualizado'
+      mensaje.value = t('usuarios.actualizado')
       await cargar()
       await abrirFichaPorCodigo(codigo)
+      sincronizarPreferenciasPropias()
     }
     modoEdicion.value = false
     esNuevo.value = false
   } catch (e: unknown) {
-    const msg = extractApiError(e, 'No se pudo guardar el usuario')
+    const msg = extractApiError(e, t('usuarios.errorGuardar'))
     mensaje.value = msg
     if (/ya existe|duplicad|codigo/i.test(msg)) {
-      mostrarAvisoModal('Codigo duplicado', msg, 'codigo')
+      mostrarAvisoModal(t('usuarios.codigoDuplicado'), msg, 'codigo')
     } else {
-      mostrarAvisoModal('Error al guardar', msg)
+      mostrarAvisoModal(t('usuarios.errorTitulo'), msg)
     }
   }
 }
@@ -427,9 +473,9 @@ async function onUltimo() {
 
 <template>
   <section class="usuarios-view">
-    <h2>Usuarios</h2>
+    <h2>{{ t('usuarios.titulo') }}</h2>
 
-    <p v-if="!puedeVer" class="error">No tiene permiso para ver usuarios.</p>
+    <p v-if="!puedeVer" class="error">{{ t('usuarios.sinPermiso') }}</p>
 
     <template v-else>
       <p v-if="mensaje" class="msg">{{ mensaje }}</p>
@@ -439,14 +485,14 @@ async function onUltimo() {
         <div class="mantenimiento-listado">
         <div class="toolbar">
           <MantenimientoListadoButton
-            titulo="Usuarios"
+            :titulo="t('usuarios.titulo')"
             :columnas="columns"
             :filas="filas"
             :options-map="optionsMap"
             @aviso="mensaje = $event"
           />
           <button v-if="puedeCrear" type="button" class="tool-btn" :disabled="loading" @click="onNuevo">
-            Nuevo
+            {{ t('usuarios.nuevo') }}
           </button>
           <button
             type="button"
@@ -454,7 +500,7 @@ async function onUltimo() {
             :disabled="!filaSeleccionada || filaSeleccionada._nuevo"
             @click="abrirFicha()"
           >
-            Ficha
+            {{ t('usuarios.ficha') }}
           </button>
           <div class="toolbar-spacer"></div>
           <button
@@ -464,7 +510,7 @@ async function onUltimo() {
             :disabled="loading || !puedeGuardarGrid"
             @click="onGuardarGrid"
           >
-            Guardar
+            {{ t('usuarios.guardar') }}
           </button>
           <button
             v-if="puedeMostrarEliminar"
@@ -473,7 +519,7 @@ async function onUltimo() {
             :disabled="loading"
             @click="solicitarEliminar"
           >
-            Eliminar
+            {{ t('usuarios.eliminar') }}
           </button>
         </div>
 
@@ -494,22 +540,19 @@ async function onUltimo() {
           @search="onServerSearch"
         />
 
-        <p class="hint">
-          Filtra por <strong>Codigo</strong>, <strong>Nombre</strong> y <strong>Rol</strong> escribiendo bajo cada columna.
-          Doble clic o <strong>Ficha</strong> abre el detalle.
-        </p>
+        <p class="hint">{{ t('usuarios.hint') }}</p>
         </div>
       </template>
 
       <template v-else>
         <div class="sticky-chrome">
-          <button type="button" class="btn-volver" @click="volverAlGrid">← Volver a la rejilla</button>
+          <button type="button" class="btn-volver" @click="volverAlGrid">← {{ t('usuarios.volver') }}</button>
 
           <div class="toolbar ficha-toolbar">
             <div class="toolbar-group">
               <button type="button" class="tool-btn" :disabled="loading || !puedeCrear" @click="onNuevo">
                 <ToolIcon name="nuevo" />
-                <span>Nuevo</span>
+                <span>{{ t('usuarios.nuevo') }}</span>
               </button>
               <button
                 type="button"
@@ -518,7 +561,7 @@ async function onUltimo() {
                 @click="onModificar"
               >
                 <ToolIcon name="modificar" />
-                <span>Modificar</span>
+                <span>{{ t('usuarios.modificar') }}</span>
               </button>
               <button
                 type="button"
@@ -527,11 +570,11 @@ async function onUltimo() {
                 @click="onBorrarFicha"
               >
                 <ToolIcon name="borrar" />
-                <span>Borrar</span>
+                <span>{{ t('usuarios.borrar') }}</span>
               </button>
               <button type="button" class="tool-btn" :disabled="loading" @click="volverAlGrid">
                 <ToolIcon name="buscar" />
-                <span>Buscar</span>
+                <span>{{ t('usuarios.buscar') }}</span>
               </button>
             </div>
 
@@ -569,7 +612,7 @@ async function onUltimo() {
                 :disabled="loading || !puedeGuardarFicha"
                 @click="onGuardarFicha"
               >
-                Guardar
+                {{ t('usuarios.guardar') }}
               </button>
               <button
                 v-if="modoEdicion || esNuevo"
@@ -578,7 +621,7 @@ async function onUltimo() {
                 :disabled="loading"
                 @click="onCancelarFicha"
               >
-                Cancelar
+                {{ t('usuarios.cancelar') }}
               </button>
             </div>
           </div>
@@ -586,10 +629,10 @@ async function onUltimo() {
 
         <div class="ficha">
           <fieldset class="form-section">
-            <legend>Datos del usuario</legend>
+            <legend>{{ t('usuarios.datos') }}</legend>
             <div class="ficha-campos">
               <label :class="{ 'campo-invalido': camposInvalidos.includes('codigo') }">
-                Codigo *
+                {{ t('usuarios.codigo') }} *
                 <input
                   ref="codigoInput"
                   v-model="ficha.codigo"
@@ -603,7 +646,7 @@ async function onUltimo() {
                 class="nombre-input"
                 :class="{ 'campo-invalido': camposInvalidos.includes('nombre') }"
               >
-                Nombre *
+                {{ t('usuarios.nombre') }} *
                 <input
                   v-model="ficha.nombre"
                   data-field-key="nombre"
@@ -612,13 +655,13 @@ async function onUltimo() {
                 />
               </label>
               <label :class="{ 'campo-invalido': camposInvalidos.includes('rolCodigo') }">
-                Rol *
+                {{ t('usuarios.rol') }} *
                 <select
                   v-model="ficha.rolCodigo"
                   data-field-key="rolCodigo"
                   :disabled="soloLecturaFicha"
                 >
-                  <option value="">-- Seleccionar --</option>
+                  <option value="">-- {{ t('usuarios.seleccionar') }} --</option>
                   <option v-for="opt in rolesOpciones" :key="opt.value" :value="opt.value">
                     {{ opt.label }}
                   </option>
@@ -628,7 +671,7 @@ async function onUltimo() {
                 class="password-input"
                 :class="{ 'campo-invalido': camposInvalidos.includes('password') }"
               >
-                Contrasena *
+                {{ t('usuarios.contrasena') }} *
                 <input
                   v-model="ficha.password"
                   data-field-key="password"
@@ -639,13 +682,34 @@ async function onUltimo() {
               </label>
               <label class="activo-field">
                 <input v-model="ficha.activo" type="checkbox" :disabled="soloLecturaFicha" />
-                Activo
+                {{ t('usuarios.activo') }}
               </label>
+              <label>
+                {{ t('usuarios.idioma') }}
+                <select v-model="ficha.idioma" :disabled="soloLecturaFicha">
+                  <option v-for="idioma in idiomas" :key="idioma.id" :value="idioma.id">
+                    {{ idioma.etiqueta }}
+                  </option>
+                </select>
+              </label>
+              <label>
+                {{ t('usuarios.color') }}
+                <select v-model="ficha.colorTema" :disabled="soloLecturaFicha">
+                  <option v-for="tema in temas" :key="tema.id" :value="tema.id">
+                    {{ t(`temas.${tema.id}`) }}
+                  </option>
+                </select>
+              </label>
+              <label class="activo-field ayudas-field">
+                <input v-model="ficha.ayudasMenu" type="checkbox" :disabled="soloLecturaFicha" />
+                {{ t('usuarios.ayudas') }}
+              </label>
+              <p class="tiendas-extra-vacio ayudas-detalle">{{ t('usuarios.ayudasDetalle') }}</p>
             </div>
           </fieldset>
           <fieldset class="form-section">
-            <legend>Otras tiendas</legend>
-            <p v-if="!tiendasOpciones.length" class="tiendas-extra-vacio">No hay otras tiendas.</p>
+            <legend>{{ t('usuarios.otrasTiendas') }}</legend>
+            <p v-if="!tiendasOpciones.length" class="tiendas-extra-vacio">{{ t('usuarios.sinTiendas') }}</p>
             <div v-else class="tiendas-extra">
               <label v-for="tienda in tiendasOpciones" :key="tienda.value" class="tienda-extra">
                 <input
@@ -663,15 +727,15 @@ async function onUltimo() {
 
       <ConfirmDialog
         :open="confirmOpen"
-        title="Eliminar usuario"
+        :title="t('usuarios.eliminarTitulo')"
         :message="confirmMessage"
         @confirm="confirmarEliminar"
         @cancel="cancelarEliminar"
       />
       <ConfirmDialog
         :open="confirmBorrarFichaOpen"
-        title="Eliminar usuario"
-        message="Va a eliminar este usuario. Esta accion no se puede deshacer."
+        :title="t('usuarios.eliminarTitulo')"
+        :message="t('usuarios.eliminarMensaje')"
         @confirm="confirmarBorrarFicha"
         @cancel="confirmBorrarFichaOpen = false"
       />
@@ -679,7 +743,7 @@ async function onUltimo() {
         :open="avisoModalOpen"
         :title="avisoModalTitulo"
         :message="avisoModalMensaje"
-        confirm-label="Aceptar"
+        :confirm-label="t('comun.aceptar')"
         :danger="false"
         hide-cancel
         @confirm="cerrarAvisoModal"
@@ -881,6 +945,10 @@ async function onUltimo() {
   margin: 0;
   font-size: 0.78rem;
   color: #64748b;
+}
+
+.ayudas-detalle {
+  flex-basis: 100%;
 }
 
 .ficha-campos input[type='text'],

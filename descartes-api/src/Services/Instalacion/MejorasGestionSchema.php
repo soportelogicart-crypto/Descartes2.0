@@ -41,6 +41,10 @@ final class MejorasGestionSchema
       ['Puestos', 'TiendasExtra', 'VARCHAR(200) NULL', 'NVARCHAR(200) NULL'],
       // Otras tiendas en las que puede trabajar este usuario, ademas de la de arqueo del puesto.
       ['Usuarios_Ges', 'TiendasExtra', 'VARCHAR(200) NULL', 'NVARCHAR(200) NULL'],
+      // Idioma por defecto (ca | es | en) y color de base del usuario (migracion 030).
+      ['Usuarios_Ges', 'Idioma', 'VARCHAR(5) NULL', 'NVARCHAR(5) NULL'],
+      ['Usuarios_Ges', 'ColorTema', 'VARCHAR(20) NULL', 'NVARCHAR(20) NULL'],
+      ['Usuarios_Ges', 'AyudasMenu', 'TINYINT NULL DEFAULT 1', 'BIT NULL'],
     ];
     foreach ($columnas as [$tabla, $columna, $mysql, $sqlsrv]) {
       if (self::existe($pdo, $driver, $tabla, $columna)) {

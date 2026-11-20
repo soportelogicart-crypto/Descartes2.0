@@ -8,6 +8,7 @@ use Descartes\Api\Http\ErrorResponse;
 use Descartes\Api\Services\Instalacion\MejorasGestionSchema;
 use Descartes\Api\Services\PermissionService;
 use Descartes\Api\Services\UsuarioCorreoService;
+use Descartes\Api\Support\PreferenciasUsuario;
 use PDO;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -204,6 +205,103 @@ final class AuthController
     return $nombres;
   }
 
+  /**
+   * Guarda idioma, color de base y/o ayudas del menu del usuario de la sesion.
+   * Solo toca esas columnas: no exige el resto de la ficha ni modifica la contrasena.
+   */
+  public function putPreferencias(Request $request, Response $response): Response
+  {
+    $codigo = trim((string) ($_SESSION['usuario']['codigo'] ?? ''));
+    if ($codigo === '') {
+      return ErrorResponse::json($response, 401, 'Sesion no iniciada', 'NO_AUTENTICADO');
+    }
+    $body = (array) json_decode((string) $request->getBody(), true);
+
+    $sets = [];
+    $params = ['codigo' => $codigo];
+    if (array_key_exists('idioma', $body)) {
+      $idioma = PreferenciasUsuario::idiomaValido($body['idioma']);
+      if ($idioma === null) {
+        return ErrorResponse::json($response, 400, 'Idioma no valido', 'VALIDACION');
+      }
+      $sets[] = '[Idioma] = :idioma';
+      $params['idioma'] = $idioma === '' ? null : $idioma;
+    }
+    if (array_key_exists('colorTema', $body)) {
+      $tema = PreferenciasUsuario::temaValido($body['colorTema']);
+      if ($tema === null) {
+        return ErrorResponse::json($response, 400, 'Color no valido', 'VALIDACION');
+      }
+      $sets[] = '[ColorTema] = :tema';
+      $params['tema'] = $tema === '' ? null : $tema;
+    }
+    if (array_key_exists('ayudasMenu', $body)) {
+      $valor = $body['ayudasMenu'];
+      if (!is_bool($valor) && !in_array($valor, [0, 1, '0', '1'], true)) {
+        return ErrorResponse::json($response, 400, 'Valor de ayudas no valido', 'VALIDACION');
+      }
+      $sets[] = '[AyudasMenu] = :ayudas';
+      $params['ayudas'] = (int) $valor === 1 || $valor === true ? 1 : 0;
+    }
+    if ($sets === []) {
+      return ErrorResponse::json($response, 400, 'Nada que guardar', 'VALIDACION');
+    }
+
+    try {
+      MejorasGestionSchema::asegurar($this->pdo);
+      $stmt = $this->pdo->prepare(
+        'UPDATE [Usuarios_Ges] SET ' . implode(', ', $sets) . ' WHERE RTRIM([Codigo]) = :codigo'
+      );
+      $stmt->execute($params);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, 'No se pudieron guardar las preferencias', 'PREFERENCIAS');
+    }
+
+    $actual = $this->preferenciasUsuario($codigo);
+    $_SESSION['usuario']['idioma'] = $actual['idioma'];
+    $_SESSION['usuario']['colorTema'] = $actual['colorTema'];
+    $_SESSION['usuario']['ayudasMenu'] = $actual['ayudasMenu'];
+
+    return $this->json($response, 200, $actual);
+  }
+
+  /** @return array{idioma: string, colorTema: string, ayudasMenu: bool} */
+  private function preferenciasUsuario(string $codigo): array
+  {
+    $out = [
+      'idioma' => PreferenciasUsuario::IDIOMA_DEFECTO,
+      'colorTema' => PreferenciasUsuario::TEMA_DEFECTO,
+      'ayudasMenu' => true,
+    ];
+    try {
+      // Las columnas son nuevas: en bases sin migrar se crean aqui (idempotente).
+      MejorasGestionSchema::asegurar($this->pdo);
+      $stmt = $this->pdo->prepare(
+        'SELECT RTRIM([Idioma]) AS [Idioma], RTRIM([ColorTema]) AS [ColorTema], [AyudasMenu] AS [AyudasMenu]
+         FROM [Usuarios_Ges]
+         WHERE RTRIM([Codigo]) = :codigo'
+      );
+      $stmt->execute(['codigo' => $codigo]);
+      $fila = $stmt->fetch();
+    } catch (\Throwable) {
+      return $out;
+    }
+    if (is_array($fila)) {
+      $idioma = PreferenciasUsuario::idiomaValido($fila['Idioma'] ?? '');
+      $tema = PreferenciasUsuario::temaValido($fila['ColorTema'] ?? '');
+      if ($idioma !== null && $idioma !== '') {
+        $out['idioma'] = $idioma;
+      }
+      if ($tema !== null && $tema !== '') {
+        $out['colorTema'] = $tema;
+      }
+      if (array_key_exists('AyudasMenu', $fila) && $fila['AyudasMenu'] !== null && $fila['AyudasMenu'] !== '') {
+        $out['ayudasMenu'] = (int) $fila['AyudasMenu'] === 1;
+      }
+    }
+    return $out;
+  }
+
   public function getCorreo(Request $request, Response $response): Response
   {
     $codigo = trim((string) ($_SESSION['usuario']['codigo'] ?? ''));
@@ -244,7 +342,7 @@ final class AuthController
   }
 
   /**
-   * @return array{codigo: string, nombre: string, rolCodigo: ?string, rolNombre: ?string}
+   * @return array{codigo: string, nombre: string, rolCodigo: ?string, rolNombre: ?string, idioma: string, colorTema: string, ayudasMenu: bool}
    */
   private function usuarioConRol(string $codigo, string $nombre, mixed $rolCodigo): array
   {
@@ -265,7 +363,7 @@ final class AuthController
       'nombre' => $nombre,
       'rolCodigo' => $rol !== '' ? $rol : null,
       'rolNombre' => $rolNombre,
-    ];
+    ] + $this->preferenciasUsuario($codigo);
   }
 
   private function verifyPassword(string $plain, string $stored): bool

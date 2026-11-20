@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onActivated, onMounted, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
   actualizarVenta,
@@ -63,6 +64,7 @@ import DatosFacturaTicketForm, {
 import VentaImpresionA4Modal from '@/components/ventas/VentaImpresionA4Modal.vue'
 import VentaPostFinalizacionModal from '@/components/ventas/VentaPostFinalizacionModal.vue'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const { puede } = usePermisos()
@@ -3669,15 +3671,15 @@ onActivated(() => {
                 </td>
                 <td v-if="puedeEditarLineas" class="col-mover">
                   <div class="acciones-linea">
-                    <button type="button" title="Subir línea" :disabled="i === 0" @click="moverLinea(i, -1)">↑</button>
+                    <button type="button" :title="t('albaran.subir')" :disabled="i === 0" @click="moverLinea(i, -1)">↑</button>
                     <button
                       type="button"
-                      title="Bajar línea"
+                      :title="t('albaran.bajar')"
                       :disabled="i === lineas.length - 1"
                       @click="moverLinea(i, 1)"
                     >↓</button>
-                    <button type="button" title="Insertar línea debajo" @click="insertarLinea(i)">+</button>
-                    <button type="button" class="btn-x" title="Quitar línea" @click="removeLinea(i)">×</button>
+                    <button type="button" :title="t('albaran.insertar')" @click="insertarLinea(i)">+</button>
+                    <button type="button" class="btn-x" :title="t('albaran.quitar')" @click="removeLinea(i)">×</button>
                   </div>
                 </td>
               </tr>
@@ -3685,15 +3687,9 @@ onActivated(() => {
           </table>
         </div>
         <p class="hint">
-          <strong>Intro</strong> avanza al siguiente campo de la misma línea (en código: resolver artículo);
-          en el último campo pasa a la línea siguiente.
-          <strong>Flechas</strong> arriba/abajo cambian de línea;
-          <strong>↑ ↓</strong> mueven la línea y <strong>+</strong> inserta una debajo;
-          <strong>Supr</strong> elimina la línea.
-          <strong>F4</strong> / doble clic: buscar artículo.
-          Código <strong>NO</strong> = comentario (sin importe).
-          Tipo actual: <strong>{{ ficha.tipo }}</strong>
-          <span v-if="ficha.impreso"> · Impreso</span>
+          {{ t('albaran.hintLineas') }}
+          {{ t('albaran.tipoActual', { tipo: ficha.tipo }) }}
+          <span v-if="ficha.impreso"> · {{ t('albaran.impreso') }}</span>
         </p>
       </div>
     </template>

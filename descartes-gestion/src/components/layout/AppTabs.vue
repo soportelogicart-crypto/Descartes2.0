@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useTabsStore, type AppTab } from '@/stores/tabs'
+
+const { t: tr } = useI18n()
 
 const tabs = useTabsStore()
 const router = useRouter()
@@ -38,7 +41,7 @@ async function cerrarOtras(e: Event, id: string) {
 </script>
 
 <template>
-  <div v-if="tabs.activas.length" class="tabs-bar" role="tablist" aria-label="Pestañas abiertas">
+  <div v-if="tabs.activas.length" class="tabs-bar" role="tablist" :aria-label="tr('tabs.aria')">
     <button
       v-for="t in tabs.activas"
       :key="t.id"
@@ -61,7 +64,7 @@ async function cerrarOtras(e: Event, id: string) {
       <span
         class="tab-close"
         :class="{ oculta: t.id !== tabs.activeId }"
-        title="Cerrar"
+        :title="tr('tabs.cerrar')"
         role="button"
         :tabindex="t.id === tabs.activeId ? 0 : -1"
         :aria-hidden="t.id !== tabs.activeId"

@@ -28,6 +28,7 @@ export type ToolIconName =
   | 'facturacion'
   | 'inventario'
   | 'tpv'
+  | 'novedades'
 
 defineProps<{
   name: ToolIconName
@@ -247,6 +248,12 @@ defineProps<{
     </g>
 
     <!-- TPV (pantalla tactil de venta) -->
+    <g v-else-if="name === 'novedades'">
+      <path
+        fill="currentColor"
+        d="M12 2.5l1.7 4.6 4.8.4-3.7 3.1 1.2 4.7L12 13.1 8 15.3l1.2-4.7L5.5 7.5l4.8-.4L12 2.5z"
+      />
+    </g>
     <g v-else-if="name === 'tpv'">
       <path
         fill="currentColor"

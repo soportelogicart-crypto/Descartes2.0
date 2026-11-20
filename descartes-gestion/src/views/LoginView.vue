@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+
+const { t } = useI18n()
 
 const usuario = ref('')
 const password = ref('')
@@ -20,7 +23,7 @@ async function onSubmit() {
     const redirect = (route.query.redirect as string) || '/'
     await router.push(redirect)
   } catch {
-    error.value = 'Usuario o contrasena incorrectos'
+    error.value = t('login.error')
   } finally {
     loading.value = false
   }
@@ -30,18 +33,18 @@ async function onSubmit() {
 <template>
   <div class="login">
     <form class="card" @submit.prevent="onSubmit">
-      <h1>Descartes Gestion</h1>
-      <p>Inicie sesion para acceder al modulo de Mantenimiento.</p>
+      <h1>{{ t('login.titulo') }}</h1>
+      <p>{{ t('login.intro') }}</p>
       <label>
-        Usuario
+        {{ t('login.usuario') }}
         <input v-model="usuario" required autocomplete="username" />
       </label>
       <label>
-        Contrasena
+        {{ t('login.contrasena') }}
         <input v-model="password" type="password" required autocomplete="current-password" />
       </label>
       <p v-if="error" class="error">{{ error }}</p>
-      <button type="submit" :disabled="loading">{{ loading ? 'Entrando...' : 'Entrar' }}</button>
+      <button type="submit" :disabled="loading">{{ loading ? t('login.entrando') : t('login.entrar') }}</button>
     </form>
   </div>
 </template>
@@ -81,7 +84,7 @@ button {
   padding: 0.6rem 1rem;
   border: none;
   border-radius: 8px;
-  background: #2563eb;
+  background: var(--tema-acento, #2563eb);
   color: #fff;
   font-weight: 600;
 }

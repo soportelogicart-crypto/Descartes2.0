@@ -12,6 +12,7 @@ use Descartes\Api\Services\Instalacion\MejorasGestionSchema;
 use Descartes\Api\Services\Ventas\FidelizacionValesSemestreService;
 use Descartes\Api\Services\Ventas\ValeService;
 use Descartes\Api\Support\PaisIdioma;
+use Descartes\Api\Support\PreferenciasUsuario;
 use PDO;
 use PDOException;
 
@@ -760,6 +761,11 @@ final class MantenimientoService
         $result[$apiField] = $this->isActivo($config, $value);
         continue;
       }
+      if ($apiField === 'ayudasMenu') {
+        // NULL = el usuario no ha elegido: las ayudas vienen activadas.
+        $result[$apiField] = $value === null || $value === '' ? true : (int) $value === 1;
+        continue;
+      }
       if ($this->isBooleanField($config, $apiField)) {
         $result[$apiField] = (bool) $value;
         continue;
@@ -1168,6 +1174,19 @@ final class MantenimientoService
       if (trim((string) ($data['password'] ?? '')) === '') {
         throw new \InvalidArgumentException('La contrasena es obligatoria');
       }
+    }
+    if (array_key_exists('idioma', $data) && PreferenciasUsuario::idiomaValido($data['idioma']) === null) {
+      throw new \InvalidArgumentException('Idioma no valido');
+    }
+    if (array_key_exists('colorTema', $data) && PreferenciasUsuario::temaValido($data['colorTema']) === null) {
+      throw new \InvalidArgumentException('Color no valido');
+    }
+    if (
+      array_key_exists('ayudasMenu', $data)
+      && !is_bool($data['ayudasMenu'])
+      && !in_array($data['ayudasMenu'], [0, 1, '0', '1'], true)
+    ) {
+      throw new \InvalidArgumentException('Valor de ayudas no valido');
     }
   }
 

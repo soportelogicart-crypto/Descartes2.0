@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
+
+const { t } = useI18n()
 
 const route = useRoute()
 const router = useRouter()
@@ -8,13 +11,14 @@ const router = useRouter()
 const avisoPermiso = computed(() => {
   const m = route.query.sinPermiso
   if (typeof m !== 'string' || !m.trim()) return null
-  const etiquetas: Record<string, string> = {
-    listados: 'Listados',
-    'ventas-abc': 'ABC de ventas',
-    'compras-abc': 'ABC de compras',
+  const claves: Record<string, string> = {
+    listados: 'menu.listados',
+    'ventas-abc': 'menu.abc-ventas',
+    'compras-abc': 'menu.compras-abc',
   }
-  const nombre = etiquetas[m] ?? m
-  return `No tiene permiso para acceder a «${nombre}». Si necesita entrar, pida al administrador que active el módulo en su rol.`
+  const clave = claves[m]
+  const nombre = clave ? t(clave) : m
+  return t('home.aviso', { nombre })
 })
 
 function cerrarAviso() {
@@ -26,7 +30,7 @@ function cerrarAviso() {
   <section class="home" aria-label="Inicio">
     <p v-if="avisoPermiso" class="aviso-permiso" role="alert">
       {{ avisoPermiso }}
-      <button type="button" class="aviso-cerrar" @click="cerrarAviso">Entendido</button>
+      <button type="button" class="aviso-cerrar" @click="cerrarAviso">{{ t('home.entendido') }}</button>
     </p>
   </section>
 </template>

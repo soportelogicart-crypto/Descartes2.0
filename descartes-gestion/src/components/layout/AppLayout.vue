@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { IDIOMAS, type IdiomaUi } from '@/i18n'
+import { TEMAS } from '@/config/temas'
 import { useAuthStore } from '@/stores/auth'
 import { articulosMenuItems, esRutaArticulos } from '@/config/articulos-menu'
 import { clientesMenuItems, esRutaClientes } from '@/config/clientes-menu'
@@ -36,6 +39,9 @@ import { useCarpetaCompartidaStore } from '@/stores/carpetaCompartida'
 import CarpetaCompartidaModal from '@/components/carpeta/CarpetaCompartidaModal.vue'
 
 const auth = useAuthStore()
+const { t, locale } = useI18n()
+const idiomas = IDIOMAS
+const temas = TEMAS
 const carpetaStore = useCarpetaCompartidaStore()
 const modalCarpeta = ref(false)
 const nombreBaseDatos = ref('')
@@ -236,30 +242,132 @@ const puestosActivo = computed(() => esRutaPuestos(route.path))
 const proveedoresActivo = computed(() => esRutaProveedores(route.path))
 const mantenimientoActivo = computed(() => route.path.startsWith('/mantenimiento'))
 
+/** Título de un informe del catálogo, si la ruta es listados-… */
+function tituloInformeRuta(): string | null {
+  const name = String(route.name ?? '')
+  if (!name.startsWith('listados-')) return null
+  const id = name.slice('listados-'.length)
+  const k = `informes.items.${id}.titulo`
+  const v = t(k)
+  return v === k ? null : v
+}
+
 /** Cabecera legacy: nombre de la pantalla actual, como la barra del TPV. */
 const tituloPantalla = computed(() => {
   if (route.name === 'listados-stock' || route.path.startsWith('/listados/stock')) {
     const d = stockListadoPorAgrupar(String(route.params.agruparPor ?? ''))
     if (d) return d.titulo
     const p = route.path.replace(/\/+$/, '') || '/'
-    if (p === '/listados/stock') return 'Listado de stock'
+    if (p === '/listados/stock') return t('informes.items.stock.titulo')
   }
   if (route.name === 'listados-abc-ventas' || route.path.startsWith('/listados/abc-ventas')) {
     const d = abcVentasListadoPorDimension(String(route.params.dimension ?? ''))
     if (d) return d.titulo
     const p = route.path.replace(/\/+$/, '') || '/'
-    if (p === '/listados/abc-ventas') return 'ABC de ventas'
+    if (p === '/listados/abc-ventas') return t('informes.items.abc-ventas.titulo')
   }
+  if (route.name === 'novedades') return t('novedades.titulo')
+  const informe = tituloInformeRuta()
+  if (informe) return informe
   if (route.name === 'listados-abc-compras' || route.path.startsWith('/listados/abc-compras')) {
     const d = abcComprasListadoPorDimension(String(route.params.dimension ?? ''))
     if (d) return d.titulo
     const p = route.path.replace(/\/+$/, '') || '/'
-    if (p === '/listados/abc-compras') return 'ABC de compras'
+    if (p === '/listados/abc-compras') return t('informes.items.abc-compras.titulo')
   }
   return typeof route.meta.titulo === 'string' && route.meta.titulo.trim() !== ''
     ? route.meta.titulo
-    : 'Descartes Gestion'
+    : t('app.nombre')
 })
+
+function tituloParaPestana(): string | undefined {
+  if (route.name === 'novedades') return t('novedades.titulo')
+  return tituloInformeRuta() ?? (typeof route.meta.titulo === 'string' ? route.meta.titulo : undefined)
+}
+
+function tx(clave: string, fallback: string): string {
+  const k = `menu.${clave}`
+  const v = t(k)
+  return v === k ? fallback : v
+}
+
+const ayudasActivas = computed(() => auth.usuario?.ayudasMenu !== false)
+const ayudaVisible = ref(false)
+const ayudaTexto = ref('')
+const ayudaX = ref(0)
+const ayudaY = ref(0)
+const guardandoPrefs = ref(false)
+const errorPrefs = ref('')
+
+function onMenuOver(ev: MouseEvent) {
+  if (!ayudasActivas.value) {
+    ayudaVisible.value = false
+    return
+  }
+  const el = (ev.target as HTMLElement | null)?.closest('[data-ayuda]') as HTMLElement | null
+  if (!el) return
+  const clave = el.dataset.ayuda ?? ''
+  const k = `ayuda.${clave}`
+  const texto = t(k)
+  if (!clave || texto === k) {
+    ayudaVisible.value = false
+    return
+  }
+  const rect = el.getBoundingClientRect()
+  const ancho = 288
+  let x = rect.right + 8
+  let y = rect.top
+  if (x + ancho > window.innerWidth) x = Math.max(8, rect.left - ancho - 8)
+  if (y + 96 > window.innerHeight) y = Math.max(8, window.innerHeight - 104)
+  ayudaTexto.value = texto
+  ayudaX.value = x
+  ayudaY.value = y
+  ayudaVisible.value = true
+}
+
+function ocultarAyuda() {
+  ayudaVisible.value = false
+}
+
+async function cambiarIdioma(id: IdiomaUi) {
+  if (guardandoPrefs.value || locale.value === id) return
+  guardandoPrefs.value = true
+  errorPrefs.value = ''
+  try {
+    await auth.guardarPreferencias({ idioma: id })
+  } catch {
+    errorPrefs.value = t('preferencias.error')
+  } finally {
+    guardandoPrefs.value = false
+  }
+}
+
+async function cambiarTema(id: string) {
+  if (guardandoPrefs.value || auth.usuario?.colorTema === id) return
+  guardandoPrefs.value = true
+  errorPrefs.value = ''
+  try {
+    await auth.guardarPreferencias({ colorTema: id })
+  } catch {
+    errorPrefs.value = t('preferencias.error')
+  } finally {
+    guardandoPrefs.value = false
+  }
+}
+
+async function cambiarAyudas(ev: Event) {
+  const activo = (ev.target as HTMLInputElement).checked
+  if (guardandoPrefs.value) return
+  guardandoPrefs.value = true
+  errorPrefs.value = ''
+  try {
+    await auth.guardarPreferencias({ ayudasMenu: activo })
+  } catch {
+    errorPrefs.value = t('preferencias.error')
+  } finally {
+    guardandoPrefs.value = false
+  }
+}
 
 watch(
   () => route.fullPath,
@@ -267,12 +375,16 @@ watch(
     // Pestañas: cada pantalla consultada queda abierta (máx. 8).
     // El menu lateral no se reabre automaticamente al navegar.
     if (auth.cargado) {
-      const titulo = typeof route.meta.titulo === 'string' ? route.meta.titulo : undefined
-      tabsStore.openOrActivate(fullPath, titulo)
+      tabsStore.openOrActivate(fullPath, tituloParaPestana())
     }
   },
   { immediate: true }
 )
+
+watch(locale, () => {
+  if (!auth.cargado) return
+  tabsStore.openOrActivate(route.fullPath, tituloParaPestana())
+})
 
 watch(
   () => auth.cargado,
@@ -303,20 +415,20 @@ async function comprobarFidelizacionAutomatica() {
     generandoFidelizacion.value = true
     const resultado = await generarAutomaticamenteFidelizacion(empresa, puesto)
     if (resultado.generadoAhora) {
-      avisoFidelizacion.value =
-        `El puesto ${puesto} ha generado ${resultado.vales} vales de fidelización ` +
-        `por un total de ${resultado.importeTotal.toLocaleString('es-ES', {
+      const loc = locale.value === 'en' ? 'en-GB' : locale.value === 'ca' ? 'ca-ES' : 'es-ES'
+      avisoFidelizacion.value = t('fidelizacion.generado', {
+        puesto,
+        vales: resultado.vales,
+        importe: resultado.importeTotal.toLocaleString(loc, {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
-        })} €.`
+        }),
+      })
     }
   } catch (e: unknown) {
     const status = (e as { response?: { status?: number } }).response?.status
     if (status !== 403) {
-      avisoFidelizacion.value = extractApiError(
-        e,
-        'No se pudieron generar automáticamente los vales de fidelización'
-      )
+      avisoFidelizacion.value = extractApiError(e, t('fidelizacion.error'))
     }
   } finally {
     generandoFidelizacion.value = false
@@ -325,6 +437,11 @@ async function comprobarFidelizacionAutomatica() {
 
 function toggleSeccion(id: string) {
   const seccion = secciones.value.find((s) => s.id === id)
+  if (id === 'novedades' && seccion?.habilitado) {
+    router.push('/novedades')
+    cerrarMenu()
+    return
+  }
   if (id === 'tpv' && seccion?.habilitado) {
     router.push('/tpv')
     cerrarMenu()
@@ -400,19 +517,22 @@ async function logout() {
     <aside
       class="sidebar sidebar--compacta"
       :class="{ 'sidebar--desplegada': menuDesplegado }"
+      @mouseover="onMenuOver"
+      @mouseleave="ocultarAyuda"
     >
       <button
         type="button"
         class="menu-toggle"
-        :title="menuDesplegado ? 'Recoger menú' : 'Desplegar menú'"
-        :aria-label="menuDesplegado ? 'Recoger menú' : 'Desplegar menú'"
+        data-ayuda="menu"
+        :title="menuDesplegado ? t('menu.toggleCerrar') : t('menu.toggleAbrir')"
+        :aria-label="menuDesplegado ? t('menu.toggleCerrar') : t('menu.toggleAbrir')"
         :aria-expanded="menuDesplegado"
         @click="toggleMenu"
       >
         <span class="menu-toggle-icono" aria-hidden="true">
           {{ menuDesplegado ? '«' : '☰' }}
         </span>
-        <span v-if="mostrarTexto">MENÚ</span>
+        <span v-if="mostrarTexto">{{ t('menu.menu') }}</span>
       </button>
       <div class="sidebar-nav">
       <div v-for="seccion in secciones" :key="seccion.id" class="seccion">
@@ -425,12 +545,13 @@ async function logout() {
             disabled: !seccion.habilitado,
           }"
           :disabled="!seccion.habilitado"
-          :title="seccion.habilitado ? seccion.titulo : `${seccion.titulo} — sin permiso`"
+          :data-ayuda="seccion.id"
+          :title="seccion.habilitado ? tx(seccion.id, seccion.titulo) : `${tx(seccion.id, seccion.titulo)} — ${t('menu.sinPermiso')}`"
           @click="seccion.habilitado && toggleSeccion(seccion.id)"
         >
           <ToolIcon :name="seccion.icono" class="brand-icono" />
-          <span v-if="mostrarTexto">{{ seccion.titulo }}</span>
-          <span v-if="mostrarTexto" class="chevron">
+          <span v-if="mostrarTexto">{{ tx(seccion.id, seccion.titulo) }}</span>
+          <span v-if="mostrarTexto && seccion.id !== 'novedades'" class="chevron">
             {{ seccionesAbiertas[seccion.id] ? '▾' : '▸' }}
           </span>
         </button>
@@ -438,10 +559,18 @@ async function logout() {
         <!-- Mantenimiento: submenu completo -->
         <nav v-if="seccion.id === 'mantenimiento'" v-show="seccionesAbiertas.mantenimiento">
           <template v-for="item in menuMantenimiento" :key="item.slug">
-            <RouterLink v-if="item.habilitado" :to="item.ruta" class="nav-link" @click="cerrarMenu">
-              {{ item.titulo }}
+            <RouterLink
+              v-if="item.habilitado"
+              :to="item.ruta"
+              class="nav-link"
+              :data-ayuda="item.slug"
+              @click="cerrarMenu"
+            >
+              {{ tx(item.slug, item.titulo) }}
             </RouterLink>
-            <span v-else class="nav-link disabled" title="Sin permiso">{{ item.titulo }}</span>
+            <span v-else class="nav-link disabled" :data-ayuda="item.slug" :title="t('menu.sinPermiso')">{{
+              tx(item.slug, item.titulo)
+            }}</span>
           </template>
 
           <div class="nav-group">
@@ -449,18 +578,25 @@ async function logout() {
               type="button"
               class="nav-link nav-parent"
               :class="{ active: articulosActivo, open: articulosAbierto }"
+              data-ayuda="grupo-articulos"
               @click="toggleArticulos"
             >
-              <span>Articulos</span>
+              <span>{{ t('menu.grupo-articulos') }}</span>
               <span class="chevron">{{ articulosAbierto ? '▾' : '▸' }}</span>
             </button>
             <div v-show="articulosAbierto" class="nav-children">
               <template v-for="item in articulosItems" :key="item.slug">
-                <RouterLink v-if="item.habilitado" :to="item.ruta" class="nav-link nav-child" @click="cerrarMenu">
-                  {{ item.titulo }}
+                <RouterLink
+                  v-if="item.habilitado"
+                  :to="item.ruta"
+                  class="nav-link nav-child"
+                  :data-ayuda="item.slug"
+                  @click="cerrarMenu"
+                >
+                  {{ tx(item.slug, item.titulo) }}
                 </RouterLink>
-                <span v-else class="nav-link nav-child disabled" title="Sin permiso">{{
-                  item.titulo
+                <span v-else class="nav-link nav-child disabled" :data-ayuda="item.slug" :title="t('menu.sinPermiso')">{{
+                  tx(item.slug, item.titulo)
                 }}</span>
               </template>
             </div>
@@ -471,18 +607,25 @@ async function logout() {
               type="button"
               class="nav-link nav-parent"
               :class="{ active: clientesActivo, open: clientesAbierto }"
+              data-ayuda="grupo-clientes"
               @click="toggleClientes"
             >
-              <span>Clientes</span>
+              <span>{{ t('menu.grupo-clientes') }}</span>
               <span class="chevron">{{ clientesAbierto ? '▾' : '▸' }}</span>
             </button>
             <div v-show="clientesAbierto" class="nav-children">
               <template v-for="item in clientesItems" :key="item.slug">
-                <RouterLink v-if="item.habilitado" :to="item.ruta" class="nav-link nav-child" @click="cerrarMenu">
-                  {{ item.titulo }}
+                <RouterLink
+                  v-if="item.habilitado"
+                  :to="item.ruta"
+                  class="nav-link nav-child"
+                  :data-ayuda="item.slug"
+                  @click="cerrarMenu"
+                >
+                  {{ tx(item.slug, item.titulo) }}
                 </RouterLink>
-                <span v-else class="nav-link nav-child disabled" title="Sin permiso">{{
-                  item.titulo
+                <span v-else class="nav-link nav-child disabled" :data-ayuda="item.slug" :title="t('menu.sinPermiso')">{{
+                  tx(item.slug, item.titulo)
                 }}</span>
               </template>
             </div>
@@ -493,18 +636,25 @@ async function logout() {
               type="button"
               class="nav-link nav-parent"
               :class="{ active: proveedoresActivo, open: proveedoresAbierto }"
+              data-ayuda="grupo-proveedores"
               @click="toggleProveedores"
             >
-              <span>Proveedores</span>
+              <span>{{ t('menu.grupo-proveedores') }}</span>
               <span class="chevron">{{ proveedoresAbierto ? '▾' : '▸' }}</span>
             </button>
             <div v-show="proveedoresAbierto" class="nav-children">
               <template v-for="item in proveedoresItems" :key="item.slug">
-                <RouterLink v-if="item.habilitado" :to="item.ruta" class="nav-link nav-child" @click="cerrarMenu">
-                  {{ item.titulo }}
+                <RouterLink
+                  v-if="item.habilitado"
+                  :to="item.ruta"
+                  class="nav-link nav-child"
+                  :data-ayuda="item.slug"
+                  @click="cerrarMenu"
+                >
+                  {{ tx(item.slug, item.titulo) }}
                 </RouterLink>
-                <span v-else class="nav-link nav-child disabled" title="Sin permiso">{{
-                  item.titulo
+                <span v-else class="nav-link nav-child disabled" :data-ayuda="item.slug" :title="t('menu.sinPermiso')">{{
+                  tx(item.slug, item.titulo)
                 }}</span>
               </template>
             </div>
@@ -515,18 +665,25 @@ async function logout() {
               type="button"
               class="nav-link nav-parent"
               :class="{ active: puestosActivo, open: puestosAbierto }"
+              data-ayuda="grupo-puestos"
               @click="togglePuestos"
             >
-              <span>Puestos de trabajo</span>
+              <span>{{ t('menu.grupo-puestos') }}</span>
               <span class="chevron">{{ puestosAbierto ? '▾' : '▸' }}</span>
             </button>
             <div v-show="puestosAbierto" class="nav-children">
               <template v-for="item in puestosItems" :key="item.slug">
-                <RouterLink v-if="item.habilitado" :to="item.ruta" class="nav-link nav-child" @click="cerrarMenu">
-                  {{ item.titulo }}
+                <RouterLink
+                  v-if="item.habilitado"
+                  :to="item.ruta"
+                  class="nav-link nav-child"
+                  :data-ayuda="item.slug"
+                  @click="cerrarMenu"
+                >
+                  {{ tx(item.slug, item.titulo) }}
                 </RouterLink>
-                <span v-else class="nav-link nav-child disabled" title="Sin permiso">{{
-                  item.titulo
+                <span v-else class="nav-link nav-child disabled" :data-ayuda="item.slug" :title="t('menu.sinPermiso')">{{
+                  tx(item.slug, item.titulo)
                 }}</span>
               </template>
             </div>
@@ -544,12 +701,13 @@ async function logout() {
                 active:
                   route.path === item.ruta || route.path.startsWith(item.ruta + '/'),
               }"
+              :data-ayuda="item.id"
               @click="cerrarMenu"
             >
-              {{ item.titulo }}
+              {{ tx(item.id, item.titulo) }}
             </RouterLink>
-            <span v-else class="nav-link nav-child disabled" title="Sin permiso">{{
-              item.titulo
+            <span v-else class="nav-link nav-child disabled" :data-ayuda="item.id" :title="t('menu.sinPermiso')">{{
+              tx(item.id, item.titulo)
             }}</span>
           </template>
         </nav>
@@ -565,12 +723,13 @@ async function logout() {
                 active:
                   route.path === item.ruta || route.path.startsWith(item.ruta + '/'),
               }"
+              :data-ayuda="item.id"
               @click="cerrarMenu"
             >
-              {{ item.titulo }}
+              {{ tx(item.id, item.titulo) }}
             </RouterLink>
-            <span v-else class="nav-link nav-child disabled" title="Sin permiso">{{
-              item.titulo
+            <span v-else class="nav-link nav-child disabled" :data-ayuda="item.id" :title="t('menu.sinPermiso')">{{
+              tx(item.id, item.titulo)
             }}</span>
           </template>
         </nav>
@@ -583,11 +742,14 @@ async function logout() {
               :to="item.ruta"
               class="nav-link nav-child"
               :class="{ active: route.path === item.ruta || (item.ruta !== '/ventas' && route.path.startsWith(item.ruta + '/')) }"
+              :data-ayuda="item.id"
               @click="cerrarMenu"
             >
-              {{ item.titulo }}
+              {{ tx(item.id, item.titulo) }}
             </RouterLink>
-            <span v-else class="nav-link nav-child disabled" title="Sin permiso">{{ item.titulo }}</span>
+            <span v-else class="nav-link nav-child disabled" :data-ayuda="item.id" :title="t('menu.sinPermiso')">{{
+              tx(item.id, item.titulo)
+            }}</span>
           </template>
         </nav>
 
@@ -599,11 +761,14 @@ async function logout() {
               :to="item.ruta"
               class="nav-link nav-child"
               :class="{ active: route.path === item.ruta || route.path.startsWith(item.ruta + '/') }"
+              :data-ayuda="item.id"
               @click="cerrarMenu"
             >
-              {{ item.titulo }}
+              {{ tx(item.id, item.titulo) }}
             </RouterLink>
-            <span v-else class="nav-link nav-child disabled" title="Sin permiso">{{ item.titulo }}</span>
+            <span v-else class="nav-link nav-child disabled" :data-ayuda="item.id" :title="t('menu.sinPermiso')">{{
+              tx(item.id, item.titulo)
+            }}</span>
           </template>
         </nav>
 
@@ -613,20 +778,24 @@ async function logout() {
             v-if="seccion.habilitado"
             to="/tpv"
             class="nav-link nav-child"
+            data-ayuda="tpv-venta"
             :class="{ active: route.path === '/tpv' }"
             @click="cerrarMenu"
           >
-            Venta táctil
+            {{ t('menu.tpv-venta') }}
           </RouterLink>
-          <span v-else class="nav-link nav-child disabled" title="Sin permiso">Venta táctil</span>
+          <span v-else class="nav-link nav-child disabled" data-ayuda="tpv-venta" :title="t('menu.sinPermiso')">{{
+            t('menu.tpv-venta')
+          }}</span>
           <RouterLink
             v-if="seccion.habilitado"
             to="/tpv/consulta"
             class="nav-link nav-child"
+            data-ayuda="consulta-tpv"
             :class="{ active: route.path === '/tpv/consulta' }"
             @click="cerrarMenu"
           >
-            Consulta de clientes y artículos
+            {{ t('menu.consulta-tpv') }}
           </RouterLink>
         </nav>
 
@@ -642,11 +811,14 @@ async function logout() {
                   route.path === item.ruta ||
                   (item.ruta === '/listados/stock' && route.path.startsWith('/listados/stock/')),
               }"
+              :data-ayuda="item.id"
               @click="cerrarMenu"
             >
-              {{ item.titulo }}
+              {{ tx(item.id, item.titulo) }}
             </RouterLink>
-            <span v-else class="nav-link nav-child disabled" title="Sin permiso">{{ item.titulo }}</span>
+            <span v-else class="nav-link nav-child disabled" :data-ayuda="item.id" :title="t('menu.sinPermiso')">{{
+              tx(item.id, item.titulo)
+            }}</span>
           </template>
         </nav>
 
@@ -657,30 +829,82 @@ async function logout() {
             to="/listados"
             class="nav-link nav-child"
             :class="{ active: route.path === '/listados' || route.path.startsWith('/listados/') }"
+            data-ayuda="catalogo-informes"
             @click="cerrarMenu"
           >
-            Catálogo de informes
+            {{ t('menu.catalogo-informes') }}
           </RouterLink>
-          <span v-else class="nav-link nav-child disabled" title="Sin permiso">Catálogo de informes</span>
+          <span v-else class="nav-link nav-child disabled" data-ayuda="catalogo-informes" :title="t('menu.sinPermiso')">{{
+            t('menu.catalogo-informes')
+          }}</span>
         </nav>
 
         <!-- Resto de secciones: placeholder hasta completar -->
         <nav v-else v-show="seccionesAbiertas[seccion.id]" class="nav-placeholder">
-          <RouterLink :to="seccion.ruta" class="nav-link nav-child" @click="cerrarMenu">
-            {{ seccion.titulo }} (en construccion)
+          <RouterLink :to="seccion.ruta" class="nav-link nav-child" :data-ayuda="seccion.id" @click="cerrarMenu">
+            {{ t('menu.enConstruccion', { nombre: tx(seccion.id, seccion.titulo) }) }}
           </RouterLink>
         </nav>
       </div>
       </div>
 
       <div class="sidebar-footer">
-        <RouterLink to="/configuracion" class="btn-config" title="Configuracion" @click="cerrarMenu">
+        <div v-if="mostrarTexto" class="preferencias">
+          <p class="pref-label">{{ t('preferencias.idioma') }}</p>
+          <div class="pref-idiomas">
+            <button
+              v-for="idioma in idiomas"
+              :key="idioma.id"
+              type="button"
+              class="pref-idioma"
+              data-ayuda="idioma"
+              :class="{ activo: locale === idioma.id }"
+              :disabled="guardandoPrefs"
+              @click="cambiarIdioma(idioma.id)"
+            >
+              {{ idioma.etiqueta }}
+            </button>
+          </div>
+          <p class="pref-label">{{ t('preferencias.color') }}</p>
+          <div class="pref-colores">
+            <button
+              v-for="tema in temas"
+              :key="tema.id"
+              type="button"
+              class="pref-color"
+              data-ayuda="color"
+              :class="{ activo: (auth.usuario?.colorTema || 'azul') === tema.id }"
+              :style="{ background: tema.muestra }"
+              :title="t(`temas.${tema.id}`)"
+              :aria-label="t(`temas.${tema.id}`)"
+              :disabled="guardandoPrefs"
+              @click="cambiarTema(tema.id)"
+            ></button>
+          </div>
+          <label class="pref-ayudas" data-ayuda="ayudas">
+            <input
+              type="checkbox"
+              :checked="ayudasActivas"
+              :disabled="guardandoPrefs"
+              @change="cambiarAyudas"
+            />
+            {{ t('preferencias.ayudas') }}
+          </label>
+          <p v-if="errorPrefs" class="pref-error">{{ errorPrefs }}</p>
+        </div>
+        <RouterLink
+          to="/configuracion"
+          class="btn-config"
+          data-ayuda="configuracion"
+          :title="t('menu.configuracion')"
+          @click="cerrarMenu"
+        >
           <ToolIcon name="config" />
-          <span v-if="mostrarTexto">Configuracion</span>
+          <span v-if="mostrarTexto">{{ t('menu.configuracion') }}</span>
         </RouterLink>
-        <button type="button" class="btn-salir" title="Salir" @click="logout">
+        <button type="button" class="btn-salir" data-ayuda="salir" :title="t('menu.salir')" @click="logout">
           <ToolIcon name="salir" />
-          <span v-if="mostrarTexto">Salir</span>
+          <span v-if="mostrarTexto">{{ t('menu.salir') }}</span>
         </button>
       </div>
     </aside>
@@ -699,7 +923,7 @@ async function logout() {
             v-if="puestoContexto.tiendas.length > 1"
             class="topbar-tienda"
             :value="puestoContexto.empresaCodigo ?? ''"
-            title="Tienda activa"
+            :title="t('topbar.tienda')"
             @change="onCambiarTienda"
           >
             <option v-for="tienda in puestoContexto.tiendas" :key="tienda.tienda" :value="tienda.tienda">
@@ -713,15 +937,15 @@ async function logout() {
             v-if="carpetaStore.ruta"
             type="button"
             class="topbar-carpeta"
-            title="Carpeta compartida"
-            aria-label="Carpeta compartida"
+            :title="t('topbar.carpeta')"
+            :aria-label="t('topbar.carpeta')"
             @click="modalCarpeta = true"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z" />
             </svg>
           </button>
-          <span v-if="nombreBaseDatos" class="topbar-bd" :title="`Base de datos ${nombreBaseDatos}`">
+          <span v-if="nombreBaseDatos" class="topbar-bd" :title="t('topbar.baseDatos', { nombre: nombreBaseDatos })">
             {{ nombreBaseDatos }}
           </span>
           <span class="topbar-usuario">
@@ -750,16 +974,26 @@ async function logout() {
       @cerrar="modalEquipoAbierto = false"
       @confirmado="onEquipoConfirmado"
     />
+    <Teleport to="body">
+      <div
+        v-if="ayudaVisible"
+        class="ayuda-flotante"
+        role="tooltip"
+        :style="{ top: `${ayudaY}px`, left: `${ayudaX}px` }"
+      >
+        {{ ayudaTexto }}
+      </div>
+    </Teleport>
     <EsperaModal
       :open="generandoFidelizacion"
-      titulo="Fidelización"
-      mensaje="Generando los vales de fidelización del semestre…"
+      :titulo="t('fidelizacion.titulo')"
+      :mensaje="t('fidelizacion.generando')"
     />
     <ConfirmDialog
       :open="!!avisoFidelizacion"
-      title="Fidelización"
+      :title="t('fidelizacion.titulo')"
       :message="avisoFidelizacion"
-      confirm-label="Aceptar"
+      :confirm-label="t('comun.aceptar')"
       hide-cancel
       :danger="false"
       @confirm="avisoFidelizacion = ''"
@@ -789,8 +1023,8 @@ async function logout() {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #111827;
-  color: #f9fafb;
+  background: var(--tema-sidebar);
+  color: var(--tema-texto-sidebar);
   padding: 1rem;
   box-sizing: border-box;
 }
@@ -819,10 +1053,10 @@ async function logout() {
   min-height: 2.75rem;
   margin: 0 0 0.45rem;
   padding: 0.45rem 0.55rem;
-  border: 1px solid #4b5563;
+  border: 1px solid var(--tema-sidebar-boton-borde);
   border-radius: 8px;
-  background: #1f2937;
-  color: #f9fafb;
+  background: var(--tema-sidebar-boton);
+  color: var(--tema-texto-sidebar);
   font: inherit;
   font-weight: 700;
   cursor: pointer;
@@ -830,8 +1064,8 @@ async function logout() {
 }
 
 .menu-toggle:hover {
-  background: #374151;
-  border-color: #6b7280;
+  background: var(--tema-sidebar-hover);
+  border-color: var(--tema-sidebar-boton-borde);
 }
 
 .menu-toggle-icono {
@@ -870,10 +1104,10 @@ async function logout() {
   gap: 0.45rem;
   width: 100%;
   padding: 0.55rem 0.75rem;
-  border: 1px solid #4b5563;
+  border: 1px solid var(--tema-sidebar-boton-borde);
   border-radius: 8px;
-  background: #1f2937;
-  color: #f9fafb;
+  background: var(--tema-sidebar-boton);
+  color: var(--tema-texto-sidebar);
   font: inherit;
   font-size: 0.9rem;
   cursor: pointer;
@@ -892,8 +1126,8 @@ async function logout() {
 
 .btn-config:hover,
 .btn-config.router-link-active {
-  background: #1e3a5f;
-  border-color: #3b82f6;
+  background: var(--tema-sidebar-activo);
+  border-color: var(--tema-acento);
 }
 
 .btn-salir:hover {
@@ -913,7 +1147,7 @@ async function logout() {
   gap: 0.5rem;
   font-weight: 700;
   margin-bottom: 0.35rem;
-  background: #111827;
+  background: transparent;
   padding: 0.35rem 0.5rem;
   border: none;
   border-radius: 8px;
@@ -926,11 +1160,11 @@ async function logout() {
 
 .brand:hover,
 .brand.open {
-  background: #1f2937;
+  background: var(--tema-sidebar-hover);
 }
 
 .brand.active:not(.open) {
-  background: #1e3a5f;
+  background: var(--tema-sidebar-activo);
 }
 
 .brand.disabled {
@@ -971,7 +1205,7 @@ async function logout() {
   display: block;
   padding: 0.5rem 0.75rem;
   border-radius: 8px;
-  color: #e5e7eb;
+  color: var(--tema-nav);
   margin-bottom: 0.25rem;
   text-decoration: none;
   border: none;
@@ -984,7 +1218,7 @@ async function logout() {
 
 .nav-link.router-link-active,
 .nav-link.active {
-  background: #2563eb;
+  background: var(--tema-acento);
   color: #fff;
 }
 
@@ -1002,7 +1236,7 @@ async function logout() {
 }
 
 .nav-parent.open:not(.active) {
-  background: #1f2937;
+  background: var(--tema-sidebar-hover);
 }
 
 .chevron {
@@ -1018,7 +1252,7 @@ async function logout() {
 .nav-placeholder {
   margin: 0.15rem 0 0.35rem 0.5rem;
   padding-left: 0.5rem;
-  border-left: 1px solid #374151;
+  border-left: 1px solid var(--tema-sidebar-borde);
 }
 
 .nav-child {
@@ -1042,7 +1276,7 @@ async function logout() {
   align-items: center;
   gap: 0.75rem;
   padding: 0.35rem 0.6rem;
-  background: linear-gradient(#00309c, #000060);
+  background: linear-gradient(var(--tema-barra-1), var(--tema-barra-2));
   border: 2px outset #f0f0f0;
   color: #fff;
   font-family: 'Segoe UI', Tahoma, sans-serif;
@@ -1069,7 +1303,7 @@ async function logout() {
   padding: 0.05rem 0.4rem;
   overflow: hidden;
   background: rgba(255, 255, 255, 0.15);
-  border: 1px solid #7a8ec0;
+  border: 1px solid var(--tema-borde-barra);
   font-size: 0.8rem;
   font-weight: 700;
   text-overflow: ellipsis;
@@ -1094,7 +1328,7 @@ select.topbar-tienda {
   width: 1.85rem;
   height: 1.45rem;
   padding: 0;
-  border: 1px solid #7a8ec0;
+  border: 1px solid var(--tema-borde-barra);
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.12);
   color: #fbbf24;
@@ -1123,5 +1357,73 @@ select.topbar-tienda {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.preferencias {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 0.35rem;
+  padding: 0.45rem;
+  border: 1px solid var(--tema-sidebar-boton-borde);
+  border-radius: 8px;
+  background: var(--tema-sidebar-boton);
+}
+
+.pref-label {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  opacity: 0.85;
+}
+
+.pref-idiomas,
+.pref-colores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.28rem;
+}
+
+.pref-idioma {
+  padding: 0.12rem 0.35rem;
+  border: 1px solid var(--tema-sidebar-boton-borde);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.pref-idioma.activo {
+  background: var(--tema-acento);
+  border-color: var(--tema-acento);
+  color: #fff;
+}
+
+.pref-color {
+  width: 1.15rem;
+  height: 1.15rem;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.pref-color.activo {
+  border-color: #fff;
+}
+
+.pref-ayudas {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.pref-error {
+  margin: 0;
+  color: #fecaca;
+  font-size: 0.72rem;
 }
 </style>

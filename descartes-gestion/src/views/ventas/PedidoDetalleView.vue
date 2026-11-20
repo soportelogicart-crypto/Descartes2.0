@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onActivated, onDeactivated, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import {
@@ -31,6 +32,7 @@ import EntidadLookupField from '@/components/common/EntidadLookupField.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import DecimalInput from '@/components/common/DecimalInput.vue'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const { puede } = usePermisos()
@@ -1663,7 +1665,7 @@ onActivated(() => {
         <div v-if="cabeceraRecogida && !cabeceraExpandida" class="cabecera-resumen">
           <span class="cabecera-resumen-text">{{ textoResumenCabecera }}</span>
           <button type="button" class="btn-cabecera-toggle" @click="cabeceraExpandida = true">
-            Ver cabecera
+            {{ t('pedido.verCabecera') }}
           </button>
         </div>
         <template v-else>
@@ -1676,7 +1678,7 @@ onActivated(() => {
               :class="{ activa: pestanaCabecera === 'datos' }"
               @click="pestanaCabecera = 'datos'"
             >
-              Datos
+              {{ t('pedido.datos') }}
             </button>
             <button
               type="button"
@@ -1685,7 +1687,7 @@ onActivated(() => {
               :class="{ activa: pestanaCabecera === 'comisiones' }"
               @click="pestanaCabecera = 'comisiones'"
             >
-              Comisiones
+              {{ t('pedido.comisiones') }}
             </button>
           </div>
           <button
@@ -1694,7 +1696,7 @@ onActivated(() => {
             class="btn-cabecera-toggle"
             @click="cabeceraExpandida = false"
           >
-            Ocultar cabecera
+            {{ t('pedido.ocultarCabecera') }}
           </button>
         </div>
         <div v-show="pestanaCabecera === 'datos'" class="grid-cab">
@@ -1847,32 +1849,32 @@ onActivated(() => {
         </label>
         <section v-show="pestanaCabecera === 'comisiones'" class="comisiones">
         <p class="hint-comision">
-          Opcionales. La del proveedor es un importe fijo. Las de trabajador se calculan sobre el importe del pedido.
+          {{ t('pedido.hintComision') }}
         </p>
         <div class="comision-fila">
           <label>
-            Proveedor
+            {{ t('pedido.proveedor') }}
             <EntidadLookupField
               v-model="editForm.proveedorComision"
               entidad="proveedores"
-              titulo-modal="Buscar proveedor"
+              :titulo-modal="t('pedido.buscarProveedor')"
               :readonly="!editando"
               @update:model-value="onProveedorComision(String($event ?? ''))"
             />
           </label>
           <span class="comision-nombre">{{ proveedorComisionNombre }}</span>
           <label>
-            Importe
+            {{ t('pedido.importe') }}
             <DecimalInput v-model="editForm.importeComisionProveedor" :disabled="!editando" />
           </label>
         </div>
         <div class="comision-fila">
           <label>
-            Trabajador 1
+            {{ t('pedido.trabajador1') }}
             <EntidadLookupField
               v-model="editForm.trabajadorComision1"
               entidad="trabajadores"
-              titulo-modal="Buscar trabajador"
+              :titulo-modal="t('pedido.buscarTrabajador')"
               :readonly="!editando"
               @update:model-value="alElegirTrabajador(1, String($event ?? ''))"
             />
@@ -1883,7 +1885,7 @@ onActivated(() => {
             <DecimalInput v-model="editForm.pjeComision1" :disabled="!editando" />
           </label>
           <label>
-            Importe
+            {{ t('pedido.importe') }}
             <DecimalInput
               :model-value="importeComisionTrabajador(editForm.pjeComision1)"
               :disabled="!editando"
@@ -1893,11 +1895,11 @@ onActivated(() => {
         </div>
         <div class="comision-fila">
           <label>
-            Trabajador 2
+            {{ t('pedido.trabajador2') }}
             <EntidadLookupField
               v-model="editForm.trabajadorComision2"
               entidad="trabajadores"
-              titulo-modal="Buscar trabajador"
+              :titulo-modal="t('pedido.buscarTrabajador')"
               :readonly="!editando"
               @update:model-value="alElegirTrabajador(2, String($event ?? ''))"
             />
@@ -1908,7 +1910,7 @@ onActivated(() => {
             <DecimalInput v-model="editForm.pjeComision2" :disabled="!editando" />
           </label>
           <label>
-            Importe
+            {{ t('pedido.importe') }}
             <DecimalInput
               :model-value="importeComisionTrabajador(editForm.pjeComision2)"
               :disabled="!editando"
@@ -1927,23 +1929,15 @@ onActivated(() => {
       @keydown="onLineasKeydown"
     >
       <div v-if="editando" class="lin-toolbar">
-        <button type="button" @click="servirTodoPendiente">Rellenar a servir (pendiente)</button>
-        <button type="button" @click="addLinea">+ Línea</button>
-        <button type="button" @click="ordenarLineasPorZona">Ordenar por zona</button>
-        <button type="button" @click="descargarExcel">Excel</button>
+        <button type="button" @click="servirTodoPendiente">{{ t('pedido.rellenarServir') }}</button>
+        <button type="button" @click="addLinea">{{ t('pedido.nuevaLinea') }}</button>
+        <button type="button" @click="ordenarLineasPorZona">{{ t('pedido.ordenarZona') }}</button>
+        <button type="button" @click="descargarExcel">{{ t('pedido.excel') }}</button>
       </div>
       <div v-else class="lin-toolbar">
-        <button type="button" @click="descargarExcel">Excel</button>
+        <button type="button" @click="descargarExcel">{{ t('pedido.excel') }}</button>
       </div>
-      <p v-if="editando" class="hint-lin">
-        En código: <strong>Intro</strong> carga el artículo y pasa a la cantidad; luego precio y dto %.
-        <strong>Flecha arriba / abajo</strong> cambia de fila en la misma columna.
-        <strong>↑ ↓</strong> mueven la línea; <strong>+</strong> inserta una línea debajo.
-        Código <strong>NO</strong> = texto explicativo (sin importe); al generar el albarán se conserva en su sitio.
-        <strong>Ordenar por zona</strong> agrupa por zona y, dentro de cada una, mantiene el orden de introducción. Las líneas NO viajan con el producto anterior.
-        <strong>F4</strong> / doble clic / <strong>...</strong> abre la búsqueda.
-        Para pasar a venta, rellene <strong>A servir</strong> y use Generar albarán.
-      </p>
+      <p v-if="editando" class="hint-lin">{{ t('pedido.hintLineas') }}</p>
       <div class="grid-wrap">
         <table class="tabla-lineas">
           <thead>

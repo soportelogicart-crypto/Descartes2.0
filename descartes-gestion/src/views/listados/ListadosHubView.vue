@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import {
   LISTADOS_CATALOGO,
@@ -7,13 +8,30 @@ import {
   itemCoincideBusqueda,
   itemHabilitadoEnCatalogo,
   informesEnCatalogoHub,
+  normalizarTextoBusqueda,
   type ListadoCatalogoItem,
   type ListadosCategoriaId,
 } from '@/config/listados-nav'
 import { usePermisos } from '@/composables/usePermisos'
 import { useListadosRecientes } from '@/composables/useListadosRecientes'
 
+const { t } = useI18n()
 const router = useRouter()
+
+function tituloDe(item: ListadoCatalogoItem): string {
+  return t(`informes.items.${item.id}.titulo`)
+}
+
+function descDe(item: ListadoCatalogoItem): string {
+  return t(`informes.items.${item.id}.descripcion`)
+}
+
+function coincide(item: ListadoCatalogoItem): boolean {
+  if (itemCoincideBusqueda(item, busqueda.value)) return true
+  const q = normalizarTextoBusqueda(busqueda.value.trim())
+  if (!q) return false
+  return normalizarTextoBusqueda(`${tituloDe(item)} ${descDe(item)}`).includes(q)
+}
 const { puede } = usePermisos()
 const { idsRecientes, registrarReciente } = useListadosRecientes()
 
@@ -34,7 +52,7 @@ const catalogoEnHub = computed(() => {
 
 const catalogoFiltrado = computed(() => {
   const q = busqueda.value
-  return catalogoEnHub.value.filter((item) => itemCoincideBusqueda(item, q))
+  return catalogoEnHub.value.filter((item) => coincide(item))
 })
 
 const recientes = computed(() => {
@@ -43,7 +61,7 @@ const recientes = computed(() => {
     .map((id) => map.get(id))
     .filter(
       (i): i is ListadoCatalogoItem =>
-        !!i && itemHabilitado(i) && itemCoincideBusqueda(i, busqueda.value),
+        !!i && itemHabilitado(i) && coincide(i),
     )
 })
 
@@ -62,31 +80,28 @@ function abrir(item: ListadoCatalogoItem) {
 }
 
 function etiquetaKind(item: ListadoCatalogoItem) {
-  return item.kind === 'acceso' ? 'Acceso' : 'Informe'
+  return item.kind === 'acceso' ? t('informes.acceso') : t('informes.informe')
 }
 </script>
 
 <template>
   <section class="listados-hub">
     <header class="cabecera">
-      <h2>Listados</h2>
-      <p class="intro">
-        Busque un informe o acceso rápido. Los informes nuevos se generan en pantalla antes de
-        imprimir o exportar a Excel.
-      </p>
+      <h2>{{ t('informes.hubTitulo') }}</h2>
+      <p class="intro">{{ t('informes.hubIntro') }}</p>
       <label class="buscador">
-        <span class="sr-only">Buscar informe</span>
+        <span class="sr-only">{{ t('informes.buscar') }}</span>
         <input
           v-model="busqueda"
           type="search"
           autocomplete="off"
-          placeholder="Buscar informe: stock, abc, iva…"
+          :placeholder="t('informes.placeholder')"
         />
       </label>
     </header>
 
     <section v-if="recientes.length && !busqueda.trim()" class="bloque">
-      <h3>Recientes</h3>
+      <h3>{{ t('informes.recientes') }}</h3>
       <ul class="recientes">
         <li v-for="item in recientes" :key="item.id">
           <button
@@ -95,15 +110,15 @@ function etiquetaKind(item: ListadoCatalogoItem) {
             class="link-reciente"
             @click="abrir(item)"
           >
-            {{ item.titulo }}
+            {{ tituloDe(item) }}
           </button>
-          <span v-else class="link-reciente disabled">{{ item.titulo }}</span>
+          <span v-else class="link-reciente disabled">{{ tituloDe(item) }}</span>
         </li>
       </ul>
     </section>
 
     <p v-if="catalogoFiltrado.length === 0" class="vacio">
-      No hay informes que coincidan con la búsqueda o con sus permisos.
+      {{ t('informes.vacio') }}
     </p>
 
     <section
@@ -111,7 +126,7 @@ function etiquetaKind(item: ListadoCatalogoItem) {
       :key="cat.id"
       class="bloque categoria"
     >
-      <h3>{{ cat.titulo }}</h3>
+      <h3>{{ t(`informes.categorias.${cat.id}`) }}</h3>
       <div class="tarjetas">
         <button
           v-for="item in itemsPorCategoria(cat.id)"
@@ -120,24 +135,23 @@ function etiquetaKind(item: ListadoCatalogoItem) {
           class="tarjeta"
           :class="{ disabled: !item.disponible || !itemHabilitado(item) }"
           :disabled="!item.disponible || !itemHabilitado(item)"
-          :title="itemHabilitado(item) ? undefined : 'Sin permiso para este listado'"
+          :title="itemHabilitado(item) ? undefined : t('informes.sinPermiso')"
           @click="abrir(item)"
         >
           <div class="tarjeta-top">
-            <h4>{{ item.titulo }}</h4>
+            <h4>{{ tituloDe(item) }}</h4>
             <span class="badge" :class="item.kind">{{ etiquetaKind(item) }}</span>
           </div>
-          <p>{{ item.descripcion }}</p>
-          <span v-if="!item.disponible" class="estado">Próximamente</span>
-          <span v-else-if="!itemHabilitado(item)" class="estado">Sin permiso</span>
-          <span v-else class="estado open">Abrir</span>
+          <p>{{ descDe(item) }}</p>
+          <span v-if="!item.disponible" class="estado">{{ t('informes.proximamente') }}</span>
+          <span v-else-if="!itemHabilitado(item)" class="estado">{{ t('menu.sinPermiso') }}</span>
+          <span v-else class="estado open">{{ t('informes.abrir') }}</span>
         </button>
       </div>
     </section>
 
     <p class="nota">
-      ABC de ventas y el diario de facturación siguen en sus módulos; desde aquí se abre la misma
-      pantalla.
+      {{ t('informes.nota') }}
     </p>
   </section>
 </template>

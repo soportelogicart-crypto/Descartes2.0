@@ -1,7 +1,22 @@
 :root {
+  /* Tema azul: el que ya tenía la aplicación. Los demás solo cambian estos colores. */
+  --tema-fondo: #f5f6f8;
+  --tema-acento: #2563eb;
+  --tema-acento-oscuro: #1d4ed8;
+  --tema-barra-1: #00309c;
+  --tema-barra-2: #000060;
+  --tema-borde-barra: #7a8ec0;
+  --tema-sidebar: #111827;
+  --tema-sidebar-hover: #1f2937;
+  --tema-sidebar-activo: #1e3a5f;
+  --tema-sidebar-boton: #1f2937;
+  --tema-sidebar-boton-borde: #4b5563;
+  --tema-sidebar-borde: #374151;
+  --tema-texto-sidebar: #f9fafb;
+  --tema-nav: #e5e7eb;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   color: #1a1a1a;
-  background: #f5f6f8;
+  background: var(--tema-fondo);
 
   /*
    * Escala de la interfaz según la pantalla.
@@ -23,6 +38,91 @@
   font-size: clamp(12px, var(--escala-ui), 16px);
 }
 
+:root[data-tema='verde'] {
+  --tema-fondo: #f3f7f4;
+  --tema-acento: #15803d;
+  --tema-acento-oscuro: #166534;
+  --tema-barra-1: #0f6b45;
+  --tema-barra-2: #064e32;
+  --tema-borde-barra: #86b89a;
+  --tema-sidebar: #10241a;
+  --tema-sidebar-hover: #1a3a2a;
+  --tema-sidebar-activo: #14532d;
+  --tema-sidebar-boton: #1a3a2a;
+  --tema-sidebar-boton-borde: #3d6b52;
+  --tema-sidebar-borde: #24553a;
+  --tema-texto-sidebar: #f3faf6;
+  --tema-nav: #e5efe9;
+}
+
+:root[data-tema='granate'] {
+  --tema-fondo: #f8f4f4;
+  --tema-acento: #be123c;
+  --tema-acento-oscuro: #9f1239;
+  --tema-barra-1: #8f1d3a;
+  --tema-barra-2: #5c1024;
+  --tema-borde-barra: #d4a3b0;
+  --tema-sidebar: #241016;
+  --tema-sidebar-hover: #3a1a24;
+  --tema-sidebar-activo: #6b2033;
+  --tema-sidebar-boton: #3a1a24;
+  --tema-sidebar-boton-borde: #7a4050;
+  --tema-sidebar-borde: #5c3040;
+  --tema-texto-sidebar: #fdf4f6;
+  --tema-nav: #f3e6ea;
+}
+
+:root[data-tema='violeta'] {
+  --tema-fondo: #f6f4f8;
+  --tema-acento: #7c3aed;
+  --tema-acento-oscuro: #6d28d9;
+  --tema-barra-1: #5b21b6;
+  --tema-barra-2: #3b0764;
+  --tema-borde-barra: #c4b5e0;
+  --tema-sidebar: #1a1424;
+  --tema-sidebar-hover: #2a2140;
+  --tema-sidebar-activo: #3b2a5a;
+  --tema-sidebar-boton: #2a2140;
+  --tema-sidebar-boton-borde: #5b4b78;
+  --tema-sidebar-borde: #3d3258;
+  --tema-texto-sidebar: #f6f3fb;
+  --tema-nav: #ece6f5;
+}
+
+:root[data-tema='ambar'] {
+  --tema-fondo: #f8f6f2;
+  --tema-acento: #d97706;
+  --tema-acento-oscuro: #b45309;
+  --tema-barra-1: #b45309;
+  --tema-barra-2: #7c2d12;
+  --tema-borde-barra: #e6c48a;
+  --tema-sidebar: #241c12;
+  --tema-sidebar-hover: #3a2e1c;
+  --tema-sidebar-activo: #5c4318;
+  --tema-sidebar-boton: #3a2e1c;
+  --tema-sidebar-boton-borde: #7a6240;
+  --tema-sidebar-borde: #5c4a30;
+  --tema-texto-sidebar: #fbf7f1;
+  --tema-nav: #f3ebe0;
+}
+
+:root[data-tema='grafito'] {
+  --tema-fondo: #f4f5f6;
+  --tema-acento: #52525b;
+  --tema-acento-oscuro: #3f3f46;
+  --tema-barra-1: #3f3f46;
+  --tema-barra-2: #18181b;
+  --tema-borde-barra: #a1a1aa;
+  --tema-sidebar: #18181b;
+  --tema-sidebar-hover: #27272a;
+  --tema-sidebar-activo: #3f3f46;
+  --tema-sidebar-boton: #27272a;
+  --tema-sidebar-boton-borde: #52525b;
+  --tema-sidebar-borde: #3f3f46;
+  --tema-texto-sidebar: #fafafa;
+  --tema-nav: #e4e4e7;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -40,7 +140,7 @@ body {
 }
 
 a {
-  color: #2563eb;
+  color: var(--tema-acento);
   text-decoration: none;
 }
 
@@ -59,8 +159,30 @@ textarea {
   position: sticky;
   top: 0;
   z-index: 22;
-  background: #f5f6f8;
+  background: var(--tema-fondo);
   padding-bottom: 0.35rem;
+}
+
+/* El acento del tema llega a los botones principales sin rehacer cada pantalla. */
+.tool-btn.primary {
+  background: var(--tema-acento) !important;
+  border-color: var(--tema-acento-oscuro) !important;
+  color: #fff !important;
+}
+
+.ayuda-flotante {
+  position: fixed;
+  z-index: 80;
+  width: max-content;
+  max-width: 18rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  background: var(--tema-sidebar);
+  color: var(--tema-texto-sidebar);
+  font-size: 0.8rem;
+  line-height: 1.35;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+  pointer-events: none;
 }
 
 .content .toolbar {
