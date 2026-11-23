@@ -51,7 +51,7 @@ jobs:
           fi
           carpeta="$(echo "$CARPETA" | sed 's#^/*##; s#/*$##')"
           case "$carpeta" in
-            ""|"httpdocs"|"public_html"|"."|*".."*)
+            ""|"."|*".."*)
               echo "Carpeta no permitida: '$CARPETA'. Indique la subcarpeta de Descartes, no la raíz del hosting."
               exit 1
               ;;
