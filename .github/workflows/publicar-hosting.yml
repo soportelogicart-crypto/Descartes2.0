@@ -8,15 +8,10 @@
 
 name: Publicar hosting
 
+# Despliegue automático desactivado: al publicar, la raíz de topaywebapp.es quedó
+# con Descartes y pisó Minimarket. Para publicar a mano: Actions → Publicar hosting → Run workflow.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'descartes-gestion/**'
-      - 'descartes-api/src/**'
-      - 'descartes-api/public/**'
-      - 'descartes-api/database/**'
-      - '.github/workflows/publicar-hosting.yml'
+  workflow_dispatch:
 
 concurrency:
   group: publicar-hosting
