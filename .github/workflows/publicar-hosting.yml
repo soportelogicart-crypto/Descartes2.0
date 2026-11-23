@@ -1,17 +1,32 @@
-# Al subir a main, publica la gestión y la API en el hosting.
-# Electron no se publica: el instalador se genera en cada PC.
+# Publicación MANUAL de la gestión y la API de Descartes en el hosting de Descartes
+# (Hostinger, gestion.topay-comunicacion.es). No se ejecuta al subir a main.
+#
+# IMPORTANTE: el servidor de Minimarket (topaywebapp.es, Plesk) NO es el de Descartes.
+# Los secretos FTP_* antiguos apuntaban a Minimarket y ya no se usan en este flujo.
 #
 # Secretos del repositorio (Settings → Secrets and variables → Actions):
-#   FTP_SERVER, FTP_USERNAME, FTP_PASSWORD
-# Son los del sitio FTP «plesk». No borra archivos que solo existen en el servidor
-# (vendor, var, la base).
+#   HOSTINGER_FTP_SERVER, HOSTINGER_FTP_USERNAME, HOSTINGER_FTP_PASSWORD
+# Son los de la cuenta FTP de Hostinger (hPanel → Archivos → Cuentas FTP).
+#
+# Cómo usarlo: Actions → Publicar hosting → Run workflow.
+#   - carpeta: carpeta del hosting donde está la web de Descartes (ej. public_html/gestion/).
+#   - simulacro: marcado por defecto. Solo muestra qué subiría, sin tocar el hosting.
+# No borra archivos que solo existen en el servidor (vendor, var, la base).
 
 name: Publicar hosting
 
-# Despliegue automático desactivado: al publicar, la raíz de topaywebapp.es quedó
-# con Descartes y pisó Minimarket. Para publicar a mano: Actions → Publicar hosting → Run workflow.
 on:
   workflow_dispatch:
+    inputs:
+      carpeta:
+        description: 'Carpeta del hosting de Descartes (ej. public_html/gestion/)'
+        required: true
+        type: string
+      simulacro:
+        description: 'Solo simular: no sube nada'
+        required: true
+        type: boolean
+        default: true
 
 concurrency:
   group: publicar-hosting
@@ -22,6 +37,27 @@ jobs:
     name: Compilar y publicar
     runs-on: ubuntu-latest
     steps:
+      - name: Comprobar destino y secretos
+        id: destino
+        env:
+          CARPETA: ${{ inputs.carpeta }}
+          FTP_SERVER: ${{ secrets.HOSTINGER_FTP_SERVER }}
+          FTP_USER: ${{ secrets.HOSTINGER_FTP_USERNAME }}
+          FTP_PASS: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
+        run: |
+          if [ -z "$FTP_SERVER" ] || [ -z "$FTP_USER" ] || [ -z "$FTP_PASS" ]; then
+            echo "Faltan los secretos HOSTINGER_FTP_SERVER, HOSTINGER_FTP_USERNAME y HOSTINGER_FTP_PASSWORD."
+            exit 1
+          fi
+          carpeta="$(echo "$CARPETA" | sed 's#^/*##; s#/*$##')"
+          case "$carpeta" in
+            ""|"httpdocs"|"public_html"|"."|*".."*)
+              echo "Carpeta no permitida: '$CARPETA'. Indique la subcarpeta de Descartes, no la raíz del hosting."
+              exit 1
+              ;;
+          esac
+          echo "base=$carpeta/" >> "$GITHUB_OUTPUT"
+          echo "Destino: $carpeta/"
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
@@ -31,51 +67,55 @@ jobs:
       - name: Compilar la gestión
         working-directory: descartes-gestion
         run: npm ci && npm run build
-      - name: Subir la gestión a httpdocs
+      - name: Subir la gestión
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
+          server: ${{ secrets.HOSTINGER_FTP_SERVER }}
+          username: ${{ secrets.HOSTINGER_FTP_USERNAME }}
+          password: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
           port: 21
           protocol: ftp
           local-dir: descartes-gestion/dist/
-          server-dir: httpdocs/
+          server-dir: ${{ steps.destino.outputs.base }}
+          dry-run: ${{ inputs.simulacro }}
           dangerous-clean-slate: false
           timeout: 600000
       - name: Subir src de la API
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
+          server: ${{ secrets.HOSTINGER_FTP_SERVER }}
+          username: ${{ secrets.HOSTINGER_FTP_USERNAME }}
+          password: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
           port: 21
           protocol: ftp
           local-dir: descartes-api/src/
-          server-dir: httpdocs/api-descartes/src/
+          server-dir: ${{ steps.destino.outputs.base }}api-descartes/src/
+          dry-run: ${{ inputs.simulacro }}
           dangerous-clean-slate: false
           timeout: 600000
       - name: Subir public de la API
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
+          server: ${{ secrets.HOSTINGER_FTP_SERVER }}
+          username: ${{ secrets.HOSTINGER_FTP_USERNAME }}
+          password: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
           port: 21
           protocol: ftp
           local-dir: descartes-api/public/
-          server-dir: httpdocs/api-descartes/public/
+          server-dir: ${{ steps.destino.outputs.base }}api-descartes/public/
+          dry-run: ${{ inputs.simulacro }}
           dangerous-clean-slate: false
           timeout: 600000
       - name: Subir migraciones de la API
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
+          server: ${{ secrets.HOSTINGER_FTP_SERVER }}
+          username: ${{ secrets.HOSTINGER_FTP_USERNAME }}
+          password: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
           port: 21
           protocol: ftp
           local-dir: descartes-api/database/
-          server-dir: httpdocs/api-descartes/database/
+          server-dir: ${{ steps.destino.outputs.base }}api-descartes/database/
+          dry-run: ${{ inputs.simulacro }}
           dangerous-clean-slate: false
           timeout: 600000
