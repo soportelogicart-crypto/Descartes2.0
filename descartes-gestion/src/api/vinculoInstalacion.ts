@@ -24,7 +24,29 @@ function guardarEnNavegador(vinculo: VinculoInstalacion | null) {
 function leerNavegador(): VinculoInstalacion | null {
   const id = localStorage.getItem(KEY_ID)?.trim().toLowerCase() ?? ''
   const clave = localStorage.getItem(KEY_CLAVE)?.trim() ?? ''
-  return id && clave ? { id, clave } : null
+  return id ? { id, clave } : null
+}
+
+/** Valida el identificador de empresa del login web. Vacío = producción. */
+export function normalizarEmpresaWeb(id: string): string {
+  const limpio = id.trim().toLowerCase()
+  if (!limpio) return ''
+  if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(limpio) || limpio === 'default') {
+    throw new Error('La empresa solo puede tener letras minúsculas, números y guiones')
+  }
+  return limpio
+}
+
+/** Web: recuerda solo la empresa, sin clave. Usar después de normalizarEmpresaWeb. */
+export function recordarEmpresaWeb(limpio: string): void {
+  if (!limpio) {
+    guardarEnNavegador(null)
+    cache = null
+    return
+  }
+  localStorage.setItem(KEY_ID, limpio)
+  localStorage.removeItem(KEY_CLAVE)
+  cache = { id: limpio, clave: '' }
 }
 
 /** Lee el vínculo antes de la primera petición. En Electron no deja la clave en localStorage. */

@@ -17,14 +17,16 @@ use Psr\Http\Server\RequestHandlerInterface;
 use Slim\Psr7\Response;
 
 /**
- * Elige la base de la petición.
- * Sin X-Cliente-Id se usa la instalación por defecto (var/instalacion.json o .env).
- * Con identificador, hace falta X-Cliente-Clave y se abre solo esa instalación.
+ * Elige la base de la petición. No hay instalación por defecto.
+ * Con identificador y clave (Electron), se abre solo esa instalación.
+ * Con identificador sin clave (web), solo vale en el login o con una sesión ya abierta en esa instalación.
+ * Sin identificador, solo responden el estado de instalación, el alta de empresas y el ping offline.
  */
 final class ClienteDbMiddleware implements MiddlewareInterface
 {
   public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
   {
+    RequestContext::marcarWeb();
     $path = $request->getUri()->getPath();
     $isInstalacion = str_contains($path, '/api/instalacion');
 
@@ -32,6 +34,7 @@ final class ClienteDbMiddleware implements MiddlewareInterface
     $clave = $request->getHeaderLine('X-Cliente-Clave');
     $explicita = $pedido !== '' && $pedido !== CatalogoInstalaciones::DEFECTO;
     $clientId = $explicita ? $pedido : CatalogoInstalaciones::DEFECTO;
+    $esLogin = $request->getMethod() === 'POST' && preg_match('#/api/auth/login/?$#', $path) === 1;
 
     // Alta de una instalación nueva: no depende de la base ni de la sesión de este PC.
     $esAlta = $request->getMethod() === 'POST' && preg_match('#/api/instalacion/clientes$#', $path) === 1;
@@ -43,7 +46,8 @@ final class ClienteDbMiddleware implements MiddlewareInterface
     $sesionCliente = isset($_SESSION['usuario'])
       ? (string) ($_SESSION['clienteId'] ?? CatalogoInstalaciones::DEFECTO)
       : null;
-    if (!$esAlta && $sesionCliente !== null && $sesionCliente !== $clientId) {
+    // El login sustituye una sesión de otra empresa; no debe bloquearse por ella.
+    if (!$esAlta && !$esLogin && $sesionCliente !== null && $sesionCliente !== $clientId) {
       return ErrorResponse::json(
         new Response(),
         401,
@@ -55,8 +59,42 @@ final class ClienteDbMiddleware implements MiddlewareInterface
       );
     }
 
-    if ($explicita) {
-      $config = CatalogoInstalaciones::autenticar($pedido, $clave);
+    // Sin empresa elegida: solo estado de instalación, alta de empresas y ping offline.
+    if (!$explicita) {
+      if (str_contains($path, '/api/offline/estado')) {
+        return $this->pingSinBase();
+      }
+      if (!$isInstalacion) {
+        return ErrorResponse::json(
+          new Response(),
+          401,
+          'Indique la empresa para entrar',
+          'SIN_EMPRESA',
+          [],
+          [],
+          false
+        );
+      }
+      RequestContext::setConfig(null);
+      return $handler->handle(
+        $request
+          ->withAttribute('clienteId', $clientId)
+          ->withAttribute('instalacionSql', null)
+      );
+    }
+
+    if ($clave === '') {
+      // Web: sin clave solo en el login (la respuesta de empresa inexistente es igual que la de clave mala)
+      // o con una sesión ya abierta en esa misma instalación.
+      $config = null;
+      if ($esLogin) {
+        $config = CatalogoInstalaciones::configPorId($pedido);
+        if ($config === null) {
+          return ErrorResponse::json(new Response(), 401, 'Credenciales invalidas', 'NO_AUTENTICADO', [], [], false);
+        }
+      } elseif ($sesionCliente === $pedido) {
+        $config = CatalogoInstalaciones::configPorId($pedido);
+      }
       if ($config === null) {
         return ErrorResponse::json(
           new Response(),
@@ -69,16 +107,28 @@ final class ClienteDbMiddleware implements MiddlewareInterface
         );
       }
     } else {
-      $config = Database::resolveConfig();
+      $config = CatalogoInstalaciones::autenticar($pedido, $clave);
+      if ($config === null) {
+        return ErrorResponse::json(
+          new Response(),
+          401,
+          'Instalación desconocida o clave incorrecta',
+          'INSTALACION_NO_AUTORIZADA',
+          [],
+          [],
+          false
+        );
+      }
     }
 
+    RequestContext::setConfig($config);
     if (session_status() === PHP_SESSION_ACTIVE) {
       $_SESSION['clienteId'] = $clientId;
     }
 
     $request = $request
       ->withAttribute('clienteId', $clientId)
-      ->withAttribute('instalacionSql', $explicita ? $config : null);
+      ->withAttribute('instalacionSql', $config);
 
     try {
       $pdo = Database::createPdo($config);
@@ -91,13 +141,6 @@ final class ClienteDbMiddleware implements MiddlewareInterface
       // abierto, pero el PHP sí ha contestado: 500 con JSON no corta la conexión.
       if (str_contains($path, '/api/offline/estado')) {
         return $this->pingSinBase();
-      }
-      if ($isInstalacion && !$explicita) {
-        return $handler->handle(
-          $request
-            ->withAttribute('dbConnectionError', $e->getMessage())
-            ->withAttribute('clienteId', $clientId)
-        );
       }
       return ErrorResponse::json(
         new Response(),

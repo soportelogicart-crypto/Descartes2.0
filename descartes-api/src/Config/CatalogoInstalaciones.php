@@ -126,21 +126,33 @@ final class CatalogoInstalaciones
   }
 
   /**
+   * Configuración SQL de una instalación sin comprobar la clave. Solo lo usa el
+   * middleware: en el login web (empresa + usuario + contraseña) y en peticiones
+   * de una sesión ya abierta en esa misma instalación.
+   *
+   * @return array{tipo: string, server: string, database: string, user: string, password: string, trust_cert: bool, encrypt: bool, motor: string}|null
+   */
+  public static function configPorId(string $id): ?array
+  {
+    try {
+      $id = self::normalizarId($id);
+    } catch (InvalidArgumentException $e) {
+      return null;
+    }
+    $data = self::leer($id);
+    if ($data === null || empty($data['activa'])) {
+      return null;
+    }
+
+    return Database::prepareConfig($data);
+  }
+
+  /**
    * @return list<array{id: string, tipo: string, server: string, database: string, defecto: bool, activa: bool}>
    */
   public static function listar(): array
   {
     $lista = [];
-    $defecto = Database::resolveConfig();
-    $lista[] = [
-      'id' => self::DEFECTO,
-      'tipo' => (string) ($defecto['tipo'] ?? 'local'),
-      'server' => (string) ($defecto['server'] ?? ''),
-      'database' => (string) ($defecto['database'] ?? ''),
-      'defecto' => true,
-      'activa' => true,
-    ];
-
     $dir = self::directorio();
     if (!is_dir($dir)) {
       return $lista;

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Descartes\Api\Controllers;
 
 use Descartes\Api\Config\CatalogoInstalaciones;
-use Descartes\Api\Config\InstalacionConfig;
 use Descartes\Api\Http\ErrorResponse;
 use Descartes\Api\Services\Instalacion\InstalacionService;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -47,12 +46,16 @@ final class InstalacionController
     $body = (array) json_decode((string) $request->getBody(), true);
     $body = $this->bodyConPasswordReferencia($request, $body);
     try {
-      if ($this->configExplicita($request) !== null) {
-        $id = (string) ($request->getAttribute('clienteId') ?? '');
-        $data = $this->service->configurarEnCatalogo($id, $body);
-      } else {
-        $data = $this->service->configurarYAplicar($body);
+      if ($this->configExplicita($request) === null) {
+        return ErrorResponse::json(
+          $response,
+          400,
+          'Elija o cree una empresa con identificador. Ya no hay conexión por defecto.',
+          'SIN_EMPRESA'
+        );
       }
+      $id = (string) ($request->getAttribute('clienteId') ?? '');
+      $data = $this->service->configurarEnCatalogo($id, $body);
       $data['instalacionId'] = (string) ($request->getAttribute('clienteId') ?? CatalogoInstalaciones::DEFECTO);
       return $this->json($response, 200, $data);
     } catch (\InvalidArgumentException $e) {
@@ -118,7 +121,7 @@ final class InstalacionController
   /** @param array<string, mixed> $body @return array<string, mixed> */
   private function bodyConPasswordReferencia(Request $request, array $body): array
   {
-    $referencia = $this->configExplicita($request) ?? InstalacionConfig::load();
+    $referencia = $this->configExplicita($request);
     return $this->service->bodyConPasswordGuardada($body, $referencia);
   }
 

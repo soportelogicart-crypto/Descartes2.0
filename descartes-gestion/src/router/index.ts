@@ -3,6 +3,8 @@ import { createRouter, createWebHistory, type RouteComponent } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { usePermisos } from '@/composables/usePermisos'
 import { getInstalacionEstado, olvidarInstalacionEstado } from '@/api/instalacion'
+import { isElectronShell } from '@/bridge/electron'
+import { vinculoEnMemoria } from '@/api/vinculoInstalacion'
 import { puedeAccederHubListados } from '@/config/listados-nav'
 import {
   abcComprasModuloPermiso,
@@ -566,11 +568,17 @@ router.beforeEach(async (to) => {
   if (to.name !== 'instalacion') {
     try {
       const estado = await getInstalacionEstado()
-      if (estado.requiereAccion) {
+      // Web sin empresa elegida: va al login, que pide la empresa. Electron sin vínculo sí va a Instalación.
+      const webSinEmpresa = !isElectronShell() && !vinculoEnMemoria()
+      if (estado.requiereAccion && !webSinEmpresa) {
         return { name: 'instalacion', query: to.fullPath !== '/' ? { redirect: to.fullPath } : undefined }
       }
     } catch (error) {
-      if (to.name !== 'login') {
+      // Web: empresa sin sesión o sesión de otra empresa. Va al login, no a Conexión.
+      const codigo = (error as { response?: { data?: { codigo?: string } } }).response?.data?.codigo
+      const sinEmpresaWeb =
+        !isElectronShell() && (codigo === 'INSTALACION_NO_AUTORIZADA' || codigo === 'SESION_OTRA_INSTALACION')
+      if (to.name !== 'login' && !sinEmpresaWeb) {
         return { name: 'instalacion' }
       }
     }
