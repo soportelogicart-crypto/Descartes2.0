@@ -9,7 +9,8 @@
 # Son los de la cuenta FTP de Hostinger (hPanel → Archivos → Cuentas FTP).
 #
 # Cómo usarlo: Actions → Publicar hosting → Run workflow.
-#   - carpeta: carpeta del hosting donde está la web de Descartes (ej. public_html/gestion/).
+#   - carpeta: carpeta dentro de public_html (ej. gestion/). Use / para la raíz de public_html.
+#     El FTP ya entra dentro de public_html: no escriba public_html/ (crearía public_html/public_html).
 #   - simulacro: marcado por defecto. Solo muestra qué subiría, sin tocar el hosting.
 # No borra archivos que solo existen en el servidor (vendor, var, la base).
 
@@ -19,7 +20,7 @@ on:
   workflow_dispatch:
     inputs:
       carpeta:
-        description: 'Carpeta del hosting de Descartes (ej. public_html/gestion/)'
+        description: 'Carpeta dentro de public_html (ej. gestion/). Escriba / para la raíz de public_html'
         required: true
         type: string
       simulacro:
@@ -50,14 +51,19 @@ jobs:
             exit 1
           fi
           carpeta="$(echo "$CARPETA" | sed 's#^/*##; s#/*$##')"
-          case "$carpeta" in
-            ""|"."|*".."*)
-              echo "Carpeta no permitida: '$CARPETA'. Indique la subcarpeta de Descartes, no la raíz del hosting."
-              exit 1
-              ;;
-          esac
-          echo "base=$carpeta/" >> "$GITHUB_OUTPUT"
-          echo "Destino: $carpeta/"
+            case "$carpeta" in
+              *".."*)
+                echo "Carpeta no permitida: '$CARPETA'."
+                exit 1
+                ;;
+            esac
+            if [ -z "$carpeta" ] || [ "$carpeta" = "." ]; then
+              echo "base=./" >> "$GITHUB_OUTPUT"
+              echo "Destino: raíz de public_html (FTP)"
+            else
+              echo "base=$carpeta/" >> "$GITHUB_OUTPUT"
+              echo "Destino: $carpeta/"
+            fi
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
