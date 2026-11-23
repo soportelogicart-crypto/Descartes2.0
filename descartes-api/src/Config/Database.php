@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Descartes\Api\Config;
 
 use Descartes\Api\Database\MysqlCompatPdo;
+use Descartes\Api\RequestContext;
 use PDO;
 use PDOException;
 use RuntimeException;
@@ -18,9 +19,12 @@ final class Database
    */
   public static function resolveConfig(): array
   {
-    $instalacion = InstalacionConfig::load();
-    if ($instalacion !== null) {
-      return self::prepareConfig($instalacion);
+    $actual = RequestContext::getConfig();
+    if ($actual !== null) {
+      return $actual;
+    }
+    if (RequestContext::esWeb()) {
+      throw new RuntimeException('Esta petición no tiene empresa elegida');
     }
     return self::prepareConfig([
       'motor' => $_ENV['DB_MOTOR'] ?? getenv('DB_MOTOR') ?: 'sqlsrv',

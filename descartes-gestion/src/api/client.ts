@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { isElectronShell } from '@/bridge/electron'
 import { reportClientError } from './clientLogger'
 import { vinculoEnMemoria } from './vinculoInstalacion'
 import { crearAdaptadorOffline } from '@/offline/adaptadorAxios'
@@ -18,7 +19,10 @@ api.interceptors.request.use((config) => {
   const vinculo = vinculoEnMemoria()
   if (vinculo) {
     config.headers.set('X-Cliente-Id', vinculo.id)
-    config.headers.set('X-Cliente-Clave', vinculo.clave)
+    // La web entra con el identificador. La clave solo la envía Electron.
+    if (isElectronShell() && vinculo.clave) {
+      config.headers.set('X-Cliente-Clave', vinculo.clave)
+    }
   }
   return config
 })
@@ -38,6 +42,7 @@ api.interceptors.response.use(
       status === 401 &&
       !url.includes('/auth/login') &&
       !url.includes('/auth/me') &&
+      !url.includes('/auth/logout') &&
       !falloDeInstalacion
     ) {
       window.location.href = `${import.meta.env.BASE_URL}login`.replace(/\/{2,}/g, '/')

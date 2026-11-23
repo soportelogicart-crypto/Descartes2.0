@@ -38,9 +38,7 @@ final class InstalacionService
       $config = Database::prepareConfig($configForzada);
       $origen = 'cliente';
     } else {
-      $configurado = InstalacionConfig::isConfigured();
-      $config = Database::resolveConfig();
-      $origen = $configurado ? 'instalacion' : 'env';
+      return $this->estadoSinEmpresa();
     }
 
     $migraciones = $this->migrations->estado($config);
@@ -59,7 +57,7 @@ final class InstalacionService
       }
     }
 
-    $primeraVez = $configForzada === null && !$configurado;
+    $primeraVez = false;
     $requiereAccion = !$configurado
       || !$migraciones['conexionOk']
       || !$esquemaOk
@@ -86,6 +84,36 @@ final class InstalacionService
       'esquemaOk' => $esquemaOk,
       'diagnostico' => $diagnostico,
       'requiereAccion' => $requiereAccion,
+      'acceso' => [
+        'usuario' => InstalacionBootstrapService::USUARIO_ADMIN,
+        'password' => InstalacionBootstrapService::PASSWORD_ADMIN,
+      ],
+    ];
+  }
+
+  /**
+   * Sin empresa elegida no hay base que mirar: solo se indica que hace falta elegir o crear una.
+   *
+   * @return array<string, mixed>
+   */
+  private function estadoSinEmpresa(): array
+  {
+    return [
+      'configurado' => false,
+      'primeraVez' => true,
+      'origen' => 'ninguna',
+      'motor' => 'sqlsrv',
+      'tipo' => 'local',
+      'server' => '',
+      'database' => '',
+      'user' => '',
+      'conexionOk' => false,
+      'errorConexion' => 'Elija o cree una empresa para conectar',
+      'migraciones' => ['aplicadas' => [], 'pendientes' => [], 'total' => 0],
+      'adminListo' => false,
+      'esquemaOk' => false,
+      'diagnostico' => null,
+      'requiereAccion' => true,
       'acceso' => [
         'usuario' => InstalacionBootstrapService::USUARIO_ADMIN,
         'password' => InstalacionBootstrapService::PASSWORD_ADMIN,
@@ -253,7 +281,10 @@ final class InstalacionService
    */
   public function aplicarMigracionesActivas(?array $configForzada = null): array
   {
-    $config = $configForzada !== null ? Database::prepareConfig($configForzada) : Database::resolveConfig();
+    if ($configForzada === null) {
+      throw new RuntimeException('Elija o cree una empresa antes de aplicar migraciones');
+    }
+    $config = Database::prepareConfig($configForzada);
     $resultado = $this->migrations->aplicarTodasIdempotentes($config);
     if (!$resultado['ok']) {
       throw new RuntimeException(
@@ -269,7 +300,7 @@ final class InstalacionService
     }
     $admin = $this->bootstrap->asegurarUsuarioAdministrador($pdo);
 
-    $estado = $configForzada !== null ? $this->obtenerEstado($config) : $this->obtenerEstado();
+    $estado = $this->obtenerEstado($config);
     $estado['diagnostico'] = $this->diagnosticoEsquema($pdo, $config);
     $estado['ultimaEjecucion'] = [
       'aplicadas' => $resultado['aplicadas'],

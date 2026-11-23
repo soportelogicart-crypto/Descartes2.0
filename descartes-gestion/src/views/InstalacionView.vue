@@ -98,9 +98,6 @@ function validarFormulario(): string | null {
   if (!form.server.trim()) return 'Indique el servidor o la URL'
   if (!form.database.trim()) return 'Indique el nombre de la base de datos'
   if (!form.user.trim()) return 'Indique el usuario de la base de datos'
-  if (!form.password && !puedeOmitirPassword.value) {
-    return 'Indique la contrasena de la base de datos'
-  }
   return null
 }
 
@@ -145,10 +142,9 @@ async function onQuitarUnion() {
 }
 
 async function onGuardarPc() {
-  const id = unionId.value.trim()
-  const clave = unionClave.value.trim()
-  if (!id && !clave) {
-    await onQuitarUnion()
+  if (!unionId.value.trim()) {
+    error.value = 'Indique el identificador de la empresa'
+    mostrarFeedback('error', error.value)
     return
   }
   await onUnirPc()
@@ -313,25 +309,19 @@ onMounted(() => {
       <div class="card-scroll">
         <h1>{{ esPrimeraVez ? 'Bienvenido a Descartes' : 'Conexion a la base de datos' }}</h1>
         <p class="intro">
-          Cada PC elige su base. La de producción es la que no tiene identificador. Un identificador
-          solo afecta al PC donde se guarda. Cambiarlo aquí no cambia el otro PC.
+          Cada PC se une a una empresa con su identificador y su clave. Sin empresa no se puede entrar.
+          Cambiarla aquí solo afecta a este PC.
         </p>
 
         <fieldset class="tipo-conexion vinculo">
           <legend>Este PC</legend>
           <p class="hint">
-            <template v-if="editandoUna">
-              Ahora usa «{{ unidoA }}». Para dejarlo en producción, borre los dos campos y pulse
-              Guardar en este PC.
-            </template>
-            <template v-else>
-              Ahora usa la base de producción. Para una base de prueba, escriba su identificador y
-              su clave.
-            </template>
+            <template v-if="editandoUna">Ahora usa «{{ unidoA }}».</template>
+            <template v-else>Este PC no está unido a ninguna empresa. Escriba su identificador y su clave.</template>
           </p>
           <label>
             Identificador de este PC
-            <input v-model="unionId" autocomplete="off" placeholder="vacío = producción" />
+            <input v-model="unionId" autocomplete="off" placeholder="identificador de la empresa" />
           </label>
           <label>
             Clave
@@ -389,8 +379,9 @@ onMounted(() => {
             v-model="form.password"
             type="password"
             autocomplete="new-password"
-            :placeholder="puedeOmitirPassword ? 'Vacío = mantener la guardada en el servidor' : ''"
+            :placeholder="puedeOmitirPassword ? 'Vacío = mantener la guardada en el servidor' : 'Vacía si no tiene'"
           />
+          <span v-if="form.motor === 'mysql'" class="hint">En XAMPP, root suele ir sin contraseña. Déjela vacía.</span>
         </label>
         <p v-if="pareceMysqlHostinger && estado?.origen === 'instalacion' && estado?.motor === 'sqlsrv'" class="hint aviso">
           Esas credenciales MySQL de Hostinger no funcionan contra el XAMPP de su PC. Para desarrollo local
