@@ -77,6 +77,7 @@ const CarpetaCompartidaView = vista(() => import('@/views/configuracion/CarpetaC
 const FidelizacionConfigView = vista(() => import('@/views/configuracion/FidelizacionConfigView.vue'))
 const CorreoConfigView = vista(() => import('@/views/configuracion/CorreoConfigView.vue'))
 const DocumentosPlantillasView = vista(() => import('@/views/configuracion/DocumentosPlantillasView.vue'))
+const ImportacionDatosView = vista(() => import('@/views/configuracion/ImportacionDatosView.vue'))
 const TpvVentaView = vista(() => import('@/views/tpv/TpvVentaView.vue'))
 const ConsultaSinConexionView = vista(() => import('@/views/tpv/ConsultaSinConexionView.vue'))
 const ListadosHubView = vista(() => import('@/views/listados/ListadosHubView.vue'))
@@ -139,6 +140,12 @@ const router = createRouter({
           name: 'configuracion-correo',
           component: CorreoConfigView,
           meta: { titulo: 'Correo' },
+        },
+        {
+          path: 'configuracion/importacion',
+          name: 'configuracion-importacion',
+          component: ImportacionDatosView,
+          meta: { titulo: 'Importación de datos' },
         },
         {
           path: 'configuracion/documentos',

@@ -53,6 +53,13 @@ const opciones = [
     disponible: true,
   },
   {
+    id: 'importacion',
+    titulo: 'Importación de datos',
+    descripcion: 'Cargar macrofamilias, familias, subfamilias, proveedores, artículos y clientes desde un Excel (con simulación previa).',
+    ruta: '/configuracion/importacion',
+    disponible: true,
+  },
+  {
     id: 'fidelizacion',
     titulo: 'Fidelización',
     descripcion: 'Vales semestrales (1 € = 1 punto, canje 3 %) y otros programas.',

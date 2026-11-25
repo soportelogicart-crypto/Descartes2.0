@@ -3342,6 +3342,13 @@ function removeLinea(i: number) {
   if (!lineas.value.length) lineas.value.push(lineaVacia())
 }
 
+function moverLinea(i: number, delta: number) {
+  const j = i + delta
+  if (j < 0 || j >= lineas.value.length) return
+  const [linea] = lineas.value.splice(i, 1)
+  if (linea) lineas.value.splice(j, 0, linea)
+}
+
 function nav(dir: 'primero' | 'anterior' | 'siguiente' | 'ultimo') {
   if (!navItems.value.length) return
   let i = indiceNav.value
@@ -3646,7 +3653,25 @@ onActivated(() => {
                 <td class="num importe">
                   {{ esLineaComentario(l) ? '—' : importeLinea(l).toFixed(2) }}
                 </td>
-                <td v-if="puedeEditarLineas">
+                <td v-if="puedeEditarLineas" class="acciones-linea">
+                  <button
+                    type="button"
+                    class="btn-mover"
+                    title="Subir línea"
+                    :disabled="i === 0"
+                    @click="moverLinea(i, -1)"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    class="btn-mover"
+                    title="Bajar línea"
+                    :disabled="i === lineas.length - 1"
+                    @click="moverLinea(i, 1)"
+                  >
+                    ↓
+                  </button>
                   <button type="button" class="btn-x" title="Quitar" @click="removeLinea(i)">x</button>
                 </td>
               </tr>
@@ -3657,6 +3682,7 @@ onActivated(() => {
           <strong>Intro</strong> avanza al siguiente campo de la misma línea (en código: resolver artículo);
           en el último campo pasa a la línea siguiente.
           <strong>Flechas</strong> arriba/abajo cambian de línea;
+          <strong>↑ ↓</strong> mueven la línea y
           <strong>Supr</strong> elimina la línea.
           <strong>F4</strong> / doble clic: buscar artículo.
           Código <strong>NO</strong> = comentario (sin importe).
@@ -4512,6 +4538,21 @@ tr.comentario td input {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.acciones-linea {
+  white-space: nowrap;
+}
+.btn-mover {
+  border: none;
+  background: transparent;
+  color: #334155;
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0 0.15rem;
+}
+.btn-mover:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
 .btn-x {
   border: none;
   background: transparent;
@@ -4803,6 +4844,7 @@ tr.comentario td input {
   .error,
   .hint,
   .btn-add,
+  .btn-mover,
   .btn-x,
   .btn-buscar-art,
   .overlay {
