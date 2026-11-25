@@ -185,8 +185,10 @@ export const en: typeof es = {
     grafito: 'Graphite',
   },
   preferencias: {
+    titulo: 'Language and colour',
+    intro: 'Saved on your user and applied straight away.',
     idioma: 'Language',
-    color: 'Colour',
+    color: 'Menu bar colour',
     ayudas: 'Menu tips',
     error: 'Could not save. Try again.',
   },

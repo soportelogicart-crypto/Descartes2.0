@@ -185,8 +185,10 @@ export const ca: typeof es = {
     grafito: 'Grafit',
   },
   preferencias: {
+    titulo: 'Idioma i color',
+    intro: 'Es desa al vostre usuari i s\'aplica a l\'instant.',
     idioma: 'Idioma',
-    color: 'Color',
+    color: 'Color de la barra de menú',
     ayudas: 'Ajudes del menú',
     error: 'No s\'ha pogut desar. Torneu-ho a provar.',
   },

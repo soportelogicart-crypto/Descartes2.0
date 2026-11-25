@@ -2,8 +2,6 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { IDIOMAS, type IdiomaUi } from '@/i18n'
-import { TEMAS } from '@/config/temas'
 import { useAuthStore } from '@/stores/auth'
 import { articulosMenuItems, esRutaArticulos } from '@/config/articulos-menu'
 import { clientesMenuItems, esRutaClientes } from '@/config/clientes-menu'
@@ -40,8 +38,6 @@ import CarpetaCompartidaModal from '@/components/carpeta/CarpetaCompartidaModal.
 
 const auth = useAuthStore()
 const { t, locale } = useI18n()
-const idiomas = IDIOMAS
-const temas = TEMAS
 const carpetaStore = useCarpetaCompartidaStore()
 const modalCarpeta = ref(false)
 const nombreBaseDatos = ref('')
@@ -296,8 +292,6 @@ const ayudaVisible = ref(false)
 const ayudaTexto = ref('')
 const ayudaX = ref(0)
 const ayudaY = ref(0)
-const guardandoPrefs = ref(false)
-const errorPrefs = ref('')
 
 function onMenuOver(ev: MouseEvent) {
   if (!ayudasActivas.value) {
@@ -327,46 +321,6 @@ function onMenuOver(ev: MouseEvent) {
 
 function ocultarAyuda() {
   ayudaVisible.value = false
-}
-
-async function cambiarIdioma(id: IdiomaUi) {
-  if (guardandoPrefs.value || locale.value === id) return
-  guardandoPrefs.value = true
-  errorPrefs.value = ''
-  try {
-    await auth.guardarPreferencias({ idioma: id })
-  } catch {
-    errorPrefs.value = t('preferencias.error')
-  } finally {
-    guardandoPrefs.value = false
-  }
-}
-
-async function cambiarTema(id: string) {
-  if (guardandoPrefs.value || auth.usuario?.colorTema === id) return
-  guardandoPrefs.value = true
-  errorPrefs.value = ''
-  try {
-    await auth.guardarPreferencias({ colorTema: id })
-  } catch {
-    errorPrefs.value = t('preferencias.error')
-  } finally {
-    guardandoPrefs.value = false
-  }
-}
-
-async function cambiarAyudas(ev: Event) {
-  const activo = (ev.target as HTMLInputElement).checked
-  if (guardandoPrefs.value) return
-  guardandoPrefs.value = true
-  errorPrefs.value = ''
-  try {
-    await auth.guardarPreferencias({ ayudasMenu: activo })
-  } catch {
-    errorPrefs.value = t('preferencias.error')
-  } finally {
-    guardandoPrefs.value = false
-  }
 }
 
 watch(
@@ -849,49 +803,6 @@ async function logout() {
       </div>
 
       <div class="sidebar-footer">
-        <div v-if="mostrarTexto" class="preferencias">
-          <p class="pref-label">{{ t('preferencias.idioma') }}</p>
-          <div class="pref-idiomas">
-            <button
-              v-for="idioma in idiomas"
-              :key="idioma.id"
-              type="button"
-              class="pref-idioma"
-              data-ayuda="idioma"
-              :class="{ activo: locale === idioma.id }"
-              :disabled="guardandoPrefs"
-              @click="cambiarIdioma(idioma.id)"
-            >
-              {{ idioma.etiqueta }}
-            </button>
-          </div>
-          <p class="pref-label">{{ t('preferencias.color') }}</p>
-          <div class="pref-colores">
-            <button
-              v-for="tema in temas"
-              :key="tema.id"
-              type="button"
-              class="pref-color"
-              data-ayuda="color"
-              :class="{ activo: (auth.usuario?.colorTema || 'azul') === tema.id }"
-              :style="{ background: tema.muestra }"
-              :title="t(`temas.${tema.id}`)"
-              :aria-label="t(`temas.${tema.id}`)"
-              :disabled="guardandoPrefs"
-              @click="cambiarTema(tema.id)"
-            ></button>
-          </div>
-          <label class="pref-ayudas" data-ayuda="ayudas">
-            <input
-              type="checkbox"
-              :checked="ayudasActivas"
-              :disabled="guardandoPrefs"
-              @change="cambiarAyudas"
-            />
-            {{ t('preferencias.ayudas') }}
-          </label>
-          <p v-if="errorPrefs" class="pref-error">{{ errorPrefs }}</p>
-        </div>
         <RouterLink
           to="/configuracion"
           class="btn-config"
@@ -1359,71 +1270,4 @@ select.topbar-tienda {
   flex-direction: column;
 }
 
-.preferencias {
-  display: grid;
-  gap: 0.35rem;
-  margin-bottom: 0.35rem;
-  padding: 0.45rem;
-  border: 1px solid var(--tema-sidebar-boton-borde);
-  border-radius: 8px;
-  background: var(--tema-sidebar-boton);
-}
-
-.pref-label {
-  margin: 0;
-  font-size: 0.72rem;
-  font-weight: 700;
-  opacity: 0.85;
-}
-
-.pref-idiomas,
-.pref-colores {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.28rem;
-}
-
-.pref-idioma {
-  padding: 0.12rem 0.35rem;
-  border: 1px solid var(--tema-sidebar-boton-borde);
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 0.72rem;
-  cursor: pointer;
-}
-
-.pref-idioma.activo {
-  background: var(--tema-acento);
-  border-color: var(--tema-acento);
-  color: #fff;
-}
-
-.pref-color {
-  width: 1.15rem;
-  height: 1.15rem;
-  padding: 0;
-  border: 2px solid transparent;
-  border-radius: 50%;
-  cursor: pointer;
-}
-
-.pref-color.activo {
-  border-color: #fff;
-}
-
-.pref-ayudas {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.75rem;
-  cursor: pointer;
-}
-
-.pref-error {
-  margin: 0;
-  color: #fecaca;
-  font-size: 0.72rem;
-}
 </style>

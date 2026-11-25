@@ -4,6 +4,13 @@ import { DOCUMENTOS_PLANTILLAS_SCOPES } from '@/config/documentos-plantillas'
 
 const opciones = [
   {
+    id: 'preferencias',
+    titulo: 'Idioma y color',
+    descripcion: 'Idioma de la aplicación y color de la barra de menú.',
+    ruta: '/configuracion/preferencias',
+    disponible: true,
+  },
+  {
     id: DOCUMENTOS_PLANTILLAS_SCOPES.albaranes.id,
     titulo: DOCUMENTOS_PLANTILLAS_SCOPES.albaranes.titulo,
     descripcion: DOCUMENTOS_PLANTILLAS_SCOPES.albaranes.descripcionHub,

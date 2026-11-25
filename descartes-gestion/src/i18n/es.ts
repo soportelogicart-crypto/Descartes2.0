@@ -184,8 +184,10 @@ export const es = {
     grafito: 'Grafito',
   },
   preferencias: {
+    titulo: 'Idioma y color',
+    intro: 'Se guarda en su usuario y se aplica al momento.',
     idioma: 'Idioma',
-    color: 'Color',
+    color: 'Color de la barra de menú',
     ayudas: 'Ayudas del menú',
     error: 'No se ha podido guardar. Inténtelo de nuevo.',
   },

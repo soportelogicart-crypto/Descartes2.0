@@ -78,6 +78,7 @@ const FidelizacionConfigView = vista(() => import('@/views/configuracion/Fideliz
 const CorreoConfigView = vista(() => import('@/views/configuracion/CorreoConfigView.vue'))
 const DocumentosPlantillasView = vista(() => import('@/views/configuracion/DocumentosPlantillasView.vue'))
 const ImportacionDatosView = vista(() => import('@/views/configuracion/ImportacionDatosView.vue'))
+const PreferenciasConfigView = vista(() => import('@/views/configuracion/PreferenciasConfigView.vue'))
 const TpvVentaView = vista(() => import('@/views/tpv/TpvVentaView.vue'))
 const ConsultaSinConexionView = vista(() => import('@/views/tpv/ConsultaSinConexionView.vue'))
 const ListadosHubView = vista(() => import('@/views/listados/ListadosHubView.vue'))
@@ -154,6 +155,12 @@ const router = createRouter({
           name: 'configuracion-importacion',
           component: ImportacionDatosView,
           meta: { titulo: 'Importación de datos' },
+        },
+        {
+          path: 'configuracion/preferencias',
+          name: 'configuracion-preferencias',
+          component: PreferenciasConfigView,
+          meta: { titulo: 'Idioma y color' },
         },
         {
           path: 'configuracion/documentos',
