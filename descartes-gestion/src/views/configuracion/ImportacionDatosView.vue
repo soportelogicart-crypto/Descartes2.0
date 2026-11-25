@@ -31,6 +31,8 @@ const TAMANO_LOTE = 200
 const MAX_ERRORES_VISIBLES = 300
 
 const MODULO_POR_ENTIDAD: Record<ImportacionEntidad, string> = {
+  impuestos: 'impuestos',
+  'formas-pago': 'formas-pago',
   macrofamilias: 'macrofamilias',
   familias: 'familias',
   subfamilias: 'subfamilias',
@@ -204,6 +206,8 @@ function contextoDelArchivo(): ImportacionContexto {
       .map((f) => String(f.datos.codigo ?? '').trim())
       .filter((c) => c !== '')
   return {
+    impuestos: codigosDe('impuestos'),
+    'formas-pago': codigosDe('formas-pago'),
     macrofamilias: codigosDe('macrofamilias'),
     familias: filasDe('familias')
       .map((f) => ({
@@ -300,7 +304,7 @@ const etiquetaImportar = computed(() =>
     <RouterLink to="/configuracion" class="volver">← Configuración</RouterLink>
     <h2>Importación de datos</h2>
     <p class="intro">
-      Cargue macrofamilias, familias, subfamilias, proveedores, artículos y clientes desde un Excel. Primero se hace una simulación
+      Cargue impuestos, formas de pago, macrofamilias, familias, subfamilias, proveedores, artículos y clientes desde un Excel. Primero se hace una simulación
       (no guarda nada) y después la importación. Lo que ya existe no se modifica.
     </p>
 

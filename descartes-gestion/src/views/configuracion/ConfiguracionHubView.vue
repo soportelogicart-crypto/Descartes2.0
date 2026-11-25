@@ -55,7 +55,7 @@ const opciones = [
   {
     id: 'importacion',
     titulo: 'Importación de datos',
-    descripcion: 'Cargar macrofamilias, familias, subfamilias, proveedores, artículos y clientes desde un Excel (con simulación previa).',
+    descripcion: 'Cargar impuestos, formas de pago, macrofamilias, familias, subfamilias, proveedores, artículos y clientes desde un Excel (con simulación previa).',
     ruta: '/configuracion/importacion',
     disponible: true,
   },

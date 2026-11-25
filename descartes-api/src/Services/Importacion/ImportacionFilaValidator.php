@@ -85,6 +85,16 @@ final class ImportacionFilaValidator
       $tipo = (string) ($col['tipo'] ?? 'texto');
       $limite = $limitesBd[$clave] ?? [];
 
+      if ($tipo === 'booleano') {
+        $si = self::booleanoDeTexto($valor);
+        if ($si === null) {
+          $errores[] = ['campo' => $clave, 'mensaje' => "{$cabecera} debe ser Si o No (valor: {$valor})"];
+          continue;
+        }
+        $out[$clave] = $si;
+        continue;
+      }
+
       if ($tipo === 'decimal') {
         $numero = self::numeroDecimal($valor);
         if ($numero === null) {
@@ -134,6 +144,22 @@ final class ImportacionFilaValidator
     }
 
     return ['datos' => $out, 'errores' => $errores];
+  }
+
+  /**
+   * Si/No de una celda: Si, S, X, 1, true, verdadero (si) / No, N, 0, false, falso (no).
+   * Devuelve null si el texto no se entiende.
+   */
+  public static function booleanoDeTexto(string $texto): ?bool
+  {
+    $t = self::normalizarCabecera($texto);
+    if (in_array($t, ['si', 's', 'x', '1', 'true', 'verdadero', 'yes', 'y'], true)) {
+      return true;
+    }
+    if (in_array($t, ['no', 'n', '0', 'false', 'falso'], true)) {
+      return false;
+    }
+    return null;
   }
 
   /** Texto limpio de una celda (numeros enteros de Excel sin ".0"). */

@@ -1,6 +1,8 @@
 import { api } from './client'
 
 export type ImportacionEntidad =
+  | 'impuestos'
+  | 'formas-pago'
   | 'macrofamilias'
   | 'familias'
   | 'subfamilias'
@@ -12,7 +14,7 @@ export interface ImportacionColumna {
   clave: string
   cabecera: string
   obligatoria: boolean
-  tipo: 'texto' | 'entero' | 'decimal'
+  tipo: 'texto' | 'entero' | 'decimal' | 'booleano'
   max: number | null
   ejemplo: string
   ayuda: string
@@ -61,6 +63,8 @@ export interface ImportacionResultadoLote {
 
 /** Códigos del propio archivo que el simulacro necesita para validar referencias. */
 export interface ImportacionContexto {
+  impuestos?: string[]
+  'formas-pago'?: string[]
   macrofamilias?: string[]
   familias?: { codigo: string; macroFamiliaCodigo: string }[]
   subfamilias?: string[]

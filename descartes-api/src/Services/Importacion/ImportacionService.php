@@ -253,8 +253,8 @@ final class ImportacionService
       'familias' => 'Mantenimiento > Familias o la hoja Familias',
       'subfamilias' => 'Mantenimiento > Subfamilias o la hoja SubFamilias',
       'agrupaciones' => 'Mantenimiento > Agrupaciones',
-      'impuestos' => 'Mantenimiento > Impuestos',
-      'formas-pago' => 'Mantenimiento > Formas de pago',
+      'impuestos' => 'Mantenimiento > Impuestos o la hoja Impuestos',
+      'formas-pago' => 'Mantenimiento > Formas de pago o la hoja Formas de pago',
       'proveedores' => 'Mantenimiento > Proveedores o la hoja Proveedores',
     ][$ref] ?? 'Mantenimiento';
 
@@ -284,7 +284,7 @@ final class ImportacionService
   }
 
   /**
-   * Codigos que el propio archivo crearia (familias y proveedores).
+   * Codigos que el propio archivo crearia (impuestos, formas de pago, familias, subfamilias y proveedores).
    *
    * @param array<string, mixed> $contexto
    * @return array<string, true>
@@ -296,7 +296,7 @@ final class ImportacionService
       foreach (array_keys($this->familiasDelContexto($contexto)) as $codigo) {
         $set[ImportacionFilaValidator::normalizarCodigo((string) $codigo)] = true;
       }
-    } elseif (in_array($ref, ['macrofamilias', 'subfamilias', 'proveedores'], true)) {
+    } elseif (in_array($ref, ['macrofamilias', 'subfamilias', 'proveedores', 'impuestos', 'formas-pago'], true)) {
       foreach ((array) ($contexto[$ref] ?? []) as $codigo) {
         $codigo = trim((string) $codigo);
         if ($codigo !== '') {

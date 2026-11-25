@@ -341,6 +341,12 @@ final class MantenimientoService
   {
     EntityConfig::assertExists($entidad);
     switch ($entidad) {
+      case 'impuestos':
+        $this->validarImpuesto($data, null);
+        break;
+      case 'formas-pago':
+        $this->validarFormaPago($data, null);
+        break;
       case 'macrofamilias':
         $this->validarMacrofamilia($data, null);
         break;
@@ -2108,14 +2114,23 @@ final class MantenimientoService
 
   private function macroFamiliaDeFamilia(string $familiaCodigo): string
   {
-    $stmt = $this->pdo->prepare(
-      'SELECT RTRIM(ISNULL([MacroFamilia], \'\')) FROM [Familias] WHERE RTRIM([Codigo]) = :codigo'
-    );
-    $stmt->execute(['codigo' => trim($familiaCodigo)]);
-    $val = $stmt->fetchColumn();
-    $macro = $val === false || $val === null ? '' : trim((string) $val);
-    if ($macro === '' && isset($this->familiasSimuladas[trim($familiaCodigo)])) {
-      return trim($this->familiasSimuladas[trim($familiaCodigo)]);
+    $codigo = trim($familiaCodigo);
+    // Igual que en la importacion: "001" del Excel es la familia 1 en una columna numerica.
+    $sinCeros = ctype_digit($codigo) ? (ltrim($codigo, '0') === '' ? '0' : ltrim($codigo, '0')) : $codigo;
+    $macro = '';
+    foreach (array_values(array_unique([$codigo, $sinCeros])) as $variante) {
+      $stmt = $this->pdo->prepare(
+        'SELECT RTRIM(ISNULL([MacroFamilia], \'\')) FROM [Familias] WHERE RTRIM([Codigo]) = :codigo'
+      );
+      $stmt->execute(['codigo' => $variante]);
+      $val = $stmt->fetchColumn();
+      $macro = $val === false || $val === null ? '' : trim((string) $val);
+      if ($macro !== '') {
+        break;
+      }
+    }
+    if ($macro === '' && isset($this->familiasSimuladas[$codigo])) {
+      return trim($this->familiasSimuladas[$codigo]);
     }
     return $macro;
   }

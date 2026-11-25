@@ -59,7 +59,83 @@ final class MejorasGestionSchema
     self::asegurarPagosACuenta($pdo, $driver);
     self::asegurarPagosACuentaPedido($pdo, $driver);
     self::asegurarConfigInstalacion($pdo, $driver);
+    self::asegurarCodigosJerarquiaTexto($pdo, $driver);
     self::$comprobado = true;
+  }
+
+  /**
+   * Codigos de la jerarquia de articulos que en MySQL eran numericos (y perdian los ceros
+   * de delante: 001 quedaba como 1). En SQL Server ya son texto.
+   *
+   * @var array<string, list<string>>
+   */
+  private const CODIGOS_JERARQUIA_TEXTO = [
+    'Agrupaciones' => ['Codigo'],
+    'MacroFamilias' => ['Codigo'],
+    'Familias' => ['Codigo', 'MacroFamilia'],
+    'Subfamilias' => ['Subfamilia', 'Familia'],
+    'Articulos' => ['Agrupacion', 'Familia', 'Subfamilia'],
+    'ListadoTarifas01' => ['Agrupacion', 'Familia', 'SubFamilia'],
+  ];
+
+  private const TIPOS_NUMERICOS_MYSQL = ['tinyint', 'smallint', 'mediumint', 'int', 'bigint', 'decimal', 'double', 'float'];
+
+  /**
+   * Convierte a VARCHAR(6) las columnas numericas de la jerarquia de articulos (solo MySQL).
+   * Los valores se conservan ("1" sigue siendo "1"); a partir de aqui admiten ceros delante.
+   * Si algo falla se deja como estaba: el programa sigue funcionando con codigos numericos.
+   */
+  private static function asegurarCodigosJerarquiaTexto(PDO $pdo, string $driver): void
+  {
+    if ($driver !== 'mysql') {
+      return;
+    }
+    try {
+      $tablas = array_keys(self::CODIGOS_JERARQUIA_TEXTO);
+      $marcas = implode(', ', array_fill(0, count($tablas), '?'));
+      $stmt = $pdo->prepare(
+        'SELECT TABLE_NAME AS tabla, COLUMN_NAME AS columna, DATA_TYPE AS tipo,
+                IS_NULLABLE AS acepta_nulo, COLUMN_DEFAULT AS por_defecto
+         FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (' . $marcas . ')'
+      );
+      $stmt->execute($tablas);
+      foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $col) {
+        $tabla = (string) ($col['tabla'] ?? '');
+        $columna = (string) ($col['columna'] ?? '');
+        $tipo = strtolower((string) ($col['tipo'] ?? ''));
+        if (!in_array($tipo, self::TIPOS_NUMERICOS_MYSQL, true)) {
+          continue;
+        }
+        $deseadas = null;
+        foreach (self::CODIGOS_JERARQUIA_TEXTO as $nombre => $columnas) {
+          if (strcasecmp($nombre, $tabla) === 0) {
+            $deseadas = $columnas;
+            break;
+          }
+        }
+        if ($deseadas === null || !in_array(strtolower($columna), array_map('strtolower', $deseadas), true)) {
+          continue;
+        }
+        $nulo = strtoupper((string) ($col['acepta_nulo'] ?? 'YES')) === 'NO' ? 'NOT NULL' : 'NULL';
+        // MariaDB devuelve el literal: NULL como texto y las cadenas entre comillas.
+        $porDefecto = $col['por_defecto'] ?? null;
+        if ($porDefecto !== null) {
+          $porDefecto = trim((string) $porDefecto);
+          if (preg_match("/^'(.*)'$/s", $porDefecto, $m) === 1) {
+            $porDefecto = $m[1];
+          } elseif (strcasecmp($porDefecto, 'NULL') === 0) {
+            $porDefecto = null;
+          }
+        }
+        $defecto = $porDefecto === null ? '' : ' DEFAULT ' . $pdo->quote((string) $porDefecto);
+        $pdo->exec(
+          'ALTER TABLE `' . $tabla . '` MODIFY `' . $columna . '` VARCHAR(6) ' . $nulo . $defecto
+        );
+      }
+    } catch (\Throwable $e) {
+      error_log('Codigos de jerarquia a texto: ' . $e->getMessage());
+    }
   }
 
   /** Ajustes de toda la instalación (no de un PC): clave/valor. */

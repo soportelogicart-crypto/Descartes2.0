@@ -149,7 +149,7 @@ CREATE TABLE IF NOT EXISTS `Agenda` (
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `Agrupaciones` (
-  `Codigo` smallint NOT NULL,
+  `Codigo` varchar(6) NOT NULL,
   `Descripcion` varchar(50),
   PRIMARY KEY (`Codigo`)
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
@@ -1044,9 +1044,9 @@ CREATE TABLE IF NOT EXISTS `Articulos` (
   `Codigo` varchar(18) NOT NULL,
   `Alternativo` varchar(18),
   `Descripcion` varchar(50),
-  `Subfamilia` int DEFAULT 0,
+  `Subfamilia` varchar(6) DEFAULT '0',
   `Sectorial` varchar(1),
-  `Familia` smallint DEFAULT 0,
+  `Familia` varchar(6) DEFAULT '0',
   `UltProveedor` varchar(4),
   `Impuesto` varchar(2),
   `Siglas` varchar(2),
@@ -1090,7 +1090,7 @@ CREATE TABLE IF NOT EXISTS `Articulos` (
   `Comentarios` longtext,
   `Cocina` smallint,
   `UnidadStock` varchar(5),
-  `Agrupacion` smallint,
+  `Agrupacion` varchar(6),
   `TodoIncluidoHotel` tinyint(1) NOT NULL DEFAULT 0,
   `RegaloHoraFeliz` smallint DEFAULT 0,
   `upsize_ts` binary(8),
@@ -2900,9 +2900,9 @@ CREATE TABLE IF NOT EXISTS `failed_jobs` (
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `Familias` (
-  `Codigo` smallint NOT NULL DEFAULT 0,
+  `Codigo` varchar(6) NOT NULL DEFAULT '0',
   `Descripcion` varchar(40),
-  `MacroFamilia` smallint DEFAULT 0,
+  `MacroFamilia` varchar(6) DEFAULT '0',
   `CuentaCtb` double,
   `CuentaCtbIta` varchar(6),
   `upsize_ts` binary(8),
@@ -3224,9 +3224,9 @@ CREATE TABLE IF NOT EXISTS `ListadoTarifas01` (
   `Codigo` varchar(18) NOT NULL,
   `Alternativo` varchar(18),
   `Descripcion` varchar(50),
-  `Familia` smallint,
+  `Familia` varchar(6),
   `UltProveedor` varchar(4),
-  `SubFamilia` int,
+  `SubFamilia` varchar(6),
   `Impuesto` varchar(2),
   `PrecioVen1` float,
   `Tarifa1` float,
@@ -3264,7 +3264,7 @@ CREATE TABLE IF NOT EXISTS `ListadoTarifas01` (
   `Tarifa9` float,
   `PjeDto9` float,
   `TipoDescuento9` varchar(6),
-  `Agrupacion` smallint,
+  `Agrupacion` varchar(6),
   `FechaBaja` datetime
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
 
@@ -3386,7 +3386,7 @@ CREATE TABLE IF NOT EXISTS `LogTarjetas` (
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `MacroFamilias` (
-  `Codigo` smallint NOT NULL DEFAULT 0,
+  `Codigo` varchar(6) NOT NULL DEFAULT '0',
   `Descripcion` varchar(40),
   PRIMARY KEY (`Codigo`)
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
@@ -4758,9 +4758,9 @@ CREATE TABLE IF NOT EXISTS `Stock` (
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `Subfamilias` (
-  `Subfamilia` int NOT NULL DEFAULT 0,
+  `Subfamilia` varchar(6) NOT NULL DEFAULT '0',
   `Descripción` varchar(40),
-  `Familia` smallint,
+  `Familia` varchar(6),
   `CuentaCtb` double DEFAULT 0,
   `idWeb` int DEFAULT 0,
   `idWeb2` int DEFAULT 0,

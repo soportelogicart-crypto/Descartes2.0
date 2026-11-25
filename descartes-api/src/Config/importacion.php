@@ -12,7 +12,7 @@ declare(strict_types=1);
  *  - clave:       campo API (entities.php)
  *  - cabecera:    texto de la cabecera en el Excel (sin tildes: se compara sin ellas)
  *  - obligatoria: la fila falla si va vacia
- *  - tipo:        texto | entero | decimal
+ *  - tipo:        texto | entero | decimal | booleano (Si/No)
  *  - max:         longitud maxima (texto)
  *  - ejemplo:     ejemplo para la hoja de instrucciones
  *  - ayuda:       explicacion corta
@@ -24,9 +24,91 @@ declare(strict_types=1);
  */
 return [
   /** Orden de importacion (cada hoja depende de las anteriores). */
-  'orden' => ['macrofamilias', 'familias', 'subfamilias', 'proveedores', 'articulos', 'clientes'],
+  'orden' => [
+    'impuestos', 'formas-pago', 'macrofamilias', 'familias', 'subfamilias', 'proveedores', 'articulos', 'clientes',
+  ],
 
   'hojas' => [
+    'impuestos' => [
+      'hoja' => 'Impuestos',
+      'titulo' => 'Impuestos',
+      'descripcion' => 'Tipos de IVA. Vaya primero en el archivo: los articulos los usan.',
+      'claveCodigo' => 'codigo',
+      'codigoAutomatico' => false,
+      'unicos' => [],
+      'columnas' => [
+        [
+          'clave' => 'codigo', 'cabecera' => 'Codigo', 'obligatoria' => true, 'tipo' => 'texto',
+          'max' => 2, 'ejemplo' => 'IG', 'ayuda' => 'Codigo del impuesto (hasta 2 caracteres).',
+        ],
+        [
+          'clave' => 'descripcion', 'cabecera' => 'Descripcion', 'obligatoria' => true, 'tipo' => 'texto',
+          'max' => 40, 'ejemplo' => 'IVA general', 'ayuda' => 'Nombre del impuesto.',
+        ],
+        [
+          'clave' => 'porcentajeIVA', 'cabecera' => '% IVA', 'obligatoria' => true, 'tipo' => 'decimal',
+          'max' => null, 'ejemplo' => '21', 'ayuda' => 'Porcentaje de IVA (0 si es exento).',
+        ],
+        [
+          'clave' => 'porcentajeRec', 'cabecera' => '% Recargo', 'obligatoria' => false, 'tipo' => 'decimal',
+          'max' => null, 'ejemplo' => '5,2', 'ayuda' => 'Recargo de equivalencia. Vacio = 0.',
+        ],
+        [
+          'clave' => 'ivaExento', 'cabecera' => 'IVA exento', 'obligatoria' => false, 'tipo' => 'booleano',
+          'max' => null, 'ejemplo' => 'No', 'ayuda' => 'Si o No. Vacio = No.',
+        ],
+        [
+          'clave' => 'regimenEspecialAGYP', 'cabecera' => 'Regimen especial AGYP', 'obligatoria' => false,
+          'tipo' => 'booleano', 'max' => null, 'ejemplo' => 'No',
+          'ayuda' => 'Regimen especial agricultura, ganaderia y pesca. Si o No. Vacio = No.',
+        ],
+      ],
+    ],
+
+    'formas-pago' => [
+      'hoja' => 'Formas de pago',
+      'titulo' => 'Formas de pago',
+      'descripcion' => 'Las usan los clientes y proveedores. Vaya al principio del archivo.',
+      'claveCodigo' => 'codigo',
+      'codigoAutomatico' => false,
+      'unicos' => [],
+      'columnas' => [
+        [
+          'clave' => 'codigo', 'cabecera' => 'Codigo', 'obligatoria' => true, 'tipo' => 'texto',
+          'max' => 2, 'ejemplo' => 'EU', 'ayuda' => 'Codigo de la forma de pago (hasta 2 caracteres).',
+        ],
+        [
+          'clave' => 'descripcion', 'cabecera' => 'Descripcion', 'obligatoria' => true, 'tipo' => 'texto',
+          'max' => 40, 'ejemplo' => 'Efectivo', 'ayuda' => 'Nombre de la forma de pago.',
+        ],
+        [
+          'clave' => 'abreviacion', 'cabecera' => 'Abreviacion', 'obligatoria' => false, 'tipo' => 'texto',
+          'max' => 3, 'ejemplo' => 'Eu', 'ayuda' => 'Hasta 3 caracteres.',
+        ],
+        [
+          'clave' => 'cobroDeArqueo', 'cabecera' => 'Cobro de arqueo', 'obligatoria' => false, 'tipo' => 'booleano',
+          'max' => null, 'ejemplo' => 'Si',
+          'ayuda' => 'Si es un cobro al contado que entra en el arqueo de caja. Si o No. Vacio = No.',
+        ],
+        [
+          'clave' => 'abrirCajon', 'cabecera' => 'Abrir cajon', 'obligatoria' => false, 'tipo' => 'booleano',
+          'max' => null, 'ejemplo' => 'Si', 'ayuda' => 'Abre el cajon al cobrar. Si o No. Vacio = No.',
+        ],
+        [
+          'clave' => 'numVtos', 'cabecera' => 'Num. vencimientos', 'obligatoria' => false, 'tipo' => 'entero',
+          'max' => null, 'ejemplo' => '2', 'ayuda' => 'Numero de vencimientos. Vacio = 0 (pago al momento).',
+        ],
+        [
+          'clave' => 'dias1erVto', 'cabecera' => 'Dias 1er vencimiento', 'obligatoria' => false, 'tipo' => 'entero',
+          'max' => null, 'ejemplo' => '30', 'ayuda' => 'Dias hasta el primer vencimiento. Vacio = 0.',
+        ],
+        [
+          'clave' => 'diasEntreVtos', 'cabecera' => 'Dias entre vencimientos', 'obligatoria' => false,
+          'tipo' => 'entero', 'max' => null, 'ejemplo' => '30', 'ayuda' => 'Dias entre un vencimiento y el siguiente. Vacio = 0.',
+        ],
+      ],
+    ],
+
     'macrofamilias' => [
       'hoja' => 'MacroFamilias',
       'titulo' => 'MacroFamilias',
@@ -293,7 +375,8 @@ return [
   'instrucciones' => [
     'Rellene una hoja por tipo de dato. Las columnas marcadas con * son obligatorias.',
     'No cambie los nombres de las hojas ni de las cabeceras. Puede dejar hojas vacias.',
-    'Orden de carga: MacroFamilias, Familias, SubFamilias, Proveedores, Articulos y Clientes. Cada hoja puede usar codigos de las anteriores.',
+    'Orden de carga: Impuestos, Formas de pago, MacroFamilias, Familias, SubFamilias, Proveedores, Articulos y Clientes. Cada hoja puede usar codigos de las anteriores.',
+    'Las columnas Si/No admiten Si, No, 1, 0 o vacio (vacio = No).',
     'No se modifica nada que ya exista: si un codigo ya esta en la base de datos, esa fila se omite.',
     'Antes de importar use "Simular": revisa todo sin guardar y avisa de los errores por fila.',
     'Los codigos van como texto (por ejemplo 001). Los precios con coma o punto decimal.',

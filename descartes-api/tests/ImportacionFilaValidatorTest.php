@@ -22,7 +22,7 @@ final class ImportacionFilaValidatorTest extends TestCase
   {
     $cfg = ImportacionFilaValidator::config();
     $this->assertSame(
-      ['macrofamilias', 'familias', 'subfamilias', 'proveedores', 'articulos', 'clientes'],
+      ['impuestos', 'formas-pago', 'macrofamilias', 'familias', 'subfamilias', 'proveedores', 'articulos', 'clientes'],
       $cfg['orden']
     );
     foreach ($cfg['orden'] as $entidad) {
@@ -64,6 +64,70 @@ final class ImportacionFilaValidatorTest extends TestCase
 
     $sub = ImportacionFilaValidator::validar($this->hoja('subfamilias'), ['descripcion' => 'Cactus']);
     $this->assertEqualsCanonicalizing(['codigo', 'familiaCodigo'], array_column($sub['errores'], 'campo'));
+  }
+
+  public function testObligatoriasDeImpuestoYFormaDePago(): void
+  {
+    $imp = ImportacionFilaValidator::validar($this->hoja('impuestos'), ['codigo' => 'IG']);
+    $this->assertEqualsCanonicalizing(['descripcion', 'porcentajeIVA'], array_column($imp['errores'], 'campo'));
+
+    $fp = ImportacionFilaValidator::validar($this->hoja('formas-pago'), ['abreviacion' => 'Eu']);
+    $this->assertEqualsCanonicalizing(['codigo', 'descripcion'], array_column($fp['errores'], 'campo'));
+  }
+
+  public function testImpuestoConDecimalesYSiNo(): void
+  {
+    $r = ImportacionFilaValidator::validar($this->hoja('impuestos'), [
+      'codigo' => 'IG', 'descripcion' => 'General', 'porcentajeIVA' => '21', 'porcentajeRec' => '5,2',
+      'ivaExento' => 'No', 'regimenEspecialAGYP' => 'Sí',
+    ]);
+    $this->assertSame([], $r['errores']);
+    $this->assertSame(21.0, $r['datos']['porcentajeIVA']);
+    $this->assertSame(5.2, $r['datos']['porcentajeRec']);
+    $this->assertFalse($r['datos']['ivaExento']);
+    $this->assertTrue($r['datos']['regimenEspecialAGYP']);
+  }
+
+  public function testPorcentajeCeroEsValidoYSiNoRaroEsError(): void
+  {
+    $cero = ImportacionFilaValidator::validar($this->hoja('impuestos'), [
+      'codigo' => 'EX', 'descripcion' => 'Exento', 'porcentajeIVA' => '0', 'ivaExento' => 'Si',
+    ]);
+    $this->assertSame([], $cero['errores']);
+    $this->assertSame(0.0, $cero['datos']['porcentajeIVA']);
+
+    $mal = ImportacionFilaValidator::validar($this->hoja('impuestos'), [
+      'codigo' => 'EX', 'descripcion' => 'Exento', 'porcentajeIVA' => '0', 'ivaExento' => 'quizas',
+    ]);
+    $this->assertSame(['ivaExento'], array_column($mal['errores'], 'campo'));
+  }
+
+  public function testFormaDePagoConVencimientosYLongitudes(): void
+  {
+    $ok = ImportacionFilaValidator::validar($this->hoja('formas-pago'), [
+      'codigo' => 'R5', 'descripcion' => 'Recibo 30 y 60', 'abreviacion' => 'Rb', 'cobroDeArqueo' => '0',
+      'abrirCajon' => '1', 'numVtos' => '2', 'dias1erVto' => '30', 'diasEntreVtos' => '30',
+    ]);
+    $this->assertSame([], $ok['errores']);
+    $this->assertSame(2, $ok['datos']['numVtos']);
+    $this->assertFalse($ok['datos']['cobroDeArqueo']);
+    $this->assertTrue($ok['datos']['abrirCajon']);
+
+    $mal = ImportacionFilaValidator::validar($this->hoja('formas-pago'), [
+      'codigo' => 'ABC', 'descripcion' => 'X', 'abreviacion' => 'ABCD', 'numVtos' => 'dos',
+    ]);
+    $this->assertEqualsCanonicalizing(['codigo', 'abreviacion', 'numVtos'], array_column($mal['errores'], 'campo'));
+  }
+
+  public function testBooleanoDeTexto(): void
+  {
+    foreach (['Si', 'sí', ' SI ', 'S', 'x', '1', 'true'] as $v) {
+      $this->assertTrue(ImportacionFilaValidator::booleanoDeTexto($v), $v);
+    }
+    foreach (['No', 'n', '0', 'FALSE'] as $v) {
+      $this->assertFalse(ImportacionFilaValidator::booleanoDeTexto($v), $v);
+    }
+    $this->assertNull(ImportacionFilaValidator::booleanoDeTexto('quizas'));
   }
 
   public function testCodigoVacioDeClienteNoEsErrorAqui(): void
