@@ -73,6 +73,39 @@ jobs:
       - name: Compilar la gestión
         working-directory: descartes-gestion
         run: npm ci && npm run build
+      # El simulacro de FTP-Deploy-Action guarda el estado en el servidor sin subir los archivos.
+      # Si no se borra, la subida real cree que ya está todo sincronizado y no publica los cambios.
+      - name: Olvidar el estado FTP antes de subir
+        if: ${{ inputs.simulacro == false }}
+        env:
+          FTP_SERVER: ${{ secrets.HOSTINGER_FTP_SERVER }}
+          FTP_USER: ${{ secrets.HOSTINGER_FTP_USERNAME }}
+          FTP_PASS: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
+          BASE: ${{ steps.destino.outputs.base }}
+        run: |
+          python3 - <<'PY'
+          import ftplib, os
+          base = os.environ.get("BASE", "./")
+          if base in ("./", "."):
+              base = ""
+          nombres = [
+              ".ftp-deploy-sync-state.json",
+              "api-descartes/src/.ftp-deploy-sync-state.json",
+              "api-descartes/public/.ftp-deploy-sync-state.json",
+              "api-descartes/database/.ftp-deploy-sync-state.json",
+          ]
+          ftp = ftplib.FTP()
+          ftp.connect(os.environ["FTP_SERVER"], 21, timeout=60)
+          ftp.login(os.environ["FTP_USER"], os.environ["FTP_PASS"])
+          for nombre in nombres:
+              ruta = base + nombre
+              try:
+                  ftp.delete(ruta)
+                  print("borrado", ruta)
+              except ftplib.all_errors as exc:
+                  print("no estaba", ruta, exc)
+          ftp.quit()
+          PY
       - name: Subir la gestión
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
