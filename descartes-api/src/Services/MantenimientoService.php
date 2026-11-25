@@ -317,8 +317,68 @@ final class MantenimientoService
     return array_values(array_unique($variants));
   }
 
-  public function create(string $entidad, array $data): array
+  /**
+   * Familias que existen solo en el archivo de una importacion en simulacro
+   * (codigo => macrofamilia). Permite validar articulos sin haber grabado sus familias.
+   *
+   * @var array<string, string>
+   */
+  private array $familiasSimuladas = [];
+
+  /** @param array<string, string> $familias codigo => macrofamilia */
+  public function setFamiliasSimuladas(array $familias): void
   {
+    $this->familiasSimuladas = $familias;
+  }
+
+  /**
+   * Validacion de alta para importaciones en simulacro: mismas reglas que create(),
+   * sin escribir nada ni reservar numeracion.
+   *
+   * @param array<string, mixed> $data
+   */
+  public function validarAltaImportacion(string $entidad, array $data): void
+  {
+    EntityConfig::assertExists($entidad);
+    switch ($entidad) {
+      case 'macrofamilias':
+        $this->validarMacrofamilia($data, null);
+        break;
+      case 'familias':
+        $this->validarFamilia($data, null);
+        break;
+      case 'subfamilias':
+        $this->validarSubfamilia($data, null);
+        break;
+      case 'articulos':
+        $this->ensureArticulosRegistroSanitario();
+        unset($data['empresaCodigo']);
+        $this->validarArticulo($data, null);
+        break;
+      case 'proveedores':
+        $this->prepararIban($data);
+        $this->validarProveedorIban($data);
+        break;
+      case 'clientes':
+        $this->validarClienteDatosObligatorios($data, true);
+        $this->prepararDatosCliente($data);
+        $this->prepararFechaAltaFidelizacion($data);
+        $this->validarCliente($data, null);
+        break;
+      default:
+        throw new \InvalidArgumentException('Entidad no importable');
+    }
+  }
+
+  /**
+   * @param array<string, mixed> $data
+   * @param array{importacion?: bool} $opciones
+   *   importacion: respeta el codigo recibido (sin numeracion automatica) y no envia avisos por correo.
+   */
+  public function create(string $entidad, array $data, array $opciones = []): array
+  {
+    $importacion = (bool) ($opciones['importacion'] ?? false);
+    $respetarCodigo = $importacion && trim((string) ($data['codigo'] ?? '')) !== '';
     if ($entidad === 'puestos-trabajo') {
       $this->ensurePuestosFormatoPlantillas();
     }
@@ -334,14 +394,18 @@ final class MantenimientoService
       $this->ensureArticulosRegistroSanitario();
       $empresaCodigo = trim((string) ($data['empresaCodigo'] ?? ''));
       unset($data['empresaCodigo']);
-      $this->articuloGeneracionCodigos()->aplicarEnAlta($data, $empresaCodigo);
+      if (!$respetarCodigo) {
+        $this->articuloGeneracionCodigos()->aplicarEnAlta($data, $empresaCodigo);
+      }
       $this->validarArticulo($data, null);
     }
     if ($entidad === 'clientes') {
       // Validar datos de negocio antes de reservar UltCliente (GenClientes).
       $this->validarClienteDatosObligatorios($data, true);
       $empresaCodigo = trim((string) ($data['tiendaCodigo'] ?? ''));
-      $this->asignarCodigoClienteSiCorresponde($data, $empresaCodigo);
+      if (!$respetarCodigo) {
+        $this->asignarCodigoClienteSiCorresponde($data, $empresaCodigo);
+      }
       $this->prepararDatosCliente($data);
       $this->prepararFechaAltaFidelizacion($data);
       $this->validarCliente($data, null);
@@ -382,7 +446,9 @@ final class MantenimientoService
     if ($entidad === 'proveedores') {
       $empresaCodigo = trim((string) ($data['empresaCodigo'] ?? ''));
       unset($data['empresaCodigo']);
-      $this->asignarCodigoProveedorSiCorresponde($data, $empresaCodigo);
+      if (!$respetarCodigo) {
+        $this->asignarCodigoProveedorSiCorresponde($data, $empresaCodigo);
+      }
       $this->prepararIban($data);
       $this->validarProveedorIban($data);
     }
@@ -430,7 +496,7 @@ final class MantenimientoService
       }
       throw $e;
     }
-    if ($entidad === 'clientes') {
+    if ($entidad === 'clientes' && !$importacion) {
       try {
         (new \Descartes\Api\Services\Ventas\EncargoService($this->pdo))->enviarEmailAlta($codigo);
       } catch (\Throwable $e) {
@@ -2047,7 +2113,11 @@ final class MantenimientoService
     );
     $stmt->execute(['codigo' => trim($familiaCodigo)]);
     $val = $stmt->fetchColumn();
-    return $val === false || $val === null ? '' : trim((string) $val);
+    $macro = $val === false || $val === null ? '' : trim((string) $val);
+    if ($macro === '' && isset($this->familiasSimuladas[trim($familiaCodigo)])) {
+      return trim($this->familiasSimuladas[trim($familiaCodigo)]);
+    }
+    return $macro;
   }
 
   /**

@@ -38,6 +38,7 @@ $containerBuilder->addDefinitions([
   \Descartes\Api\Controllers\FacturacionController::class => DI\autowire(),
   \Descartes\Api\Controllers\ListadosController::class => DI\autowire(),
   \Descartes\Api\Controllers\LogController::class => DI\autowire(),
+  \Descartes\Api\Controllers\ImportacionController::class => DI\autowire(),
   \Descartes\Api\Middleware\PermissionMiddleware::class => DI\autowire(),
 ]);
 $container = $containerBuilder->build();
@@ -58,6 +59,7 @@ $app->setBasePath($basePath);
 (require __DIR__ . '/../src/Routes/instalacion.php')($app);
 (require __DIR__ . '/../src/Routes/auth.php')($app);
 (require __DIR__ . '/../src/Routes/mantenimiento.php')($app);
+(require __DIR__ . '/../src/Routes/importacion.php')($app);
 (require __DIR__ . '/../src/Routes/ventas.php')($app);
 (require __DIR__ . '/../src/Routes/encargos.php')($app);
 (require __DIR__ . '/../src/Routes/compras.php')($app);

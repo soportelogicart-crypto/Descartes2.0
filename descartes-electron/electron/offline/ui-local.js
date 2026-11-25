@@ -147,7 +147,8 @@ async function actualizar(appUrl, { timeoutMs = 8000, onProgreso } = {}) {
     for (let i = 0; i < lista.length; i++) {
       const { nombre, limpio } = lista[i]
       avisar(i, limpio)
-      const res = await peticion({ url: urlArchivo(appUrl, nombre), timeoutMs: 60000 })
+      // ?v= evita que Chromium reutilice un index.html viejo junto a los JS nuevos.
+      const res = await peticion({ url: `${urlArchivo(appUrl, nombre)}?v=${encodeURIComponent(version)}`, timeoutMs: 60000 })
       if (res.status !== 200) {
         throw new Error(`${nombre}: HTTP ${res.status}`)
       }
@@ -161,6 +162,13 @@ async function actualizar(appUrl, { timeoutMs = 8000, onProgreso } = {}) {
     avisar(lista.length, '')
     if (!copiaCompleta(temporal, archivos)) {
       throw new Error('La copia local se quedó a medias')
+    }
+    const html = fs.readFileSync(path.join(temporal, 'index.html'), 'utf8')
+    const citados = [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((m) => m[1].slice(1))
+    for (const citado of citados) {
+      if (!archivos.includes(citado) || !fs.existsSync(path.join(temporal, citado))) {
+        throw new Error(`index.html pide ${citado} y no está en esta versión`)
+      }
     }
     fs.rmSync(destino, { recursive: true, force: true })
     fs.renameSync(temporal, destino)

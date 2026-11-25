@@ -4559,6 +4559,21 @@ tr.comentario td input {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.acciones-linea {
+  white-space: nowrap;
+}
+.btn-mover {
+  border: none;
+  background: transparent;
+  color: #334155;
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0 0.15rem;
+}
+.btn-mover:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
 .btn-x {
   border: none;
   background: transparent;
@@ -4850,6 +4865,7 @@ tr.comentario td input {
   .error,
   .hint,
   .btn-add,
+  .btn-mover,
   .btn-x,
   .btn-buscar-art,
   .overlay {

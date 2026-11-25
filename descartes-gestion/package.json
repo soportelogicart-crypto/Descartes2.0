@@ -12,9 +12,11 @@
     "axios": "^1.7.9",
     "pinia": "^2.3.0",
     "qrcode": "^1.5.4",
+    "read-excel-file": "^9.3.20",
     "vue": "^3.5.13",
     "vue-i18n": "^9.14.5",
-    "vue-router": "^4.5.0"
+    "vue-router": "^4.5.0",
+    "write-excel-file": "^4.1.1"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.1",
