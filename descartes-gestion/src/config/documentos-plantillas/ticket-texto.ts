@@ -177,7 +177,15 @@ export function lineasTotalesTicket(
   })
   const aCuenta = Number(d.totales.pagoACuenta) || 0
   const cobradoAhora = Math.max(0, Math.round((d.totales.importe - aCuenta) * 100) / 100)
-  if (aCuenta > 0.004) {
+  const detalleCuenta = (d.totales.pagosACuentaDetalle ?? []).filter((p) => Math.abs(p.importe) > 0.004)
+  if (detalleCuenta.length) {
+    for (const p of detalleCuenta) {
+      const rotulo = p.fecha ? `A CUENTA ${p.fecha}` : 'A CUENTA'
+      out.push(g(rotulo, importeCorto(p.importe)))
+      if (p.forma) out.push({ tipo: 'grande', texto: p.forma })
+    }
+    out.push(g('TOTAL A CUENTA', importeCorto(aCuenta || detalleCuenta.reduce((s, p) => s + p.importe, 0))))
+  } else if (aCuenta > 0.004) {
     out.push(g('A CUENTA', importeCorto(aCuenta)))
   }
   const pagos = (d.documento.pagos ?? []).filter((p) => Math.abs(p.importe) > 0.004)

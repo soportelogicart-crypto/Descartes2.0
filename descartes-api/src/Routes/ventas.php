@@ -187,6 +187,14 @@ return function (App $app): void {
       ->add($setPermiso('ventas-pedidos', 'crear'));
     $group->get('/pedidos-clientes/{empresa}/{pedido}', [VentasController::class, 'getPedido'])
       ->add($setPermiso('ventas-pedidos', 'ver'));
+    $group->get('/pedidos-clientes/{empresa}/{pedido}/pagos-a-cuenta', [VentasController::class, 'listPagosPedido'])
+      ->add($setPermiso('ventas-pedidos', 'ver'));
+    $group->post('/pedidos-clientes/{empresa}/{pedido}/pagos-a-cuenta', [VentasController::class, 'createPagoPedido'])
+      ->add($setPermiso('ventas-pedidos', 'editar'));
+    $group->put('/pedidos-clientes/{empresa}/{pedido}/pagos-a-cuenta/{nro}', [VentasController::class, 'updatePagoPedido'])
+      ->add($setPermiso('ventas-pedidos', 'editar'));
+    $group->delete('/pedidos-clientes/{empresa}/{pedido}/pagos-a-cuenta/{nro}', [VentasController::class, 'deletePagoPedido'])
+      ->add($setPermiso('ventas-pedidos', 'editar'));
     $group->put('/pedidos-clientes/{empresa}/{pedido}', [VentasController::class, 'updatePedido'])
       ->add($setPermiso('ventas-pedidos', 'editar'));
     $group->post('/pedidos-clientes/{empresa}/{pedido}/convertir-venta', [VentasController::class, 'convertirPedidoVenta'])

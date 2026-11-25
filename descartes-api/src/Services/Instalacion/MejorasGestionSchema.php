@@ -57,6 +57,7 @@ final class MejorasGestionSchema
       }
     }
     self::asegurarPagosACuenta($pdo, $driver);
+    self::asegurarPagosACuentaPedido($pdo, $driver);
     self::asegurarConfigInstalacion($pdo, $driver);
     self::$comprobado = true;
   }
@@ -128,6 +129,48 @@ final class MejorasGestionSchema
         [EmpresaArqueo] NVARCHAR(10) NULL,
         [Contabilizado] BIT NOT NULL CONSTRAINT [DF_PagosACuentaAlbaran_Contab] DEFAULT 0,
         CONSTRAINT [PK_PagosACuentaAlbaran] PRIMARY KEY ([Empresa], [Tipo], [Albaran], [Nro], [NroMov])
+      )'
+    );
+  }
+
+  private static function asegurarPagosACuentaPedido(PDO $pdo, string $driver): void
+  {
+    if (self::existeTabla($pdo, $driver, 'PagosACuentaPedido')) {
+      return;
+    }
+    if ($driver === 'mysql') {
+      $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS `PagosACuentaPedido` (
+          `Empresa` VARCHAR(10) NOT NULL,
+          `Pedido` INT NOT NULL,
+          `Nro` INT NOT NULL,
+          `NroMov` INT NOT NULL,
+          `Fecha` DATETIME NULL,
+          `Importe` DECIMAL(18,2) NOT NULL,
+          `FormaPago` VARCHAR(5) NULL,
+          `Puesto` VARCHAR(10) NULL,
+          `Sesion` INT NOT NULL,
+          `EmpresaArqueo` VARCHAR(10) NULL,
+          `Contabilizado` TINYINT NOT NULL DEFAULT 0,
+          PRIMARY KEY (`Empresa`, `Pedido`, `Nro`, `NroMov`)
+        )'
+      );
+      return;
+    }
+    $pdo->exec(
+      'CREATE TABLE [PagosACuentaPedido] (
+        [Empresa] NVARCHAR(10) NOT NULL,
+        [Pedido] INT NOT NULL,
+        [Nro] INT NOT NULL,
+        [NroMov] INT NOT NULL,
+        [Fecha] DATETIME NULL,
+        [Importe] DECIMAL(18,2) NOT NULL,
+        [FormaPago] NVARCHAR(5) NULL,
+        [Puesto] NVARCHAR(10) NULL,
+        [Sesion] INT NOT NULL,
+        [EmpresaArqueo] NVARCHAR(10) NULL,
+        [Contabilizado] BIT NOT NULL CONSTRAINT [DF_PagosACuentaPedido_Contab] DEFAULT 0,
+        CONSTRAINT [PK_PagosACuentaPedido] PRIMARY KEY ([Empresa], [Pedido], [Nro], [NroMov])
       )'
     );
   }

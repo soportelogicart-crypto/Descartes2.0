@@ -20,6 +20,7 @@ use Descartes\Api\Services\Ventas\FidelizacionService;
 use Descartes\Api\Services\Ventas\FidelizacionValesSemestreService;
 use Descartes\Api\Services\TipoDescuentoService;
 use Descartes\Api\Services\Ventas\PagoACuentaAlbaranService;
+use Descartes\Api\Services\Ventas\PagoACuentaPedidoService;
 use Descartes\Api\Services\Ventas\PedidoClienteService;
 use Descartes\Api\Services\Ventas\SituacionVentasService;
 use Descartes\Api\Services\Ventas\ValeService;
@@ -54,6 +55,7 @@ final class VentasController
   private TipoDescuentoService $tiposDescuento;
   private SituacionVentasService $situacionVentas;
   private PagoACuentaAlbaranService $pagosACuenta;
+  private PagoACuentaPedidoService $pagosPedido;
   private LoggerInterface $logger;
 
   public function __construct(
@@ -78,6 +80,7 @@ final class VentasController
     TipoDescuentoService $tiposDescuento,
     SituacionVentasService $situacionVentas,
     PagoACuentaAlbaranService $pagosACuenta,
+    PagoACuentaPedidoService $pagosPedido,
     LoggerInterface $logger
   ) {
     $this->ventas = $ventas;
@@ -101,6 +104,7 @@ final class VentasController
     $this->tiposDescuento = $tiposDescuento;
     $this->situacionVentas = $situacionVentas;
     $this->pagosACuenta = $pagosACuenta;
+    $this->pagosPedido = $pagosPedido;
     $this->logger = $logger;
   }
 
@@ -227,6 +231,86 @@ final class VentasController
         (string) ($args['empresa'] ?? ''),
         (string) ($args['tipo'] ?? ''),
         (int) ($args['albaran'] ?? 0),
+        (int) ($args['nro'] ?? 0),
+        $body
+      );
+      return $this->json($response, 200, $item);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function listPagosPedido(Request $request, Response $response, array $args): Response
+  {
+    try {
+      return $this->json($response, 200, $this->pagosPedido->listar(
+        (string) ($args['empresa'] ?? ''),
+        (int) ($args['pedido'] ?? 0)
+      ));
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function createPagoPedido(Request $request, Response $response, array $args): Response
+  {
+    $body = (array) json_decode((string) $request->getBody(), true);
+    try {
+      $item = $this->pagosPedido->crear(
+        (string) ($args['empresa'] ?? ''),
+        (int) ($args['pedido'] ?? 0),
+        $body
+      );
+      $this->audit('ventas.pago_a_cuenta_pedido', 'Pago a cuenta de pedido anotado', [
+        'empresa' => $args['empresa'] ?? null,
+        'pedido' => $args['pedido'] ?? null,
+        'importe' => $body['importe'] ?? null,
+      ]);
+      return $this->json($response, 201, $item);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function updatePagoPedido(Request $request, Response $response, array $args): Response
+  {
+    $body = (array) json_decode((string) $request->getBody(), true);
+    try {
+      $item = $this->pagosPedido->actualizar(
+        (string) ($args['empresa'] ?? ''),
+        (int) ($args['pedido'] ?? 0),
+        (int) ($args['nro'] ?? 0),
+        $body
+      );
+      return $this->json($response, 200, $item);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      return $this->runtimeError($response, $e);
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
+  public function deletePagoPedido(Request $request, Response $response, array $args): Response
+  {
+    $body = (array) json_decode((string) $request->getBody(), true);
+    try {
+      $item = $this->pagosPedido->eliminar(
+        (string) ($args['empresa'] ?? ''),
+        (int) ($args['pedido'] ?? 0),
         (int) ($args['nro'] ?? 0),
         $body
       );

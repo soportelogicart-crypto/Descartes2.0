@@ -219,7 +219,8 @@ return function (App $app): void {
   ));
   $container->set(\Descartes\Api\Services\Ventas\PedidoClienteService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\PedidoClienteService(
     $c->get(PDO::class),
-    $c->get(\Descartes\Api\Services\Ventas\VentaEscrituraService::class)
+    $c->get(\Descartes\Api\Services\Ventas\VentaEscrituraService::class),
+    $c->get(\Descartes\Api\Services\Ventas\PagoACuentaPedidoService::class)
   ));
   $container->set(\Descartes\Api\Services\Ventas\AbcVentasService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Ventas\AbcVentasService($c->get(PDO::class)));
   $container->set(\Descartes\Api\Services\Compras\AbcComprasService::class, static fn (ContainerInterface $c) => new \Descartes\Api\Services\Compras\AbcComprasService($c->get(PDO::class)));

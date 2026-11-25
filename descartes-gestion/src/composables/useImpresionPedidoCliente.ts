@@ -1,4 +1,6 @@
+import { listarPagosPedido, type PagoACuentaItem } from '@/api/ventas'
 import type { DocumentoPreviewDatos } from '@/config/documentos-plantillas/preview-datos'
+import { fechaPagoACuenta, textoPagosACuenta } from '@/composables/ventaDocumentoPreview'
 import {
   cargarPuesto,
   cargarTienda,
@@ -44,6 +46,7 @@ export function pedidoClienteAPreviewDatos(
     empresaTelefono?: string
     empresaEmail?: string
     emblemaUrl?: string
+    pagosACuenta?: PagoACuentaItem[]
   } = {}
 ): DocumentoPreviewDatos {
   const lineas: DocumentoPreviewDatos['lineas'] = []
@@ -82,6 +85,10 @@ export function pedidoClienteAPreviewDatos(
   const base = redondear2(Number(ped.importeBase1) || Number(ped.importe) || 0)
   const cuota = redondear2(Number(ped.importeIva1) || 0)
   const pje = Number(ped.pjeIva1) || 0
+  const pagoACuenta = redondear2(Number(ped.pagoACuenta) || 0)
+  const pagos = extras.pagosACuenta ?? []
+  const textoPagos = textoPagosACuenta(pagoACuenta, pagos)
+  const observaciones = [String(ped.observaciones ?? '').trim(), textoPagos].filter(Boolean).join('\n')
 
   return {
     empresa: {
@@ -125,7 +132,7 @@ export function pedidoClienteAPreviewDatos(
       fechaEntrega: fmtFecha(ped.fechaPrevista),
       transportista: String(ped.transporte ?? ''),
       portes: '',
-      observaciones: String(ped.observaciones ?? ''),
+      observaciones,
       formaPago: '',
       codigoBarras: '',
       pagina: '1/1',
@@ -135,6 +142,15 @@ export function pedidoClienteAPreviewDatos(
       base,
       ivas: cuota || pje ? [{ pje, base, cuota }] : [],
       importe: redondear2(Number(ped.importe) || 0),
+      pagoACuenta,
+      liquido: redondear2((Number(ped.importe) || 0) - pagoACuenta),
+      pagosACuentaDetalle: pagos
+        .filter((p) => Math.abs(Number(p.importe) || 0) > 0.004)
+        .map((p) => ({
+          fecha: fechaPagoACuenta(p.fecha),
+          importe: redondear2(Number(p.importe) || 0),
+          forma: String(p.formaPagoNombre || p.formaPago || '').trim(),
+        })),
     },
     vencimientos: [],
     verifactu: { qrPayload: '', url: '' },
@@ -158,14 +174,18 @@ export async function prepararImpresionPedidoCliente(
     throw new Error('Configure el puesto de este equipo para imprimir.')
   }
   const empresa = String(ped.empresa || '').trim()
-  const [puesto, tienda] = await Promise.all([cargarPuesto(puestoCodigo), cargarTienda(empresa)])
+  const [puesto, tienda, pagos] = await Promise.all([
+    cargarPuesto(puestoCodigo),
+    cargarTienda(empresa),
+    listarPagosPedido(empresa, ped.pedido).catch(() => null),
+  ])
   const extras = await extrasEmpresaParaDocumento(tienda, puesto, empresa)
   const meta = metaImpresionPedidoCliente()
   return prepararImpresionA4Puesto({
     empresa,
     puestoCodigo,
     meta,
-    datos: pedidoClienteAPreviewDatos(ped, extras),
+    datos: pedidoClienteAPreviewDatos(ped, { ...extras, pagosACuenta: pagos?.items ?? [] }),
     titulo: `${meta.label} · ${empresa}-${ped.pedido}`,
   })
 }

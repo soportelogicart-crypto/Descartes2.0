@@ -643,14 +643,28 @@ function sepStyle(b: PlantillaBloque): Record<string, string> | undefined {
                 <span>{{ etiquetaTotal(b) }}</span>
                 <strong>{{ formatImporte(datos.totales.importe) }}</strong>
               </div>
-              <template v-if="Number(datos.totales.impRetIrpf || 0) !== 0">
-                <div class="tot-row">
-                  <span>Base ret. IRPF</span>
-                  <strong>{{ formatImporte(Number(datos.totales.basRetIrpf || 0)) }}</strong>
-                </div>
-                <div class="tot-row">
-                  <span>Ret. IRPF {{ formatImporte(Number(datos.totales.pjeRetIrpf || 0)) }}%</span>
-                  <strong>{{ formatImporte(-Number(datos.totales.impRetIrpf || 0)) }}</strong>
+              <template
+                v-if="
+                  Number(datos.totales.impRetIrpf || 0) !== 0 ||
+                  Math.abs(Number(datos.totales.pagoACuenta || 0)) > 0.004
+                "
+              >
+                <template v-if="Number(datos.totales.impRetIrpf || 0) !== 0">
+                  <div class="tot-row">
+                    <span>Base ret. IRPF</span>
+                    <strong>{{ formatImporte(Number(datos.totales.basRetIrpf || 0)) }}</strong>
+                  </div>
+                  <div class="tot-row">
+                    <span>Ret. IRPF {{ formatImporte(Number(datos.totales.pjeRetIrpf || 0)) }}%</span>
+                    <strong>{{ formatImporte(-Number(datos.totales.impRetIrpf || 0)) }}</strong>
+                  </div>
+                </template>
+                <div
+                  v-if="Math.abs(Number(datos.totales.pagoACuenta || 0)) > 0.004"
+                  class="tot-row"
+                >
+                  <span>A cuenta</span>
+                  <strong>{{ formatImporte(-Number(datos.totales.pagoACuenta || 0)) }}</strong>
                 </div>
                 <div class="tot-row total">
                   <span>LÍQUIDO A PAGAR</span>

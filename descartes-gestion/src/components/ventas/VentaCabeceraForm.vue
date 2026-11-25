@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from '@/api/client'
-import type { PagosACuentaRespuesta, PagoACuentaItem } from '@/api/ventas'
+import type { PagosACuentaRespuesta } from '@/api/ventas'
+import PagosACuentaPanel from '@/components/ventas/PagosACuentaPanel.vue'
 import type { VentaDetalle } from '@/types/ventas'
 import { lookupCodigoPostal } from '@/composables/useCodigoPostalLookup'
 import DecimalInput from '@/components/common/DecimalInput.vue'
@@ -83,75 +84,6 @@ const ficha = computed({
   get: () => props.modelValue,
   set: (v) => emit('update:modelValue', v),
 })
-
-const pagoNro = ref<number | null>(null)
-const pagoForma = ref('')
-const pagoFormaNombre = ref('')
-const pagoImporte = ref<number | null>(0)
-const buscarFpagoArqueo = ref(false)
-const pagoEnviado = ref(false)
-
-const puedeAnotarAdelanto = computed(
-  () => Boolean(props.pagosACuenta?.editable || props.esNuevo)
-)
-const etiquetaFormaElegida = computed(() => {
-  if (!pagoForma.value) return 'Buscar forma de pago'
-  return pagoFormaNombre.value ? `${pagoForma.value} — ${pagoFormaNombre.value}` : pagoForma.value
-})
-
-const totalPagosTexto = computed(() => {
-  const total = props.pagosACuenta?.total ?? Number(props.modelValue.pagoACuenta ?? 0)
-  return `${total.toFixed(2).replace('.', ',')} €`
-})
-
-function dinero(importe: number) {
-  return `${importe.toFixed(2).replace('.', ',')} €`
-}
-
-function etiquetaForma(pago: PagoACuentaItem) {
-  const nombre = pago.formaPagoNombre.trim()
-  return nombre ? `${pago.formaPago} — ${nombre}` : pago.formaPago
-}
-
-function abrirPagoNuevo() {
-  pagoNro.value = null
-  pagoImporte.value = 0
-}
-
-function editarPago(pago: PagoACuentaItem) {
-  pagoNro.value = pago.nro
-  pagoForma.value = pago.formaPago
-  pagoFormaNombre.value = pago.formaPagoNombre
-  pagoImporte.value = pago.importe
-}
-
-function abrirBuscarFormaAdelanto() {
-  buscarFpagoArqueo.value = true
-  buscarFpagoOpen.value = true
-}
-
-function confirmarPago() {
-  const importe = Math.round((Number(pagoImporte.value) || 0) * 100) / 100
-  if (!pagoForma.value) {
-    abrirBuscarFormaAdelanto()
-    return
-  }
-  if (importe <= 0) return
-  pagoEnviado.value = true
-  emit('guardar-pago', { nro: pagoNro.value, importe, formaPago: pagoForma.value })
-}
-
-watch(
-  () => props.pagosOcupado,
-  (ocupado) => {
-    if (ocupado || !pagoEnviado.value) return
-    pagoEnviado.value = false
-    if (!props.pagosError) {
-      pagoNro.value = null
-      pagoImporte.value = 0
-    }
-  }
-)
 
 const fechaBloqueada = computed(() =>
   Boolean(props.readonly || props.soloDatosFiscales || props.puedeEditarFecha === false)
@@ -278,17 +210,11 @@ function setFpago(index: number, codigo: string) {
 
 function abrirBuscarFpago() {
   if (props.readonly) return
-  buscarFpagoArqueo.value = false
   buscarFpagoOpen.value = true
 }
 
 function onFpagoSeleccionado(sel: EntidadBuscarResultado) {
   buscarFpagoOpen.value = false
-  if (buscarFpagoArqueo.value) {
-    pagoForma.value = sel.codigo
-    pagoFormaNombre.value = sel.etiqueta
-    return
-  }
   setFpago(0, sel.codigo)
   fpagoDescripcion.value = sel.etiqueta
 }
@@ -912,70 +838,21 @@ onUnmounted(() => {
             @update:model-value="patch('pjeComision', $event ?? 0)"
           />
         </label>
-        <div class="field span-6 pagos-cuenta">
-          <span class="label">Pago a cuenta</span>
-          <strong class="pagos-total">{{ totalPagosTexto }}</strong>
-          <template v-if="pagosACuenta || esNuevo">
-            <p v-if="pagosACuenta?.motivo" class="pagos-nota">{{ pagosACuenta.motivo }}</p>
-            <p v-else-if="esNuevo && !(Number(ficha.albaran) > 0)" class="pagos-nota">
-              Añadir anota el adelanto en la caja abierta. En un albarán nuevo, primero hay que poner artículos.
-            </p>
-            <table v-if="pagosACuenta?.items.length" class="pagos-tabla">
-              <thead>
-                <tr>
-                  <th>Fecha</th>
-                  <th>Importe</th>
-                  <th>Forma de pago</th>
-                  <th>Caja</th>
-                  <th v-if="pagosACuenta?.editable"></th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="p in pagosACuenta?.items ?? []" :key="p.nro">
-                  <td>{{ p.fecha }}</td>
-                  <td>{{ dinero(p.importe) }}</td>
-                  <td>{{ etiquetaForma(p) }}</td>
-                  <td>{{ p.enCajaHoy ? 'Caja de hoy' : 'Caja cerrada' }}</td>
-                  <td v-if="pagosACuenta?.editable" class="pagos-acciones">
-                    <button type="button" :disabled="pagosOcupado" @click="editarPago(p)">Cambiar</button>
-                    <button type="button" :disabled="pagosOcupado" @click="emit('borrar-pago', p.nro)">
-                      Borrar
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            <p v-else class="pagos-nota">Sin pagos a cuenta.</p>
-            <div v-if="puedeAnotarAdelanto" class="pagos-form">
-              <label>
-                Importe
-                <DecimalInput v-model="pagoImporte" :empty-as-null="false" :disabled="pagosOcupado" />
-              </label>
-              <label>
-                Forma de pago
-                <div class="combo-input">
-                  <span class="combo-nombre">{{ etiquetaFormaElegida }}</span>
-                  <button
-                    type="button"
-                    class="btn-buscar"
-                    title="Buscar forma de pago"
-                    :disabled="pagosOcupado"
-                    @click="abrirBuscarFormaAdelanto"
-                  >
-                    ...
-                  </button>
-                </div>
-              </label>
-              <button type="button" :disabled="pagosOcupado" @click="confirmarPago">
-                {{ pagoNro == null ? 'Añadir' : 'Guardar' }}
-              </button>
-              <button v-if="pagoNro != null" type="button" :disabled="pagosOcupado" @click="abrirPagoNuevo">
-                Cancelar
-              </button>
-            </div>
+        <div class="field span-6">
+          <PagosACuentaPanel
+            v-if="pagosACuenta || esNuevo"
+            :pagos="pagosACuenta"
+            :pagos-error="pagosError"
+            :pagos-ocupado="pagosOcupado"
+            :total-conocido="Number(ficha.pagoACuenta ?? 0)"
+            :es-nuevo="esNuevo && !(Number(ficha.albaran) > 0)"
+            @guardar-pago="emit('guardar-pago', $event)"
+            @borrar-pago="emit('borrar-pago', $event)"
+          />
+          <template v-else>
+            <span class="label">Pago a cuenta</span>
+            <p class="pagos-nota">Sin pagos a cuenta. El adelanto se anota al finalizar.</p>
           </template>
-          <p v-else class="pagos-nota">Sin pagos a cuenta. El adelanto se anota al finalizar.</p>
-          <p v-if="pagosError" class="pagos-error">{{ pagosError }}</p>
         </div>
         <label class="field">
           <span class="label">Idioma</span>
@@ -1040,9 +917,8 @@ onUnmounted(() => {
     <EntidadBuscarModal
       :open="buscarFpagoOpen"
       entidad="formas-pago"
-      :titulo="buscarFpagoArqueo ? 'Forma de pago del adelanto' : 'Seleccionar forma de pago'"
-      :codigo-actual="buscarFpagoArqueo ? pagoForma : fpagoCodigo(0)"
-      :solo-cobro-de-arqueo="buscarFpagoArqueo"
+      titulo="Seleccionar forma de pago"
+      :codigo-actual="fpagoCodigo(0)"
       @seleccionar="onFpagoSeleccionado"
       @cerrar="buscarFpagoOpen = false"
     />
@@ -1450,86 +1326,9 @@ select:disabled {
   color: #0f172a;
 }
 
-.pagos-cuenta {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.pagos-total {
-  font-variant-numeric: tabular-nums;
-}
-
-.pagos-nota,
-.pagos-error {
+.pagos-nota {
   margin: 0;
   font-size: 0.75rem;
-}
-
-.pagos-error {
-  color: #b91c1c;
-}
-
-.pagos-tabla {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.75rem;
-}
-
-.pagos-tabla th,
-.pagos-tabla td {
-  padding: 0.2rem 0.35rem;
-  border-bottom: 1px solid #e2e8f0;
-  text-align: left;
-}
-
-.pagos-acciones {
-  display: flex;
-  gap: 0.25rem;
-}
-
-.pagos-form {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  align-items: end;
-}
-
-.pagos-buscar {
-  position: relative;
-  display: grid;
-  gap: 0.15rem;
-  font-size: 0.75rem;
-}
-
-.pagos-forma {
-  align-self: end;
-}
-
-.pagos-lista {
-  position: absolute;
-  z-index: 5;
-  top: 100%;
-  left: 0;
-  right: 0;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  background: #fff;
-  border: 1px solid #94a3b8;
-  max-height: 10rem;
-  overflow: auto;
-}
-
-.pagos-lista button {
-  width: 100%;
-  text-align: left;
-  background: transparent;
-  border: none;
-  padding: 0.25rem 0.4rem;
-}
-
-.pagos-lista button:hover {
-  background: #eff6ff;
 }
 
 @media (max-width: 900px) {

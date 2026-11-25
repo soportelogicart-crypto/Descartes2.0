@@ -4,12 +4,17 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import {
+  actualizarPagoPedido,
   actualizarPedido,
   convertirPedidoAVenta,
+  crearPagoPedido,
   crearPedido,
+  eliminarPagoPedido,
+  listarPagosPedido,
   marcarPedidoImpreso,
   obtenerPedido,
   reservarPedido,
+  type PagosACuentaRespuesta,
 } from '@/api/ventas'
 import { resolverArticulo } from '@/api/articulos'
 import { createBarcodeScanWatcher } from '@/composables/useBarcodeScanWatcher'
@@ -31,6 +36,7 @@ import EntidadBuscarModal from '@/components/common/EntidadBuscarModal.vue'
 import EntidadLookupField from '@/components/common/EntidadLookupField.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import DecimalInput from '@/components/common/DecimalInput.vue'
+import PagosACuentaPanel from '@/components/ventas/PagosACuentaPanel.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -74,6 +80,9 @@ const confirmConvertirOpen = ref(false)
 const confirmConvertirPendiente = ref(false)
 const ventaCreadaOpen = ref(false)
 const ventaCreadaRef = ref<{ empresa: string; tipo: string; albaran: number } | null>(null)
+const pagosACuenta = ref<PagosACuentaRespuesta | null>(null)
+const pagosError = ref<string | null>(null)
+const pagosOcupado = ref(false)
 const lineaArticuloIdx = ref(0)
 const articuloBusquedaInicial = ref('')
 const articuloInputRefs = ref<HTMLInputElement[]>([])
@@ -429,6 +438,7 @@ async function cargar() {
   pasoAlta.value = 'listo'
   try {
     detalle.value = await obtenerPedido(empresa, pedido)
+    void cargarPagosPedido(detalle.value)
     cargarEnForm(detalle.value)
     const forzarEdicion = busqueda.consumirAbrirEnEdicion({
       empresa: detalle.value.empresa,
@@ -925,6 +935,7 @@ async function onClienteSeleccionado(sel: { codigo: string; etiqueta: string }) 
     esNuevo.value = false
     editando.value = true
     pasoAlta.value = 'listo'
+    void cargarPagosPedido(created)
     omitirProximaCarga.value = true
     busqueda.marcarAbrirEnEdicion({
       empresa: created.empresa,
@@ -1135,12 +1146,16 @@ const puedeGenerarAlbaranCliente = computed(
 
 const puedeConvertir = computed(() => puedeGenerarAlbaranCliente.value)
 
+const totalACuenta = computed(() => pagosACuenta.value?.total ?? Number(detalle.value?.pagoACuenta ?? 0))
+const pendienteCobro = computed(() => Math.max(0, Math.round((importe.value - totalACuenta.value) * 100) / 100))
+
 const mensajeConfirmConvertir = computed(() => {
   const r = resumentLineasAServir(confirmConvertirPendiente.value)
-  if (confirmConvertirPendiente.value) {
-    return `Se generará un albarán con todo el pendiente: ${r.lineas} línea(s), ${r.unidades.toFixed(2)} uds. ¿Continuar?`
-  }
-  return `Se generará un albarán con las cantidades a servir: ${r.lineas} línea(s), ${r.unidades.toFixed(2)} uds. ¿Continuar?`
+  const base = confirmConvertirPendiente.value
+    ? `Se generará un albarán con todo el pendiente: ${r.lineas} línea(s), ${r.unidades.toFixed(2)} uds.`
+    : `Se generará un albarán con las cantidades a servir: ${r.lineas} línea(s), ${r.unidades.toFixed(2)} uds.`
+  if (totalACuenta.value <= 0.004) return `${base} ¿Continuar?`
+  return `${base} Los pagos a cuenta (${totalACuenta.value.toFixed(2)} €) pasan al albarán hasta cubrir su importe. Si sobra, sigue en el pedido. ¿Continuar?`
 })
 
 const mensajeVentaCreada = computed(() => {
@@ -1148,6 +1163,63 @@ const mensajeVentaCreada = computed(() => {
   if (!v) return 'Albarán generado.'
   return `Venta ${v.tipo}-${v.albaran} creada. ¿Abrirla ahora?`
 })
+
+function puestoDelPago() {
+  return String(detalle.value?.puesto || editForm.value.puesto || puestoContexto.puestoCodigo || '').trim()
+}
+
+async function cargarPagosPedido(ped: PedidoDetalle | null) {
+  if (!ped || esNuevo.value) {
+    pagosACuenta.value = null
+    return
+  }
+  try {
+    const lista = await listarPagosPedido(ped.empresa, ped.pedido)
+    if (detalle.value?.empresa === ped.empresa && detalle.value?.pedido === ped.pedido) {
+      pagosACuenta.value = lista
+      detalle.value = { ...detalle.value, pagoACuenta: lista.total, pendienteCobro: Math.max(0, detalle.value.importe - lista.total) }
+    }
+  } catch (e: unknown) {
+    pagosError.value = extractApiError(e, 'No se pudieron cargar los pagos a cuenta')
+  }
+}
+
+async function guardarPagoPedido(payload: { nro: number | null; importe: number; formaPago: string }): Promise<boolean> {
+  const ped = detalle.value
+  if (!ped || esNuevo.value || pagosOcupado.value) return false
+  pagosOcupado.value = true
+  pagosError.value = null
+  try {
+    const cuerpo = { importe: payload.importe, formaPago: payload.formaPago, puesto: puestoDelPago() }
+    const lista = payload.nro
+      ? await actualizarPagoPedido(ped.empresa, ped.pedido, payload.nro, cuerpo)
+      : await crearPagoPedido(ped.empresa, ped.pedido, cuerpo)
+    pagosACuenta.value = lista
+    detalle.value = { ...ped, pagoACuenta: lista.total }
+    return true
+  } catch (e: unknown) {
+    pagosError.value = extractApiError(e, 'No se pudo guardar el pago a cuenta')
+    return false
+  } finally {
+    pagosOcupado.value = false
+  }
+}
+
+async function borrarPagoPedido(nro: number) {
+  const ped = detalle.value
+  if (!ped || pagosOcupado.value) return
+  pagosOcupado.value = true
+  pagosError.value = null
+  try {
+    const lista = await eliminarPagoPedido(ped.empresa, ped.pedido, nro, puestoDelPago())
+    pagosACuenta.value = lista
+    detalle.value = { ...ped, pagoACuenta: lista.total }
+  } catch (e: unknown) {
+    pagosError.value = extractApiError(e, 'No se pudo borrar el pago a cuenta')
+  } finally {
+    pagosOcupado.value = false
+  }
+}
 
 function pedirConvertir(servirPendiente: boolean) {
   if (!puedeConvertir.value || !detalle.value) return
@@ -1215,12 +1287,16 @@ async function ejecutarConvertir(servirPendiente: boolean) {
     detalle.value = res.pedido
     busqueda.upsertResumen(res.pedido)
     cargarEnForm(res.pedido)
+    await cargarPagosPedido(res.pedido)
     const v = res.venta
     const todos = res.ventas?.length ? res.ventas : [v]
     msg.value =
       todos.length > 1
         ? `Albaranes generados, uno por transportista: ${todos.map((x) => `${x.tipo}-${x.albaran}`).join(', ')}`
         : `Albarán ${v.tipo}-${v.albaran} generado`
+    if ((pagosACuenta.value?.total ?? 0) > 0.004) {
+      msg.value += `. Quedan ${pagosACuenta.value!.total.toFixed(2)} € a cuenta en el pedido`
+    }
     ventaCreadaRef.value = {
       empresa: String(v.empresa).trim(),
       tipo: String(v.tipo).trim(),
@@ -1584,6 +1660,12 @@ onActivated(() => {
           <div class="row importe">
             <span>Importe</span><strong>{{ importe.toFixed(2) }}</strong>
           </div>
+          <div v-if="!esNuevo && detalle" class="row">
+            <span>A cuenta</span><strong>{{ totalACuenta.toFixed(2) }}</strong>
+          </div>
+          <div v-if="!esNuevo && detalle" class="row">
+            <span>Pendiente cobro</span><strong>{{ pendienteCobro.toFixed(2) }}</strong>
+          </div>
         </div>
 
         <div v-if="!esNuevo && detalle" class="servir-box">
@@ -1847,6 +1929,15 @@ onActivated(() => {
             rows="3"
           />
         </label>
+        <PagosACuentaPanel
+          v-if="!esNuevo && detalle && pestanaCabecera === 'datos'"
+          :pagos="pagosACuenta"
+          :pagos-error="pagosError"
+          :pagos-ocupado="pagosOcupado"
+          :total-conocido="totalACuenta"
+          @guardar-pago="guardarPagoPedido"
+          @borrar-pago="borrarPagoPedido"
+        />
         <section v-show="pestanaCabecera === 'comisiones'" class="comisiones">
         <p class="hint-comision">
           {{ t('pedido.hintComision') }}

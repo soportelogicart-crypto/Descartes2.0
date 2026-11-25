@@ -13,11 +13,16 @@ final class PedidoClienteService
 {
   private PDO $pdo;
   private ?VentaEscrituraService $ventas;
+  private ?PagoACuentaPedidoService $pagos;
 
-  public function __construct(PDO $pdo, ?VentaEscrituraService $ventas = null)
-  {
+  public function __construct(
+    PDO $pdo,
+    ?VentaEscrituraService $ventas = null,
+    ?PagoACuentaPedidoService $pagos = null
+  ) {
     $this->pdo = $pdo;
     $this->ventas = $ventas;
+    $this->pagos = $pagos;
     try {
       MejorasGestionSchema::asegurar($pdo);
     } catch (\Throwable $e) {
@@ -226,6 +231,9 @@ final class PedidoClienteService
     $detalle['ventaAsociada'] = $venta
       ? ['tipo' => (string) $venta['Tipo'], 'albaran' => (int) $venta['Albaran']]
       : null;
+    $pagoACuenta = $this->totalPagosACuenta($empresa, $pedido);
+    $detalle['pagoACuenta'] = $pagoACuenta;
+    $detalle['pendienteCobro'] = round(max(0, (float) $detalle['importe'] - $pagoACuenta), 2);
 
     return $detalle;
   }
@@ -750,6 +758,7 @@ final class PedidoClienteService
       ]);
       $this->aplicarServido($empresa, $pedido, $servidasGrupo);
     }
+    $this->traspasarPagosAlGenerar($empresa, $pedido, $ventas);
     $venta = $ventas[0];
 
     $pedidoAct = $this->obtener($empresa, $pedido);
@@ -762,6 +771,47 @@ final class PedidoClienteService
       'venta' => $venta,
       'ventas' => $ventas,
     ];
+  }
+
+  /**
+   * @param list<array<string, mixed>> $ventas
+   */
+  private function traspasarPagosAlGenerar(string $empresa, int $pedido, array &$ventas): void
+  {
+    if ($this->pagos === null || $ventas === []) {
+      return;
+    }
+    $destinos = [];
+    foreach ($ventas as $venta) {
+      $destinos[] = [
+        'tipo' => trim((string) ($venta['tipo'] ?? '')),
+        'albaran' => (int) ($venta['albaran'] ?? 0),
+        'importe' => round((float) ($venta['importe'] ?? 0), 2),
+      ];
+    }
+    $totales = $this->pagos->traspasarAAlbaranes($empresa, $pedido, $destinos);
+    foreach ($ventas as &$venta) {
+      $clave = trim((string) ($venta['tipo'] ?? '')) . '|' . (int) ($venta['albaran'] ?? 0);
+      if (array_key_exists($clave, $totales)) {
+        $venta['pagoACuenta'] = $totales[$clave];
+      }
+    }
+    unset($venta);
+  }
+
+  private function totalPagosACuenta(string $empresa, int $pedido): float
+  {
+    try {
+      $st = $this->pdo->prepare(
+        'SELECT ISNULL(SUM(Importe), 0) FROM PagosACuentaPedido WHERE Empresa = :e AND Pedido = :p'
+      );
+      $st->execute(['e' => $empresa, 'p' => $pedido]);
+      $total = round((float) $st->fetchColumn(), 2);
+      $st->closeCursor();
+      return $total;
+    } catch (\Throwable $e) {
+      return 0.0;
+    }
   }
 
   public function marcarImpreso(string $empresa, int $pedido): array

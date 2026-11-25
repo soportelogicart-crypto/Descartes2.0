@@ -33,28 +33,37 @@ function formaDelPago(p: { formaPago?: string; formaPagoNombre?: string }): stri
   return String(p.formaPago ?? '').trim()
 }
 
-/** Una línea por entrega. Con una sola, la forma va en la misma frase. */
+/** Fecha de un pago a cuenta en dd/mm/aaaa, venga en ISO o ya en ese formato. */
+export function fechaPagoACuenta(fecha: string | undefined): string {
+  const texto = String(fecha ?? '').trim()
+  if (!texto) return ''
+  const iso = texto.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`
+  const es = texto.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/)
+  if (es) return `${es[1].padStart(2, '0')}/${es[2].padStart(2, '0')}/${es[3]}`
+  return texto.slice(0, 10)
+}
+
+/** Una línea por entrega, siempre con fecha, y el total debajo. */
 export function textoPagosACuenta(
   total: number,
   items: { importe: number; formaPago?: string; formaPagoNombre?: string; fecha?: string }[] | undefined,
 ): string {
   const lineas = (items ?? []).filter((p) => Math.abs(Number(p.importe) || 0) > 0.004)
   if (!lineas.length) {
-    return total > 0.004 ? `Pago a cuenta: ${eurosDoc(total)}` : ''
+    return total > 0.004 ? `Total a cuenta: ${eurosDoc(total)}` : ''
   }
-  if (lineas.length === 1) {
-    const forma = formaDelPago(lineas[0])
-    const importe = eurosDoc(lineas[0].importe)
-    return forma ? `Pago a cuenta: ${importe} ${forma}` : `Pago a cuenta: ${importe}`
-  }
-  return lineas
-    .map((p) => {
-      const forma = formaDelPago(p)
-      const fecha = String(p.fecha ?? '').trim().slice(0, 10)
-      const rotulo = fecha ? `Pago a cuenta ${fecha}` : 'Pago a cuenta'
-      return forma ? `${rotulo}: ${eurosDoc(p.importe)} ${forma}` : `${rotulo}: ${eurosDoc(p.importe)}`
-    })
-    .join('\n')
+  const suma = lineas.reduce((s, p) => s + (Number(p.importe) || 0), 0)
+  const totalLinea = total > 0.004 ? total : suma
+  const partes = lineas.map((p) => {
+    const forma = formaDelPago(p)
+    const fecha = fechaPagoACuenta(p.fecha)
+    const rotulo = fecha ? `Pago a cuenta ${fecha}` : 'Pago a cuenta'
+    const cuerpo = forma ? `${eurosDoc(p.importe)} ${forma}` : eurosDoc(p.importe)
+    return `${rotulo}: ${cuerpo}`
+  })
+  partes.push(`Total a cuenta: ${eurosDoc(totalLinea)}`)
+  return partes.join('\n')
 }
 
 /** Artículos con Control fitosanitario (Articulos.PasaporteFitosanitario). */
@@ -344,14 +353,20 @@ export function ventaAPreviewDatos(
       basRetIrpf: redondear2(Number(venta.basRetIrpf) || 0),
       impRetIrpf: redondear2(Number(venta.impRetIrpf) || 0),
       pagoACuenta: redondear2(pagoACuenta),
+      pagosACuentaDetalle: (extras.pagosACuenta ?? [])
+        .filter((p) => Math.abs(Number(p.importe) || 0) > 0.004)
+        .map((p) => ({
+          fecha: fechaPagoACuenta(p.fecha),
+          importe: redondear2(Number(p.importe) || 0),
+          forma: formaDelPago(p),
+        })),
       liquido: extras.preciosVenta
         ? importePvp
         : redondear2(
-            Number(
-              venta.importeLiquido
-              ?? venta.importeFactura
-              ?? venta.importe
-            ) || 0
+            venta.importeLiquido != null
+              // Con factura, el servidor ya descuenta retención y pago a cuenta.
+              ? Number(venta.importeLiquido) || 0
+              : (Number(venta.importeFactura ?? venta.importe) || 0) - pagoACuenta
           ),
     },
     fidelizacion: venta.fidelizacionPuntos

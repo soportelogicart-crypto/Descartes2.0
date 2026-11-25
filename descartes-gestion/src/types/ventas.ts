@@ -554,6 +554,8 @@ export type PedidoDetalle = PedidoResumen & {
   lineas: PedidoLinea[]
   editable?: boolean
   convertible?: boolean
+  pagoACuenta?: number
+  pendienteCobro?: number
   ventaAsociada?: { tipo: string; albaran: number } | null
 }
 

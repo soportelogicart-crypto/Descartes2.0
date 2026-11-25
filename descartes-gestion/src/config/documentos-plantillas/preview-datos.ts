@@ -90,6 +90,8 @@ export type DocumentoPreviewDatos = {
     liquido?: number
     /** Adelanto ya cobrado. El ticket imprime el resto como entrega de ahora. */
     pagoACuenta?: number
+    /** Cada entrega a cuenta, con fecha y forma, para el ticket. */
+    pagosACuentaDetalle?: { fecha: string; importe: number; forma: string }[]
   }
   fidelizacion?: {
     puntosCompra: number

@@ -290,6 +290,46 @@ export async function eliminarPagoACuenta(
   return data
 }
 
+function rutaPagosPedido(empresa: string, pedido: number) {
+  return `/api/ventas/pedidos-clientes/${encodeURIComponent(empresa)}/${pedido}/pagos-a-cuenta`
+}
+
+export async function listarPagosPedido(empresa: string, pedido: number) {
+  const { data } = await api.get<PagosACuentaRespuesta>(rutaPagosPedido(empresa, pedido))
+  return data
+}
+
+export async function crearPagoPedido(
+  empresa: string,
+  pedido: number,
+  payload: { importe: number; formaPago: string; puesto?: string | null }
+) {
+  const { data } = await api.post<PagosACuentaRespuesta>(rutaPagosPedido(empresa, pedido), payload)
+  return data
+}
+
+export async function actualizarPagoPedido(
+  empresa: string,
+  pedido: number,
+  nro: number,
+  payload: { importe: number; formaPago: string; puesto?: string | null }
+) {
+  const { data } = await api.put<PagosACuentaRespuesta>(`${rutaPagosPedido(empresa, pedido)}/${nro}`, payload)
+  return data
+}
+
+export async function eliminarPagoPedido(
+  empresa: string,
+  pedido: number,
+  nro: number,
+  puesto?: string | null
+) {
+  const { data } = await api.delete<PagosACuentaRespuesta>(`${rutaPagosPedido(empresa, pedido)}/${nro}`, {
+    data: { puesto },
+  })
+  return data
+}
+
 export async function actualizarVenta(
   empresa: string,
   tipo: string,

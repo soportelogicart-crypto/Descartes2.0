@@ -234,6 +234,7 @@ export function facturaAPreviewDatos(
       pjeRetIrpf: Number(doc.totales.pjeRetIrpf) || 0,
       basRetIrpf: redondear2(doc.totales.basRetIrpf),
       impRetIrpf: redondear2(doc.totales.impRetIrpf),
+      pagoACuenta: redondear2(Number(doc.pagoACuenta) || 0),
       liquido: redondear2(doc.totales.liquido),
     },
     vencimientos: doc.vencimientos.map((v) => ({

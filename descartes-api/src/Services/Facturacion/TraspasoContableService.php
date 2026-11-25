@@ -1089,13 +1089,18 @@ final class TraspasoContableService
       }
       $forma = trim((string) ($mov['FormaPago'] ?? ''));
       $cuentaForma = $this->cuentaFormaPago($forma);
-      $claveAlb = trim((string) $mov['Empresa']) . '|' . trim((string) $mov['Tipo']) . '|' . (int) $mov['Albaran'];
+      $pedido = (int) ($mov['Pedido'] ?? 0);
+      $claveAlb = $pedido > 0
+        ? trim((string) $mov['Empresa']) . '|pedido|' . $pedido
+        : trim((string) $mov['Empresa']) . '|' . trim((string) $mov['Tipo']) . '|' . (int) $mov['Albaran'];
       if (!isset($clientesAlbaran[$claveAlb])) {
-        $clientesAlbaran[$claveAlb] = $this->clienteDeAlbaran(
-          (string) $mov['Empresa'],
-          (string) $mov['Tipo'],
-          (int) $mov['Albaran']
-        );
+        $clientesAlbaran[$claveAlb] = $pedido > 0
+          ? $this->clienteDePedido((string) $mov['Empresa'], $pedido)
+          : $this->clienteDeAlbaran(
+            (string) $mov['Empresa'],
+            (string) $mov['Tipo'],
+            (int) $mov['Albaran']
+          );
       }
       $codigoCliente = $clientesAlbaran[$claveAlb];
       if (!isset($fichasCliente[$codigoCliente])) {
@@ -1169,12 +1174,36 @@ final class TraspasoContableService
     $stmt->execute(['e' => $empresa, 'p' => $puesto, 's' => $sesion]);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
     $stmt->closeCursor();
+    foreach ($rows as &$row) {
+      $row['Pedido'] = 0;
+    }
+    unset($row);
+    try {
+      $ped = $this->gestion->prepare(
+        'SELECT Empresa, Importe, FormaPago, Pedido
+         FROM PagosACuentaPedido
+         WHERE RTRIM(EmpresaArqueo) = :e AND RTRIM(Puesto) = :p AND Sesion = :s
+           AND ISNULL(Contabilizado, 0) = 0'
+      );
+      $ped->execute(['e' => $empresa, 'p' => $puesto, 's' => $sesion]);
+      while ($row = $ped->fetch(PDO::FETCH_ASSOC)) {
+        $row['Tipo'] = '';
+        $row['Albaran'] = 0;
+        $rows[] = $row;
+      }
+      $ped->closeCursor();
+    } catch (\Throwable $e) {
+      if (!$this->esTablaPagosAusente($e)) {
+        throw $e;
+      }
+    }
     return $rows;
   }
 
   private function esTablaPagosAusente(\Throwable $e): bool
   {
-    return str_contains(strtolower($e->getMessage()), 'pagosacuentaalbaran');
+    $msg = strtolower($e->getMessage());
+    return str_contains($msg, 'pagosacuentaalbaran') || str_contains($msg, 'pagosacuentapedido');
   }
 
   private function clienteDeAlbaran(string $empresa, string $tipo, int $albaran): string
@@ -1187,6 +1216,20 @@ final class TraspasoContableService
     $stmt->closeCursor();
     if ($cliente === '') {
       throw new \RuntimeException("El albarán {$albaran} no tiene cliente para el pago a cuenta", 409);
+    }
+    return $cliente;
+  }
+
+  private function clienteDePedido(string $empresa, int $pedido): string
+  {
+    $stmt = $this->gestion->prepare(
+      'SELECT Cliente FROM PedidosClientes WHERE Empresa = :e AND Pedido = :p'
+    );
+    $stmt->execute(['e' => trim($empresa), 'p' => $pedido]);
+    $cliente = trim((string) ($stmt->fetchColumn() ?: ''));
+    $stmt->closeCursor();
+    if ($cliente === '') {
+      throw new \RuntimeException("El pedido {$pedido} no tiene cliente para el pago a cuenta", 409);
     }
     return $cliente;
   }
@@ -1258,6 +1301,17 @@ final class TraspasoContableService
        WHERE RTRIM(EmpresaArqueo) = :e AND RTRIM(Puesto) = :p AND Sesion = :s
          AND ISNULL(Contabilizado, 0) = 0'
     )->execute(['e' => $empresa, 'p' => $puesto, 's' => $sesion]);
+    try {
+      $this->gestion->prepare(
+        'UPDATE PagosACuentaPedido SET Contabilizado = 1
+         WHERE RTRIM(EmpresaArqueo) = :e AND RTRIM(Puesto) = :p AND Sesion = :s
+           AND ISNULL(Contabilizado, 0) = 0'
+      )->execute(['e' => $empresa, 'p' => $puesto, 's' => $sesion]);
+    } catch (\Throwable $e) {
+      if (!$this->esTablaPagosAusente($e)) {
+        throw $e;
+      }
+    }
   }
 
   /**
