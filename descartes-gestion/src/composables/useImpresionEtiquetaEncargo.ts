@@ -16,6 +16,7 @@ import {
   listarPlantillasEtiqueta,
   resolverPlantillaEtiqueta,
 } from '@/composables/usePlantillaEtiqueta'
+import type { SeleccionEtiquetaEncargo } from '@/composables/useSeleccionEtiquetasEncargo'
 import {
   datosEtiquetaEncargo,
   prepararRenderEtiqueta,
@@ -67,7 +68,9 @@ function girarEtiqueta(html: string, anchoMm: number, altoMm: number): string {
 export async function imprimirEtiquetasEncargo(
   numero: number,
   puestoCodigo: string,
-  empresaCodigo: string
+  empresaCodigo: string,
+  /** Etiquetas elegidas por línea; sin ella salen todas las sobres del encargo. */
+  seleccion?: SeleccionEtiquetaEncargo[]
 ): Promise<ResultadoImpresionEtiquetasEncargo> {
   const codigoPuesto = String(puestoCodigo ?? '').trim()
   if (!codigoPuesto) {
@@ -90,6 +93,7 @@ export async function imprimirEtiquetasEncargo(
 
   const { data } = await api.post<RespuestaEtiquetaEncargo>(`/api/encargos/${numero}/etiqueta`, {
     vuelta: false,
+    ...(seleccion ? { etiquetas: seleccion } : {}),
   })
   const codigo = String(data.codigoBarras ?? '').trim()
   if (!codigo) {
@@ -113,7 +117,9 @@ export async function imprimirEtiquetasEncargo(
         telefono,
         email: data.email,
         fecha: fechaCorta(data.fecha),
-        producto: it.producto,
+        // La etiqueta de sobre no lleva el nombre del artículo, aunque la plantilla guardada
+        // todavía tenga el bloque `encargo.producto`: sale vacío.
+        producto: '',
         sobre: `sobre ${String(it.sobre ?? '')}`.trim(),
         codigoBarras: codigo,
         tienda: data.tienda,

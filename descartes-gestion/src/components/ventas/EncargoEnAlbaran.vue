@@ -4,6 +4,8 @@ import { useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import { extractApiError } from '@/composables/extractApiError'
 import { imprimirEtiquetasEncargo } from '@/composables/useImpresionEtiquetaEncargo'
+import { useSeleccionEtiquetasEncargo } from '@/composables/useSeleccionEtiquetasEncargo'
+import SeleccionEtiquetasEncargoDialog from '@/components/ventas/SeleccionEtiquetasEncargoDialog.vue'
 import { usePuestoContextoStore } from '@/stores/puestoContexto'
 import { useEncargoVentaStore } from '@/stores/encargoVenta'
 
@@ -41,6 +43,7 @@ const emit = defineEmits<{
 const router = useRouter()
 const puesto = usePuestoContextoStore()
 const store = useEncargoVentaStore()
+const seleccionEtiquetas = useSeleccionEtiquetasEncargo()
 const encargo = ref<EncargoAlbaran | null>(null)
 const error = ref<string | null>(null)
 const mensaje = ref<string | null>(null)
@@ -165,10 +168,13 @@ async function imprimirEtiquetas() {
   error.value = null
   mensaje.value = null
   try {
+    const seleccion = await seleccionEtiquetas.pedir(e.numero)
+    if (seleccion === null) return
     const res = await imprimirEtiquetasEncargo(
       e.numero,
       String(puesto.puestoCodigo ?? ''),
-      String(puesto.empresaCodigo ?? e.albaranEmpresa ?? props.empresa)
+      String(puesto.empresaCodigo ?? e.albaranEmpresa ?? props.empresa),
+      seleccion
     )
     mensaje.value = `${res.etiquetas} etiqueta(s) enviadas${res.impresora ? ` a ${res.impresora}` : ''}.`
     await cargar(true)
@@ -286,6 +292,11 @@ function volver() {
         </div>
       </div>
     </template>
+    <SeleccionEtiquetasEncargoDialog
+      :lineas="seleccionEtiquetas.lineas.value"
+      @confirmar="seleccionEtiquetas.confirmar"
+      @cancelar="seleccionEtiquetas.cancelar"
+    />
   </aside>
 </template>
 

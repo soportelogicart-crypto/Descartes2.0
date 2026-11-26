@@ -724,7 +724,7 @@ final class EncargoService
   /**
    * Líneas del albarán cuyo artículo lleva sobre.
    *
-   * @return list<array{nroLin: int, articulo: string, producto: string, sobres: int}>
+   * @return list<array{nroLin: int, articulo: string, producto: string, cantidad: float, sobres: int}>
    */
   public function lineasConSobre(string $empresa, string $tipo, int $albaran): array
   {
@@ -751,10 +751,28 @@ final class EncargoService
         'nroLin' => (int) $row['NroLin'],
         'articulo' => trim((string) $row['Articulo']),
         'producto' => $producto,
+        'cantidad' => (float) ($row['Cantidad'] ?? 0),
         'sobres' => $sobres,
       ];
     }
     return $out;
+  }
+
+  /**
+   * Líneas con sobre de un encargo, para elegir cuántas etiquetas se imprimen de cada una.
+   *
+   * @return array{items: list<array{nroLin: int, articulo: string, producto: string, cantidad: float, sobres: int}>}
+   */
+  public function sobresEncargo(int $numero): array
+  {
+    $encargo = $this->obtener($numero);
+    return [
+      'items' => $this->lineasConSobre(
+        (string) $encargo['albaranEmpresa'],
+        (string) $encargo['albaranTipo'],
+        (int) $encargo['albaran']
+      ),
+    ];
   }
 
   /**
@@ -1026,7 +1044,7 @@ final class EncargoService
   }
 
   /** @return array<string, mixed> */
-  public function etiqueta(int $numero, bool $vuelta): array
+  public function etiqueta(int $numero, bool $vuelta, ?array $seleccion = null): array
   {
     $encargo = $this->obtener($numero);
     if ((string) ($encargo['tipo'] ?? 'revelado') !== 'revelado') {
@@ -1035,15 +1053,17 @@ final class EncargoService
     if ($vuelta && !empty($encargo['mismaTienda'])) {
       throw new \InvalidArgumentException('No hay etiqueta de vuelta si no hay viaje');
     }
+    // Se resuelve antes de marcar como impreso: una selección vacía no debe gastar el aviso.
+    $copiasPedidas = max(1, (int) ($encargo['etiquetasPedidas'] ?? 1));
+    $etiquetas = $this->listaEtiquetas($encargo, $copiasPedidas, $seleccion);
     $this->pdo->prepare(
       'UPDATE Encargos SET EtiquetasImpresas = EtiquetasPedidas, FechaImpresion = ' . $this->ahora() . ' WHERE Numero = :n'
     )->execute(['n' => $numero]);
     $encargo = $this->obtener($numero);
     $origen = $vuelta ? (string) $encargo['destinoNombre'] : (string) $encargo['origenNombre'];
     $destino = $vuelta ? (string) $encargo['origenNombre'] : (string) $encargo['destinoNombre'];
-    $copias = max(1, (int) ($encargo['etiquetasPedidas'] ?? 1));
+    $copias = max(1, count($etiquetas));
     $publico = (int) ($encargo['albaran'] ?? $encargo['numero']);
-    $etiquetas = $this->listaEtiquetas($encargo, $copias);
     return [
       'albaran' => $publico,
       'empresa' => (string) $encargo['albaranEmpresa'],
@@ -1082,18 +1102,29 @@ final class EncargoService
    * @param array<string, mixed> $encargo
    * @return list<array{producto: string, articulo: string, sobre: string}>
    */
-  private function listaEtiquetas(array $encargo, int $copias): array
+  private function listaEtiquetas(array $encargo, int $copias, ?array $seleccion = null): array
   {
     $lineas = $this->lineasConSobre(
       (string) $encargo['albaranEmpresa'],
       (string) $encargo['albaranTipo'],
       (int) $encargo['albaran']
     );
+    // Etiquetas elegidas por línea (nroLin => cantidad). Sin elección, todas las sobres.
+    $elegidas = [];
+    foreach ($seleccion ?? [] as $s) {
+      if (is_array($s) && isset($s['nroLin'])) {
+        $elegidas[(int) $s['nroLin']] = max(0, (int) ($s['cantidad'] ?? 0));
+      }
+    }
     $items = [];
     foreach ($lineas as $l) {
-      for ($i = 0; $i < $l['sobres']; $i++) {
+      $n = array_key_exists($l['nroLin'], $elegidas) ? min($l['sobres'], $elegidas[$l['nroLin']]) : $l['sobres'];
+      for ($i = 0; $i < $n; $i++) {
         $items[] = ['producto' => $l['producto'], 'articulo' => $l['articulo']];
       }
+    }
+    if ($items === [] && $lineas !== [] && $elegidas !== []) {
+      throw new \InvalidArgumentException('Elija al menos una etiqueta para imprimir');
     }
     if ($items === []) {
       $producto = '';

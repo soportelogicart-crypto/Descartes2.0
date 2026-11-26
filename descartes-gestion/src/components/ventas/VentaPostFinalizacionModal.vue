@@ -70,7 +70,7 @@ function enviar() {
               :disabled="procesando"
               @click="emit('etiquetas')"
             >
-              IMPRIMIR {{ etiquetas }} ETIQUETA(S) DEL SOBRE
+              IMPRIMIR ETIQUETAS DEL SOBRE
             </button>
             <button type="button" :disabled="procesando" @click="emit('omitir')">
               NO IMPRIMIR

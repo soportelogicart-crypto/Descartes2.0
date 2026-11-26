@@ -38,6 +38,7 @@ return function (App $app): void {
     $group->post('/{numero}/devolver', [EncargoController::class, 'devolver'])->add($setPermiso('editar'));
     $group->post('/{numero}/entregar', [EncargoController::class, 'entregar'])->add($setPermiso('editar'));
     $group->post('/{numero}/modalidad', [EncargoController::class, 'modalidad'])->add($setPermiso('editar'));
+    $group->get('/{numero}/sobres', [EncargoController::class, 'sobres'])->add($setPermiso('ver'));
     $group->post('/{numero}/etiqueta', [EncargoController::class, 'etiqueta'])->add($setPermiso('ver'));
     $group->post('/{numero}/etiqueta-transporte', [EncargoController::class, 'etiquetaTransporte'])->add($setPermiso('ver'));
   })

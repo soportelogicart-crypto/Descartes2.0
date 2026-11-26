@@ -13,10 +13,19 @@ export type VentaCopiaOtraVentaPendiente = {
 export const useVentasCopiaOtraVentaStore = defineStore('ventasCopiaOtraVenta', () => {
   const pendiente = ref<VentaCopiaOtraVentaPendiente | null>(null)
 
+  /** structuredClone falla con proxies reactivos; entonces se copia vía JSON. */
+  function clonar<T>(valor: T): T {
+    try {
+      return structuredClone(valor)
+    } catch {
+      return JSON.parse(JSON.stringify(valor)) as T
+    }
+  }
+
   function preparar(payload: VentaCopiaOtraVentaPendiente) {
     pendiente.value = {
-      ficha: structuredClone(payload.ficha),
-      lineas: structuredClone(payload.lineas),
+      ficha: clonar(payload.ficha),
+      lineas: clonar(payload.lineas),
       elegirCliente: payload.elegirCliente,
     }
   }

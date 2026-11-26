@@ -1165,7 +1165,9 @@ async function cargar() {
   const esRutaNuevo = route.name === 'ventas-nuevo'
   if (esRutaNuevo) {
     // KeepAlive: al volver de otra pestaña no borrar borrador (cliente, líneas…).
-    if (!esNuevo.value) {
+    // Con una copia pendiente («Otra venta») se aplica siempre: si ya había un borrador de
+    // nueva venta abierto, antes se ignoraba la copia y parecía que el botón no hacía nada.
+    if (!esNuevo.value || copiaOtraVenta.pendiente) {
       iniciarNuevaVenta()
     } else {
       error.value = null
@@ -1697,6 +1699,9 @@ async function confirmarOtraVenta(elegirCliente: boolean) {
       return
     }
     router.push({ name: 'ventas-nuevo' })
+  } catch (e: unknown) {
+    copiaOtraVenta.cancelar()
+    error.value = extractApiError(e, 'No se pudo copiar el albarán')
   } finally {
     loading.value = false
   }

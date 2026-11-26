@@ -187,13 +187,26 @@ final class EncargoController
     }
   }
 
+  public function sobres(Request $request, Response $response, array $args): Response
+  {
+    try {
+      return $this->json($response, 200, $this->encargos->sobresEncargo((int) ($args['numero'] ?? 0)));
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
   public function etiqueta(Request $request, Response $response, array $args): Response
   {
     $body = (array) json_decode((string) $request->getBody(), true);
+    $seleccion = isset($body['etiquetas']) && is_array($body['etiquetas']) ? $body['etiquetas'] : null;
     try {
       return $this->json($response, 200, $this->encargos->etiqueta(
         (int) ($args['numero'] ?? 0),
-        !empty($body['vuelta'])
+        !empty($body['vuelta']),
+        $seleccion
       ));
     } catch (\InvalidArgumentException $e) {
       return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
