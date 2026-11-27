@@ -21,6 +21,8 @@ final class MejorasGestionSchema
     $driver = (string) $pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
     $columnas = [
       ['Clientes', 'EmailAlbaranes', 'VARCHAR(200) NULL', 'NVARCHAR(200) NULL'],
+      // Idioma de albaranes y facturas del cliente: 0 español, 1 francés, 2 inglés; NULL = según país.
+      ['Clientes', 'Idioma', 'TINYINT NULL', 'TINYINT NULL'],
       ['PedidosClientesLin', 'Anotacion', 'VARCHAR(80) NULL', 'NVARCHAR(80) NULL'],
       ['PedidosClientesLin', 'Transportista', 'VARCHAR(25) NULL', 'NVARCHAR(25) NULL'],
       ['AlbaranesVentasCab', 'ClienteFinal', 'VARCHAR(80) NULL', 'NVARCHAR(80) NULL'],
@@ -56,11 +58,85 @@ final class MejorasGestionSchema
         $pdo->exec('ALTER TABLE [' . $tabla . '] ADD [' . $columna . '] ' . $sqlsrv);
       }
     }
+    if ($driver === 'mysql') {
+      self::asegurarEsquemaMysqlCompleto($pdo);
+    }
     self::asegurarPagosACuenta($pdo, $driver);
     self::asegurarPagosACuentaPedido($pdo, $driver);
     self::asegurarConfigInstalacion($pdo, $driver);
     self::asegurarCodigosJerarquiaTexto($pdo, $driver);
     self::$comprobado = true;
+  }
+
+  /**
+   * Columnas y longitudes que la API escribe al dar de alta clientes, articulos y proveedores
+   * y que el esquema MySQL no traia (o traia mas cortas que SQL Server). Solo MySQL.
+   * Si algo falla se registra y el resto de la instalacion sigue.
+   */
+  private static function asegurarEsquemaMysqlCompleto(PDO $pdo): void
+  {
+    $columnas = [
+      ['Clientes', 'EmailAlbaranes', 'VARCHAR(200) NULL'],
+      ['Clientes', 'Idioma', 'TINYINT NULL'],
+      ['Clientes', 'CodigoPaisCliente', 'VARCHAR(4) NULL'],
+      ['Clientes', 'CodigoPaisDireccion', 'VARCHAR(4) NULL'],
+      ['Clientes', 'RegimenImpuestos', 'VARCHAR(4) NULL'],
+      ['Clientes', 'CodigoDireccion', 'VARCHAR(4) NULL'],
+      ['Clientes', 'FechaEntradaAdonix', 'DATETIME NULL'],
+      ['Articulos', 'Categoria', 'VARCHAR(6) NULL'],
+      ['Articulos', 'RegistroSanitario', 'VARCHAR(25) NULL'],
+      ['Articulos', 'Contramarca', 'INT DEFAULT 0'],
+      ['Articulos', 'NombreBotanico', 'VARCHAR(50) NULL'],
+      ['Articulos', 'Floracion', 'VARCHAR(10) NULL'],
+      ['Articulos', 'Exposicion', 'VARCHAR(10) NULL'],
+      ['Articulos', 'Poda', 'VARCHAR(10) NULL'],
+      ['Articulos', 'TipoPlanta', 'VARCHAR(10) NULL'],
+      ['Articulos', 'LiteralPlanta1', 'VARCHAR(50) NULL'],
+      ['Articulos', 'LiteralPlanta2', 'VARCHAR(50) NULL'],
+      ['Articulos', 'Ficha', 'VARCHAR(20) NULL'],
+      ['Articulos', 'NumAlveols', 'SMALLINT DEFAULT 0'],
+      ['Articulos', 'UdsXAlveol', 'DOUBLE DEFAULT 0'],
+      ['Articulos', 'UdsXSobre', 'FLOAT DEFAULT 0'],
+      ['Articulos', 'Patron', 'TEXT NULL'],
+      ['Articulos', 'Variedad', 'TEXT NULL'],
+      ['Articulos', 'Altura', 'VARCHAR(50) NULL'],
+      ['Articulos', 'StockBandejas', 'TINYINT(1) DEFAULT 0'],
+    ];
+    try {
+      foreach ($columnas as [$tabla, $columna, $definicion]) {
+        if (!self::existe($pdo, 'mysql', $tabla, $columna)) {
+          $pdo->exec('ALTER TABLE `' . $tabla . '` ADD COLUMN `' . $columna . '` ' . $definicion);
+        }
+      }
+      // Longitudes/tipos como en SQL Server (referencia larasa). Solo se amplian.
+      $tipos = [
+        ['Proveedores', 'Codigo', 'VARCHAR(6) NOT NULL', 6],
+        ['Actividades', 'Codigo', 'VARCHAR(6) NOT NULL DEFAULT 0', 6],
+        ['Clientes', 'Actividad', 'VARCHAR(6) NULL DEFAULT 0', 6],
+        ['Articulos', 'UltProveedor', 'VARCHAR(6) NULL', 6],
+        ['Articulos', 'UnidadStock', 'VARCHAR(10) NULL', 10],
+        ['Articulos', 'UnidadEmpaquetado', 'VARCHAR(10) NULL', 10],
+      ];
+      foreach ($tipos as [$tabla, $columna, $definicion, $minimo]) {
+        $stmt = $pdo->prepare(
+          'SELECT DATA_TYPE AS tipo, CHARACTER_MAXIMUM_LENGTH AS largo
+           FROM information_schema.COLUMNS
+           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND COLUMN_NAME = :c'
+        );
+        $stmt->execute(['t' => $tabla, 'c' => $columna]);
+        $actual = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($actual === false) {
+          continue;
+        }
+        $largo = (int) ($actual['largo'] ?? 0);
+        if (strtolower((string) $actual['tipo']) === 'varchar' && $largo >= $minimo) {
+          continue;
+        }
+        $pdo->exec('ALTER TABLE `' . $tabla . '` MODIFY `' . $columna . '` ' . $definicion);
+      }
+    } catch (\Throwable $e) {
+      error_log('Esquema MySQL completo: ' . $e->getMessage());
+    }
   }
 
   /**

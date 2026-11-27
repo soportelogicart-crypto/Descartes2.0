@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Descartes\Api\Services\Facturacion;
 
+use Descartes\Api\Services\Instalacion\MejorasGestionSchema;
 use Descartes\Api\Support\SimplePdf;
 use PDO;
 
@@ -18,6 +19,12 @@ final class ImpresionFacturasService
   public function __construct(PDO $pdo)
   {
     $this->pdo = $pdo;
+    try {
+      // Crea Clientes.Idioma si aún no existe (la consulta de facturas la lee).
+      MejorasGestionSchema::asegurar($pdo);
+    } catch (\Throwable) {
+      // Si no se puede alterar, la consulta sigue y muestra el error de columna.
+    }
   }
 
   /**
@@ -313,6 +320,8 @@ final class ImpresionFacturasService
         'poblacion' => trim((string) ($c['Poblacion'] ?? '')),
         'provincia' => trim((string) ($c['Provincia'] ?? '')),
         'pais' => trim((string) ($c['Pais'] ?? '')),
+        // 0 español, 1 francés, 2 inglés; null = según país.
+        'idioma' => isset($c['ClienteIdioma']) && $c['ClienteIdioma'] !== '' ? (int) $c['ClienteIdioma'] : null,
         'telefono' => trim((string) ($c['Telefono1'] ?? '')),
         'cuentaBancaria' => self::enmascararCuentaBancaria((string) ($c['CuentaBancaria'] ?? '')),
         'iban' => trim((string) ($c['IBAN'] ?? '')),
@@ -654,7 +663,7 @@ final class ImpresionFacturasService
         f.PjeRec1, f.PjeRec2, f.PjeRec3, f.PjeRec4, f.PjeRec5, f.PjeRec6,
         f.ImporteRec1, f.ImporteRec2, f.ImporteRec3, f.ImporteRec4, f.ImporteRec5, f.ImporteRec6,
         c.RazonSocial, c.RazonSocial2, c.NIF, c.Direccion, c.Poblacion, c.CodigoPostal, c.Provincia,
-        c.Pais, c.Telefono1, c.CuentaBancaria, c.IBAN, c.Swift, c.Agencia, c.Banco,
+        c.Pais, c.Idioma AS ClienteIdioma, c.Telefono1, c.CuentaBancaria, c.IBAN, c.Swift, c.Agencia, c.Banco,
         ISNULL(c.FacturaE, 0) AS FacturaE, c.OficinaContable, c.OrganoGestor,
         c.UnidadTramitadora, c.OrganoProponente, c.TratamientoFiscal,
         fp.Descripcion AS FpagoDescripcion, fp.Tipo AS FpagoTipo, fp.Nota AS FpagoNota,

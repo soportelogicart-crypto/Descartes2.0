@@ -305,6 +305,7 @@ export const es = {
       'detalle-ventas': { titulo: 'Detalle de ventas', descripcion: 'Ventas de los artículos elegidos, por cliente: albaranes y tickets con precio, unidades e importe.' },
       'comisiones-proveedor': { titulo: 'Comisiones de proveedor', descripcion: 'Un pedido por línea: proveedor, importe del pedido e importe de la comisión.' },
       'comisiones-trabajadores': { titulo: 'Comisiones de trabajadores', descripcion: 'Pedidos con comisión de trabajador: porcentaje, importe del pedido e importe de la comisión.' },
+      clientes: { titulo: 'Informe de clientes', descripcion: 'Busque clientes por datos, zona, vendedor, compras y fidelización (con o sin tarjeta, puntos).' },
       'extracto-clientes': { titulo: 'Extracto de clientes', descripcion: 'Movimientos y saldo de clientes en un periodo.' },
       'ventas-situacion': { titulo: 'Situación de ventas', descripcion: 'Totales de tickets, facturas y albaranes por sesión o por fechas.' },
       'ventas-arqueo': { titulo: 'Arqueo de caja', descripcion: 'Consulta de arqueos por puesto y fecha (Ventas).' },

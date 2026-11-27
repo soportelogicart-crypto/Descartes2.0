@@ -42,6 +42,8 @@ return function (App $app): void {
       ->add($setPermiso('listados-informe-iva', 'ver'));
     $group->get('/informe-tickets', [ListadosController::class, 'listInformeTickets'])
       ->add($setPermiso('listados-informe-tickets', 'ver'));
+    $group->get('/clientes', [ListadosController::class, 'listClientes'])
+      ->add($setPermiso('listados-clientes', 'ver'));
     $group->get('/extracto-clientes', [ListadosController::class, 'listExtractoClientes'])
       ->add($setPermiso('listados-extracto-clientes', 'ver'));
     $group->get('/detalle-ventas', [ListadosController::class, 'listDetalleVentas'])

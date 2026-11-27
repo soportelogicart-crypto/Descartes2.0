@@ -96,8 +96,13 @@ export function facturaAPreviewDatos(
     idioma?: IdiomaDocumento
   } = {}
 ): DocumentoPreviewDatos {
+  // Orden: selector manual, idioma de la ficha del cliente, país del cliente.
+  const idiomaCliente = doc.cliente.idioma
   const idioma: IdiomaDocumento =
-    extras.idioma || idiomaDocumento(idiomaDePais(doc.cliente.pais || ''))
+    extras.idioma ||
+    (idiomaCliente === 0 || idiomaCliente === 1 || idiomaCliente === 2
+      ? idiomaDocumento(idiomaCliente)
+      : idiomaDocumento(idiomaDePais(doc.cliente.pais || '')))
   const nLit = Math.max(0, Math.min(9, Number(extras.literalTicket ?? 3) || 0))
   const banco = datosBancariosFactura(doc)
 

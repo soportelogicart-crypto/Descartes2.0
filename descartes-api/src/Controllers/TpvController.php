@@ -121,6 +121,27 @@ final class TpvController
     }
   }
 
+  public function crearTeclado(Request $request, Response $response): Response
+  {
+    $body = (array) json_decode((string) $request->getBody(), true);
+    try {
+      $creado = $this->teclado->crearPlantilla(
+        isset($body['codigo']) ? (string) $body['codigo'] : null,
+        isset($body['nombre']) ? (string) $body['nombre'] : null
+      );
+      return $this->json($response, 201, $creado);
+    } catch (\InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\RuntimeException $e) {
+      if ((int) $e->getCode() === 409) {
+        return ErrorResponse::json($response, 409, $e->getMessage(), 'CONFLICTO');
+      }
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    } catch (\Throwable $e) {
+      return ErrorResponse::json($response, 500, $e->getMessage(), 'ERROR');
+    }
+  }
+
   public function getNivelTeclado(Request $request, Response $response, array $args): Response
   {
     $general = trim((string) ($args['general'] ?? ''));

@@ -70,6 +70,49 @@ final class TpvTecladoService
   }
 
   /**
+   * Crea la cabecera de un teclado táctil (DefPlusC), sin botones. Sin código usa el primer
+   * código libre de 3 cifras (001, 002...), de modo que la plantilla 001 de complementos
+   * se crea siempre antes que las demás.
+   *
+   * @return array{codigo: string, nombre: string}
+   */
+  public function crearPlantilla(?string $codigo = null, ?string $nombre = null): array
+  {
+    $existentes = [];
+    foreach ($this->listarPlantillas() as $plantilla) {
+      $existentes[$plantilla['codigo']] = true;
+    }
+
+    $codigo = trim((string) $codigo);
+    if ($codigo === '') {
+      for ($n = 1; $n <= 999; $n++) {
+        $candidato = str_pad((string) $n, 3, '0', STR_PAD_LEFT);
+        if (!isset($existentes[$candidato])) {
+          $codigo = $candidato;
+          break;
+        }
+      }
+      if ($codigo === '') {
+        throw new \RuntimeException('No quedan códigos de teclado libres', 409);
+      }
+    } elseif (!preg_match('/^\d{3}$/', $codigo)) {
+      throw new \InvalidArgumentException('El código del teclado debe tener 3 cifras');
+    } elseif (isset($existentes[$codigo])) {
+      throw new \RuntimeException("Ya existe el teclado {$codigo}", 409);
+    }
+
+    $nombre = mb_substr(trim((string) $nombre), 0, 25);
+    if ($nombre === '') {
+      $nombre = 'Teclado ' . $codigo;
+    }
+
+    $this->pdo->prepare('INSERT INTO DefPlusC (H_GENERAL, H_NOMBRE) VALUES (:g, :n)')
+      ->execute(['g' => $codigo, 'n' => $nombre]);
+
+    return ['codigo' => $codigo, 'nombre' => $nombre];
+  }
+
+  /**
    * Grupos (nivel 000) y botones del nivel pedido.
    *
    * @return array<string, mixed>|null

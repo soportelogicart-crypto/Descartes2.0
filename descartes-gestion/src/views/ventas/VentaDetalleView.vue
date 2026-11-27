@@ -1624,6 +1624,13 @@ function iniciarNuevaVenta() {
   })()
 }
 
+/** Abre la ficha del cliente de la venta en su pestaña de Clientes; la venta queda como está. */
+function abrirFichaCliente() {
+  const codigo = String(ficha.value?.cliente ?? '').trim()
+  if (!codigo || codigo.toUpperCase() === CLIENTE_SIN_NOMBRE) return
+  void router.push({ path: '/mantenimiento/clientes', query: { ficha: codigo } })
+}
+
 function onNuevo() {
   if (route.name === 'ventas-nuevo') {
     iniciarNuevaVenta()
@@ -2348,6 +2355,12 @@ function paisPropuesto(cli: Record<string, unknown>, actual: string): string {
 }
 
 function idiomaPropuesto(cli: Record<string, unknown>, actual: string): number {
+  // El idioma de la ficha del cliente manda sobre el del país (vacío = automático).
+  const propio = cli.idioma
+  if (propio !== null && propio !== undefined && String(propio).trim() !== '') {
+    const n = Number(propio)
+    if (n === 0 || n === 1 || n === 2) return n
+  }
   const pais = paisPropuesto(cli, actual)
   const porCp = paisDesdeCodigoPostal(String(cli.codigoPostalEnvio ?? cli.codigoPostal ?? ''))
   if (porCp && !String(cli.pais ?? '').trim() && !String(cli.paisEnvio ?? '').trim()) return porCp.idioma
@@ -3564,6 +3577,7 @@ onActivated(() => {
         @vendedor-blur="resolverNombreVendedor(ficha?.vendedor || '')"
         @buscar-cliente="abrirBuscarCliente"
         @cliente-keydown="onClienteKeydown"
+        @abrir-ficha-cliente="abrirFichaCliente"
       />
 
       <div v-if="!esNuevo || pasoAlta === 'listo'" class="lineas-panel">

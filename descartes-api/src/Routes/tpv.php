@@ -32,6 +32,8 @@ return function (App $app): void {
       ->add($setPermiso('tpv', 'ver'));
     $group->get('/teclados', [TpvController::class, 'listTeclados'])
       ->add($setPermiso('tpv', 'editar'));
+    $group->post('/teclados', [TpvController::class, 'crearTeclado'])
+      ->add($setPermiso('tpv', 'editar'));
     $group->get('/teclados/{general}/niveles/{nivel}', [TpvController::class, 'getNivelTeclado'])
       ->add($setPermiso('tpv', 'ver'));
     $group->put('/teclados/{general}/niveles/{nivel}/posiciones/{posicion}', [TpvController::class, 'guardarBotonTeclado'])

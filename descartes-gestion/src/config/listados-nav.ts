@@ -94,6 +94,18 @@ export const LISTADOS_CATALOGO: ListadoCatalogoItem[] = [
     disponible: true,
   },
   {
+    id: 'clientes',
+    titulo: 'Informe de clientes',
+    descripcion:
+      'Busque clientes por datos, zona, vendedor, compras y fidelización (con o sin tarjeta, puntos).',
+    categoria: 'maestros',
+    palabrasClave: ['clientes', 'informe', 'fidelizacion', 'tarjeta', 'puntos', 'poblacion', 'busqueda', 'listado'],
+    kind: 'informe',
+    ruta: '/listados/clientes',
+    modulo: 'listados-clientes',
+    disponible: true,
+  },
+  {
     id: 'extracto-clientes',
     titulo: 'Extracto de clientes',
     descripcion: 'Movimientos y saldo de clientes en un periodo.',

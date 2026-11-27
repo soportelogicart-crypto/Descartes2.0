@@ -2001,8 +2001,9 @@ final class MantenimientoService
     }
 
     $fecha = trim((string) ($data['fechaAltaFidelizacion'] ?? ''));
-    if ($fecha === '' || str_starts_with($fecha, '1995-01-01')) {
-      $data['fechaAltaFidelizacion'] = date('Y-m-d');
+    // Sin fecha real se conserva el centinela legacy. No se sustituye por hoy.
+    if ($fecha === '') {
+      $data['fechaAltaFidelizacion'] = '1995-01-01';
     }
   }
 

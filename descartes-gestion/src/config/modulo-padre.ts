@@ -47,6 +47,7 @@ export const MODULO_PADRE: Record<string, string> = {
   'compras-abc': 'compras',
   'listados-informe-tickets': 'listados',
   'listados-extracto-clientes': 'listados',
+  'listados-clientes': 'listados',
   'listados-detalle-ventas': 'listados',
   'listados-comisiones-proveedor': 'listados',
   'listados-comisiones-trabajadores': 'listados',

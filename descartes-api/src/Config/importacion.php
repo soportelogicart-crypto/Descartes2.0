@@ -186,8 +186,8 @@ return [
       'columnas' => [
         [
           'clave' => 'codigo', 'cabecera' => 'Codigo', 'obligatoria' => false, 'tipo' => 'texto',
-          'max' => 4, 'ejemplo' => '25',
-          'ayuda' => 'Hasta 4 caracteres. Vacio = numeracion automatica (solo si la tienda la tiene activa).',
+          'max' => 6, 'ejemplo' => '25',
+          'ayuda' => 'Hasta 6 caracteres. Vacio = numeracion automatica (solo si la tienda la tiene activa).',
         ],
         [
           'clave' => 'nombre', 'cabecera' => 'Razon social', 'obligatoria' => true, 'tipo' => 'texto',
@@ -279,7 +279,7 @@ return [
         ],
         [
           'clave' => 'proveedorHabitual', 'cabecera' => 'Proveedor', 'obligatoria' => true, 'tipo' => 'texto',
-          'max' => 4, 'ejemplo' => '25', 'ayuda' => 'Codigo de proveedor (existente o de la hoja Proveedores).',
+          'max' => 6, 'ejemplo' => '25', 'ayuda' => 'Codigo de proveedor (existente o de la hoja Proveedores).',
           'ref' => 'proveedores',
         ],
         [
@@ -363,6 +363,16 @@ return [
         [
           'clave' => 'email', 'cabecera' => 'Email', 'obligatoria' => false, 'tipo' => 'texto',
           'max' => 100, 'ejemplo' => 'maria@correo.com', 'ayuda' => '',
+        ],
+        [
+          'clave' => 'tarjetaFidelizacion', 'cabecera' => 'Tarjeta fidelizacion', 'obligatoria' => false,
+          'tipo' => 'texto', 'max' => 20, 'ejemplo' => 'XPR71015',
+          'ayuda' => 'Numero de tarjeta de fidelizacion. Vacio = el cliente no tiene fidelizacion.',
+        ],
+        [
+          'clave' => 'fechaAltaFidelizacion', 'cabecera' => 'Fecha alta fidelizacion', 'obligatoria' => false,
+          'tipo' => 'texto', 'max' => 10, 'ejemplo' => '01/01/1995',
+          'ayuda' => 'Fecha de alta de la tarjeta (dd/mm/aaaa). Si tiene tarjeta y no hay fecha, se usa 01/01/1995.',
         ],
         [
           'clave' => 'observaciones', 'cabecera' => 'Observaciones', 'obligatoria' => false, 'tipo' => 'texto',

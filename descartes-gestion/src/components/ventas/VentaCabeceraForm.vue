@@ -8,6 +8,7 @@ import { lookupCodigoPostal } from '@/composables/useCodigoPostalLookup'
 import DecimalInput from '@/components/common/DecimalInput.vue'
 import CarpetaCompartidaModal from '@/components/carpeta/CarpetaCompartidaModal.vue'
 import { useCarpetaCliente } from '@/composables/carpetaCliente'
+import { usePermisos } from '@/composables/usePermisos'
 import EntidadBuscarModal, {
   type EntidadBuscarResultado,
 } from '@/components/common/EntidadBuscarModal.vue'
@@ -61,6 +62,7 @@ const emit = defineEmits<{
   'vendedor-blur': []
   'buscar-cliente': []
   'cliente-keydown': [event: KeyboardEvent]
+  'abrir-ficha-cliente': []
   'guardar-pago': [payload: { nro: number | null; importe: number; formaPago: string }]
   'borrar-pago': [nro: number]
 }>()
@@ -69,6 +71,13 @@ const tiendas = ref<{ value: string; label: string }[]>([])
 const tiendaSelect = ref<HTMLSelectElement | null>(null)
 const clienteInput = ref<HTMLInputElement | null>(null)
 const carpetaCliente = useCarpetaCliente()
+const { puede } = usePermisos()
+
+/** Cliente real con ficha: la venta rápida (ZZZZZZZZZ) no tiene. */
+const puedeAbrirFichaCliente = computed(() => {
+  const cod = String(props.modelValue.cliente ?? '').trim()
+  return cod !== '' && cod.toUpperCase() !== 'ZZZZZZZZZ' && puede('clientes', 'ver')
+})
 
 async function abrirCarpetaCliente() {
   await carpetaCliente.abrir(String(props.modelValue.cliente ?? ''), String(props.modelValue.razonSocial ?? ''))
@@ -526,6 +535,17 @@ onUnmounted(() => {
                 @click="emit('buscar-cliente')"
               >
                 ...
+              </button>
+              <button
+                v-if="puedeAbrirFichaCliente"
+                type="button"
+                class="btn-buscar btn-ficha"
+                title="Abrir la ficha del cliente"
+                @click="emit('abrir-ficha-cliente')"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-4.4 0-8 2.2-8 5v3h16v-3c0-2.8-3.6-5-8-5z" />
+                </svg>
               </button>
               <button
                 v-if="carpetaCliente.disponible.value && carpetaCliente.tieneCarpeta(ficha.cliente)"
@@ -1219,7 +1239,8 @@ select:disabled {
   color: #b91c1c;
 }
 
-.btn-carpeta svg {
+.btn-carpeta svg,
+.btn-ficha svg {
   width: 0.95rem;
   height: 0.95rem;
   fill: currentColor;

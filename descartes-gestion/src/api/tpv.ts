@@ -32,6 +32,14 @@ export async function listarTecladosTpv(): Promise<TpvTecladoPlantilla[]> {
   return Array.isArray(data.items) ? data.items : []
 }
 
+/** Crea un teclado vacío. Sin código, la API usa el primer código libre de 3 cifras. */
+export async function crearTecladoTpv(
+  datos: { codigo?: string; nombre?: string } = {}
+): Promise<TpvTecladoPlantilla> {
+  const { data } = await api.post<TpvTecladoPlantilla>('/api/tpv/teclados', datos)
+  return data
+}
+
 export async function obtenerNivelTeclado(general: string, nivel: string): Promise<TpvNivel> {
   const { data } = await api.get<TpvNivel>(`/api/tpv/teclados/${encodeURIComponent(general)}/niveles/${encodeURIComponent(nivel)}`)
   return data

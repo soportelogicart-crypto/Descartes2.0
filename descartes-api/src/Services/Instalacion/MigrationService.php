@@ -273,6 +273,7 @@ final class MigrationService
       EtiquetasArticuloSchema::asegurar($pdo);
       AsientosLinCentroCosteSchema::asegurar($pdo);
       ClubFidelizacionSchema::asegurar($pdo);
+      MejorasGestionSchema::asegurar($pdo);
       $this->ensureMigrationTableMysql($pdo);
       foreach (self::MIGRATION_ORDER as $filename) {
         if (!$this->isAppliedMysql($pdo, $filename)) {

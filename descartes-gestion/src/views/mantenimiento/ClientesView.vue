@@ -351,6 +351,10 @@ onMounted(async () => {
     await prepararAltaDesdeEncargo()
     return
   }
+  if (String(route.query.ficha ?? '').trim()) {
+    await abrirFichaDesdeRuta()
+    return
+  }
   // No saturar la API con el listado si ya hay un alta/ficha abierta.
   if (vista.value === 'grid') {
     void cargar()
@@ -361,6 +365,15 @@ watch(
   () => [route.query.nuevo, route.query.desde],
   () => {
     void prepararAltaDesdeEncargo()
+  }
+)
+
+// «Abrir ficha» desde la venta: /mantenimiento/clientes?ficha=CODIGO. La vista sigue viva
+// (KeepAlive), así que se vigila la query además de comprobarla al montar.
+watch(
+  () => route.query.ficha,
+  () => {
+    void abrirFichaDesdeRuta()
   }
 )
 
@@ -565,6 +578,27 @@ async function onNuevo() {
     if (esNuevo.value) {
       mensaje.value = extractApiError(e, 'No se pudo obtener el siguiente codigo')
     }
+  }
+}
+
+let abriendoFichaDesdeRuta = false
+
+async function abrirFichaDesdeRuta() {
+  const codigo = String(route.query.ficha ?? '').trim()
+  if (!codigo || abriendoFichaDesdeRuta || !puedeVer.value) return
+  abriendoFichaDesdeRuta = true
+  try {
+    if (vista.value === 'ficha' && (modoEdicion.value || esNuevo.value)) {
+      mensaje.value = 'Guarde o cancele la ficha que tiene abierta antes de abrir otra.'
+    } else {
+      cancelarListado()
+      await abrirFichaPorCodigo(codigo)
+    }
+    const query = { ...route.query }
+    delete query.ficha
+    await router.replace({ query })
+  } finally {
+    abriendoFichaDesdeRuta = false
   }
 }
 

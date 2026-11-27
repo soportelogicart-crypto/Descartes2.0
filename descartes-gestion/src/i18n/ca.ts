@@ -306,6 +306,7 @@ export const ca: typeof es = {
       'detalle-ventas': { titulo: 'Detall de vendes', descripcion: 'Vendes dels articles triats, per client: albarans i tiquets amb preu, unitats i import.' },
       'comisiones-proveedor': { titulo: 'Comissions de proveïdor', descripcion: 'Una comanda per línia: proveïdor, import de la comanda i import de la comissió.' },
       'comisiones-trabajadores': { titulo: 'Comissions de treballadors', descripcion: 'Comandes amb comissió de treballador: percentatge, import de la comanda i import de la comissió.' },
+      clientes: { titulo: 'Informe de clients', descripcion: 'Cerqueu clients per dades, zona, venedor, compres i fidelització (amb o sense targeta, punts).' },
       'extracto-clientes': { titulo: 'Extracte de clients', descripcion: 'Moviments i saldo de clients en un període.' },
       'ventas-situacion': { titulo: 'Situació de vendes', descripcion: 'Totals de tiquets, factures i albarans per sessió o per dates.' },
       'ventas-arqueo': { titulo: 'Arqueig de caixa', descripcion: 'Consulta d\'arqueigs per lloc i data (Vendes).' },

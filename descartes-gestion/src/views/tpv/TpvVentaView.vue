@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import {
   borrarBotonTeclado,
   contarSubnivelesTeclado,
+  crearTecladoTpv,
   guardarBotonTeclado,
   intercambiarBotonesTeclado,
   listarTecladosTpv,
@@ -134,6 +135,7 @@ const visorTicketAbierto = ref(false)
 const configurandoBotones = ref(false)
 const tecladoConfiguracion = ref('')
 const tecladosDisponibles = ref<TpvTecladoPlantilla[]>([])
+const nombrandoTecladoNuevo = ref(false)
 
 const tecladoActivo = computed(() => {
   if (configurandoBotones.value) {
@@ -483,8 +485,12 @@ async function iniciarComplementos(b: TpvBoton) {
 }
 
 async function editarBoton(boton: TpvBoton, zona: TpvZonaTeclado) {
-  if (!tpv.contexto || !nivelData.value || !puede('tpv', 'editar')) {
+  if (!puede('tpv', 'editar')) {
     tpv.error = 'Su rol no tiene permiso para configurar los botones'
+    return
+  }
+  if (!tpv.contexto || !nivelData.value) {
+    tpv.error = `No hay teclado ${tecladoActivo.value || 'asignado al puesto'} en esta instalación; no se pueden configurar sus botones`
     return
   }
   const mover = moviendoBoton.value
@@ -614,11 +620,21 @@ function etiquetaTecladoPlantilla(t: TpvTecladoPlantilla): string {
 }
 
 async function prepararModoConfiguracionTeclado() {
+  let listadoCargado = false
   try {
     tecladosDisponibles.value = await listarTecladosTpv()
+    listadoCargado = true
   } catch (e: unknown) {
     tecladosDisponibles.value = []
     tpv.error = extractApiError(e, 'No se pudo cargar el listado de teclados')
+  }
+  // Instalación sin ningún teclado: se crea el 001 vacío para poder configurarlo.
+  if (listadoCargado && !tecladosDisponibles.value.length && puede('tpv', 'editar')) {
+    try {
+      tecladosDisponibles.value = [await crearTecladoTpv({ codigo: TPV_NIVEL_INICIAL })]
+    } catch (e: unknown) {
+      tpv.error = extractApiError(e, 'No se pudo crear el teclado inicial')
+    }
   }
   const delPuesto = tpv.contexto?.tecladoGeneral?.trim() ?? ''
   const existe = tecladosDisponibles.value.some((t) => t.codigo === delPuesto)
@@ -628,6 +644,22 @@ async function prepararModoConfiguracionTeclado() {
   botonConfigurando.value = null
   moviendoBoton.value = null
   await volverAlInicio()
+}
+
+/** Crea un teclado vacío con el primer código libre y pasa a editarlo. */
+async function crearTecladoNuevo(nombre: string) {
+  nombrandoTecladoNuevo.value = false
+  try {
+    const creado = await crearTecladoTpv({ nombre })
+    tecladosDisponibles.value = [...tecladosDisponibles.value, creado].sort((a, b) =>
+      a.codigo.localeCompare(b.codigo)
+    )
+    tecladoConfiguracion.value = creado.codigo
+    tpv.aviso = `Teclado ${creado.codigo} creado`
+  } catch (e: unknown) {
+    tpv.error = extractApiError(e, 'No se pudo crear el teclado')
+  }
+  await foco()
 }
 
 watch(configurandoBotones, async (activo) => {
@@ -2329,6 +2361,14 @@ onMounted(() => {
                   </option>
                 </select>
               </label>
+              <button
+                type="button"
+                class="btn-tpv"
+                :disabled="tpv.guardando"
+                @click="nombrandoTecladoNuevo = true"
+              >
+                NUEVO TECLADO
+              </button>
               <span v-if="editandoOtroTecladoQuePuesto" class="pista-teclado aviso-teclado">
                 Editando {{ tecladoConfiguracion }}; en venta este puesto usa
                 {{ tpv.contexto?.tecladoGeneral }}.
@@ -2468,6 +2508,17 @@ onMounted(() => {
       :descripcion="tpv.lineas[editandoDescripcionLinea]?.descripcion ?? ''"
       @confirmar="onDescripcionConfirmada"
       @cancelar="onDescripcionCancelada"
+    />
+
+    <TpvDescripcionModal
+      :open="nombrandoTecladoNuevo"
+      articulo=""
+      descripcion=""
+      titulo="NUEVO TECLADO"
+      subtitulo="Nombre del teclado (el código se asigna solo)"
+      :maximo="25"
+      @confirmar="crearTecladoNuevo"
+      @cancelar="nombrandoTecladoNuevo = false"
     />
 
     <TpvDescuentoModal

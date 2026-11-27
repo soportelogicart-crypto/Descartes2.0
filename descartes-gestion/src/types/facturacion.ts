@@ -216,6 +216,8 @@ export type FacturaDocumento = {
     poblacion: string
     provincia: string
     pais: string
+    /** 0 español, 1 francés, 2 inglés; null/ausente = según país. */
+    idioma?: number | null
     telefono: string
     cuentaBancaria: string
     iban: string

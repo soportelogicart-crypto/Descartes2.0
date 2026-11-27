@@ -114,6 +114,16 @@ export const clienteTabs: ClienteTab[] = [
           inline('emailComercial', 'E-mail. Com.', { span: 2, maxLength: 200 }),
           inline('emailFacturacion', 'E-mail. Fac.', { span: 2, maxLength: 200 }),
           inline('emailAlbaranes', 'E-mail. Alb.', { span: 2, maxLength: 200 }),
+          // Vacío (--) = Automático: el idioma sale del país. Sirve para albaranes y facturas.
+          inline('idioma', 'Idioma docs. (-- = por pais)', {
+            span: 2,
+            type: 'select',
+            options: [
+              { value: '0', label: 'Español' },
+              { value: '1', label: 'Francés' },
+              { value: '2', label: 'Inglés' },
+            ],
+          }),
         ],
       },
       {
@@ -372,6 +382,7 @@ export function clienteVacio(): Record<string, unknown> {
     fax: '',
     email: '',
     emailAlbaranes: '',
+    idioma: '',
     dto1: 0,
     dto2: 0,
     diaPago1: 0,

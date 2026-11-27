@@ -8,11 +8,15 @@ import { usePermisos } from '@/composables/usePermisos'
 import EntidadLookupField from '@/components/common/EntidadLookupField.vue'
 import { etiquetaTipoVale } from '@/config/vales-tipo-legacy'
 import { api } from '@/api/client'
+import { reimprimirVales } from '@/composables/comprobanteVale'
+import { usePuestoContextoStore } from '@/stores/puestoContexto'
 
 type Opt = { value: string; label: string }
 
 const { puede } = usePermisos()
 const puedeEditar = computed(() => puede('ventas-vales', 'editar'))
+const puesto = usePuestoContextoStore()
+const imprimiendo = ref(false)
 
 const hoy = new Date().toISOString().slice(0, 10)
 const loading = ref(false)
@@ -176,6 +180,40 @@ async function confirmarLiquidarLote() {
   }
 }
 
+/** Se imprime el saldo pendiente (lo que el cliente puede gastar), no el importe original. */
+async function imprimirVales(lista: Vale[]) {
+  if (imprimiendo.value || !lista.length) return
+  const puestoCodigo = String(puesto.puestoCodigo ?? '').trim()
+  if (!puestoCodigo) {
+    error.value = 'Configure el puesto de este equipo para imprimir vales.'
+    return
+  }
+  imprimiendo.value = true
+  msg.value = null
+  error.value = null
+  try {
+    const n = await reimprimirVales(
+      puestoCodigo,
+      lista.map((v) => ({
+        empresa: v.empresa,
+        codigo: v.codigo,
+        importe: Number(v.saldoPendiente ?? v.importe),
+        cliente: v.cliente,
+        caducidad: v.fechaCaducidad,
+      }))
+    )
+    msg.value = n === 1 ? 'Vale enviado a la impresora.' : `${n} vales enviados a la impresora.`
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo imprimir el vale')
+  } finally {
+    imprimiendo.value = false
+  }
+}
+
+const seleccionadosImprimir = computed(() =>
+  items.value.filter((v) => seleccionados.value.has(claveVale(v)))
+)
+
 function docVale(v: Vale) {
   if (!v.factura) return '—'
   const ft = String(v.facturaTipo ?? '').trim()
@@ -245,8 +283,9 @@ onMounted(async () => {
         <p v-if="error" class="error">{{ error }}</p>
         <p v-if="avisoLimite" class="hint aviso-limite">{{ avisoLimite }}</p>
 
-        <div v-if="puedeEditar" class="barra-lote">
+        <div class="barra-lote">
           <button
+            v-if="puedeEditar"
             type="button"
             class="btn primary"
             :disabled="!seleccionadosLista.length || loading"
@@ -254,13 +293,21 @@ onMounted(async () => {
           >
             Liquidar seleccionados ({{ seleccionadosLista.length }})
           </button>
+          <button
+            type="button"
+            class="btn"
+            :disabled="!seleccionadosImprimir.length || loading || imprimiendo"
+            @click="imprimirVales(seleccionadosImprimir)"
+          >
+            {{ imprimiendo ? 'Imprimiendo…' : `Imprimir seleccionados (${seleccionadosImprimir.length})` }}
+          </button>
         </div>
 
         <div class="grid-wrap">
           <table>
             <thead>
               <tr>
-                <th v-if="puedeEditar" class="col-check">
+                <th class="col-check">
                   <input type="checkbox" :checked="todosMarcados" @change="toggleTodos" />
                 </th>
                 <th>Empresa</th>
@@ -274,11 +321,12 @@ onMounted(async () => {
                 <th>Fecha</th>
                 <th>Caducidad</th>
                 <th>Estado</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="v in items" :key="`${v.empresa}-${v.codigo}`">
-                <td v-if="puedeEditar" class="col-check">
+                <td class="col-check">
                   <input
                     type="checkbox"
                     :disabled="v.liquidado || v.caducado"
@@ -297,9 +345,20 @@ onMounted(async () => {
                 <td>{{ fechaTabla(v.fecha) }}</td>
                 <td>{{ fechaTabla(v.fechaCaducidad) }}</td>
                 <td>{{ etiquetaEstado(v) }}</td>
+                <td>
+                  <button
+                    type="button"
+                    class="btn btn-fila"
+                    :disabled="imprimiendo"
+                    title="Imprimir vale en la impresora de tickets del puesto"
+                    @click="imprimirVales([v])"
+                  >
+                    Imprimir
+                  </button>
+                </td>
               </tr>
               <tr v-if="!loading && !items.length">
-                <td :colspan="puedeEditar ? 12 : 11">Sin vales pendientes</td>
+                <td colspan="13">Sin vales pendientes</td>
               </tr>
             </tbody>
           </table>
@@ -426,6 +485,10 @@ onMounted(async () => {
   cursor: pointer;
   font: inherit;
   font-size: 0.8rem;
+}
+.btn-fila {
+  padding: 0.15rem 0.5rem;
+  font-size: 0.75rem;
 }
 .btn.primary {
   background: #2563eb;

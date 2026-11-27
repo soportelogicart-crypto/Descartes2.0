@@ -387,6 +387,48 @@ export async function generarExtractoClientes(params: {
   return data
 }
 
+export type ClienteListadoFila = {
+  codigo: string
+  nombre: string
+  nif: string
+  telefono: string
+  email: string
+  direccion: string
+  codigoPostal: string
+  poblacion: string
+  provincia: string
+  empresa: string
+  vendedor: string
+  fechaAlta: string
+  ultimaCompra: string
+  baja: boolean
+  propaganda: boolean
+  tarjeta: string
+  fidelizacion: boolean
+  fidelAlta: string
+  puntos: number
+  acumuladoFidelizacion: number
+}
+
+export type ClientesListadoResult = {
+  items: ClienteListadoFila[]
+  totales: {
+    clientes: number
+    conFidelizacion: number
+    puntos: number
+    acumuladoFidelizacion: number
+  }
+  truncado: boolean
+  limite: number
+}
+
+export async function generarClientesListado(
+  params: Record<string, string | undefined>
+): Promise<ClientesListadoResult> {
+  const { data } = await api.get<ClientesListadoResult>('/api/listados/clientes', { params })
+  return data
+}
+
 export type DetalleVentasLinea = {
   empresa: string
   clienteCodigo: string

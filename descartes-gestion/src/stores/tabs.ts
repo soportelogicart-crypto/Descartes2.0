@@ -56,6 +56,10 @@ function tabIdFromPath(fullPath: string): string {
   if (/^\/mantenimiento\/articulos$/.test(path)) {
     return '/mantenimiento/articulos'
   }
+  // Una sola pestaña de clientes: «Abrir ficha» desde la venta añade ?ficha= y luego lo quita.
+  if (/^\/mantenimiento\/clientes$/.test(path)) {
+    return '/mantenimiento/clientes'
+  }
   /** Hub y variantes comparten pestaña; la ruta concreta va en fullPath. */
   if (esRutaListadoStock(path)) {
     return '/listados/stock'

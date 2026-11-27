@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS `__MigracionUnificadaLog` (
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `Actividades` (
-  `Codigo` smallint NOT NULL DEFAULT 0,
+  `Codigo` varchar(6) NOT NULL DEFAULT 0,
   `Descripcion` varchar(40),
   `CodigoCentroCoste` varchar(10) DEFAULT '',
   PRIMARY KEY (`Codigo`)
@@ -1047,7 +1047,7 @@ CREATE TABLE IF NOT EXISTS `Articulos` (
   `Subfamilia` varchar(6) DEFAULT '0',
   `Sectorial` varchar(1),
   `Familia` varchar(6) DEFAULT '0',
-  `UltProveedor` varchar(4),
+  `UltProveedor` varchar(6) NULL,
   `Impuesto` varchar(2),
   `Siglas` varchar(2),
   `Empaquetado` float DEFAULT 0,
@@ -1089,7 +1089,7 @@ CREATE TABLE IF NOT EXISTS `Articulos` (
   `MultiploRacionVenta` double,
   `Comentarios` longtext,
   `Cocina` smallint,
-  `UnidadStock` varchar(5),
+  `UnidadStock` varchar(10) NULL,
   `Agrupacion` varchar(6),
   `TodoIncluidoHotel` tinyint(1) NOT NULL DEFAULT 0,
   `RegaloHoraFeliz` smallint DEFAULT 0,
@@ -1101,7 +1101,7 @@ CREATE TABLE IF NOT EXISTS `Articulos` (
   `Seccion` varchar(6),
   `SubSeccion` varchar(6),
   `VentaSoloReserva` tinyint(1) DEFAULT 0,
-  `UnidadEmpaquetado` varchar(5),
+  `UnidadEmpaquetado` varchar(10) NULL,
   `Imagen` varchar(100),
   `Cocina2` int DEFAULT 0,
   `EscandalloSuperior` tinyint(1) DEFAULT 0,
@@ -1175,6 +1175,26 @@ CREATE TABLE IF NOT EXISTS `Articulos` (
   `IdWebAliat` int DEFAULT 0,
   `EtiquetaElectronica` tinyint(1) DEFAULT 0,
   `NumEtiElectronica` int NOT NULL AUTO_INCREMENT,
+  `Categoria` varchar(6) NULL,
+  `RegistroSanitario` varchar(25) NULL,
+  `Contramarca` int DEFAULT 0,
+  `NombreBotanico` varchar(50) NULL,
+  `Floracion` varchar(10) NULL,
+  `Exposicion` varchar(10) NULL,
+  `Poda` varchar(10) NULL,
+  `TipoPlanta` varchar(10) NULL,
+  `LiteralPlanta1` varchar(50) NULL,
+  `LiteralPlanta2` varchar(50) NULL,
+  `Ficha` varchar(20) NULL,
+  `NumAlveols` smallint DEFAULT 0,
+  `UdsXAlveol` double DEFAULT 0,
+  `UdsXSobre` float DEFAULT 0,
+  `Patron` text NULL,
+  `Variedad` text NULL,
+  `Altura` varchar(50) NULL,
+  `StockBandejas` tinyint(1) DEFAULT 0,
+  `LlevaSobre` tinyint NULL DEFAULT 0,
+  `SobresPorUnidad` int NULL DEFAULT 1,
   PRIMARY KEY (`Codigo`),
   KEY `ix_Articulos_NumEtiElectronica` (`NumEtiElectronica`)
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
@@ -1611,7 +1631,7 @@ CREATE TABLE IF NOT EXISTS `Clientes` (
   `FechaAlta` datetime,
   `Baja` tinyint(1) NOT NULL DEFAULT 0,
   `RazonSocial` varchar(50),
-  `Actividad` smallint DEFAULT 0,
+  `Actividad` varchar(6) DEFAULT 0,
   `NIF` varchar(16),
   `PersonaContacto` varchar(50),
   `Direccion` varchar(50),
@@ -1727,6 +1747,13 @@ CREATE TABLE IF NOT EXISTS `Clientes` (
   `AdressId` int DEFAULT 0,
   `Profesional` tinyint(1) DEFAULT 0,
   `Firma` longblob,
+  `EmailAlbaranes` varchar(200) NULL,
+  `Idioma` tinyint NULL,
+  `CodigoPaisCliente` varchar(4) NULL,
+  `CodigoPaisDireccion` varchar(4) NULL,
+  `RegimenImpuestos` varchar(4) NULL,
+  `CodigoDireccion` varchar(4) NULL,
+  `FechaEntradaAdonix` datetime NULL,
   PRIMARY KEY (`Codigo`)
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
 
@@ -4141,7 +4168,7 @@ CREATE TABLE IF NOT EXISTS `ProvCompras` (
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `Proveedores` (
-  `Codigo` varchar(4) NOT NULL,
+  `Codigo` varchar(6) NOT NULL,
   `RazonSocial` varchar(50),
   `CodigoClte` varchar(20),
   `NIF` varchar(16),
@@ -4424,6 +4451,9 @@ CREATE TABLE IF NOT EXISTS `Puestos` (
   `Trabajador` varchar(4),
   `Usuario` varchar(6),
   `FormatoEtiquetas` varchar(100),
+  `TiendasExtra` varchar(200) NULL,
+  `ImpresoraEtiquetasEncargo` varchar(100) NULL,
+  `FormatoEtiquetasEncargo` varchar(100) NULL,
   PRIMARY KEY (`Puesto`)
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
 
@@ -5237,6 +5267,10 @@ CREATE TABLE IF NOT EXISTS `Usuarios_Ges` (
   `PassWord` varchar(255),
   `Rol` varchar(10),
   `Baja` tinyint(1) NOT NULL DEFAULT 0,
+  `TiendasExtra` varchar(200) NULL,
+  `Idioma` varchar(5) NULL,
+  `ColorTema` varchar(20) NULL,
+  `AyudasMenu` tinyint(1) NULL DEFAULT 1,
   PRIMARY KEY (`Codigo`)
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
 

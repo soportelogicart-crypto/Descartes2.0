@@ -32,6 +32,7 @@ return [
     'emailComercial' => 'EmailComercial',
     'emailFacturacion' => 'EmailFacturacion',
     'emailAlbaranes' => 'EmailAlbaranes',
+    'idioma' => 'Idioma',
     'dto1' => 'Dto1',
     'dto2' => 'Dto2',
     'dto3' => 'Dto3',
@@ -121,6 +122,8 @@ return [
   /** CuentaCtb2 es float en [Clientes]; la cuenta contable no lleva decimales. */
   'intFields' => [
     'cuentaCtb2',
+    // Vacío = Automático (NULL): el idioma sale del país.
+    'idioma',
   ],
   /** No se persisten: el GET los sustituye por el calculo live de riesgo. */
   'readOnlyFields' => [

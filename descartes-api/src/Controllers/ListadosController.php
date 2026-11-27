@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Descartes\Api\Controllers;
 
 use Descartes\Api\Http\ErrorResponse;
+use Descartes\Api\Services\Listados\ClientesListadoService;
 use Descartes\Api\Services\Listados\ComisionesPedidoListadoService;
 use Descartes\Api\Services\Listados\DetalleVentasListadoService;
 use Descartes\Api\Services\Listados\ExtractoClientesListadoService;
@@ -26,6 +27,7 @@ final class ListadosController
   private ExtractoClientesListadoService $extractoClientes;
   private DetalleVentasListadoService $detalleVentas;
   private ComisionesPedidoListadoService $comisionesPedido;
+  private ClientesListadoService $clientesListado;
   private LoggerInterface $logger;
 
   public function __construct(
@@ -36,6 +38,7 @@ final class ListadosController
     ExtractoClientesListadoService $extractoClientes,
     DetalleVentasListadoService $detalleVentas,
     ComisionesPedidoListadoService $comisionesPedido,
+    ClientesListadoService $clientesListado,
     LoggerInterface $logger
   ) {
     $this->stock = $stock;
@@ -45,7 +48,21 @@ final class ListadosController
     $this->extractoClientes = $extractoClientes;
     $this->detalleVentas = $detalleVentas;
     $this->comisionesPedido = $comisionesPedido;
+    $this->clientesListado = $clientesListado;
     $this->logger = $logger;
+  }
+
+  public function listClientes(Request $request, Response $response): Response
+  {
+    try {
+      return $this->json($response, 200, $this->clientesListado->generar($request->getQueryParams()));
+    } catch (InvalidArgumentException $e) {
+      return ErrorResponse::json($response, 400, $e->getMessage(), 'VALIDACION');
+    } catch (\Throwable $e) {
+      $this->logger->error('listados.clientes', ['error' => $e->getMessage()]);
+
+      return ErrorResponse::json($response, 500, 'No se pudo generar el informe de clientes', 'ERROR_INTERNO');
+    }
   }
 
   public function listStock(Request $request, Response $response): Response

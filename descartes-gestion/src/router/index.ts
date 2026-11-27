@@ -87,6 +87,7 @@ const StockListadoShell = vista(() => import('@/views/listados/StockListadoShell
 const StockMinimosListadoView = vista(() => import('@/views/listados/StockMinimosListadoView.vue'))
 const InformeIvaListadoView = vista(() => import('@/views/listados/InformeIvaListadoView.vue'))
 const InformeTicketsListadoView = vista(() => import('@/views/listados/InformeTicketsListadoView.vue'))
+const ClientesListadoView = vista(() => import('@/views/listados/ClientesListadoView.vue'))
 const ExtractoClientesListadoView = vista(() => import('@/views/listados/ExtractoClientesListadoView.vue'))
 const DetalleVentasListadoView = vista(() => import('@/views/listados/DetalleVentasListadoView.vue'))
 const ComisionesPedidoListadoView = vista(() => import('@/views/listados/ComisionesPedidoListadoView.vue'))
@@ -219,6 +220,12 @@ const router = createRouter({
           name: 'listados-informe-tickets',
           component: InformeTicketsListadoView,
           meta: { titulo: 'Informe de tickets', modulo: 'listados-informe-tickets', accion: 'ver' },
+        },
+        {
+          path: 'listados/clientes',
+          name: 'listados-clientes',
+          component: ClientesListadoView,
+          meta: { titulo: 'Informe de clientes', modulo: 'listados-clientes', accion: 'ver' },
         },
         {
           path: 'listados/extracto-clientes',

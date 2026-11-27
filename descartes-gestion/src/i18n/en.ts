@@ -306,6 +306,7 @@ export const en: typeof es = {
       'detalle-ventas': { titulo: 'Sales detail', descripcion: 'Sales of the chosen items, by customer: delivery notes and tickets with price, quantity and amount.' },
       'comisiones-proveedor': { titulo: 'Supplier commissions', descripcion: 'One order per line: supplier, order amount and commission amount.' },
       'comisiones-trabajadores': { titulo: 'Employee commissions', descripcion: 'Orders with an employee commission: percentage, order amount and commission amount.' },
+      clientes: { titulo: 'Customer report', descripcion: 'Search customers by details, area, salesperson, purchases and loyalty (with or without card, points).' },
       'extracto-clientes': { titulo: 'Customer statement', descripcion: 'Customer movements and balance for a period.' },
       'ventas-situacion': { titulo: 'Sales position', descripcion: 'Ticket, invoice and delivery-note totals by session or by date.' },
       'ventas-arqueo': { titulo: 'Cash-up', descripcion: 'Cash-ups by workstation and date (Sales).' },

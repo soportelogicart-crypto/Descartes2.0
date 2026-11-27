@@ -8,7 +8,15 @@ const props = defineProps<{
   open: boolean
   articulo: string
   descripcion: string
+  /** Cabecera de la ventana; por defecto la de la descripción de línea. */
+  titulo?: string
+  /** Texto bajo la cabecera; por defecto "Artículo {articulo}". */
+  subtitulo?: string
+  /** Longitud máxima; por defecto la de la descripción de línea. */
+  maximo?: number
 }>()
+
+const limite = computed(() => props.maximo ?? MAXIMO)
 
 const emit = defineEmits<{
   confirmar: [string]
@@ -28,7 +36,7 @@ watch(
   () => props.open,
   async (abierto) => {
     if (!abierto) return
-    entrada.value = props.descripcion.slice(0, MAXIMO)
+    entrada.value = props.descripcion.slice(0, limite.value)
     mayusculas.value = true
     await nextTick()
     input.value?.focus()
@@ -38,12 +46,12 @@ watch(
 )
 
 function escribir(tecla: string) {
-  if (entrada.value.length >= MAXIMO) return
+  if (entrada.value.length >= limite.value) return
   entrada.value += tecla
 }
 
 function confirmar() {
-  emit('confirmar', entrada.value.trim().slice(0, MAXIMO))
+  emit('confirmar', entrada.value.trim().slice(0, limite.value))
 }
 </script>
 
@@ -51,18 +59,18 @@ function confirmar() {
   <Teleport to="body">
     <div v-if="open" class="overlay" role="dialog" aria-modal="true" @mousedown.self.prevent>
       <section class="ventana">
-        <header class="barra">DESCRIPCIÓN DE LÍNEA</header>
+        <header class="barra">{{ titulo ?? 'DESCRIPCIÓN DE LÍNEA' }}</header>
         <div class="cuerpo">
-          <p class="articulo">Artículo {{ articulo }}</p>
+          <p class="articulo">{{ subtitulo ?? `Artículo ${articulo}` }}</p>
           <input
             ref="input"
             v-model="entrada"
             type="text"
-            :maxlength="MAXIMO"
+            :maxlength="limite"
             autocomplete="off"
             spellcheck="false"
           />
-          <p class="cuenta">{{ entrada.length }}/{{ MAXIMO }}</p>
+          <p class="cuenta">{{ entrada.length }}/{{ limite }}</p>
 
           <div class="teclado" @mousedown.prevent>
             <div v-for="(fila, i) in teclas" :key="i" class="fila">
