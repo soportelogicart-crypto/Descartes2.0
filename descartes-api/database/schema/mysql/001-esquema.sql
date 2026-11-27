@@ -160,7 +160,7 @@ CREATE TABLE IF NOT EXISTS `AlbaranesCompraCab` (
   `SuAlbaran` varchar(20),
   `FechaAlbaran` datetime,
   `Codigo` varchar(255),
-  `Proveedor` varchar(4),
+  `Proveedor` varchar(6),
   `FPago` varchar(2),
   `ImporteAlb` double DEFAULT 0,
   `ImporteDtos` double DEFAULT 0,
@@ -2865,7 +2865,7 @@ CREATE TABLE IF NOT EXISTS `FacturasCompras` (
   `Factura` int NOT NULL DEFAULT 0,
   `SuFactura` varchar(12),
   `Fecha` datetime,
-  `Proveedor` varchar(4),
+  `Proveedor` varchar(6),
   `Estado` varchar(1),
   `FPago` varchar(2),
   `FechaVto1` datetime,
@@ -3041,7 +3041,7 @@ CREATE TABLE IF NOT EXISTS `FormatosEtiquetasAux` (
 
 CREATE TABLE IF NOT EXISTS `GenPedidos` (
   `Articulo` varchar(18),
-  `Proveedor` varchar(4),
+  `Proveedor` varchar(6),
   `Cantidad` double DEFAULT 0,
   `Precio` double DEFAULT 0
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
@@ -3252,7 +3252,7 @@ CREATE TABLE IF NOT EXISTS `ListadoTarifas01` (
   `Alternativo` varchar(18),
   `Descripcion` varchar(50),
   `Familia` varchar(6),
-  `UltProveedor` varchar(4),
+  `UltProveedor` varchar(6),
   `SubFamilia` varchar(6),
   `Impuesto` varchar(2),
   `PrecioVen1` float,
@@ -3455,7 +3455,7 @@ CREATE TABLE IF NOT EXISTS `Minimo` (
   `Minimo` double DEFAULT 0,
   `Stock` double DEFAULT 0,
   `Pendiente` double,
-  `Proveedor` varchar(4),
+  `Proveedor` varchar(6),
   `upsize_ts` binary(8),
   `Optimo` double DEFAULT 0,
   PRIMARY KEY (`Almacen`, `Articulo`)
@@ -3635,7 +3635,7 @@ CREATE TABLE IF NOT EXISTS `OfertasHabitaciones` (
 
 CREATE TABLE IF NOT EXISTS `OfertasProveedor` (
   `Articulo` varchar(18) NOT NULL,
-  `Proveedor` varchar(4) NOT NULL,
+  `Proveedor` varchar(6) NOT NULL,
   `FechaInicio` datetime,
   `FechaFin` datetime,
   `PrecioEsp` float,
@@ -3771,7 +3771,7 @@ CREATE TABLE IF NOT EXISTS `PedidosCab` (
   `Empresa` varchar(3) NOT NULL,
   `Pedido` int NOT NULL DEFAULT 0,
   `FechaPedido` datetime,
-  `Proveedor` varchar(4),
+  `Proveedor` varchar(6),
   `Importe` double DEFAULT 0,
   `ImporteRec` int DEFAULT 0,
   `Situacion` smallint DEFAULT 0,
@@ -4062,7 +4062,7 @@ CREATE TABLE IF NOT EXISTS `Poblaciones` (
 
 CREATE TABLE IF NOT EXISTS `PreciosArtProv` (
   `Articulo` varchar(18) NOT NULL,
-  `Proveedor` varchar(4) NOT NULL,
+  `Proveedor` varchar(6) NOT NULL,
   `Precio` double DEFAULT 0,
   `upsize_ts` binary(8),
   `Fecha` datetime,
@@ -4223,7 +4223,7 @@ CREATE TABLE IF NOT EXISTS `Proveedores` (
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `ProveedoresContactos` (
-  `Proveedor` varchar(4) NOT NULL,
+  `Proveedor` varchar(6) NOT NULL,
   `Num` varchar(3) NOT NULL,
   `NroLin` int NOT NULL AUTO_INCREMENT,
   `PersonaContacto` varchar(50),

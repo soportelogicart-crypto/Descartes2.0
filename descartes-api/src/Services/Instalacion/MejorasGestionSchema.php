@@ -134,9 +134,63 @@ final class MejorasGestionSchema
         }
         $pdo->exec('ALTER TABLE `' . $tabla . '` MODIFY `' . $columna . '` ' . $definicion);
       }
+      // Codigo de proveedor en compras, tarifas y contactos: varchar(6) como SQL Server.
+      foreach (
+        [
+          ['AlbaranesCompraCab', 'Proveedor'],
+          ['FacturasCompras', 'Proveedor'],
+          ['GenPedidos', 'Proveedor'],
+          ['Minimo', 'Proveedor'],
+          ['OfertasProveedor', 'Proveedor'],
+          ['PedidosCab', 'Proveedor'],
+          ['PreciosArtProv', 'Proveedor'],
+          ['ProveedoresContactos', 'Proveedor'],
+          ['ListadoTarifas01', 'UltProveedor'],
+        ] as [$tabla, $columna]
+      ) {
+        self::ampliarVarchar($pdo, $tabla, $columna, 6);
+      }
     } catch (\Throwable $e) {
       error_log('Esquema MySQL completo: ' . $e->getMessage());
     }
+  }
+
+  /**
+   * Amplia un varchar de MySQL a la longitud indicada conservando NULL/NOT NULL y el valor
+   * por defecto. No hace nada si la tabla o la columna no existen o ya es suficiente.
+   */
+  private static function ampliarVarchar(PDO $pdo, string $tabla, string $columna, int $minimo): void
+  {
+    $stmt = $pdo->prepare(
+      'SELECT DATA_TYPE AS tipo, CHARACTER_MAXIMUM_LENGTH AS largo,
+              IS_NULLABLE AS acepta_nulo, COLUMN_DEFAULT AS por_defecto
+       FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND COLUMN_NAME = :c'
+    );
+    $stmt->execute(['t' => $tabla, 'c' => $columna]);
+    $col = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($col === false) {
+      return;
+    }
+    $tipo = strtolower((string) ($col['tipo'] ?? ''));
+    if (!in_array($tipo, ['varchar', 'char'], true) || (int) ($col['largo'] ?? 0) >= $minimo) {
+      return;
+    }
+    $nulo = strtoupper((string) ($col['acepta_nulo'] ?? 'YES')) === 'NO' ? 'NOT NULL' : 'NULL';
+    // MariaDB devuelve el literal: NULL como texto y las cadenas entre comillas.
+    $porDefecto = $col['por_defecto'] ?? null;
+    if ($porDefecto !== null) {
+      $porDefecto = trim((string) $porDefecto);
+      if (preg_match("/^'(.*)'$/s", $porDefecto, $m) === 1) {
+        $porDefecto = $m[1];
+      } elseif (strcasecmp($porDefecto, 'NULL') === 0) {
+        $porDefecto = null;
+      }
+    }
+    $defecto = $porDefecto === null ? '' : ' DEFAULT ' . $pdo->quote((string) $porDefecto);
+    $pdo->exec(
+      'ALTER TABLE `' . $tabla . '` MODIFY `' . $columna . '` VARCHAR(' . $minimo . ') ' . $nulo . $defecto
+    );
   }
 
   /**
